@@ -4,7 +4,7 @@ gprof_nn.data.training_data
 ===========================
 
 This module defines the dataset classes that provide access to
-the training data.
+the training data for the GPROF-NN retrievals.
 """
 from pathlib import Path
 import logging
@@ -41,19 +41,10 @@ _THRESHOLDS = {
 }
 
 
-def _apply(f, y):
-    """
-    Helper function to apply function to single array or element-wise
-    to a dict of arrays.
-    """
-    if isinstance(y, dict):
-        return {k: f(y[k]) for k in y}
-    else:
-        return f(y)
-
 ###############################################################################
 # Single-pixel observations.
 ###############################################################################
+
 
 class GPROF0DDataset:
     """
@@ -70,6 +61,8 @@ class GPROF0DDataset:
         batch_size: The size of data batches returned by __getitem__ method.
         normalizer: The normalizer used to normalize the data.
         shuffle: Whether or not the ordering of the data is shuffled.
+        augment: Whether or not high-frequency observations are randomly set to
+            missing to simulate observations at the edge of the swath.
     """
 
     def __init__(
@@ -89,7 +82,8 @@ class GPROF0DDataset:
         Args:
             filename: Path to the NetCDF file containing the 0D training data
                 to load.
-            target: The variable to use as target (output) variable.
+            target: String or list of strings specifying the names of the
+                variables to use as retrieval targets.
             normalize: Whether or not to normalize the input data.
             transform_zeros: Whether or not to replace very small
                 values with random values.
@@ -105,7 +99,7 @@ class GPROF0DDataset:
         self.augment = augment
         self._load_data()
 
-        indices_1h = list(range(17, 40))
+        indices_1h = list(range(17, 38))
         if normalizer is None:
             self.normalizer = MinMaxNormalizer(self.x, exclude_indices=indices_1h)
         elif isinstance(normalizer, type):
@@ -155,7 +149,7 @@ class GPROF0DDataset:
 
     def _load_data(self):
         """
-        Loads the data from the file into the classes ``x`` attribute.
+        Loads the data from the file into the ``x`` and ``y`` attributes.
         """
         with Dataset(self.filename, "r") as dataset:
 
@@ -184,14 +178,14 @@ class GPROF0DDataset:
             tcwv = variables["total_column_water_vapor"][:].reshape(-1, 1)
             # Surface type
             st = variables["surface_type"][:]
-            n_types = 19
+            n_types = 18
             st_1h = np.zeros((n, n_types), dtype=np.float32)
-            st_1h[np.arange(n), st.ravel()] = 1.0
+            st_1h[np.arange(n), st.ravel() - 1] = 1.0
             # Airmass type
             am = variables["airmass_type"][:]
-            n_types = 4
+            n_types = 3
             am_1h = np.zeros((n, n_types), dtype=np.float32)
-            am_1h[np.arange(n), am.ravel()] = 1.0
+            am_1h[np.arange(n), np.maximum(am.ravel() - 1, 0)] = 1.0
 
             self.x = np.concatenate([bts, t2m, tcwv, st_1h, am_1h], axis=1)
 

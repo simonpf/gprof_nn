@@ -44,6 +44,7 @@ def test_gprof_0d_dataset():
     assert np.all(np.isclose(x_mean, x_mean_ref, atol=1e-3))
     assert np.all(np.isclose(y_mean, y_mean_ref, atol=1e-3))
 
+
 def test_gprof_0d_dataset_multi_target():
     """
     Ensure that iterating over single-pixel dataset conserves
@@ -51,9 +52,9 @@ def test_gprof_0d_dataset_multi_target():
     """
     path = Path(__file__).parent
     input_file = path / "data" / "dataset_0d.nc"
-    dataset = GPROF0DDataset(input_file,
-                             target=["surface_precip", "rain_water_content"],
-                             batch_size=1)
+    dataset = GPROF0DDataset(
+        input_file, target=["surface_precip", "rain_water_content"], batch_size=1
+    )
 
     xs = []
     ys = {}
