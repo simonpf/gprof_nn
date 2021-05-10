@@ -21,6 +21,8 @@ from quantnn.utils import apply
 import quantnn.quantiles as qq
 import quantnn.density as qd
 
+from gprof_nn.data.preprocessor import PreprocessorFile
+
 LOGGER = logging.getLogger(__name__)
 _DEVICE = torch.device("cpu")
 if torch.cuda.is_available():
@@ -39,6 +41,72 @@ _THRESHOLDS = {
     "snow_water_content": 1e-6,
     "latent_heat": -99999,
 }
+
+
+def write_preprocessor_file(input_file,
+                            output_file,
+                            x=None,
+                            n_samples=None,
+                            template=None):
+    """
+    Extract sample from training data file and write to preprocessor format.
+
+    Args:
+        input_file: Path to the NetCDF4 file containing the training or test
+            data.
+        output_file: Path of the file to write the output to.
+        n_samples: How many samples to extract from the training data file.
+        template: Template preprocessor file use to determine the orbit header
+             information. If not provided this data will be filled with dummy
+             values.
+    """
+    data = xr.open_dataset(input_file)
+    new_names = {
+        "brightness_temps": "brightness_temperatures"
+    }
+    n_pixels = 2048
+    if n_samples is None:
+        n_samples = data.samples.size
+
+    if n_samples < n_pixels:
+        n_pixels = n_samples
+
+    if n_samples < data.samples.size:
+        indices = np.random.permutation(data.samples.size)[:n_samples]
+    else:
+        indices = slice(0, None)
+    data = data[{"samples": indices}].rename(new_names)
+    n_scans = data.samples.size // n_pixels
+    n_scans += (data.samples.size % n_pixels) > 0
+
+    new_dims = ["scans", "pixels", "channels"]
+    new_dataset = {
+        "scans": np.arange(n_scans),
+        "pixels": np.arange(n_pixels),
+        "channels": np.arange(15),
+    }
+    dims = ("scans", "pixels", "channels")
+    shape = ((n_scans, n_pixels, 15))
+    for k in data:
+        da = data[k]
+        n_dims = len(da.dims)
+        s = (n_scans, n_pixels) + da.data.shape[1:]
+        new_data = np.zeros(s)
+        n = da.data.size
+        new_data.ravel()[:n] = da.data.ravel()
+        new_data.ravel()[n:] = np.nan
+        dims = ("scans", "pixels") + da.dims[1:]
+        new_dataset[k] = (dims, new_data)
+
+    new_dataset["earth_incidence_angle"] = (
+        ("scans", "pixels", "channels"),
+        np.broadcast_to(data.attrs["nominal_eia"].reshape(1, 1, -1),
+                        (n_scans, n_pixels, 15))
+    )
+
+    new_data = xr.Dataset(new_dataset)
+    PreprocessorFile.write(output_file, new_data, template=template)
+
 
 
 ###############################################################################
@@ -209,25 +277,28 @@ class GPROF0DDataset:
                 "Loaded %s samples from %s", self.x.shape[0], self.filename.name
             )
 
-    def save_data(self, filename):
+    def save(self, filename):
+        """
+        Store dataset as NetCDF file.
+
+        Args:
+            filename: The name of the file to which to write the dataset.
+        """
         if self.normalize:
             x = self.normalizer.invert(self.x)
         else:
             x = self.x
-
-        if self.binned:
-            centers = 0.5 * (self.bins[1:] + self.bins[:-1])
-            y = centers[self.y]
-        else:
-            y = self.y
+        y = self.y
 
         bts = x[:, :15]
         t2m = x[:, 15]
         tcwv = x[:, 16]
-        st = np.where(x[:, 17 : 17 + 19])[1]
-        at = np.where(x[:, 17 + 19 : 17 + 23])[1]
+        st = np.where(x[:, 17: 17 + 18])[1]
+        at = np.where(x[:, 17 + 18: 17 + 21])[1]
 
         dataset = xr.open_dataset(self.filename)
+
+        print(bts.shape, y.shape)
 
         dims = ("samples", "channel")
         new_dataset = {
