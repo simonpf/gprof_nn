@@ -11,6 +11,8 @@ import gzip
 from pathlib import Path
 
 import numpy as np
+from quantnn.normalizer import Normalizer
+import torch
 import xarray
 
 LOGGER = logging.getLogger(__name__)
@@ -248,4 +250,126 @@ class RetrievalFile:
         data = {k: (dims[:len(d.shape)], d) for k, d in data.items()
                 if not k.startswith("profile")
                 }
+        return xarray.Dataset(data)
+
+class Retrieval:
+    N_CHANNELS = 15
+    def __init__(self,
+                 preprocessor_file,
+                 normalizer_file,
+                 model,
+                 scans_per_batch=128):
+        from gprof_nn.data.preprocessor import PreprocessorFile
+        self.preprocessor_file = preprocessor_file
+        self.normalizer_file = normalizer_file
+        self.input_data = PreprocessorFile(preprocessor_file).to_xarray_dataset()
+        self.normalizer = Normalizer.load(normalizer_file)
+        self.model = model
+
+        self.n_scans = self.input_data.scans.size
+        self.n_pixels = self.input_data.pixels.size
+        self.scans_per_batch = scans_per_batch
+        self.n_batches = self.n_scans // scans_per_batch
+        remainder = self.n_scans % scans_per_batch
+        if remainder > 0:
+            self.n_batches += 1
+
+    def __len__(self):
+        return self.n_batches
+
+    def __getitem__(self, i):
+        if i > self.n_batches:
+            raise IndexError()
+        return self._get_batch_0d(i)
+
+    def _get_batch_0d(self, i):
+
+        i_start = i * self.scans_per_batch
+        i_end = (i + 1) * self.scans_per_batch
+
+        bts = self.input_data["brightness_temperatures"][i_start:i_end, :, :].data
+        bts = bts.reshape(-1, Retrieval.N_CHANNELS).copy()
+        bts[bts < 0] = np.nan
+
+        # 2m temperature
+        t2m = self.input_data["two_meter_temperature"][i_start:i_end, :].data
+        t2m = t2m.reshape(-1, 1)
+        # Total precipitable water.
+        tcwv = self.input_data["total_column_water_vapor"][i_start:i_end, :].data
+        tcwv = tcwv.reshape(-1, 1)
+
+        # Surface type
+        n = bts.shape[0]
+        st = self.input_data["surface_type"][i_start:i_end, :].data
+        st = st.reshape(-1, 1).astype(int)
+        n_types = 19
+        st_1h = np.zeros((n, n_types), dtype=np.float32)
+        st_1h[np.arange(n), st.ravel()] = 1.0
+
+        # Airmass type
+        am = self.input_data["airmass_type"][i_start:i_end, :].data
+        am = np.maximum(am.reshape(-1, 1).astype(int), 0)
+        n_types = 4
+        am_1h = np.zeros((n, n_types), dtype=np.float32)
+        am_1h[np.arange(n), am.ravel()] = 1.0
+
+        x = np.concatenate([bts, t2m, tcwv, st_1h, am_1h], axis=1)
+        return self.normalizer(x)
+
+
+    def run_retrieval(self):
+
+        means = {}
+        precip_1st_tercile = []
+        precip_3rd_tercile = []
+        pop = []
+
+        with torch.no_grad():
+            for i in range(len(self)):
+                x = self[i]
+
+                y_pred = self.model.predict(x)
+                if not isinstance(y_pred, dict):
+                    y_pred = {"surface_precip": y_pred}
+
+                y_mean = self.model.posterior_mean(y_pred=y_pred)
+                for k, y in y_pred.items():
+                    means.setdefault(k, []).append(y_mean[k].cpu().detach().numpy())
+                    if k == "surface_precip":
+                        t = self.model.posterior_quantiles(
+                            y_pred=y,
+                            quantiles=[0.333, 0.667],
+                            key=k
+                        )
+                        precip_1st_tercile.append(t[:, :1].cpu().detach().numpy())
+                        precip_3rd_tercile.append(t[:, 1:].cpu().detach().numpy())
+                        p = self.model.probability_larger_than(y_pred=y,
+                                                               y=0.01,
+                                                               key=k)
+                        pop.append(p.cpu().detach().numpy())
+
+
+        dims = ["scans", "pixels", "levels"]
+        data = {}
+        for k in means:
+            y = np.concatenate(means[k])
+            if y.ndim == 1:
+                y = y.reshape(-1, 221)
+            else:
+                y = y.reshape(-1, 221, 28)
+            data[k] = (dims[:y.ndim], y)
+
+        data["precip_1st_tercile"] = (
+            dims[:2],
+            np.concatenate(precip_1st_tercile).reshape(-1, 221)
+        )
+        data["precip_3rd_tercile"] = (
+            dims[:2],
+            np.concatenate(precip_3rd_tercile).reshape(-1, 221)
+        )
+        data["precip_pip"] = (
+            dims[:2],
+            np.concatenate(pop).reshape(-1, 221)
+        )
+
         return xarray.Dataset(data)
