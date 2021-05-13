@@ -37,7 +37,7 @@ class ClampedExp(nn.Module):
     """
 
     def forward(self, x):
-        return torch.exp(torch.clamp(x, -20, 20))
+        return torch.exp(x)
 
 
 class HyperResNetFC(nn.Module):

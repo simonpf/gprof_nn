@@ -22,12 +22,25 @@ import quantnn.quantiles as qq
 import quantnn.density as qd
 
 from gprof_nn.data.preprocessor import PreprocessorFile
+from gprof_nn.data.bin import PROFILE_NAMES
 
 LOGGER = logging.getLogger(__name__)
 _DEVICE = torch.device("cpu")
 if torch.cuda.is_available():
     _DEVICE = torch.device("cuda")
 
+ALL_TARGETS = [
+    "surface_precip",
+    "convective_precip",
+    "rain_water_path",
+    "ice_water_path",
+    "cloud_water_path",
+    "total_column_water_vapor",
+    "rain_water_content",
+    "cloud_water_content",
+    "snow_water_content",
+    "latent_heat"
+]
 
 _THRESHOLDS = {
     "surface_precip": 1e-4,
@@ -139,7 +152,7 @@ class GPROF0DDataset:
         target="surface_precip",
         normalize=True,
         transform_zeros=True,
-        batch_size=None,
+        batch_size=512,
         normalizer=None,
         shuffle=True,
         augment=True,
@@ -298,8 +311,6 @@ class GPROF0DDataset:
 
         dataset = xr.open_dataset(self.filename)
 
-        print(bts.shape, y.shape)
-
         dims = ("samples", "channel")
         new_dataset = {
             "brightness_temps": (dims, bts),
@@ -307,11 +318,15 @@ class GPROF0DDataset:
             "total_column_water_vapor": (dims[:1], tcwv),
             "surface_type": (dims[:1], st),
             "airmass_type": (dims[:1], at),
-            "surface_precip": (dims[:1], y),
         }
+        if isinstance(self.y, dict):
+            dims = ("samples", "levels")
+            for k, v in self.y.items():
+                new_dataset[k] = (dims[:len(v.shape)], v)
+        else:
+            new_dataset["surface_precip"] = (("samples",), self.y)
         new_dataset = xr.Dataset(new_dataset)
         new_dataset.attrs = dataset.attrs
-
         new_dataset.to_netcdf(filename)
 
     def _shuffle(self):
@@ -343,7 +358,7 @@ class GPROF0DDataset:
 
         self._shuffled = False
         if self.batch_size is None:
-            if self.isinstance(self.y, dict):
+            if isinstance(self.y, dict):
                 return (
                     torch.tensor(self.x[[i], :]),
                     {k: torch.tensor(self.y[k][[i]]) for k in self.y},
@@ -370,7 +385,7 @@ class GPROF0DDataset:
         else:
             return self.x.shape[0]
 
-    def evaluate(self, model, batch_size=16384, device=_DEVICE):
+    def evaluate(self, xrnn, batch_size=16384, device=_DEVICE):
         """
         Run retrieval on test dataset and returns results as
         xarray Dataset.
@@ -384,77 +399,58 @@ class GPROF0DDataset:
             ``xarray.Dataset`` containing the predicted and reference values
             for the data in this dataset.
         """
-        n_samples = self.x.shape[0]
-        y_means = []
-        y_medians = []
-        dy_means = []
-        dy_medians = []
-        pops = []
-        y_trues = []
-        surfaces = []
-        airmasses = []
-        y_samples = []
-
-        st_indices = torch.arange(19).reshape(1, -1).to(device)
-        am_indices = torch.arange(4).reshape(1, -1).to(device)
-        i_start = 0
-        model.model.to(device)
+        means = {}
+        precip_1st_tercile = []
+        precip_3rd_tercile = []
+        pop = []
 
         with torch.no_grad():
-            for i in tqdm(range(n_samples // batch_size + 1)):
-                i_start = i * batch_size
-                i_end = i_start + batch_size
-                if i_start >= n_samples:
-                    break
+            for i in range(len(self)):
+                x, y = self[i]
 
-                x = torch.tensor(self.x[i_start:i_end]).float().to(device)
-                y = torch.tensor(self.y[i_start:i_end]).float().to(device)
-                i_start += batch_size
+                y_pred = xrnn.predict(x)
+                if not isinstance(y_pred, dict):
+                    y_pred = {"surface_precip": y_pred}
 
-                y_pred = model.predict(x)
-                y_mean = model.posterior_mean(y_pred=y_pred).reshape(-1)
-                dy_mean = y_mean - y
-                y_median = model.posterior_quantiles(
-                    y_pred=y_pred, quantiles=[0.5]
-                ).squeeze(1)
-                y_sample = model.sample_posterior(y_pred=y_pred).squeeze(1)
-                dy_median = y_median - y
+                y_mean = xrnn.posterior_mean(y_pred=y_pred)
+                for k, y in y_pred.items():
+                    means.setdefault(k, []).append(y_mean[k].cpu())
+                    if k == "surface_precip":
+                        t = xrnn.posterior_quantiles(
+                            y_pred=y,
+                            quantiles=[0.333, 0.667],
+                            key=k
+                        )
+                        precip_1st_tercile.append(t[:, :1].cpu())
+                        precip_3rd_tercile.append(t[:, 1:].cpu())
+                        p = self.model.probability_larger_than(y_pred=y,
+                                                               y=1e-4,
+                                                               key=k)
+                        pop.append(p.cpu())
 
-                y_samples.append(y_sample.cpu())
-                y_means.append(y_mean.cpu())
-                dy_means.append(dy_mean.cpu())
-                y_medians.append(y_median.cpu())
-                dy_medians.append(dy_median.cpu())
 
-                pops.append(model.probability_larger_than(y_pred=y_pred, y=1e-2).cpu())
-                y_trues.append(y.cpu())
+        dims = ["samples", "levels"]
+        data = {}
+        for k in means:
+            y = np.concatenate(means[k].numpy())
+            if y.ndim == 1:
+                y = y.reshape(-1, 221)
+            else:
+                y = y.reshape(-1, 221, 28)
+            data[k] = (dims[:y.ndim], y)
 
-                surfaces += [(x[:, 17:36] * st_indices).sum(1).cpu()]
-                airmasses += [(x[:, 36:] * am_indices).sum(1).cpu()]
-
-        y_means = torch.cat(y_means, 0).detach().numpy()
-        y_medians = torch.cat(y_medians, 0).detach().numpy()
-        y_samples = torch.cat(y_samples, 0).detach().numpy()
-        dy_means = torch.cat(dy_means, 0).detach().numpy()
-        dy_medians = torch.cat(dy_medians, 0).detach().numpy()
-        pops = torch.cat(pops, 0).detach().numpy()
-        y_trues = torch.cat(y_trues, 0).detach().numpy()
-        surfaces = torch.cat(surfaces, 0).detach().numpy()
-        airmasses = torch.cat(airmasses, 0).detach().numpy()
-
-        dims = ["samples"]
-
-        data = {
-            "y_mean": (dims, y_means),
-            "y_sampled": (dims, y_samples),
-            "y_median": (dims, y_medians),
-            "dy_mean": (dims, dy_means),
-            "dy_median": (dims, dy_medians),
-            "y": (dims, y_trues),
-            "pop": (dims, pops),
-            "surface_type": (dims, surfaces),
-            "airmass_type": (dims, airmasses),
-        }
+        data["precip_1st_tercile"] = (
+            dims[:2],
+            np.concatenate(precip_1st_tercile.numpy()).reshape(-1, 221)
+        )
+        data["precip_3rd_tercile"] = (
+            dims[:2],
+            np.concatenate(precip_3rd_tercile.numpy()).reshape(-1, 221)
+        )
+        data["pop"] = (
+            dims[:2],
+            np.concatenate(pop.numpy()).reshape(-1, 221)
+        )
         return xr.Dataset(data)
 
     def evaluate_sensitivity(self, model, batch_size=512, device=_DEVICE):

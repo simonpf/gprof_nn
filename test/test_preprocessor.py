@@ -10,12 +10,28 @@ from gprof_nn.data.training_data import (GPROF0DDataset,
                                          write_preprocessor_file)
 
 def test_preprocessor_file(tmp_path):
+    """
+    Writes dataset to preprocessor file and ensures that the
+    data from the preprocessor file matches that in the original
+    dataset.
+    """
     path = Path(__file__).parent
     input_file = path / "data" / "dataset_0d.nc"
 
+    targets = ["surface_precip",
+               "ice_water_path",
+               "rain_water_path",
+               "cloud_water_path",
+               "latent_heat",
+               "rain_water_content",
+               "snow_water_content",
+               "cloud_water_content"]
+
     dataset = GPROF0DDataset(input_file,
                              batch_size=1,
-                             normalize=False)
+                             normalize=False,
+                             transform_zeros=False,
+                             target=targets)
     dataset.save(tmp_path / "training_data.nc")
 
     write_preprocessor_file(tmp_path / "training_data.nc",
@@ -39,11 +55,3 @@ def test_preprocessor_file(tmp_path):
     at_pp = preprocessor_data["airmass_type"]
     assert np.all(np.isclose(np.maximum(np.where(dataset.x[:, 17 + 18:17 + 21])[1], 1),
                              st_pp[0, :]))
-
-
-
-
-
-
-
-
