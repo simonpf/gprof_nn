@@ -21,7 +21,11 @@ BINS = {
     "cloud_water_content": np.logspace(-6.0, 1.5, 129),
     "snow_water_content": np.logspace(-6.0, 1.5, 129),
     "rain_water_content": np.logspace(-6.0, 1.5, 129),
-    "latent_heat": np.linspace(-100, 300, 129),
+    "latent_heat": np.concatenate([
+        -np.logspace(-1, 2.5, 64)[::-1],
+        np.array([0.0]),
+        np.logspace(-1, 3.0, 64)
+        ])
 }
 
 for k in BINS:
@@ -164,10 +168,6 @@ class GPROFNN0D(nn.Module):
             38, n_neurons, n_neurons, n_layers_body, nn.GELU, internal=True
         )
         self.heads = nn.ModuleDict()
-        if exp_activation:
-            activation = ClampedExp
-        else:
-            activation = None
 
         if not isinstance(self.target, list):
             targets = [self.target]
@@ -179,6 +179,10 @@ class GPROFNN0D(nn.Module):
         else:
             n_in = 38
         for t in targets:
+            if exp_activation and t != "latent_heat":
+                activation = ClampedExp
+            else:
+                activation = None
             if t in PROFILE_NAMES:
                 self.heads[t] = HyperResNetFC(
                     n_in,
