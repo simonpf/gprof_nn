@@ -11,9 +11,14 @@ import re
 
 import numpy as np
 import h5py
+import pandas as pd
 import xarray as xr
 
 _RE_META_INFO = re.compile("NumberScansGranule=(\d*);")
+FILENAME_RE = re.compile(
+    r"1C-R\.GPM\.GMI\.([\w-]*)\.(\d{8})-"
+    r"S(\d{6})-E(\d{6})\.(\w*)\.(\w*)\.HDF5"
+)
 
 class L1CFile:
     """
@@ -35,6 +40,7 @@ class L1CFile:
             L1CFile object providing access to the requested file.
         """
         if date is not None:
+            date = pd.TimeStamp(date)
             year = date.year - 2000
             month = date.month
             day = date.day
@@ -53,6 +59,60 @@ class L1CFile:
             raise Exception(
                 f"Could not find a L1C file with granule number {granule}."
             )
+    @classmethod
+    def find_file(cls, date, path):
+        """
+        Find and open L1C file with a given granule number.
+
+        Args:
+            granule: The granule number as integer.
+            path: The root of the directory tree containing the
+                L1C files.
+            date: The date of the file used to determine sub-folders
+                corresponding to month and day.
+
+        Return:
+            L1CFile object providing access to the requested file.
+        """
+        path = Path(path)
+
+        date = pd.Timestamp(date)
+        year = date.year - 2000
+        month = date.month
+        day = date.day
+        data_path = Path(path) / f"{year:02}{month:02}" / f"{year:02}{month:02}{day:02}"
+        files = list(data_path.glob(f"1C-R.GPM.GMI.*.V05A.HDF5"))
+        files += list(path.glob(f"1C-R.GPM.GMI.*.V05A.HDF5"))
+
+        start_times = []
+        end_times = []
+        for f in files:
+            print(f.name)
+            match = FILENAME_RE.match(f.name)
+            year = match.group(2)
+            start = match.group(3)
+            end = match.group(4)
+
+            start = np.datetime64(
+                f"{year[0:4]}-{year[4:6]}-{year[6:8]}"
+                f"T{start[0:2]}:{start[2:4]}:{start[4:6]}"
+            )
+            end = np.datetime64(
+                f"{year[0:4]}-{year[4:6]}-{year[6:8]}"
+                f"T{end[0:2]}:{end[2:4]}:{end[4:6]}"
+            )
+            if end < start:
+                end += np.timedelta64(1, "D")
+            start_times.append(start)
+            end_times.append(end)
+        start_times = np.array(start_times)
+        end_times = np.array(end_times)
+        date = date.to_datetime64()
+
+        ind = np.where((start_times <= date) * (end_times >= date))[0][0]
+        filename = files[ind]
+
+        return L1CFile(filename)
 
     def __init__(self, path):
         """
