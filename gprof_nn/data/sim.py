@@ -13,9 +13,13 @@ import subprocess
 from tempfile import NamedTemporaryFile
 
 import numpy as np
+import pandas as pd
 import pyproj
 from pykdtree.kdtree import KDTree
 from netCDF4 import Dataset
+from tqdm import tqdm
+import xarray as xr
+
 from gprof_nn.data.preprocessor import PreprocessorFile
 from gprof_nn.data.l1c import L1CFile
 from gprof_nn.data.training_data import PROFILE_NAMES
@@ -28,9 +32,6 @@ ALL_TARGETS = [
     "snow_water_content",
     "latent_heat"
 ]
-
-from tqdm import tqdm
-import xarray
 
 _ECEF = pyproj.Proj(proj='geocent', ellps='WGS84', datum='WGS84')
 _LLA = pyproj.Proj(proj='latlong', ellps='WGS84', datum='WGS84')
@@ -154,7 +155,6 @@ class GMISimFile:
 
         lats = self.data["latitude"].reshape(-1, 1)
         lons = self.data["longitude"].reshape(-1, 1)
-        print(lats, lons)
         z = np.zeros_like(lats)
         coords_sim = pyproj.transform(_LLA,
                                       _ECEF,
@@ -166,7 +166,6 @@ class GMISimFile:
 
         kdtree = KDTree(coords_1c)
         dists, indices = kdtree.query(coords_sim)
-        print(indices)
 
         for t in targets:
             if t in PROFILE_NAMES:
@@ -253,7 +252,6 @@ def _run_preprocessor(sim_file,
     output_file = f"GMIERA5_{year:04}{month:02}{day:02}_{sim_file.granule:06}.pp"
     output_file = sim_file.path.parent / output_file
 
-    print(output_file)
 
     if not output_file.exists():
         with NamedTemporaryFile(delete=False) as file:
@@ -322,6 +320,71 @@ def _find_l1c_file(path, sim_file):
     path = Path(path) / f"{year:02}{month:02}" / f"{year:02}{month:02}{day:02}"
     files = path.glob(f"1C-R*{sim_file.granule}*.HDF5")
     return next(iter(files))
+
+def _load_era5_data(start_time,
+                    end_time,
+                    base_directory):
+    """
+    Loads ERA5 data matching the start and end time of a L1C
+    file.
+
+    Args:
+        start_time: First scan time from L1C file.
+        end_time: Last scan time from L1C file.
+        base_directory: Root of the directory tree containing the
+            ERA5 files.
+    """
+    start_time = pd.to_datetime(start_time)
+    end_time = pd.to_datetime(end_time)
+
+    year_start = start_time.year
+    month_start = start_time.month
+    day_start = start_time.day
+
+    year_end = end_time.year
+    month_end = end_time.month
+    day_end = end_time.day
+
+    file_expr = f"ERA5_{year_start}{month_start:02}{day_start:02}_surf.nc"
+    file_start = list(Path(base_directory).glob(f"**/{file_expr}"))
+    file_expr = f"ERA5_{year_end}{month_end:02}{day_end:02}_surf.nc"
+    file_end = list(Path(base_directory).glob(f"**/{file_expr}"))
+
+    files = list(set(file_start + file_end))
+    return xr.concat([xr.load_dataset(f) for f in files], dim="time")
+
+def _add_era5_precip(input_data,
+                     l1c_data,
+                     era5_data):
+    """
+    Adds total precipitation from ERA5 to data.
+
+    Args:
+        input_data: The preprocessor data to which the atmospheric data
+            from the sim file has been added. Must contain "surface_precip"
+            variable.
+        l1c_data: The L1C data corresponding to input_data.
+        era5_data: The era5 data covering the time range of observations
+            in l1c_data.
+    """
+    l0 = era5_data[{"longitude": slice(0, 1)}].copy(deep=True)
+    l0 = l0.assign_coords({"longitude": [360.0]})
+    era5_data = xr.concat([era5_data, l0], "longitude")
+    n_scans = l1c_data.scans.size
+    n_pixels = l1c_data.pixels.size
+    indices = input_data["surface_type"] == 2
+    lats = xr.DataArray(input_data["latitude"].data[indices], dims="samples")
+    lons = input_data["longitude"].data[indices]
+    lons = np.where(lons < 0.0, lons + 360, lons)
+    lons = xr.DataArray(lons, dims="samples")
+    time = np.broadcast_to(l1c_data["scan_time"].data.reshape(-1, 1),
+                           (n_scans, n_pixels))[indices]
+    time = xr.DataArray(time, dims="samples")
+    tp = era5_data["tp"].interp({"latitude": lats,
+                                 "longitude": lons,
+                                 "time": time},
+                                method="linear")
+    input_data["surface_precip"].data[indices] = tp.data
 
 ###############################################################################
 # File processor

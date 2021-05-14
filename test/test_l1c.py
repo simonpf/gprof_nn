@@ -14,6 +14,7 @@ def test_find_granule():
 
     l1c_file = L1CFile.open_granule(27510, l1c_path)
     l1c_data = l1c_file.to_xarray_dataset()
+    print(l1c_data)
 
     assert l1c_data.pixels.size == 221
     assert l1c_data.scans.size == 2962
