@@ -334,25 +334,25 @@ class Retrieval:
 
                 y_mean = self.model.posterior_mean(y_pred=y_pred)
                 for k, y in y_pred.items():
-                    means.setdefault(k, []).append(y_mean[k].cpu().detach().numpy())
+                    means.setdefault(k, []).append(y_mean[k].cpu())
                     if k == "surface_precip":
                         t = self.model.posterior_quantiles(
                             y_pred=y,
                             quantiles=[0.333, 0.667],
                             key=k
                         )
-                        precip_1st_tercile.append(t[:, :1].cpu().detach().numpy())
-                        precip_3rd_tercile.append(t[:, 1:].cpu().detach().numpy())
+                        precip_1st_tercile.append(t[:, :1].cpu())
+                        precip_3rd_tercile.append(t[:, 1:].cpu())
                         p = self.model.probability_larger_than(y_pred=y,
-                                                               y=0.01,
+                                                               y=1e-4,
                                                                key=k)
-                        pop.append(p.cpu().detach().numpy())
+                        pop.append(p.cpu())
 
 
         dims = ["scans", "pixels", "levels"]
         data = {}
         for k in means:
-            y = np.concatenate(means[k])
+            y = np.concatenate(means[k].numpy())
             if y.ndim == 1:
                 y = y.reshape(-1, 221)
             else:
@@ -361,15 +361,15 @@ class Retrieval:
 
         data["precip_1st_tercile"] = (
             dims[:2],
-            np.concatenate(precip_1st_tercile).reshape(-1, 221)
+            np.concatenate(precip_1st_tercile.numpy()).reshape(-1, 221)
         )
         data["precip_3rd_tercile"] = (
             dims[:2],
-            np.concatenate(precip_3rd_tercile).reshape(-1, 221)
+            np.concatenate(precip_3rd_tercile.numpy()).reshape(-1, 221)
         )
         data["precip_pip"] = (
             dims[:2],
-            np.concatenate(pop).reshape(-1, 221)
+            np.concatenate(pop.numpy()).reshape(-1, 221)
         )
 
         return xarray.Dataset(data)

@@ -190,6 +190,10 @@ class PreprocessorFile:
         self.n_scans = self.orbit_header["number_of_scans"][0]
         self.n_pixels = self.orbit_header["number_of_pixels"][0]
 
+    def __repr__(self):
+        """String representation for file."""
+        return f"PreprocessorFile(filename='{self.filename}')"
+
     @property
     def satellite(self):
         """

@@ -22,9 +22,9 @@ BINS = {
     "snow_water_content": np.logspace(-6.0, 1.5, 129),
     "rain_water_content": np.logspace(-6.0, 1.5, 129),
     "latent_heat": np.concatenate([
-        -np.logspace(-1, 2.5, 64)[::-1],
+        -np.logspace(-2, 2.5, 64)[::-1],
         np.array([0.0]),
-        np.logspace(-1, 3.0, 64)
+        np.logspace(-2, 3.0, 64)
         ])
 }
 
@@ -41,7 +41,7 @@ class ClampedExp(nn.Module):
     """
 
     def forward(self, x):
-        return torch.exp(torch.clamp(x, -20, 20))
+        return torch.exp(x)
 
 
 class HyperResNetFC(nn.Module):
