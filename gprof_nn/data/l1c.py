@@ -393,7 +393,7 @@ class L1CFile:
                 lon_min, lat_min, lon_max, lat_max = roi
                 indices = np.any(
                     (lons >= lon_min) * (lons < lon_max) *
-                    (lats >= lat_min) * (lats < lon_min),
+                    (lats >= lat_min) * (lats < lat_max),
                     axis=-1
                 )
             else:

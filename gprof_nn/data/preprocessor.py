@@ -414,3 +414,54 @@ class PreprocessorFile:
         pixels["precip_3rd_tertial"] = precip_3rd_tertial
         pixels["pop_index"] = precip_pop.astype(np.dtype("i1"))
         pixels.tofile(file)
+
+###############################################################################
+# Running the preprocessor
+###############################################################################
+
+PREPROCESSOR_SETTINGS = {
+            "prodtype": "CLIMATOLOGY",
+            "prepdir": "/qdata2/archive/ERA5",
+            "ancdir": "/qdata1/pbrown/gpm/ancillary",
+            "ingestdir": "/qdata1/pbrown/gpm/ppingest"
+}
+
+def get_preprocessor_settings():
+    """
+    Return preprocessor settings as list of command line arguments to invoke
+    the preprocessor.
+    """
+    return [v for _, v in PREPROCESSOR_SETTINGS.items()]
+
+def run_preprocessor(l1c_file,
+                     output_file=None):
+    """
+    Run preprocessor on L1C GMI file.
+
+    Args:
+        l1c_file: Path of the L1C file for which to extract the input data
+             using the preprocessor.
+        output_file: Optional name of an output file. Results will be written
+            to a temporary file and the results returned as xarray.Dataset.
+
+    Returns:
+        xarray.Dataset containing the retrieval input data for the given L1C
+        file or None when the 'output_file' argument is given.
+    """
+    tempfile = False
+    if output_file is None:
+        tempfile = True
+        _, output_file = tempdir.mkstemp()
+        output_file.close()
+    try:
+        jobid = str(os.getpid()) + "_pp"
+        args = [jobid] + get_preprocessor_settings() + [str(output_file)]
+        subprocess.run(["gprof2020pp_GMI_L1C"] + args)
+
+        if tempfile:
+            data = PreprocessorFile(file).to_xarray_dataset()
+
+    finally:
+        if tempfile:
+            Path(output_file).unlink()
+            return data
