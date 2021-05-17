@@ -8,6 +8,9 @@ to read and write the binary preprocessor format that is used as direct input
 for running the GPROF algorithm.
 """
 import logging
+import os
+import subprocess
+import tempdir
 
 import numpy as np
 import xarray
@@ -83,9 +86,7 @@ DATA_RECORD_TYPES = np.dtype(
 )
 
 
-def write_orbit_header(output,
-                       data,
-                       template=None):
+def write_orbit_header(output, data, template=None):
     """
     Write header into preprocessor file.
 
@@ -149,7 +150,6 @@ def write_scan(output, data):
     scan.tofile(output)
 
 
-
 ###############################################################################
 # Preprocessor file class
 ###############################################################################
@@ -165,6 +165,7 @@ class PreprocessorFile:
         n_scans: The number of scans in the file.
         n_pixels: The number of pixels in the file.
     """
+
     @classmethod
     def write(cls, filename, data, template=None):
         n_scans = data.scans.size
@@ -174,7 +175,6 @@ class PreprocessorFile:
                 scan_data = data[{"scans": i}]
                 write_scan_header(output, template=template)
                 write_scan(output, scan_data)
-
 
     def __init__(self, filename):
         """
@@ -281,8 +281,7 @@ class PreprocessorFile:
             minute = date["minute"][0]
             second = date["second"][0]
             scan_times[i] = np.datetime64(
-                f"{year:04}-{month:02}-{day:02}"
-                f"T{hour:02}:{minute:02}:{second:02}"
+                f"{year:04}-{month:02}-{day:02}" f"T{hour:02}:{minute:02}:{second:02}"
             )
         data["scan_time"] = ("scans",), scan_times
         return xarray.Dataset(data)
@@ -415,16 +414,18 @@ class PreprocessorFile:
         pixels["pop_index"] = precip_pop.astype(np.dtype("i1"))
         pixels.tofile(file)
 
+
 ###############################################################################
 # Running the preprocessor
 ###############################################################################
 
 PREPROCESSOR_SETTINGS = {
-            "prodtype": "CLIMATOLOGY",
-            "prepdir": "/qdata2/archive/ERA5",
-            "ancdir": "/qdata1/pbrown/gpm/ancillary",
-            "ingestdir": "/qdata1/pbrown/gpm/ppingest"
+    "prodtype": "CLIMATOLOGY",
+    "prepdir": "/qdata2/archive/ERA5",
+    "ancdir": "/qdata1/pbrown/gpm/ancillary",
+    "ingestdir": "/qdata1/pbrown/gpm/ppingest",
 }
+
 
 def get_preprocessor_settings():
     """
@@ -433,8 +434,8 @@ def get_preprocessor_settings():
     """
     return [v for _, v in PREPROCESSOR_SETTINGS.items()]
 
-def run_preprocessor(l1c_file,
-                     output_file=None):
+
+def run_preprocessor(l1c_file, output_file=None):
     """
     Run preprocessor on L1C GMI file.
 
@@ -456,12 +457,22 @@ def run_preprocessor(l1c_file,
     try:
         jobid = str(os.getpid()) + "_pp"
         args = [jobid] + get_preprocessor_settings() + [str(output_file)]
-        subprocess.run(["gprof2020pp_GMI_L1C"] + args)
+
+        try:
+            subprocess.run(["gprof2020pp_GMI_L1C"] + args, check=True)
+        except subprocess.CalledProcessError as error:
+            LOGGER.warning(
+                "Running the preprocessor for file %s failed with the following"
+                " error: %s",
+                l1c_file,
+                error,
+            )
 
         if tempfile:
-            data = PreprocessorFile(file).to_xarray_dataset()
+            data = PreprocessorFile(output_file).to_xarray_dataset()
 
     finally:
         if tempfile:
             Path(output_file).unlink()
-            return data
+    if tempfile:
+        return data

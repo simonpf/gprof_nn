@@ -10,6 +10,7 @@ import numpy as np
 
 try:
     from pyproj import Transformer
+
     LATLON_TO_ECEF_TRANSFORMER = Transformer.from_crs("epsg:4326", "epsg:4978")
 except:
     raise ModuleNotFoundError(
@@ -20,9 +21,8 @@ except:
     )
     LATLON_TO_ECEF_TRANSFORMER = None
 
-def latlon_to_ecef(longitudes,
-                   latitudes,
-                   altitudes=None):
+
+def latlon_to_ecef(longitudes, latitudes, altitudes=None):
     """
     Convert latitudes and longitudes to Earth-centered earth-fixed (ECEF)
     euclidean coordinates.
@@ -49,8 +49,4 @@ def latlon_to_ecef(longitudes,
     else:
         altitudes = np.array(altitudes)
 
-    return LATLON_TO_ECEF_TRANSFORMER.transform(
-        latitudes,
-        longitudes,
-        altitudes
-    )
+    return LATLON_TO_ECEF_TRANSFORMER.transform(latitudes, longitudes, altitudes)

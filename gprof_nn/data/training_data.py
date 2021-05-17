@@ -39,7 +39,7 @@ ALL_TARGETS = [
     "rain_water_content",
     "cloud_water_content",
     "snow_water_content",
-    "latent_heat"
+    "latent_heat",
 ]
 
 _THRESHOLDS = {
@@ -56,11 +56,9 @@ _THRESHOLDS = {
 }
 
 
-def write_preprocessor_file(input_file,
-                            output_file,
-                            x=None,
-                            n_samples=None,
-                            template=None):
+def write_preprocessor_file(
+    input_file, output_file, x=None, n_samples=None, template=None
+):
     """
     Extract sample from training data file and write to preprocessor format.
 
@@ -74,9 +72,7 @@ def write_preprocessor_file(input_file,
              values.
     """
     data = xr.open_dataset(input_file)
-    new_names = {
-        "brightness_temps": "brightness_temperatures"
-    }
+    new_names = {"brightness_temps": "brightness_temperatures"}
     n_pixels = 2048
     if n_samples is None:
         n_samples = data.samples.size
@@ -99,7 +95,7 @@ def write_preprocessor_file(input_file,
         "channels": np.arange(15),
     }
     dims = ("scans", "pixels", "channels")
-    shape = ((n_scans, n_pixels, 15))
+    shape = (n_scans, n_pixels, 15)
     for k in data:
         da = data[k]
         n_dims = len(da.dims)
@@ -113,13 +109,13 @@ def write_preprocessor_file(input_file,
 
     new_dataset["earth_incidence_angle"] = (
         ("scans", "pixels", "channels"),
-        np.broadcast_to(data.attrs["nominal_eia"].reshape(1, 1, -1),
-                        (n_scans, n_pixels, 15))
+        np.broadcast_to(
+            data.attrs["nominal_eia"].reshape(1, 1, -1), (n_scans, n_pixels, 15)
+        ),
     )
 
     new_data = xr.Dataset(new_dataset)
     PreprocessorFile.write(output_file, new_data, template=template)
-
 
 
 ###############################################################################
@@ -306,8 +302,8 @@ class GPROF0DDataset:
         bts = x[:, :15]
         t2m = x[:, 15]
         tcwv = x[:, 16]
-        st = np.where(x[:, 17: 17 + 18])[1]
-        at = np.where(x[:, 17 + 18: 17 + 21])[1]
+        st = np.where(x[:, 17 : 17 + 18])[1]
+        at = np.where(x[:, 17 + 18 : 17 + 21])[1]
 
         dataset = xr.open_dataset(self.filename)
 
@@ -322,7 +318,7 @@ class GPROF0DDataset:
         if isinstance(self.y, dict):
             dims = ("samples", "levels")
             for k, v in self.y.items():
-                new_dataset[k] = (dims[:len(v.shape)], v)
+                new_dataset[k] = (dims[: len(v.shape)], v)
         else:
             new_dataset["surface_precip"] = (("samples",), self.y)
         new_dataset = xr.Dataset(new_dataset)
@@ -417,17 +413,12 @@ class GPROF0DDataset:
                     means.setdefault(k, []).append(y_mean[k].cpu())
                     if k == "surface_precip":
                         t = xrnn.posterior_quantiles(
-                            y_pred=y,
-                            quantiles=[0.333, 0.667],
-                            key=k
+                            y_pred=y, quantiles=[0.333, 0.667], key=k
                         )
                         precip_1st_tercile.append(t[:, :1].cpu())
                         precip_3rd_tercile.append(t[:, 1:].cpu())
-                        p = self.model.probability_larger_than(y_pred=y,
-                                                               y=1e-4,
-                                                               key=k)
+                        p = self.model.probability_larger_than(y_pred=y, y=1e-4, key=k)
                         pop.append(p.cpu())
-
 
         dims = ["samples", "levels"]
         data = {}
@@ -437,20 +428,17 @@ class GPROF0DDataset:
                 y = y.reshape(-1, 221)
             else:
                 y = y.reshape(-1, 221, 28)
-            data[k] = (dims[:y.ndim], y)
+            data[k] = (dims[: y.ndim], y)
 
         data["precip_1st_tercile"] = (
             dims[:2],
-            np.concatenate(precip_1st_tercile.numpy()).reshape(-1, 221)
+            np.concatenate(precip_1st_tercile.numpy()).reshape(-1, 221),
         )
         data["precip_3rd_tercile"] = (
             dims[:2],
-            np.concatenate(precip_3rd_tercile.numpy()).reshape(-1, 221)
+            np.concatenate(precip_3rd_tercile.numpy()).reshape(-1, 221),
         )
-        data["pop"] = (
-            dims[:2],
-            np.concatenate(pop.numpy()).reshape(-1, 221)
-        )
+        data["pop"] = (dims[:2], np.concatenate(pop.numpy()).reshape(-1, 221))
         return xr.Dataset(data)
 
     def evaluate_sensitivity(self, model, batch_size=512, device=_DEVICE):

@@ -26,8 +26,9 @@ SURFACE_TYPE_NAMES = [
     "Ocean or water Coast",
     "Sea-ice edge",
     "Mountain Rain",
-    "Mountain Snow"
+    "Mountain Snow",
 ]
+
 
 def surface_type_to_name(surface_index):
     """

@@ -22,39 +22,48 @@ LOGGER = logging.getLogger(__name__)
 N_LAYERS = 28
 N_FREQS = 15
 GMI_BIN_HEADER_TYPES = np.dtype(
-    [("satellite_code", "a5"),
-     ("sensor", "a5"),
-     ("frequencies", [(f"f_{i:02}", np.float32) for i in range(N_FREQS)]),
-     ("nominal_eia", [(f"f_{i:02}", np.float32) for i in range(N_FREQS)]),
-     ])
+    [
+        ("satellite_code", "a5"),
+        ("sensor", "a5"),
+        ("frequencies", [(f"f_{i:02}", np.float32) for i in range(N_FREQS)]),
+        ("nominal_eia", [(f"f_{i:02}", np.float32) for i in range(N_FREQS)]),
+    ]
+)
 
 
 GMI_BIN_RECORD_TYPES = np.dtype(
-    [("dataset_number", "i4"),
-     ("surface_precip", np.float32),
-     ("convective_precip", np.float32),
-     ("brightness_temperatures", [(f"tb_{i:02}", np.float32)
-                                  for i in range(N_FREQS)]),
-     ("delta_tb", [(f"tb_{i:02}", np.float32) for i in range(N_FREQS)]),
-     ("rain_water_path", np.float32),
-     ("cloud_water_path", np.float32),
-     ("ice_water_path", np.float32),
-     ("total_column_water_vapor", np.float32),
-     ("two_meter_temperature", np.float32),
-     ("rain_water_content", [(f"l_{i:02}", np.float32) for i in range(N_LAYERS)]),
-     ("cloud_water_content", [(f"l_{i:02}", np.float32) for i in range(N_LAYERS)]),
-     ("snow_water_content", [(f"l_{i:02}", np.float32) for i in range(N_LAYERS)]),
-     ("latent_heat", [(f"l_{i:02}", np.float32) for i in range(N_LAYERS)]),
-     ])
+    [
+        ("dataset_number", "i4"),
+        ("surface_precip", np.float32),
+        ("convective_precip", np.float32),
+        (
+            "brightness_temperatures",
+            [(f"tb_{i:02}", np.float32) for i in range(N_FREQS)],
+        ),
+        ("delta_tb", [(f"tb_{i:02}", np.float32) for i in range(N_FREQS)]),
+        ("rain_water_path", np.float32),
+        ("cloud_water_path", np.float32),
+        ("ice_water_path", np.float32),
+        ("total_column_water_vapor", np.float32),
+        ("two_meter_temperature", np.float32),
+        ("rain_water_content", [(f"l_{i:02}", np.float32) for i in range(N_LAYERS)]),
+        ("cloud_water_content", [(f"l_{i:02}", np.float32) for i in range(N_LAYERS)]),
+        ("snow_water_content", [(f"l_{i:02}", np.float32) for i in range(N_LAYERS)]),
+        ("latent_heat", [(f"l_{i:02}", np.float32) for i in range(N_LAYERS)]),
+    ]
+)
 
-PROFILE_NAMES = ["rain_water_content",
-                 "cloud_water_content",
-                 "snow_water_content",
-                 "latent_heat"]
+PROFILE_NAMES = [
+    "rain_water_content",
+    "cloud_water_content",
+    "snow_water_content",
+    "latent_heat",
+]
 
 ###############################################################################
 # Input file.
 ###############################################################################
+
 
 class GPROFGMIBinFile:
     """
@@ -70,9 +79,8 @@ class GPROFGMIBinFile:
         handle: Structured numpy array containing the profile data of the
             file.
     """
-    def __init__(self,
-                 filename,
-                 include_profiles=False):
+
+    def __init__(self, filename, include_profiles=False):
         """
         Open file.
 
@@ -94,24 +102,21 @@ class GPROFGMIBinFile:
         elif len(parts) == 5:
             self.airmass_type = int(parts[-2])
         else:
-            raise Exception(
-                f"Filename {filename} does not match expected format!"
-            )
+            raise Exception(f"Filename {filename} does not match expected format!")
 
         # Read the header
-        self.header = np.fromfile(self.filename,
-                                  GMI_BIN_HEADER_TYPES,
-                                  count=1)
+        self.header = np.fromfile(self.filename, GMI_BIN_HEADER_TYPES, count=1)
 
-        self.handle = np.fromfile(self.filename,
-                                  GMI_BIN_RECORD_TYPES,
-                                  offset=GMI_BIN_HEADER_TYPES.itemsize)
+        self.handle = np.fromfile(
+            self.filename, GMI_BIN_RECORD_TYPES, offset=GMI_BIN_HEADER_TYPES.itemsize
+        )
         self.n_profiles = self.handle.shape[0]
 
-        np.random.seed(np.array([(self.temperature),
-                                 self.tpw,
-                                 self.surface_type,
-                                 self.airmass_type]).astype(np.int64))
+        np.random.seed(
+            np.array(
+                [(self.temperature), self.tpw, self.surface_type, self.airmass_type]
+            ).astype(np.int64)
+        )
         self.indices = np.random.permutation(self.n_profiles)
 
     def get_attributes(self):
@@ -128,9 +133,7 @@ class GPROFGMIBinFile:
         }
         return attributes
 
-    def to_xarray_dataset(self,
-                          start=None,
-                          end=None):
+    def to_xarray_dataset(self, start=None, end=None):
         """
         Load and return data as ``xarray.Dataset``. If a start and
         and fraction are given, a fixed fraction of radomly sampled elements
@@ -171,20 +174,17 @@ class GPROFGMIBinFile:
 
         results["surface_type"] = (
             ("samples",),
-            self.surface_type * np.ones(n_samples, dtype=np.int)
+            self.surface_type * np.ones(n_samples, dtype=np.int),
         )
         results["airmass_type"] = (
             ("samples",),
-            self.airmass_type * np.ones(n_samples, dtype=np.int)
+            self.airmass_type * np.ones(n_samples, dtype=np.int),
         )
-        results["tpw"] = (
-            ("samples"), self.tpw * np.ones(n_samples, dtype=np.float)
-        )
-        results["temperature"] = (
-            ("samples",), self.temperature * np.ones(n_samples)
-        )
+        results["tpw"] = (("samples"), self.tpw * np.ones(n_samples, dtype=np.float))
+        results["temperature"] = (("samples",), self.temperature * np.ones(n_samples))
 
         return xr.Dataset(results)
+
 
 def load_data(filename, start=0.0, end=1.0, include_profiles=False):
     """
@@ -209,12 +209,8 @@ def load_data(filename, start=0.0, end=1.0, include_profiles=False):
 GPM_FILE_REGEXP = re.compile(r"gpm_(\d\d\d)_(\d\d)(_(\d\d))?_(\d\d).bin")
 
 
-def process_input(input_filename,
-                  start=1.0,
-                  end=1.0,
-                  include_profiles=False):
-    data = load_data(input_filename, start, end,
-                     include_profiles=include_profiles)
+def process_input(input_filename, start=1.0, end=1.0, include_profiles=False):
+    data = load_data(input_filename, start, end, include_profiles=include_profiles)
     return data
 
 
@@ -223,13 +219,16 @@ class FileProcessor:
     Asynchronous file processor to extract profile from GPROF .bin files
     in given a folder.
     """
-    def __init__(self,
-                 path,
-                 st_min=227.0,
-                 st_max=307.0,
-                 tpw_min=0.0,
-                 tpw_max=76.0,
-                 include_profiles=False):
+
+    def __init__(
+        self,
+        path,
+        st_min=227.0,
+        st_max=307.0,
+        tpw_min=0.0,
+        tpw_max=76.0,
+        include_profiles=False,
+    ):
         """
         Create file processor to process file in given path.
 
@@ -257,12 +256,7 @@ class FileProcessor:
                     continue
                 self.files.append(f)
 
-
-    def run_async(self,
-                  output_file,
-                  start_fraction,
-                  end_fraction,
-                  n_processes=4):
+    def run_async(self, output_file, start_fraction, end_fraction, n_processes=4):
         """
         Asynchronous processing of files in folder.
 
@@ -278,13 +272,16 @@ class FileProcessor:
         pool = ProcessPoolExecutor(max_workers=n_processes)
         loop = asyncio.new_event_loop()
 
-
-        tasks = [pool.submit(process_input,
-                             f,
-                             start=start_fraction,
-                             end=end_fraction,
-                             include_profiles=self.include_profiles)
-                 for f in self.files]
+        tasks = [
+            pool.submit(
+                process_input,
+                f,
+                start=start_fraction,
+                end=end_fraction,
+                include_profiles=self.include_profiles,
+            )
+            for f in self.files
+        ]
 
         datasets = []
         for t in tqdm.tqdm(tasks):
