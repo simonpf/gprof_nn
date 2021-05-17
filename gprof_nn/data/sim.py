@@ -20,6 +20,7 @@ from netCDF4 import Dataset
 from tqdm import tqdm
 import xarray as xr
 
+from gprof_nn.coordinates import latlon_to_ecef
 from gprof_nn.data.preprocessor import PreprocessorFile
 from gprof_nn.data.l1c import L1CFile
 from gprof_nn.data.training_data import PROFILE_NAMES
@@ -32,9 +33,6 @@ ALL_TARGETS = [
     "snow_water_content",
     "latent_heat"
 ]
-
-_ECEF = pyproj.Proj(proj='geocent', ellps='WGS84', datum='WGS84')
-_LLA = pyproj.Proj(proj='latlong', ellps='WGS84', datum='WGS84')
 
 LEVELS = np.concatenate([np.linspace(500.0, 1e4, 20),
                          np.linspace(11e3, 18e3, 8)])
@@ -117,12 +115,12 @@ class GMISimFile:
                                 GMI_PIXEL_TYPES,
                                 offset=offset)
 
-    def match_surface_precip(self,
-                             input_data,
-                             targets=None):
+    def match_targets(self,
+                      input_data,
+                      targets=None):
         """
-        Match surface precipitation from .sim file to points in xarray
-        dataset.
+        Match retrieval targets from .sim file to points in
+        xarray dataset.
 
         Args:
             input_data: xarray dataset containing the input data from
@@ -130,10 +128,17 @@ class GMISimFile:
             targets: List of retrieval target variables to extract from
                 the sim file.
         Return:
-            The input dataset but with the surface_precip field added.
+            The input dataset but with the requested retrieval targets added.
         """
         if targets is None:
             targets = ALL_TARGETS
+        path_variables = [t for t in targets if "path" in t]
+        for v in path_variables:
+            profile_variable = v.replace("path", "content").replace("ice", "snow")
+            if not profile_variable in targets:
+                targets.append(profile_variable)
+        targets = [t for t in targets if "path" not in t]
+
         n_scans = input_data.scans.size
         n_pixels = 221
 
@@ -144,24 +149,12 @@ class GMISimFile:
 
         lats_1c = input_data["latitude"][:, ix_start:ix_end].data.reshape(-1, 1)
         lons_1c = input_data["longitude"][:, ix_start:ix_end].data.reshape(-1, 1)
-        z = np.zeros_like(lats_1c)
-        coords_1c = pyproj.transform(_LLA,
-                                     _ECEF,
-                                     lons_1c,
-                                     lats_1c,
-                                     z,
-                                     radians=False)
+        coords_1c = latlon_to_ecef(lons_1c, lats_1c)
         coords_1c = np.concatenate(coords_1c, axis=1)
 
         lats = self.data["latitude"].reshape(-1, 1)
         lons = self.data["longitude"].reshape(-1, 1)
-        z = np.zeros_like(lats)
-        coords_sim = pyproj.transform(_LLA,
-                                      _ECEF,
-                                      lons,
-                                      lats,
-                                      z,
-                                      radians=False)
+        coords_sim = latlon_to_ecef(lons, lats)
         coords_sim = np.concatenate(coords_sim, 1)
 
         kdtree = KDTree(coords_1c)

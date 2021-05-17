@@ -57,7 +57,7 @@ ORBIT_HEADER_TYPES = np.dtype(
 
 SCAN_HEADER_TYPES = np.dtype(
     [
-        ("scan_date", DATE_TYPE),
+        ("date", DATE_TYPE),
         ("scan_latitude", "f4"),
         ("scan_longitude", "f4"),
         ("scan_altitude", "f4"),
@@ -270,6 +270,21 @@ class PreprocessorFile:
 
         dims = ["scans", "pixels", "channels"]
         data = {k: (dims[: len(d.shape)], d) for k, d in data.items()}
+
+        scan_times = np.zeros(self.n_scans, dtype="datetime64[ns]")
+        for i in range(self.n_scans):
+            date = self.get_scan_header(i)["date"]
+            year = date["year"][0]
+            month = date["month"][0]
+            day = date["day"][0]
+            hour = date["hour"][0]
+            minute = date["minute"][0]
+            second = date["second"][0]
+            scan_times[i] = np.datetime64(
+                f"{year:04}-{month:02}-{day:02}"
+                f"T{hour:02}:{minute:02}:{second:02}"
+            )
+        data["scan_time"] = ("scans",), scan_times
         return xarray.Dataset(data)
 
     def write_retrieval_results(self, path, results):
@@ -308,8 +323,8 @@ class PreprocessorFile:
         """
         Produces GPROF compliant filename from retrieval results dict.
         """
-        start_date = self.get_scan_header(0)["scan_date"]
-        end_date = self.get_scan_header(-1)["scan_date"]
+        start_date = self.get_scan_header(0)["date"]
+        end_date = self.get_scan_header(-1)["date"]
 
         name = "2A.QCORE.GMI.V7."
 
@@ -367,13 +382,13 @@ class PreprocessorFile:
         scan_header["scan_latitude"] = header["scan_latitude"]
         scan_header["scan_longitude"] = header["scan_longitude"]
         scan_header["scan_altitude"] = header["scan_altitude"]
-        scan_header["scan_date"]["year"] = header["scan_date"]["year"]
-        scan_header["scan_date"]["month"] = header["scan_date"]["month"]
-        scan_header["scan_date"]["day"] = header["scan_date"]["day"]
-        scan_header["scan_date"]["hour"] = header["scan_date"]["hour"]
-        scan_header["scan_date"]["minute"] = header["scan_date"]["minute"]
-        scan_header["scan_date"]["second"] = header["scan_date"]["second"]
-        scan_header["scan_date"]["millisecond"] = 0.0
+        scan_header["date"]["year"] = header["date"]["year"]
+        scan_header["date"]["month"] = header["date"]["month"]
+        scan_header["date"]["day"] = header["date"]["day"]
+        scan_header["date"]["hour"] = header["date"]["hour"]
+        scan_header["date"]["minute"] = header["date"]["minute"]
+        scan_header["date"]["second"] = header["date"]["second"]
+        scan_header["date"]["millisecond"] = 0.0
         scan_header.tofile(file)
 
     def _write_retrieval_scan(
