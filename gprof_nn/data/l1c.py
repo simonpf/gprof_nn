@@ -366,7 +366,7 @@ class L1CFile:
             lons = input["S1/Longitude"][:]
             return np.any(
                 (lons >= lon_min) * (lons < lon_max) *
-                (lats >= lat_min) * (lats < lon_min)
+                (lats >= lat_min) * (lats < lat_min)
             )
 
 
