@@ -147,10 +147,17 @@ class MRMSMatchFile:
         end_time = input_data["scan_time"].data[-1]
         indices = (self.scan_time >= start_time) * (self.scan_time < end_time)
 
+
         data = self.data[indices]
 
         n_scans = input_data.scans.size
         n_pixels = 221
+
+        if indices.sum() <= 0:
+            surface_precip = np.zeros((n_scans, n_pixels))
+            surface_precip[:] = np.nan
+            input_data["surface_precip"] = ("scans", "pixels"), surface_precip
+            return input_data
 
         lats_1c = input_data["latitude"].data.reshape(-1, 1)
         lons_1c = input_data["longitude"].data.reshape(-1, 1)
@@ -159,7 +166,6 @@ class MRMSMatchFile:
 
         lats = data["latitude"].reshape(-1, 1)
         lons = data["longitude"].reshape(-1, 1)
-        z = np.zeros_like(lats)
         coords_sim = latlon_to_ecef(lons, lats)
         coords_sim = np.concatenate(coords_sim, 1)
 

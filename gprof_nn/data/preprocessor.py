@@ -10,7 +10,7 @@ for running the GPROF algorithm.
 import logging
 import os
 import subprocess
-import tempdir
+import tempfile
 
 import numpy as np
 import xarray
@@ -421,9 +421,9 @@ class PreprocessorFile:
 
 PREPROCESSOR_SETTINGS = {
     "prodtype": "CLIMATOLOGY",
-    "prepdir": "/qdata2/archive/ERA5",
-    "ancdir": "/qdata1/pbrown/gpm/ancillary",
-    "ingestdir": "/qdata1/pbrown/gpm/ppingest",
+    "prepdir": "/qdata2/archive/ERA5/",
+    "ancdir": "/qdata1/pbrown/gpm/ppancillary/",
+    "ingestdir": "/qdata1/pbrown/gpm/ppingest/",
 }
 
 
@@ -449,30 +449,32 @@ def run_preprocessor(l1c_file, output_file=None):
         xarray.Dataset containing the retrieval input data for the given L1C
         file or None when the 'output_file' argument is given.
     """
-    tempfile = False
+    tmp = False
     if output_file is None:
-        tempfile = True
-        _, output_file = tempdir.mkstemp()
-        output_file.close()
+        tmp = True
+        _, output_file = tempfile.mkstemp()
     try:
         jobid = str(os.getpid()) + "_pp"
-        args = [jobid] + get_preprocessor_settings() + [str(output_file)]
-
+        args = [jobid] + get_preprocessor_settings()
+        args.insert(2, l1c_file)
+        args.append(output_file)
         try:
-            subprocess.run(["gprof2020pp_GMI_L1C"] + args, check=True)
+            subprocess.run(["gprof2020pp_GMI_L1C"] + args,
+                           check=True,
+                           capture_output=True)
         except subprocess.CalledProcessError as error:
             LOGGER.warning(
                 "Running the preprocessor for file %s failed with the following"
                 " error: %s",
                 l1c_file,
-                error,
+                error.stdout + error.stderr,
             )
 
-        if tempfile:
+        if tmp:
             data = PreprocessorFile(output_file).to_xarray_dataset()
 
     finally:
-        if tempfile:
+        if tmp:
             Path(output_file).unlink()
-    if tempfile:
+    if tmp:
         return data

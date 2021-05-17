@@ -112,7 +112,7 @@ class GMISimFile:
         else:
             pattern = f"GMI.dbsatTb.??????{day:02}.??????.sim"
         path = Path(path)
-        return list(path.glob(pattern))
+        return list(path.glob("**/" + pattern))
 
     def __init__(self, path):
         """
@@ -213,7 +213,7 @@ class GMISimFile:
 
 def _extract_scenes(data):
     """
-    Extract 128 x 128 pixel wide scenes from dataset where
+    Extract 221 x 221 pixel wide scenes from dataset where
     ground truth surface precipitation rain rates are
     available.
 
@@ -225,19 +225,21 @@ def _extract_scenes(data):
         New xarray.Dataset which containing 128x128 patches of input data
         and corresponding surface precipitation.
     """
-
     n = 221
-
     sp = data["surface_precip"].data
-    c_i = sp.shape[1] // 2
+
+    if np.all(np.isnan(sp)):
+        return xr.Dataset()
+
     i_start, i_end = np.where(np.any(~np.isnan(sp), axis=1))[0][[0, -1]]
+
 
     scenes = []
     i = i_start
     while i_start + n < i_end:
-        subscene = data[{"scans": slice(i_start, i_start + 128)}]
+        subscene = data[{"scans": slice(i_start, i_start + n)}]
         sp = subscene["surface_precip"]
-        if np.isfinite(sp.data) < 500:
+        if np.isfinite(sp.data).sum() < 500:
             continue
         scenes.append(subscene)
         i_start += n
@@ -351,11 +353,12 @@ def process_sim_file(sim_filename, l1c_path, era5_path):
     """
     sim_file = GMISimFile(sim_filename)
     l1c_file = L1CFile.open_granule(sim_file.granule, l1c_path)
-    data_pp = run_preprocessor(l1c_file)
-    sim_file.match_surface_precip(data_pp)
+    data_pp = run_preprocessor(l1c_file.filename)
+    sim_file.match_targets(data_pp)
+    l1c_data = l1c_file.to_xarray_dataset()
 
-    start_time = data_pp["scan_time"][0]
-    end_time = data_pp["scan_time"][-1]
+    start_time = data_pp["scan_time"].data[0]
+    end_time = data_pp["scan_time"].data[-1]
     era5_data = _load_era5_data(start_time, end_time, era5_path)
     _add_era5_precip(data_pp, l1c_data, era5_data)
 
@@ -378,11 +381,11 @@ def process_mrms_file(mrms_filename, day, l1c_path):
     """
     mrms_file = MRMSMatchFile(mrms_filename)
     l1c_files = L1CFile.find_files(
-        sim_file.scan_time[mrms_file.n_obs // 2], CONUS, l1c_path
+        mrms_file.scan_time[mrms_file.n_obs // 2], CONUS, l1c_path
     )
     scenes = []
     for f in l1c_files:
-        data_pp = run_preprocessor(l1c_file)
+        data_pp = run_preprocessor(f.filename)
         surface_type = data_pp["surface_type"]
         snow = (surface_type >= 8) * (surface_type < 11)
         if snow.sum() <= 0:
@@ -390,7 +393,7 @@ def process_mrms_file(mrms_filename, day, l1c_path):
 
         mrms_file.match_targets(data_pp)
         # Keep only obs over snow.
-        mrms_file["surface_precip"].data[~snow] = np.nan
+        data_pp["surface_precip"].data[~snow] = np.nan
         scenes.append(_extract_scenes(data_pp))
 
     return xr.concat(scenes, "samples")
@@ -408,6 +411,7 @@ class SimFileProcessor:
         sim_file_path=None,
         mrms_path=None,
         l1c_path=None,
+        era5_path=None,
         n_workers=4,
         day=None,
     ):
@@ -440,6 +444,13 @@ class SimFileProcessor:
                 "sim files."
             )
         self.l1c_path = Path(l1c_path)
+
+        if era5_path is None:
+            raise ValueError(
+                "The 'era5_path' argument must be provided in order to process any"
+                "sim files."
+            )
+        self.era5_path = Path(era5_path)
         self.pool = ProcessPoolExecutor(max_workers=n_workers)
 
         if day is None:
@@ -459,21 +470,26 @@ class SimFileProcessor:
             sim_files = GMISimFile.find_files(self.sim_file_path, day=self.day)
         else:
             sim_files = []
-        if self.mrms_files is not None:
+        if self.mrms_path is not None:
             mrms_files = MRMSMatchFile.find_files(self.mrms_path)
         else:
             mrms_files = []
 
         tasks = []
         for f in sim_files:
-            tasks.append(self.pool.submit(process_sim_file, f, self.l1c_path))
+            tasks.append(self.pool.submit(process_sim_file,
+                                          f,
+                                          self.l1c_path,
+                                          self.era5_path))
         for f in mrms_files:
-            for d in self.days:
-                tasks.append(process_mrms_file, f, self.l1c_path, self.day)
+            tasks.append(self.pool.submit(process_mrms_file,
+                                          f,
+                                          self.day,
+                                          self.l1c_path))
 
         datasets = []
         for t in track(tasks, description="Extracting data"):
-            datasets += t.results()
+            datasets.append(t.result())
 
         dataset = xr.concat(datasets, "samples")
         dataset.to_netcdf(self.output_file)
