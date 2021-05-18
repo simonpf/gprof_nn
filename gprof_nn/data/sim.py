@@ -7,6 +7,7 @@ This module contains functions to read and convert .sim files for GPROF
  v. 7.
 """
 from concurrent.futures import ProcessPoolExecutor
+import logging
 from pathlib import Path
 
 import numpy as np
@@ -34,6 +35,8 @@ ALL_TARGETS = [
 ]
 
 LEVELS = np.concatenate([np.linspace(500.0, 1e4, 20), np.linspace(11e3, 18e3, 8)])
+
+LOGGER = logging.getLogger(__name__)
 
 ###############################################################################
 # Data types
@@ -353,10 +356,14 @@ def process_sim_file(sim_filename, l1c_path, era5_path):
     """
     sim_file = GMISimFile(sim_filename)
     l1c_file = L1CFile.open_granule(sim_file.granule, l1c_path)
+
+    LOGGER.info("Running preprocessor for sim file %s.", sim_filename)
     data_pp = run_preprocessor(l1c_file.filename)
+    LOGGER.info("Matching retrieval targets for file %s.", sim_filename)
     sim_file.match_targets(data_pp)
     l1c_data = l1c_file.to_xarray_dataset()
 
+    LOGGER.info("Adding ERA5 precip for file %s.", sim_filename)
     start_time = data_pp["scan_time"].data[0]
     end_time = data_pp["scan_time"].data[-1]
     era5_data = _load_era5_data(start_time, end_time, era5_path)
@@ -384,6 +391,9 @@ def process_mrms_file(mrms_filename, day, l1c_path):
         mrms_file.scan_time[mrms_file.n_obs // 2], CONUS, l1c_path
     )
     scenes = []
+    LOGGER.info("Found %s L1C file for MRMS file %s.",
+                len(l1c_files),
+                mrms_filename)
     for f in l1c_files:
         data_pp = run_preprocessor(f.filename)
         surface_type = data_pp["surface_type"]
@@ -391,6 +401,8 @@ def process_mrms_file(mrms_filename, day, l1c_path):
         if snow.sum() <= 0:
             continue
 
+        LOGGER.info("Matching MRMS data for %s.",
+                    f.filename)
         mrms_file.match_targets(data_pp)
         # Keep only obs over snow.
         data_pp["surface_precip"].data[~snow] = np.nan
