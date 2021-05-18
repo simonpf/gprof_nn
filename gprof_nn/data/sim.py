@@ -115,7 +115,7 @@ class GMISimFile:
         else:
             pattern = f"GMI.dbsatTb.??????{day:02}.??????.sim"
         path = Path(path)
-        return list(path.glob("**/" + pattern))
+        return list(path.glob("**/????/" + pattern))
 
     def __init__(self, path):
         """
@@ -354,11 +354,15 @@ def process_sim_file(sim_filename, l1c_path, era5_path):
         xarray.Dataset containing the data from the sim file as multiple
         2D training scenes.
     """
+    import gprof_nn.logging
+    LOGGER.info("Starting processing sim file %s.", sim_filename)
     sim_file = GMISimFile(sim_filename)
     l1c_file = L1CFile.open_granule(sim_file.granule, l1c_path)
 
     LOGGER.info("Running preprocessor for sim file %s.", sim_filename)
     data_pp = run_preprocessor(l1c_file.filename)
+    if data_pp is None:
+        return xr.Dataset()
     LOGGER.info("Matching retrieval targets for file %s.", sim_filename)
     sim_file.match_targets(data_pp)
     l1c_data = l1c_file.to_xarray_dataset()
@@ -386,16 +390,24 @@ def process_mrms_file(mrms_filename, day, l1c_path):
         l1c_path: Path to the root of the directory tree containing the L1C
              observations.
     """
+    import gprof_nn.logging
+    LOGGER.info("Starting processing MRMS file %s.", mrms_filename)
     mrms_file = MRMSMatchFile(mrms_filename)
-    l1c_files = L1CFile.find_files(
-        mrms_file.scan_time[mrms_file.n_obs // 2], CONUS, l1c_path
-    )
+
+    indices = np.where(mrms_file.data["scan_time"][:, 2] == day)[0]
+    if len(indices) <= 0:
+        return xr.Dataset()
+    date = mrms_file.scan_time[indices[len(indices) // 2]]
+    l1c_files = list(L1CFile.find_files(date, CONUS, l1c_path))
+
     scenes = []
     LOGGER.info("Found %s L1C file for MRMS file %s.",
                 len(l1c_files),
                 mrms_filename)
     for f in l1c_files:
         data_pp = run_preprocessor(f.filename)
+        if data_pp is None:
+            continue
         surface_type = data_pp["surface_type"]
         snow = (surface_type >= 8) * (surface_type < 11)
         if snow.sum() <= 0:
@@ -489,19 +501,22 @@ class SimFileProcessor:
 
         tasks = []
         for f in sim_files:
-            tasks.append(self.pool.submit(process_sim_file,
-                                          f,
-                                          self.l1c_path,
-                                          self.era5_path))
+            LOGGER.info("Found sim file %s", f)
+            #tasks.append(self.pool.submit(process_sim_file,
+            #                              f,
+            #                              self.l1c_path,
+            #                              self.era5_path))
         for f in mrms_files:
+            LOGGER.info("Found MRMS file %s", f)
             tasks.append(self.pool.submit(process_mrms_file,
                                           f,
                                           self.day,
                                           self.l1c_path))
 
         datasets = []
-        for t in track(tasks, description="Extracting data"):
+        for t in track(tasks, description="Extracting data ..."):
             datasets.append(t.result())
+            print("DONE2")
 
         dataset = xr.concat(datasets, "samples")
         dataset.to_netcdf(self.output_file)

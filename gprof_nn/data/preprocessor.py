@@ -469,6 +469,7 @@ def run_preprocessor(l1c_file, output_file=None):
                 l1c_file,
                 error.stdout + error.stderr,
             )
+            return None
 
         if tmp:
             data = PreprocessorFile(output_file).to_xarray_dataset()
