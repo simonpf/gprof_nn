@@ -232,7 +232,7 @@ def _extract_scenes(data):
     sp = data["surface_precip"].data
 
     if np.all(np.isnan(sp)):
-        return xr.Dataset()
+        return []
 
     i_start, i_end = np.where(np.any(~np.isnan(sp), axis=1))[0][[0, -1]]
 
@@ -248,9 +248,7 @@ def _extract_scenes(data):
         i_start += n
 
     if scenes:
-        return xr.concat(scenes, "samples")
-    return xr.Dataset()
-
+        return scenes
 
 def _find_l1c_file(path, sim_file):
     """
@@ -362,7 +360,7 @@ def process_sim_file(sim_filename, l1c_path, era5_path):
     LOGGER.info("Running preprocessor for sim file %s.", sim_filename)
     data_pp = run_preprocessor(l1c_file.filename)
     if data_pp is None:
-        return xr.Dataset()
+        return []
     LOGGER.info("Matching retrieval targets for file %s.", sim_filename)
     sim_file.match_targets(data_pp)
     l1c_data = l1c_file.to_xarray_dataset()
@@ -396,7 +394,7 @@ def process_mrms_file(mrms_filename, day, l1c_path):
 
     indices = np.where(mrms_file.data["scan_time"][:, 2] == day)[0]
     if len(indices) <= 0:
-        return xr.Dataset()
+        return []
     date = mrms_file.scan_time[indices[len(indices) // 2]]
     l1c_files = list(L1CFile.find_files(date, CONUS, l1c_path))
 
@@ -418,9 +416,9 @@ def process_mrms_file(mrms_filename, day, l1c_path):
         mrms_file.match_targets(data_pp)
         # Keep only obs over snow.
         data_pp["surface_precip"].data[~snow] = np.nan
-        scenes.append(_extract_scenes(data_pp))
+        scenes += _extract_scenes(data_pp)
 
-    return xr.concat(scenes, "samples")
+    return scenes
 
 
 ###############################################################################
