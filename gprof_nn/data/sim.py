@@ -209,6 +209,58 @@ class GMISimFile:
         return input_data
 
 
+ENHANCEMENT_FACTORS = {
+    "ERA5": {
+        (17, 0): 1.35683,
+        (17, 1): 2.05213,
+        (17, 2): 1.62242,
+        (17, 3): 1.87049,
+        (18, 0): 3.91369
+    },
+    "GANAL": {
+        (17, 0): 1.58177,
+        (17, 1): 1.81539,
+        (18, 0): 3.91369,
+    }
+}
+
+def apply_orographic_enhancement(data,
+                                 kind="ERA5"):
+    """
+    Applies orographic enhancement factors to 'surface_precip' and
+    'convective_precip' targets.
+
+    Args:
+        data: xarray.Dataset containing variables surface_precip,
+            convective_precip, surface_type and airmass_type.
+         kind: "ERA5" or "GANAL" depending on the source of ancillary data.
+
+    Returns:
+        None; Correct is applied in place.
+    """
+    kind = kind.upper()
+    if kind not in ["ERA5", "GANAL"]:
+        raise ValueError(
+            "The kind argument to  must be 'ERA5' or 'GANAL'."
+        )
+    surface_types = data["surface_type"].data
+    airmass_types = data["airmass_type"].data
+    surface_precip = data["surface_precip"].data
+    convective_precip = data["convective_precip"].data
+
+    enh = np.ones(surface_precip.shape)
+    factors = ENHANCEMENT_FACTORS[kind]
+    for st in [17, 18]:
+        for at in range(4):
+            key = (st, at)
+            if not key in factors:
+                continue
+            indices = (surface_types == st) * (airmass_types == at)
+            enh[indices] = factors[key]
+
+    surface_precip *= enh
+    convective_precip *= enh
+
 ###############################################################################
 # Helper functions
 ###############################################################################
@@ -319,7 +371,8 @@ def _add_era5_precip(input_data, l1c_data, era5_data):
     era5_data = xr.concat([era5_data, l0], "longitude")
     n_scans = l1c_data.scans.size
     n_pixels = l1c_data.pixels.size
-    indices = input_data["surface_type"] == 2
+    indices = ((input_data["surface_type"] == 2) +
+               (input_data["surface_type"] == 16))
     lats = xr.DataArray(input_data["latitude"].data[indices], dims="samples")
     lons = input_data["longitude"].data[indices]
     lons = np.where(lons < 0.0, lons + 360, lons)
