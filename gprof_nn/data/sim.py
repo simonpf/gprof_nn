@@ -284,7 +284,7 @@ def _extract_scenes(data):
     sp = data["surface_precip"].data
 
     if np.all(np.isnan(sp)):
-        return []
+        return None
 
     i_start, i_end = np.where(np.any(~np.isnan(sp), axis=1))[0][[0, -1]]
 
@@ -294,13 +294,12 @@ def _extract_scenes(data):
     while i_start + n < i_end:
         subscene = data[{"scans": slice(i_start, i_start + n)}]
         sp = subscene["surface_precip"]
-        if np.isfinite(sp.data).sum() < 500:
-            continue
         scenes.append(subscene)
         i_start += n
 
     if scenes:
-        return scenes
+        return xr.concat(scenes, "samples")
+    return None
 
 def _find_l1c_file(path, sim_file):
     """
@@ -423,6 +422,7 @@ def process_sim_file(sim_filename, l1c_path, era5_path):
     end_time = data_pp["scan_time"].data[-1]
     era5_data = _load_era5_data(start_time, end_time, era5_path)
     _add_era5_precip(data_pp, l1c_data, era5_data)
+    apply_orographic_enhancement(data_pp)
 
     scenes = _extract_scenes(data_pp)
     return scenes
@@ -469,9 +469,15 @@ def process_mrms_file(mrms_filename, day, l1c_path):
         mrms_file.match_targets(data_pp)
         # Keep only obs over snow.
         data_pp["surface_precip"].data[~snow] = np.nan
-        scenes += _extract_scenes(data_pp)
+        apply_orographic_enhancement(data_pp)
 
-    return scenes
+        new_scenes = _extract_scenes(data_pp)
+        if new_scenes is not None:
+            scenes += _extract_scenes(data_pp)
+
+    if scenes:
+        return xr.concat(scenes, "samples")
+    return None
 
 
 ###############################################################################
@@ -515,15 +521,15 @@ class SimFileProcessor:
 
         if l1c_path is None:
             raise ValueError(
-                "The 'l1c_path' argument must be provided in order to process any"
-                "sim files."
+                "The 'l1c_path' argument must be provided in order to process "
+                "any sim files."
             )
         self.l1c_path = Path(l1c_path)
 
         if era5_path is None:
             raise ValueError(
-                "The 'era5_path' argument must be provided in order to process any"
-                "sim files."
+                "The 'era5_path' argument must be provided in order to process"
+                " any sim files."
             )
         self.era5_path = Path(era5_path)
         self.pool = ProcessPoolExecutor(max_workers=n_workers)
@@ -566,8 +572,9 @@ class SimFileProcessor:
 
         datasets = []
         for t in track(tasks, description="Extracting data ..."):
-            datasets.append(t.result())
-            print("DONE2")
+            dataset = t.result()
+            if dataset is not None:
+                datasets.append(dataset)
 
         dataset = xr.concat(datasets, "samples")
         dataset.to_netcdf(self.output_file)
