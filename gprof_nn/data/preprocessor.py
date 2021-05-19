@@ -452,7 +452,7 @@ def run_preprocessor(l1c_file, output_file=None):
     tmp = False
     if output_file is None:
         tmp = True
-        _, output_file = tempfile.mkstemp()
+        _, output_file = tempfile.mkstemp(dir="/home/simon/tmp")
     try:
         jobid = str(os.getpid()) + "_pp"
         args = [jobid] + get_preprocessor_settings()
@@ -469,6 +469,10 @@ def run_preprocessor(l1c_file, output_file=None):
                 l1c_file,
                 error.stdout + error.stderr,
             )
+            if tmp:
+                path = Path(output_file)
+                if path.exists():
+                    path.unlink()
             return None
 
         if tmp:
@@ -476,6 +480,8 @@ def run_preprocessor(l1c_file, output_file=None):
 
     finally:
         if tmp:
-            Path(output_file).unlink()
+            path = Path(output_file)
+            if path.exists():
+                path.unlink()
     if tmp:
         return data

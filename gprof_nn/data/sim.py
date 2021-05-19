@@ -32,6 +32,9 @@ ALL_TARGETS = [
     "rain_water_content",
     "snow_water_content",
     "latent_heat",
+    "ice_water_path",
+    "rain_water_path",
+    "cloud_water_path"
 ]
 
 LEVELS = np.concatenate([np.linspace(500.0, 1e4, 20), np.linspace(11e3, 18e3, 8)])
@@ -242,13 +245,11 @@ def _extract_scenes(data):
     while i_start + n < i_end:
         subscene = data[{"scans": slice(i_start, i_start + n)}]
         sp = subscene["surface_precip"]
-        if np.isfinite(sp.data).sum() < 500:
-            continue
-        scenes.append(subscene)
         i_start += n
+        if np.isfinite(sp.data).sum() > 500:
+            scenes.append(subscene)
 
-    if scenes:
-        return scenes
+    return scenes
 
 def _find_l1c_file(path, sim_file):
     """
@@ -368,8 +369,10 @@ def process_sim_file(sim_filename, l1c_path, era5_path):
     LOGGER.info("Adding ERA5 precip for file %s.", sim_filename)
     start_time = data_pp["scan_time"].data[0]
     end_time = data_pp["scan_time"].data[-1]
+    LOGGER.info("Loading ERA5 data: %s %s", start_time, end_time)
     era5_data = _load_era5_data(start_time, end_time, era5_path)
     _add_era5_precip(data_pp, l1c_data, era5_data)
+    LOGGER.info("Added era5 precip.")
 
     scenes = _extract_scenes(data_pp)
     return scenes
@@ -420,6 +423,26 @@ def process_mrms_file(mrms_filename, day, l1c_path):
 
     return scenes
 
+def add_targets(data):
+    """
+    Helper function to ensure all target variables are present in
+    dataset.
+    """
+    n_scans = data.scans.size
+    n_pixels = data.pixels.size
+    n_levels = 28
+
+    for t in ALL_TARGETS:
+        if not t in data.variables:
+            if "content" in t:
+                d = np.zeros((n_scans, n_pixels, n_levels))
+                d[:] = np.nan
+                data[t] = (("scans", "pixels", "levels"), d)
+            else:
+                d = np.zeros((n_scans, n_pixels))
+                d[:] = np.nan
+                data[t] = (("scans", "pixels"), d)
+    return data
 
 ###############################################################################
 # File processor
@@ -500,10 +523,10 @@ class SimFileProcessor:
         tasks = []
         for f in sim_files:
             LOGGER.info("Found sim file %s", f)
-            #tasks.append(self.pool.submit(process_sim_file,
-            #                              f,
-            #                              self.l1c_path,
-            #                              self.era5_path))
+            tasks.append(self.pool.submit(process_sim_file,
+                                          f,
+                                          self.l1c_path,
+                                          self.era5_path))
         for f in mrms_files:
             LOGGER.info("Found MRMS file %s", f)
             tasks.append(self.pool.submit(process_mrms_file,
@@ -513,8 +536,15 @@ class SimFileProcessor:
 
         datasets = []
         for t in track(tasks, description="Extracting data ..."):
-            datasets.append(t.result())
-            print("DONE2")
+            try:
+                results = [add_targets(d) for d in t.result()]
+                datasets += results
+            except Exception as e:
+                LOGGER.warning(
+                    "The following error occurred while gathering "
+                    "results: %s", e
+                )
+
 
         dataset = xr.concat(datasets, "samples")
         dataset.to_netcdf(self.output_file)

@@ -177,6 +177,13 @@ class MRMSMatchFile:
         matched[indices] = data["surface_precip"]
         matched[indices][dists > 5e3] = np.nan
         matched = matched.reshape((n_scans, n_pixels))
-
         input_data["surface_precip"] = (("scans", "pixels"), matched)
+
+        matched = np.zeros(n_scans * n_pixels)
+        matched[:] = np.nan
+        matched[indices] = data["convective_rain"]
+        matched[indices][dists > 5e3] = np.nan
+        matched = matched.reshape((n_scans, n_pixels))
+        input_data["convective_precip"] = (("scans", "pixels"), matched)
+
         return input_data
