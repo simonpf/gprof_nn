@@ -260,7 +260,7 @@ class GPROF0DDataset:
             st_1h[np.arange(n), st.ravel() - 1] = 1.0
             # Airmass type
             am = variables["airmass_type"][:]
-            n_types = 3
+            n_types = 4
             am_1h = np.zeros((n, n_types), dtype=np.float32)
             am_1h[np.arange(n), np.maximum(am.ravel() - 1, 0)] = 1.0
 
