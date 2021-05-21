@@ -20,7 +20,7 @@ def test_gprof_0d_dataset():
     statistics.
     """
     path = Path(__file__).parent
-    input_file = path / "data" / "dataset_0d.nc"
+    input_file = path / "data" / "gprof_gmi_era5.nc"
     dataset = GPROF0DDataset(input_file, batch_size=1)
 
     print(dataset)
@@ -41,8 +41,8 @@ def test_gprof_0d_dataset():
     x_mean = xs.sum(dim=0).detach().numpy()
     y_mean = ys.sum(dim=0).detach().numpy()
 
-    assert np.all(np.isclose(x_mean, x_mean_ref, atol=1e-3))
-    assert np.all(np.isclose(y_mean, y_mean_ref, atol=1e-3))
+    assert np.all(np.isclose(x_mean, x_mean_ref, rtol=1e-3))
+    assert np.all(np.isclose(y_mean, y_mean_ref, rtol=1e-3))
 
 
 def test_gprof_0d_dataset_multi_target():
@@ -51,7 +51,7 @@ def test_gprof_0d_dataset_multi_target():
     statistics.
     """
     path = Path(__file__).parent
-    input_file = path / "data" / "dataset_0d.nc"
+    input_file = path / "data" / "gprof_gmi_era5.nc"
     dataset = GPROF0DDataset(
         input_file, target=["surface_precip", "rain_water_content"], batch_size=1
     )
@@ -69,10 +69,39 @@ def test_gprof_0d_dataset_multi_target():
 
     xs = torch.cat(xs, dim=0)
     ys = {k: torch.cat(ys[k], dim=0) for k in ys}
+    ys = {k: torch.where(torch.isnan(ys[k]), torch.zeros_like(ys[k]), ys[k])
+          for k in ys}
 
     x_mean = xs.sum(dim=0).detach().numpy()
     y_mean = {k: ys[k].sum(dim=0).detach().numpy() for k in ys}
 
     assert np.all(np.isclose(x_mean, x_mean_ref, atol=1e-3))
     for k in y_mean_ref:
-        assert np.all(np.isclose(y_mean[k], y_mean_ref[k], atol=1e-3))
+        assert np.all(np.isclose(y_mean[k], y_mean_ref[k], rtol=1e-3))
+
+def test_profile_variables():
+    """
+    Ensure profile variables are available everywhere except over sea ice
+    or snow.
+    """
+    path = Path(__file__).parent
+    input_file = path / "data" / "gprof_gmi_era5.nc"
+
+    PROFILE_TARGETS = [
+        "rain_water_content",
+        "snow_water_content",
+        "cloud_water_content",
+        "latent_heat"
+    ]
+    dataset = GPROF0DDataset(
+        input_file, target=PROFILE_TARGETS, batch_size=1
+    )
+
+    for t in PROFILE_TARGETS:
+        x = dataset.x
+        y = dataset.y[t]
+
+        st = np.where(x[:, 17:35])[1]
+
+        indices = (st == 2) + (st >= 8) * (st <= 11) + (st == 16)
+        assert np.all(y[indices] >= 0)

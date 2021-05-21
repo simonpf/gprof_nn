@@ -35,6 +35,9 @@ class ClampedExp(nn.Module):
     """
     Clamped version of the exponential function that avoids exploding values.
     """
+    def __init__(self):
+        super().__init__()
+        self.sp = torch.nn.Softplus()
 
     def forward(self, x):
         return torch.exp(x)

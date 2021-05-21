@@ -129,6 +129,12 @@ def write_scan_header(output, template=None):
         header = template.get_scan_header(0)
     else:
         header = np.recarray(1, dtype=SCAN_HEADER_TYPES)
+        header["date"]["year"] = 6
+        header["date"]["month"] = 6
+        header["date"]["day"] = 6
+        header["date"]["hour"] = 6
+        header["date"]["minute"] = 6
+        header["date"]["second"] = 6
     header.tofile(output)
 
 
