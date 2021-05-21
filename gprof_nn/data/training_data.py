@@ -57,7 +57,9 @@ _THRESHOLDS = {
 
 
 def write_preprocessor_file(
-    input_file, output_file, x=None, n_samples=None, template=None
+    input_file,
+        output_file,
+        template=None
 ):
     """
     Extract sample from training data file and write to preprocessor format.
@@ -66,31 +68,19 @@ def write_preprocessor_file(
         input_file: Path to the NetCDF4 file containing the training or test
             data.
         output_file: Path of the file to write the output to.
-        n_samples: How many samples to extract from the training data file.
         template: Template preprocessor file use to determine the orbit header
              information. If not provided this data will be filled with dummy
              values.
     """
     data = xr.open_dataset(input_file)
     new_names = {"brightness_temps": "brightness_temperatures"}
-    n_pixels = 2048
-    if n_samples is None:
-        n_samples = data.samples.size
-
-    if n_samples < n_pixels:
-        n_pixels = n_samples
-
-    if n_samples < data.samples.size:
-        indices = np.random.permutation(data.samples.size)[:n_samples]
-    else:
-        indices = slice(0, None)
-    data = data[{"samples": indices}].rename(new_names)
-    n_scans = data.samples.size // n_pixels
-    n_scans += (data.samples.size % n_pixels) > 0
+    n_pixels = data.pixels.size
+    n_scans = data.scans.size
+    n_scenes = data.samples.size
 
     new_dims = ["scans", "pixels", "channels"]
     new_dataset = {
-        "scans": np.arange(n_scans),
+        "scans": np.arange(n_scans * n_scenes),
         "pixels": np.arange(n_pixels),
         "channels": np.arange(15),
     }
@@ -98,21 +88,18 @@ def write_preprocessor_file(
     shape = (n_scans, n_pixels, 15)
     for k in data:
         da = data[k]
-        n_dims = len(da.dims)
-        s = (n_scans, n_pixels) + da.data.shape[1:]
-        new_data = np.zeros(s)
-        n = da.data.size
-        new_data.ravel()[:n] = da.data.ravel()
-        new_data.ravel()[n:] = np.nan
-        dims = ("scans", "pixels") + da.dims[1:]
-        new_dataset[k] = (dims, new_data)
+        ns = da.shape[0] * da.shape[1]
+        new_shape = (ns, ) + da.shape[2:]
+        dims = da.dims[1:]
+        new_dataset[k] = (dims, da.data.reshape(new_shape))
 
-    new_dataset["earth_incidence_angle"] = (
-        ("scans", "pixels", "channels"),
-        np.broadcast_to(
-            data.attrs["nominal_eia"].reshape(1, 1, -1), (n_scans, n_pixels, 15)
-        ),
-    )
+    if "nominal_eia" in data.attrs:
+        new_dataset["earth_incidence_angle"] = (
+            ("scans", "pixels", "channels"),
+            np.broadcast_to(
+                data.attrs["nominal_eia"].reshape(1, 1, -1), (n_scans, n_pixels, 15)
+            ),
+        )
 
     new_data = xr.Dataset(new_dataset)
     PreprocessorFile.write(output_file, new_data, template=template)
@@ -231,15 +218,17 @@ class GPROF0DDataset:
         with Dataset(self.filename, "r") as dataset:
 
             variables = dataset.variables
-            n = dataset.dimensions["samples"].size
 
             #
             # Input data
             #
 
             # Brightness temperatures
-            m = dataset.dimensions["channel"].size
-            bts = dataset["brightness_temps"][:]
+            sp = dataset["surface_precip"][:]
+            valid = np.isfinite(sp)
+            n = valid.sum()
+
+            bts = dataset["brightness_temperatures"][:][valid]
 
             invalid = (bts > 500.0) + (bts < 0.0)
             bts[invalid] = np.nan
@@ -250,19 +239,21 @@ class GPROF0DDataset:
                 bts[r > 0.8, 10:15] = np.nan
 
             # 2m temperature
-            t2m = variables["two_meter_temperature"][:].reshape(-1, 1)
+            t2m = variables["two_meter_temperature"][:][valid].reshape(-1, 1)
             # Total precitable water.
-            tcwv = variables["total_column_water_vapor"][:].reshape(-1, 1)
+            tcwv = variables["total_column_water_vapor"][:][valid].reshape(-1, 1)
             # Surface type
-            st = variables["surface_type"][:]
+            st = variables["surface_type"][:][valid]
             n_types = 18
             st_1h = np.zeros((n, n_types), dtype=np.float32)
             st_1h[np.arange(n), st.ravel() - 1] = 1.0
             # Airmass type
-            am = variables["airmass_type"][:]
-            n_types = 3
+            # Airmass type is defined slightly different from surface type in
+            # that there is a 0 type.
+            am = variables["airmass_type"][:][valid]
+            n_types = 4
             am_1h = np.zeros((n, n_types), dtype=np.float32)
-            am_1h[np.arange(n), np.maximum(am.ravel() - 1, 0)] = 1.0
+            am_1h[np.arange(n), np.maximum(am.ravel(), 0)] = 1.0
 
             self.x = np.concatenate([bts, t2m, tcwv, st_1h, am_1h], axis=1)
 
@@ -274,11 +265,13 @@ class GPROF0DDataset:
             if isinstance(self.target, list):
                 self.y = {}
                 for l in self.target:
-                    y = variables[l][:]
+                    y = variables[l][:][valid].filled(np.nan)
+                    np.nan_to_num(y, copy=False, nan=-9999)
                     y[y < -400] = -9999
                     self.y[l] = y
             else:
-                y = variables[self.target][:]
+                y = variables[self.target][:][valid].filled(np.nan)
+                np.nan_to_num(y, copy=False, nan=-9999)
                 y[y < -400] = -9999
                 self.y = y
 
@@ -299,28 +292,53 @@ class GPROF0DDataset:
             x = self.x
         y = self.y
 
-        bts = x[:, :15]
-        t2m = x[:, 15]
-        tcwv = x[:, 16]
-        st = np.where(x[:, 17 : 17 + 18])[1]
-        at = np.where(x[:, 17 + 18 : 17 + 21])[1]
+        n_samples = x.shape[0]
+        n_pixels = 221
+        n_scans = n_samples // 221
+        n_levels = 28
+        if (n_samples % 221) > 0:
+            n_scans += 1
+
+        bts = np.zeros((1, n_scans, n_pixels, 15), dtype=np.float32)
+        t2m = np.zeros((1, n_scans, n_pixels), dtype=np.float32)
+        tcwv = np.zeros((1, n_scans, n_pixels), dtype=np.float32)
+        st = np.zeros((1, n_scans, n_pixels), dtype=np.float32)
+        at = np.zeros((1, n_scans, n_pixels), dtype=np.float32)
+
+        bts.reshape((-1, 15))[:n_samples] = x[:, :15]
+        t2m.ravel()[:n_samples] = x[:, 15]
+        tcwv.ravel()[:n_samples] = x[:, 16]
+        st.ravel()[:n_samples] = np.where(x[:, 17: 17 + 18])[1]
+        at.ravel()[:n_samples] = np.where(x[:, 17 + 18: 17 + 22])[1]
 
         dataset = xr.open_dataset(self.filename)
 
-        dims = ("samples", "channel")
+        dims = ("samples", "scans", "pixels", "channel")
         new_dataset = {
-            "brightness_temps": (dims, bts),
-            "two_meter_temperature": (dims[:1], t2m),
-            "total_column_water_vapor": (dims[:1], tcwv),
-            "surface_type": (dims[:1], st),
-            "airmass_type": (dims[:1], at),
+            "brightness_temperatures": (dims, bts),
+            "two_meter_temperature": (dims[:-1], t2m),
+            "total_column_water_vapor": (dims[:-1], tcwv),
+            "surface_type": (dims[:-1], st),
+            "airmass_type": (dims[:-1], at),
         }
+        dims = ("samples", "scans", "pixels", "levels")
         if isinstance(self.y, dict):
-            dims = ("samples", "levels")
             for k, v in self.y.items():
-                new_dataset[k] = (dims[: len(v.shape)], v)
+                shape = (1, n_scans, n_pixels, n_levels)
+                n_dims = v.ndim
+                data = np.zeros(shape[:2 + n_dims], dtype=np.float32)
+                if n_dims == 2:
+                    data.reshape(-1, 28)[:n_samples] = v
+                else:
+                    data.ravel()[:n_samples] = v
+                new_dataset[k] = (dims[:2 + n_dims], data)
         else:
-            new_dataset["surface_precip"] = (("samples",), self.y)
+            shape = (1, n_scans, n_pixels)
+            data = np.zeros(shape)
+            data.reshape(-1)[:n_samples] = self.y
+            new_dataset[k] = (dims[:-1], data)
+            new_dataset["surface_precip"] = (("samples", "scans", "pixels",),
+                                             self.y[np.newaxis, :])
         new_dataset = xr.Dataset(new_dataset)
         new_dataset.attrs = dataset.attrs
         new_dataset.to_netcdf(filename)

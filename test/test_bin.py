@@ -5,7 +5,7 @@ algorithm from .bin files.
 from pathlib import Path
 
 import numpy as np
-from regn.data.csu.bin import (FileProcessor,
+from gprof_nn.data.bin import (FileProcessor,
                                GPROFGMIBinFile)
 from gprof_nn.data.training_data import GPROF0DDataset
 from gprof_nn.data.retrieval import (ORBIT_HEADER_TYPES,
@@ -28,7 +28,7 @@ def test_file_processor(tmp_path):
     dataset = GPROF0DDataset(output_file, normalize=False)
     normalizer = dataset.normalizer
 
-    bts_input = input_file.handle["brightness_temps"].view("15f4")[:, :3]
+    bts_input = input_file.handle["brightness_temperatures"].view("15f4")[:, :3]
     bts = dataset.x[:, :3]
     assert np.all(np.isclose(bts_input.mean(), bts.mean()))
     assert np.all(np.isclose(input_file.handle["two_meter_temperature"].mean(),

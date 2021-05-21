@@ -118,7 +118,10 @@ class GMISimFile:
         else:
             pattern = f"GMI.dbsatTb.??????{day:02}.??????.sim"
         path = Path(path)
-        return list(path.glob("**/????/" + pattern))
+        files = list(path.glob("**/????/" + pattern))
+        if not files:
+            files = list(path.glob("**/" + pattern))
+        return files
 
     def __init__(self, path):
         """

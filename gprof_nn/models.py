@@ -35,6 +35,9 @@ class ClampedExp(nn.Module):
     """
     Clamped version of the exponential function that avoids exploding values.
     """
+    def __init__(self):
+        super().__init__()
+        self.sp = torch.nn.Softplus()
 
     def forward(self, x):
         return torch.exp(x)
@@ -161,7 +164,7 @@ class GPROFNN0D(nn.Module):
 
         super().__init__()
         self.body = HyperResNetFC(
-            38, n_neurons, n_neurons, n_layers_body, nn.GELU, internal=True
+            39, n_neurons, n_neurons, n_layers_body, nn.GELU, internal=True
         )
         self.heads = nn.ModuleDict()
         if exp_activation:
@@ -177,7 +180,7 @@ class GPROFNN0D(nn.Module):
         if n_layers_body > 0:
             n_in = n_neurons
         else:
-            n_in = 38
+            n_in = 39
         for t in targets:
             if t in PROFILE_NAMES:
                 self.heads[t] = HyperResNetFC(
@@ -201,7 +204,7 @@ class GPROFNN0D(nn.Module):
         Forward the input x through the network.
 
         Args:
-             x: Rank-2 tensor with the 38 input elements along the
+             x: Rank-2 tensor with the 39 input elements along the
                  second dimension and the batch sample along the first.
 
         Return:

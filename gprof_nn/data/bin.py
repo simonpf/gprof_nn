@@ -102,7 +102,9 @@ class GPROFGMIBinFile:
         elif len(parts) == 5:
             self.airmass_type = int(parts[-2])
         else:
-            raise Exception(f"Filename {filename} does not match expected format!")
+            raise Exception(
+                f"Filename {filename} does not match expected format!"
+            )
 
         # Read the header
         self.header = np.fromfile(self.filename, GMI_BIN_HEADER_TYPES, count=1)
@@ -210,7 +212,10 @@ GPM_FILE_REGEXP = re.compile(r"gpm_(\d\d\d)_(\d\d)(_(\d\d))?_(\d\d).bin")
 
 
 def process_input(input_filename, start=1.0, end=1.0, include_profiles=False):
-    data = load_data(input_filename, start, end, include_profiles=include_profiles)
+    data = load_data(input_filename,
+                     start,
+                     end,
+                     include_profiles=include_profiles)
     return data
 
 
