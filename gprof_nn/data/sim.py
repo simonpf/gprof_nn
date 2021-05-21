@@ -186,12 +186,12 @@ class GMISimFile:
                 n = n_scans * (dx + 1)
                 shape = (n_scans, dx + 1, 28)
                 full_shape = (n_scans, n_pixels, 28)
-                matched = np.zeros((n, 28))
+                matched = np.zeros((n, 28), dtype=np.float32)
             else:
                 n = n_scans * (dx + 1)
                 shape = (n_scans, dx + 1)
                 full_shape = (n_scans, n_pixels)
-                matched = np.zeros(n)
+                matched = np.zeros(n, dtype=np.float32)
 
             matched[:] = np.nan
             matched[indices] = self.data[t]
@@ -203,14 +203,69 @@ class GMISimFile:
             matched_full[:, ix_start:ix_end] = matched
 
             if t in PROFILE_NAMES:
-                input_data[t] = (("scans", "pixels", "levels"), matched_full)
+                input_data[t] = (("scans", "pixels", "levels"),
+                                 matched_full.astype(np.float32))
                 path = np.trapz(matched_full, x=LEVELS, axis=-1) * 1e-3
                 path_name = t.replace("content", "path").replace("snow", "ice")
-                input_data[path_name] = (("scans", "pixels"), path)
+                input_data[path_name] = (("scans", "pixels"),
+                                         path.astype(np.float32))
             else:
-                input_data[t] = (("scans", "pixels"), matched_full)
+                input_data[t] = (("scans", "pixels"),
+                                 matched_full.astype(np.float32))
         return input_data
 
+
+ENHANCEMENT_FACTORS = {
+    "ERA5": {
+        (17, 0): 1.35683,
+        (17, 1): 2.05213,
+        (17, 2): 1.62242,
+        (17, 3): 1.87049,
+        (18, 0): 3.91369
+    },
+    "GANAL": {
+        (17, 0): 1.58177,
+        (17, 1): 1.81539,
+        (18, 0): 3.91369,
+    }
+}
+
+def apply_orographic_enhancement(data,
+                                 kind="ERA5"):
+    """
+    Applies orographic enhancement factors to 'surface_precip' and
+    'convective_precip' targets.
+
+    Args:
+        data: xarray.Dataset containing variables surface_precip,
+            convective_precip, surface_type and airmass_type.
+         kind: "ERA5" or "GANAL" depending on the source of ancillary data.
+
+    Returns:
+        None; Correct is applied in place.
+    """
+    kind = kind.upper()
+    if kind not in ["ERA5", "GANAL"]:
+        raise ValueError(
+            "The kind argument to  must be 'ERA5' or 'GANAL'."
+        )
+    surface_types = data["surface_type"].data
+    airmass_types = data["airmass_type"].data
+    surface_precip = data["surface_precip"].data
+    convective_precip = data["convective_precip"].data
+
+    enh = np.ones(surface_precip.shape, dtype=np.float32)
+    factors = ENHANCEMENT_FACTORS[kind]
+    for st in [17, 18]:
+        for at in range(4):
+            key = (st, at)
+            if not key in factors:
+                continue
+            indices = (surface_types == st) * (airmass_types == at)
+            enh[indices] = factors[key]
+
+    surface_precip *= enh
+    convective_precip *= enh
 
 ###############################################################################
 # Helper functions
@@ -235,7 +290,7 @@ def _extract_scenes(data):
     sp = data["surface_precip"].data
 
     if np.all(np.isnan(sp)):
-        return []
+        return None
 
     i_start, i_end = np.where(np.any(~np.isnan(sp), axis=1))[0][[0, -1]]
 
@@ -245,11 +300,12 @@ def _extract_scenes(data):
     while i_start + n < i_end:
         subscene = data[{"scans": slice(i_start, i_start + n)}]
         sp = subscene["surface_precip"]
+        scenes.append(subscene)
         i_start += n
-        if np.isfinite(sp.data).sum() > 500:
-            scenes.append(subscene)
 
-    return scenes
+    if scenes:
+        return xr.concat(scenes, "samples")
+    return None
 
 def _find_l1c_file(path, sim_file):
     """
@@ -320,7 +376,8 @@ def _add_era5_precip(input_data, l1c_data, era5_data):
     era5_data = xr.concat([era5_data, l0], "longitude")
     n_scans = l1c_data.scans.size
     n_pixels = l1c_data.pixels.size
-    indices = input_data["surface_type"] == 2
+    indices = ((input_data["surface_type"] == 2) +
+               (input_data["surface_type"] == 16))
     lats = xr.DataArray(input_data["latitude"].data[indices], dims="samples")
     lons = input_data["longitude"].data[indices]
     lons = np.where(lons < 0.0, lons + 360, lons)
@@ -329,10 +386,15 @@ def _add_era5_precip(input_data, l1c_data, era5_data):
         l1c_data["scan_time"].data.reshape(-1, 1), (n_scans, n_pixels)
     )[indices]
     time = xr.DataArray(time, dims="samples")
+    # Interpolate and convert to mm/h
     tp = era5_data["tp"].interp(
         {"latitude": lats, "longitude": lons, "time": time}, method="linear"
     )
-    input_data["surface_precip"].data[indices] = tp.data
+    input_data["surface_precip"].data[indices] = 1000.0 * tp.data
+    cp = era5_data["cp"].interp(
+        {"latitude": lats, "longitude": lons, "time": time}, method="linear"
+    )
+    input_data["convective_precip"].data[indices] = 1000.0 * cp.data
 
 
 def process_sim_file(sim_filename, l1c_path, era5_path):
@@ -361,7 +423,7 @@ def process_sim_file(sim_filename, l1c_path, era5_path):
     LOGGER.info("Running preprocessor for sim file %s.", sim_filename)
     data_pp = run_preprocessor(l1c_file.filename)
     if data_pp is None:
-        return []
+        return None
     LOGGER.info("Matching retrieval targets for file %s.", sim_filename)
     sim_file.match_targets(data_pp)
     l1c_data = l1c_file.to_xarray_dataset()
@@ -373,9 +435,15 @@ def process_sim_file(sim_filename, l1c_path, era5_path):
     era5_data = _load_era5_data(start_time, end_time, era5_path)
     _add_era5_precip(data_pp, l1c_data, era5_data)
     LOGGER.info("Added era5 precip.")
+    apply_orographic_enhancement(data_pp)
 
-    scenes = _extract_scenes(data_pp)
-    return scenes
+    surface_type = data_pp.variables["surface_type"].data
+    snow = (surface_type >= 8) * (surface_type <= 11)
+    for v in data_pp.variables:
+        if v in ["surface_precip", "convective_precip"]:
+            data_pp[v].data[snow] = np.nan
+
+    return _extract_scenes(data_pp)
 
 
 def process_mrms_file(mrms_filename, day, l1c_path):
@@ -397,7 +465,7 @@ def process_mrms_file(mrms_filename, day, l1c_path):
 
     indices = np.where(mrms_file.data["scan_time"][:, 2] == day)[0]
     if len(indices) <= 0:
-        return []
+        return None
     date = mrms_file.scan_time[indices[len(indices) // 2]]
     l1c_files = list(L1CFile.find_files(date, CONUS, l1c_path))
 
@@ -410,7 +478,7 @@ def process_mrms_file(mrms_filename, day, l1c_path):
         if data_pp is None:
             continue
         surface_type = data_pp["surface_type"]
-        snow = (surface_type >= 8) * (surface_type < 11)
+        snow = (surface_type >= 8) * (surface_type <= 11)
         if snow.sum() <= 0:
             continue
 
@@ -419,9 +487,18 @@ def process_mrms_file(mrms_filename, day, l1c_path):
         mrms_file.match_targets(data_pp)
         # Keep only obs over snow.
         data_pp["surface_precip"].data[~snow] = np.nan
-        scenes += _extract_scenes(data_pp)
+        data_pp["convective_precip"].data[~snow] = np.nan
+        apply_orographic_enhancement(data_pp)
 
-    return scenes
+        new_scenes = _extract_scenes(data_pp)
+        if new_scenes is not None:
+            scenes.append(_extract_scenes(data_pp))
+
+    if scenes:
+        dataset = xr.concat(scenes, "samples")
+        return add_targets(dataset)
+
+    return None
 
 def add_targets(data):
     """
@@ -435,11 +512,13 @@ def add_targets(data):
     for t in ALL_TARGETS:
         if not t in data.variables:
             if "content" in t:
-                d = np.zeros((n_scans, n_pixels, n_levels))
+                d = np.zeros((n_scans, n_pixels, n_levels),
+                             dtype=np.float32)
                 d[:] = np.nan
                 data[t] = (("scans", "pixels", "levels"), d)
             else:
-                d = np.zeros((n_scans, n_pixels))
+                d = np.zeros((n_scans, n_pixels),
+                             dtype=np.float32)
                 d[:] = np.nan
                 data[t] = (("scans", "pixels"), d)
     return data
@@ -485,15 +564,15 @@ class SimFileProcessor:
 
         if l1c_path is None:
             raise ValueError(
-                "The 'l1c_path' argument must be provided in order to process any"
-                "sim files."
+                "The 'l1c_path' argument must be provided in order to process "
+                "any sim files."
             )
         self.l1c_path = Path(l1c_path)
 
         if era5_path is None:
             raise ValueError(
-                "The 'era5_path' argument must be provided in order to process any"
-                "sim files."
+                "The 'era5_path' argument must be provided in order to process"
+                " any sim files."
             )
         self.era5_path = Path(era5_path)
         self.pool = ProcessPoolExecutor(max_workers=n_workers)
@@ -515,36 +594,59 @@ class SimFileProcessor:
             sim_files = GMISimFile.find_files(self.sim_file_path, day=self.day)
         else:
             sim_files = []
+        sim_files = np.random.permutation(sim_files)
         if self.mrms_path is not None:
             mrms_files = MRMSMatchFile.find_files(self.mrms_path)
         else:
             mrms_files = []
+        mrms_files = np.random.permutation(mrms_files)
 
+        n_sim_files = len(sim_files)
+        n_mrms_files = len(mrms_files)
+        i = 0
+
+        # Submit tasks interleaving .sim and MRMS files.
         tasks = []
-        for f in sim_files:
-            LOGGER.info("Found sim file %s", f)
-            tasks.append(self.pool.submit(process_sim_file,
-                                          f,
-                                          self.l1c_path,
-                                          self.era5_path))
-        for f in mrms_files:
-            LOGGER.info("Found MRMS file %s", f)
-            tasks.append(self.pool.submit(process_mrms_file,
-                                          f,
-                                          self.day,
-                                          self.l1c_path))
+        while i < max(n_sim_files, n_mrms_files):
+            if i < n_sim_files:
+                sim_file = sim_files[i]
+                tasks.append(self.pool.submit(process_sim_file,
+                                              sim_file,
+                                              self.l1c_path,
+                                              self.era5_path))
+            if i < n_mrms_files:
+                mrms_file = mrms_files[i]
+                tasks.append(self.pool.submit(process_mrms_file,
+                                              mrms_file,
+                                              self.day,
+                                              self.l1c_path))
+            i += 1
 
+        n_datasets = len(tasks)
+        n_chunks = 4
+        chunk_size = n_datasets // n_chunks + n_datasets % n_chunks
         datasets = []
-        for t in track(tasks, description="Extracting data ..."):
-            try:
-                results = [add_targets(d) for d in t.result()]
-                datasets += results
-            except Exception as e:
-                LOGGER.warning(
-                    "The following error occurred while gathering "
-                    "results: %s", e
-                )
+        output_path = Path(self.output_file).parent
+        output_file = Path(self.output_file).stem
+        dataset_index = 0
 
+        # Retrieve files and store them into 4 chunks.
+        for t in track(tasks, description="Extracting data ..."):
+            dataset = t.result()
+            if dataset is not None:
+                datasets.append(dataset)
+
+            if len(datasets) >= chunk_size:
+                filename = output_path / (output_file + f"_{dataset_index:02}.nc")
+                print(f"Concatenating data file: {filename}")
+                dataset = xr.concat(datasets, "samples")
+                print(f"Writing file: {filename}")
+                dataset.to_netcdf(filename)
+                if dataset_index == 0:
+                    chunk_size -= n_datasets % n_chunks
+                dataset_index += 1
+                datasets = []
 
         dataset = xr.concat(datasets, "samples")
-        dataset.to_netcdf(self.output_file)
+        filename = output_path / (output_file + f"_{dataset_index:02}.nc")
+        dataset.to_netcdf(filename)

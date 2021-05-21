@@ -156,7 +156,10 @@ class MRMSMatchFile:
         if indices.sum() <= 0:
             surface_precip = np.zeros((n_scans, n_pixels))
             surface_precip[:] = np.nan
-            input_data["surface_precip"] = ("scans", "pixels"), surface_precip
+            input_data["surface_precip"] = (("scans", "pixels"),
+                                            surface_precip)
+            input_data["convective_precip"] = (("scans", "pixels"),
+                                               surface_precip)
             return input_data
 
         lats_1c = input_data["latitude"].data.reshape(-1, 1)
