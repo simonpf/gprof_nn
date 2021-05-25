@@ -22,7 +22,9 @@ from gprof_nn.coordinates import latlon_to_ecef
 from gprof_nn.data.preprocessor import PreprocessorFile, run_preprocessor
 from gprof_nn.data.l1c import L1CFile
 from gprof_nn.data.training_data import PROFILE_NAMES
-from gprof_nn.data.mrms import MRMSMatchFile
+from gprof_nn.data.mrms import (MRMSMatchFile,
+                                get_surface_type_map,
+                                get_surface_type_map_legacy)
 from gprof_nn.utils import CONUS
 
 ALL_TARGETS = [
@@ -37,7 +39,9 @@ ALL_TARGETS = [
     "cloud_water_path"
 ]
 
-LEVELS = np.concatenate([np.linspace(500.0, 1e4, 20), np.linspace(11e3, 18e3, 8)])
+LEVELS = np.concatenate([np.linspace(500.0, 1e4, 20), np.linspace(11e3,
+                                                                  18e3,
+                                                                  8)])
 
 LOGGER = logging.getLogger(__name__)
 
@@ -379,8 +383,10 @@ def _add_era5_precip(input_data, l1c_data, era5_data):
     era5_data = xr.concat([era5_data, l0], "longitude")
     n_scans = l1c_data.scans.size
     n_pixels = l1c_data.pixels.size
-    indices = ((input_data["surface_type"] == 2) +
-               (input_data["surface_type"] == 16))
+
+    surface_types = input_data["surface_type"].data
+    indices = ((surface_types == 2) + (surface_types == 16))
+
     lats = xr.DataArray(input_data["latitude"].data[indices], dims="samples")
     lons = input_data["longitude"].data[indices]
     lons = np.where(lons < 0.0, lons + 360, lons)
@@ -391,11 +397,11 @@ def _add_era5_precip(input_data, l1c_data, era5_data):
     time = xr.DataArray(time, dims="samples")
     # Interpolate and convert to mm/h
     tp = era5_data["tp"].interp(
-        {"latitude": lats, "longitude": lons, "time": time}, method="linear"
+        {"latitude": lats, "longitude": lons, "time": time}, method="nearest"
     )
     input_data["surface_precip"].data[indices] = 1000.0 * tp.data
     cp = era5_data["cp"].interp(
-        {"latitude": lats, "longitude": lons, "time": time}, method="linear"
+        {"latitude": lats, "longitude": lons, "time": time}, method="nearest"
     )
     input_data["convective_precip"].data[indices] = 1000.0 * cp.data
 
@@ -480,14 +486,14 @@ def process_mrms_file(mrms_filename, day, l1c_path):
         data_pp = run_preprocessor(f.filename)
         if data_pp is None:
             continue
-        surface_type = data_pp["surface_type"]
-        snow = (surface_type >= 8) * (surface_type <= 11)
-        if snow.sum() <= 0:
-            continue
 
         LOGGER.info("Matching MRMS data for %s.",
                     f.filename)
         mrms_file.match_targets(data_pp)
+        surface_type = data_pp["surface_type"]
+        snow = (surface_type >= 8) * (surface_type <= 11)
+        if snow.sum() <= 0:
+            continue
         # Keep only obs over snow.
         data_pp["surface_precip"].data[~snow] = np.nan
         data_pp["convective_precip"].data[~snow] = np.nan
@@ -605,7 +611,9 @@ class SimFileProcessor:
         mrms_files = np.random.permutation(mrms_files)
 
         n_sim_files = len(sim_files)
+        print(f"Found {n_sim_files} .sim files.")
         n_mrms_files = len(mrms_files)
+        print(f"Found {n_mrms_files} MRMS files.")
         i = 0
 
         # Submit tasks interleaving .sim and MRMS files.
@@ -627,26 +635,34 @@ class SimFileProcessor:
 
         n_datasets = len(tasks)
         n_chunks = 4
-        chunk_size = n_datasets // n_chunks + n_datasets % n_chunks
+        chunk_size = n_datasets // n_chunks + 1
         datasets = []
         output_path = Path(self.output_file).parent
         output_file = Path(self.output_file).stem
         dataset_index = 0
+        chunk_index = 0
 
         # Retrieve files and store them into 4 chunks.
         for t in track(tasks, description="Extracting data ..."):
-            dataset = t.result()
+            try:
+                dataset = t.result()
+            except Exception as e:
+                LOGGER.warning(
+                    "The follow error was encountered while collecting "
+                    " results: %s", e
+                )
             if dataset is not None:
                 datasets.append(dataset)
 
             if len(datasets) >= chunk_size:
+                chunk_index += 1
                 filename = output_path / (output_file + f"_{dataset_index:02}.nc")
                 print(f"Concatenating data file: {filename}")
                 dataset = xr.concat(datasets, "samples")
                 print(f"Writing file: {filename}")
                 dataset.to_netcdf(filename)
-                if dataset_index == 0:
-                    chunk_size -= n_datasets % n_chunks
+                if chunk_index == (n_datasets % n_chunks):
+                    chunk_size -= 1
                 dataset_index += 1
                 datasets = []
 
