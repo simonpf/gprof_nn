@@ -16,7 +16,7 @@ def test_preprocessor_file(tmp_path):
     dataset.
     """
     path = Path(__file__).parent
-    input_file = path / "data" / "dataset_0d.nc"
+    input_file = path / "data" / "gprof_gmi_era5.nc"
 
     targets = ["surface_precip",
                "ice_water_path",
@@ -40,18 +40,23 @@ def test_preprocessor_file(tmp_path):
     preprocessor_file = PreprocessorFile(tmp_path / "preprocessor_file.nc")
     preprocessor_data = preprocessor_file.to_xarray_dataset()
 
-    bts_pp = preprocessor_data["brightness_temperatures"]
+    bts_pp = preprocessor_data["brightness_temperatures"].data
+    n = dataset.x.shape[0]
     assert np.all(np.isclose(dataset.x[:, :5],
-                             bts_pp[0, :, :5]))
-    t2m_pp = preprocessor_data["two_meter_temperature"]
+                             bts_pp[:, :, :5].reshape(-1, 5)[:n]))
+
+    t2m_pp = preprocessor_data["two_meter_temperature"].data
     assert np.all(np.isclose(dataset.x[:, 15],
-                             t2m_pp[0, :]))
-    tcwv_pp = preprocessor_data["total_column_water_vapor"]
+                             t2m_pp[:, :].ravel()[:n]))
+
+    tcwv_pp = preprocessor_data["total_column_water_vapor"].data
     assert np.all(np.isclose(dataset.x[:, 16],
-                             tcwv_pp[0, :]))
-    st_pp = preprocessor_data["surface_type"]
+                             tcwv_pp[:, :].ravel()[:n]))
+
+    st_pp = preprocessor_data["surface_type"].data
     assert np.all(np.isclose(np.where(dataset.x[:, 17:17 + 18])[1],
-                             st_pp[0, :]))
-    at_pp = preprocessor_data["airmass_type"]
-    assert np.all(np.isclose(np.maximum(np.where(dataset.x[:, 17 + 18:17 + 21])[1], 1),
-                             st_pp[0, :]))
+                             st_pp[:, :].ravel()[:n]))
+
+    at_pp = preprocessor_data["airmass_type"].data
+    assert np.all(np.isclose(np.where(dataset.x[:, 17 + 18:17 + 22])[1],
+                             at_pp[:, :].ravel()[:n]))

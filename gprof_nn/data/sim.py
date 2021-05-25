@@ -6,23 +6,24 @@ gprof_nn.data.sim
 This module contains functions to read and convert .sim files for GPROF
  v. 7.
 """
-from multiprocessing import Queue, Process, Manager
+from concurrent.futures import ProcessPoolExecutor
+import logging
 from pathlib import Path
-import queue
-import subprocess
-from tempfile import NamedTemporaryFile
 
 import numpy as np
 import pandas as pd
 import pyproj
 from pykdtree.kdtree import KDTree
 from netCDF4 import Dataset
-from tqdm import tqdm
+from rich.progress import track
 import xarray as xr
 
-from gprof_nn.data.preprocessor import PreprocessorFile
+from gprof_nn.coordinates import latlon_to_ecef
+from gprof_nn.data.preprocessor import PreprocessorFile, run_preprocessor
 from gprof_nn.data.l1c import L1CFile
 from gprof_nn.data.training_data import PROFILE_NAMES
+from gprof_nn.data.mrms import MRMSMatchFile
+from gprof_nn.utils import CONUS
 
 ALL_TARGETS = [
     "surface_precip",
@@ -30,14 +31,12 @@ ALL_TARGETS = [
     "cloud_water_content",
     "rain_water_content",
     "snow_water_content",
-    "latent_heat"
+    "latent_heat",
 ]
 
-_ECEF = pyproj.Proj(proj='geocent', ellps='WGS84', datum='WGS84')
-_LLA = pyproj.Proj(proj='latlong', ellps='WGS84', datum='WGS84')
+LEVELS = np.concatenate([np.linspace(500.0, 1e4, 20), np.linspace(11e3, 18e3, 8)])
 
-LEVELS = np.concatenate([np.linspace(500.0, 1e4, 20),
-                         np.linspace(11e3, 18e3, 8)])
+LOGGER = logging.getLogger(__name__)
 
 ###############################################################################
 # Data types
@@ -46,55 +45,81 @@ LEVELS = np.concatenate([np.linspace(500.0, 1e4, 20),
 N_LAYERS = 28
 N_FREQS = 15
 DATE_TYPE = np.dtype(
-    [("year", "i4"),
-     ("month", "i4"),
-     ("day", "i4"),
-     ("hour", "i4"),
-     ("minute", "i4"),
-     ("second", "i4")]
+    [
+        ("year", "i4"),
+        ("month", "i4"),
+        ("day", "i4"),
+        ("hour", "i4"),
+        ("minute", "i4"),
+        ("second", "i4"),
+    ]
 )
 
 GMI_HEADER_TYPES = np.dtype(
-    [("satellite_code", "a5"),
-     ("sensor", "a5"),
-     ("frequencies", f"{N_FREQS}f4"),
-     ("nominal_eia", f"{N_FREQS}f4"),
-     ("start_pixel", "i4"),
-     ("end_pixel", "i4"),
-     ("start_scan", "i4"),
-     ("end_scan", "i4"),
-     ])
+    [
+        ("satellite_code", "a5"),
+        ("sensor", "a5"),
+        ("frequencies", f"{N_FREQS}f4"),
+        ("nominal_eia", f"{N_FREQS}f4"),
+        ("start_pixel", "i4"),
+        ("end_pixel", "i4"),
+        ("start_scan", "i4"),
+        ("end_scan", "i4"),
+    ]
+)
 
 GMI_PIXEL_TYPES = np.dtype(
-    [("pixel_index", "i4"),
-     ("scan_index", "i4"),
-     ("data_source", "f4"),
-     ("latitude", "f4"),
-     ("longitude", "f4"),
-     ("elevation", "f4"),
-     ("scan_time", DATE_TYPE),
-     ("surface_type", "i4"),
-     ("surface_precip", "f4"),
-     ("convective_precip", "f4"),
-     ("emissivity", f"{N_FREQS}f4"),
-     ("rain_water_content", f"{N_LAYERS}f4"),
-     ("snow_water_content", f"{N_LAYERS}f4"),
-     ("cloud_water_content", f"{N_LAYERS}f4"),
-     ("latent_heat", f"{N_LAYERS}f4"),
-     ("tbs_observed", f"{N_FREQS}f4"),
-     ("tbs_simulated", f"{N_FREQS}f4"),
-     ("d_tbs", f"{N_FREQS}f4"),
-     ("tbs_bias", f"{N_FREQS}f4")]
+    [
+        ("pixel_index", "i4"),
+        ("scan_index", "i4"),
+        ("data_source", "f4"),
+        ("latitude", "f4"),
+        ("longitude", "f4"),
+        ("elevation", "f4"),
+        ("scan_time", DATE_TYPE),
+        ("surface_type", "i4"),
+        ("surface_precip", "f4"),
+        ("convective_precip", "f4"),
+        ("emissivity", f"{N_FREQS}f4"),
+        ("rain_water_content", f"{N_LAYERS}f4"),
+        ("snow_water_content", f"{N_LAYERS}f4"),
+        ("cloud_water_content", f"{N_LAYERS}f4"),
+        ("latent_heat", f"{N_LAYERS}f4"),
+        ("tbs_observed", f"{N_FREQS}f4"),
+        ("tbs_simulated", f"{N_FREQS}f4"),
+        ("d_tbs", f"{N_FREQS}f4"),
+        ("tbs_bias", f"{N_FREQS}f4"),
+    ]
 )
 
 ###############################################################################
 # GPROF GMI Simulation files
 ###############################################################################
 
+
 class GMISimFile:
     """
     Interface class to read GPROF .sim files.
     """
+
+    file_pattern = "GMI.dbsatTb.????????.??????.sim"
+
+    @classmethod
+    def find_files(cls, path, day=None):
+        """
+        Find all files that match the standard filename pattern for GMI
+        sim files.
+        """
+        if day is None:
+            pattern = cls.file_pattern
+        else:
+            pattern = f"GMI.dbsatTb.??????{day:02}.??????.sim"
+        path = Path(path)
+        files = list(path.glob("**/????/" + pattern))
+        if not files:
+            files = list(path.glob("**/" + pattern))
+        return files
+
     def __init__(self, path):
         """
         Open .sim file.
@@ -105,24 +130,18 @@ class GMISimFile:
         self.path = path
         parts = str(path).split(".")
         self.granule = int(parts[-2])
-        self.year  = int(parts[-3][:4])
+        self.year = int(parts[-3][:4])
         self.month = int(parts[-3][4:6])
         self.day = int(parts[-3][6:])
 
-        self.header = np.fromfile(self.path,
-                                  GMI_HEADER_TYPES,
-                                  count=1)
+        self.header = np.fromfile(self.path, GMI_HEADER_TYPES, count=1)
         offset = GMI_HEADER_TYPES.itemsize
-        self.data = np.fromfile(self.path,
-                                GMI_PIXEL_TYPES,
-                                offset=offset)
+        self.data = np.fromfile(self.path, GMI_PIXEL_TYPES, offset=offset)
 
-    def match_surface_precip(self,
-                             input_data,
-                             targets=None):
+    def match_targets(self, input_data, targets=None):
         """
-        Match surface precipitation from .sim file to points in xarray
-        dataset.
+        Match retrieval targets from .sim file to points in
+        xarray dataset.
 
         Args:
             input_data: xarray dataset containing the input data from
@@ -130,10 +149,17 @@ class GMISimFile:
             targets: List of retrieval target variables to extract from
                 the sim file.
         Return:
-            The input dataset but with the surface_precip field added.
+            The input dataset but with the requested retrieval targets added.
         """
         if targets is None:
             targets = ALL_TARGETS
+        path_variables = [t for t in targets if "path" in t]
+        for v in path_variables:
+            profile_variable = v.replace("path", "content").replace("ice", "snow")
+            if not profile_variable in targets:
+                targets.append(profile_variable)
+        targets = [t for t in targets if "path" not in t]
+
         n_scans = input_data.scans.size
         n_pixels = 221
 
@@ -144,24 +170,12 @@ class GMISimFile:
 
         lats_1c = input_data["latitude"][:, ix_start:ix_end].data.reshape(-1, 1)
         lons_1c = input_data["longitude"][:, ix_start:ix_end].data.reshape(-1, 1)
-        z = np.zeros_like(lats_1c)
-        coords_1c = pyproj.transform(_LLA,
-                                     _ECEF,
-                                     lons_1c,
-                                     lats_1c,
-                                     z,
-                                     radians=False)
+        coords_1c = latlon_to_ecef(lons_1c, lats_1c)
         coords_1c = np.concatenate(coords_1c, axis=1)
 
         lats = self.data["latitude"].reshape(-1, 1)
         lons = self.data["longitude"].reshape(-1, 1)
-        z = np.zeros_like(lats)
-        coords_sim = pyproj.transform(_LLA,
-                                      _ECEF,
-                                      lons,
-                                      lats,
-                                      z,
-                                      radians=False)
+        coords_sim = latlon_to_ecef(lons, lats)
         coords_sim = np.concatenate(coords_sim, 1)
 
         kdtree = KDTree(coords_1c)
@@ -184,10 +198,9 @@ class GMISimFile:
             matched[indices][dists > 5e3] = np.nan
             matched = matched.reshape(shape)
 
-            matched_full = np.zeros(full_shape,
-                                    dtype=np.float32)
+            matched_full = np.zeros(full_shape, dtype=np.float32)
             matched_full[:] = np.nan
-            matched_full[:, ix_start: ix_end] = matched
+            matched_full[:, ix_start:ix_end] = matched
 
             if t in PROFILE_NAMES:
                 input_data[t] = (("scans", "pixels", "levels"), matched_full)
@@ -198,13 +211,67 @@ class GMISimFile:
                 input_data[t] = (("scans", "pixels"), matched_full)
         return input_data
 
+
+ENHANCEMENT_FACTORS = {
+    "ERA5": {
+        (17, 0): 1.35683,
+        (17, 1): 2.05213,
+        (17, 2): 1.62242,
+        (17, 3): 1.87049,
+        (18, 0): 3.91369
+    },
+    "GANAL": {
+        (17, 0): 1.58177,
+        (17, 1): 1.81539,
+        (18, 0): 3.91369,
+    }
+}
+
+def apply_orographic_enhancement(data,
+                                 kind="ERA5"):
+    """
+    Applies orographic enhancement factors to 'surface_precip' and
+    'convective_precip' targets.
+
+    Args:
+        data: xarray.Dataset containing variables surface_precip,
+            convective_precip, surface_type and airmass_type.
+         kind: "ERA5" or "GANAL" depending on the source of ancillary data.
+
+    Returns:
+        None; Correct is applied in place.
+    """
+    kind = kind.upper()
+    if kind not in ["ERA5", "GANAL"]:
+        raise ValueError(
+            "The kind argument to  must be 'ERA5' or 'GANAL'."
+        )
+    surface_types = data["surface_type"].data
+    airmass_types = data["airmass_type"].data
+    surface_precip = data["surface_precip"].data
+    convective_precip = data["convective_precip"].data
+
+    enh = np.ones(surface_precip.shape)
+    factors = ENHANCEMENT_FACTORS[kind]
+    for st in [17, 18]:
+        for at in range(4):
+            key = (st, at)
+            if not key in factors:
+                continue
+            indices = (surface_types == st) * (airmass_types == at)
+            enh[indices] = factors[key]
+
+    surface_precip *= enh
+    convective_precip *= enh
+
 ###############################################################################
 # Helper functions
 ###############################################################################
 
+
 def _extract_scenes(data):
     """
-    Extract 128 x 128 pixel wide scenes from dataset where
+    Extract 221 x 221 pixel wide scenes from dataset where
     ground truth surface precipitation rain rates are
     available.
 
@@ -216,90 +283,26 @@ def _extract_scenes(data):
         New xarray.Dataset which containing 128x128 patches of input data
         and corresponding surface precipitation.
     """
-
-    n = 128
-
+    n = 221
     sp = data["surface_precip"].data
-    c_i = sp.shape[1] // 2
+
+    if np.all(np.isnan(sp)):
+        return None
+
     i_start, i_end = np.where(np.any(~np.isnan(sp), axis=1))[0][[0, -1]]
+
 
     scenes = []
     i = i_start
     while i_start + n < i_end:
-        scenes.append(data[{"scans": slice(i_start, i_start + 128),
-                            "pixels": slice(c_i - 64, c_i + 64)}])
+        subscene = data[{"scans": slice(i_start, i_start + n)}]
+        sp = subscene["surface_precip"]
+        scenes.append(subscene)
         i_start += n
 
-    return xarray.concat(scenes, "samples")
-
-def _run_preprocessor(sim_file,
-                      l1c_file):
-    """
-    Run preprocessor on L1C GMI file.
-
-    Args:
-        sim_file: The GMISimFile object corresponding to the L1C file
-             to process.
-        l1c_file: Path of the L1C file for which to extract the input data
-             using the preprocessor.
-
-    Returns
-        xarray.Dataset containing the retrieval input data for the given L1C file.
-    """
-    year = sim_file.year
-    month = sim_file.month
-    day = sim_file.day
-    output_file = f"GMIERA5_{year:04}{month:02}{day:02}_{sim_file.granule:06}.pp"
-    output_file = sim_file.path.parent / output_file
-
-
-    if not output_file.exists():
-        with NamedTemporaryFile(delete=False) as file:
-
-            file.close()
-            jobid = str(os.getpid()) + "_pp"
-            prodtype = "CLIMATOLOGY"
-            prepdir = "/qdata2/archive/ERA5"
-            ancdir = "/qdata1/pbrown/gpm/ancillary"
-            ingestdir = "/qdata1/pbrown/gpm/ppingest"
-
-            subprocess.run(["gprof2020pp_GMI_L1C",
-                            jobid,
-                            prodtype,
-                            str(l1c_file),
-                            prepdir,
-                            ancdir,
-                            ingestdir,
-                            str(file)])
-
-            data = PreprocessorFile(file).to_xarray_dataset()
-    else:
-        data = PreprocessorFile(output_file).to_xarray_dataset()
-
-    return data
-
-def _write_results(output_file, data):
-    """
-    Write results to NetCDF4 file.
-
-    If the file doesn't yet exist a new file will be created. If it
-    does the data will be appended along the 'samples' dimension.
-
-    Args:
-        output_file: Path to the output file to store the data in.
-        data: xarray.Dataset containing the data to store in the output file.
-    """
-    if not Path(output_file).exists():
-        data.to_netcdf(path=output_file, unlimited_dims=["samples"])
-    else:
-        with Dataset(output_file, "a") as output_file:
-            i = output_file.dimensions["samples"].size
-            n = data["samples"].size
-            for k in data:
-                v = data[k]
-                if v.dims.index("samples") == 0:
-                    output_file.variables[k][i:i + n] = v.data
-
+    if scenes:
+        return xr.concat(scenes, "samples")
+    return None
 
 def _find_l1c_file(path, sim_file):
     """
@@ -321,9 +324,8 @@ def _find_l1c_file(path, sim_file):
     files = path.glob(f"1C-R*{sim_file.granule}*.HDF5")
     return next(iter(files))
 
-def _load_era5_data(start_time,
-                    end_time,
-                    base_directory):
+
+def _load_era5_data(start_time, end_time, base_directory):
     """
     Loads ERA5 data matching the start and end time of a L1C
     file.
@@ -353,9 +355,8 @@ def _load_era5_data(start_time,
     files = list(set(file_start + file_end))
     return xr.concat([xr.load_dataset(f) for f in files], dim="time")
 
-def _add_era5_precip(input_data,
-                     l1c_data,
-                     era5_data):
+
+def _add_era5_precip(input_data, l1c_data, era5_data):
     """
     Adds total precipitation from ERA5 to data.
 
@@ -372,79 +373,132 @@ def _add_era5_precip(input_data,
     era5_data = xr.concat([era5_data, l0], "longitude")
     n_scans = l1c_data.scans.size
     n_pixels = l1c_data.pixels.size
-    indices = input_data["surface_type"] == 2
+    indices = ((input_data["surface_type"] == 2) +
+               (input_data["surface_type"] == 16))
     lats = xr.DataArray(input_data["latitude"].data[indices], dims="samples")
     lons = input_data["longitude"].data[indices]
     lons = np.where(lons < 0.0, lons + 360, lons)
     lons = xr.DataArray(lons, dims="samples")
-    time = np.broadcast_to(l1c_data["scan_time"].data.reshape(-1, 1),
-                           (n_scans, n_pixels))[indices]
+    time = np.broadcast_to(
+        l1c_data["scan_time"].data.reshape(-1, 1), (n_scans, n_pixels)
+    )[indices]
     time = xr.DataArray(time, dims="samples")
-    tp = era5_data["tp"].interp({"latitude": lats,
-                                 "longitude": lons,
-                                 "time": time},
-                                method="linear")
+    tp = era5_data["tp"].interp(
+        {"latitude": lats, "longitude": lons, "time": time}, method="linear"
+    )
     input_data["surface_precip"].data[indices] = tp.data
+
+
+def process_sim_file(sim_filename, l1c_path, era5_path):
+    """
+    Extract 2D training scenes from sim file.
+
+    This method reads a given sim file, matches it with the input data
+    from the corresponding l1c and preprocessor files, adds ERA5 precip
+    over sea ice and returns a dataset of 221 x 221 scenes for training
+    of the GPROF-NN 2D algorithm.
+
+    Args:
+        sim_filename: Filename of the Sim file to process.
+        l1c_path: Base path of the directory tree containing the L1C file.
+        era5_path: Base path of the directory containing the ERA5 data.
+
+    Return:
+        xarray.Dataset containing the data from the sim file as multiple
+        2D training scenes.
+    """
+    import gprof_nn.logging
+    LOGGER.info("Starting processing sim file %s.", sim_filename)
+    sim_file = GMISimFile(sim_filename)
+    l1c_file = L1CFile.open_granule(sim_file.granule, l1c_path)
+
+    LOGGER.info("Running preprocessor for sim file %s.", sim_filename)
+    data_pp = run_preprocessor(l1c_file.filename)
+    if data_pp is None:
+        return []
+    LOGGER.info("Matching retrieval targets for file %s.", sim_filename)
+    sim_file.match_targets(data_pp)
+    l1c_data = l1c_file.to_xarray_dataset()
+
+    LOGGER.info("Adding ERA5 precip for file %s.", sim_filename)
+    start_time = data_pp["scan_time"].data[0]
+    end_time = data_pp["scan_time"].data[-1]
+    era5_data = _load_era5_data(start_time, end_time, era5_path)
+    _add_era5_precip(data_pp, l1c_data, era5_data)
+    apply_orographic_enhancement(data_pp)
+
+    scenes = _extract_scenes(data_pp)
+    return scenes
+
+
+def process_mrms_file(mrms_filename, day, l1c_path):
+    """
+    Extract training data from MRMS-GMI match up files for given day.
+    Matches the observations in the MRMS file with input data from the
+    preprocessor, extracts observations over snow and returns a dataset
+    of 2D training scenes for the GPROF-NN-2D algorithm.
+
+    Args:
+        mrms_filename: Filename of the MRMS file to process.
+        day: The day of the month for which to extract data.
+        l1c_path: Path to the root of the directory tree containing the L1C
+             observations.
+    """
+    import gprof_nn.logging
+    LOGGER.info("Starting processing MRMS file %s.", mrms_filename)
+    mrms_file = MRMSMatchFile(mrms_filename)
+
+    indices = np.where(mrms_file.data["scan_time"][:, 2] == day)[0]
+    if len(indices) <= 0:
+        return []
+    date = mrms_file.scan_time[indices[len(indices) // 2]]
+    l1c_files = list(L1CFile.find_files(date, CONUS, l1c_path))
+
+    scenes = []
+    LOGGER.info("Found %s L1C file for MRMS file %s.",
+                len(l1c_files),
+                mrms_filename)
+    for f in l1c_files:
+        data_pp = run_preprocessor(f.filename)
+        if data_pp is None:
+            continue
+        surface_type = data_pp["surface_type"]
+        snow = (surface_type >= 8) * (surface_type < 11)
+        if snow.sum() <= 0:
+            continue
+
+        LOGGER.info("Matching MRMS data for %s.",
+                    f.filename)
+        mrms_file.match_targets(data_pp)
+        # Keep only obs over snow.
+        data_pp["surface_precip"].data[~snow] = np.nan
+        apply_orographic_enhancement(data_pp)
+
+        new_scenes = _extract_scenes(data_pp)
+        if new_scenes is not None:
+            scenes += _extract_scenes(data_pp)
+
+    if scenes:
+        return xr.concat(scenes, "samples")
+    return None
+
 
 ###############################################################################
 # File processor
 ###############################################################################
 
 
-class Worker(Process):
-    """
-    A worker process class for data processing of simulation files.
-    """
-    def __init__(self,
-                 l1c_path,
-                 output_file,
-                 input_queue,
-                 done_queue,
-                 lock):
-        """
-        Create new worker.
-
-        Args:
-            output_path: The folder to which to write the retrieval results.
-            input_queue: The queue from which the input files are taken
-            done_queue: The queue onto which the processed files are placed.
-            input_class: The class used to read and process the input data.
-        """
-        super().__init__()
-        self.l1c_path = l1c_path
-        self.output_file = output_file
-        self.input_queue = input_queue
-        self.done_queue = done_queue
-        self.lock = lock
-
-    def run(self):
-        """
-        Start the process.
-        """
-        while True:
-            try:
-                sim_file = GMISimFile(self.input_queue.get(False))
-
-                l1c_file = _find_l1c_file(self.l1c_path, sim_file)
-
-                data_pp = _run_preprocessor(sim_file, l1c_file)
-                data = sim_file.match_surface_precip(data_pp)
-                scenes = _extract_scenes(data)
-
-                with self.lock:
-                    _write_results(self.output_file, scenes)
-
-                self.done_queue.put(sim_file)
-            except queue.Empty:
-                break
-
 class SimFileProcessor:
-    def __init__(self,
-                 sim_file_path,
-                 l1c_path,
-                 output_file,
-                 n_workers=4,
-                 days=None):
+    def __init__(
+        self,
+        output_file,
+        sim_file_path=None,
+        mrms_path=None,
+        l1c_path=None,
+        era5_path=None,
+        n_workers=4,
+        day=None,
+    ):
         """
         Create retrieval driver.
 
@@ -458,39 +512,35 @@ class SimFileProcessor:
             days: The days of each month to process.
         """
 
-        self.sim_file_path = Path(sim_file_path)
-        self.l1c_path = Path(l1c_path)
         self.output_file = output_file
-        self.done_queue = Queue()
-        self.manager = Manager()
-        self.lock = self.manager.Lock()
-
-        self._fill_input_queue(days)
-
-        self.workers = [Worker(self.l1c_path,
-                               self.output_file,
-                               self.input_queue,
-                               self.done_queue,
-                               self.lock) for i in range(n_workers)]
-        self.processed = []
-
-    def _fill_input_queue(self, days):
-        """
-        Scans the input folder for matching files and fills the input queue.
-        """
-
-        self.input_queue = Queue()
-
-        if days is None:
-            for f in self.sim_file_path.glob("**/*.sim"):
-                print("putting on queue: ", f)
-                self.input_queue.put(f)
+        if sim_file_path is not None:
+            self.sim_file_path = Path(sim_file_path)
         else:
-            for d in days:
-                for f in self.sim_file_path.glob(f"**/*{d:02}/*.sim"):
-                    print("putting on queue: ", f)
-                    self.input_queue.put(f)
+            self.sim_file_path = None
+        if mrms_path is not None:
+            self.mrms_path = Path(mrms_path)
+        else:
+            self.mrms_path = None
 
+        if l1c_path is None:
+            raise ValueError(
+                "The 'l1c_path' argument must be provided in order to process "
+                "any sim files."
+            )
+        self.l1c_path = Path(l1c_path)
+
+        if era5_path is None:
+            raise ValueError(
+                "The 'era5_path' argument must be provided in order to process"
+                " any sim files."
+            )
+        self.era5_path = Path(era5_path)
+        self.pool = ProcessPoolExecutor(max_workers=n_workers)
+
+        if day is None:
+            self.day = 1
+        else:
+            self.day = day
 
     def run(self):
         """
@@ -500,11 +550,34 @@ class SimFileProcessor:
         stores the names of the produced result files in the ``processed`` attribute
         of the driver.
         """
-        if len(self.processed) > 0:
-            print("This processor already ran.")
-            return
+        if self.sim_file_path is not None:
+            sim_files = GMISimFile.find_files(self.sim_file_path, day=self.day)
+        else:
+            sim_files = []
+        if self.mrms_path is not None:
+            mrms_files = MRMSMatchFile.find_files(self.mrms_path)
+        else:
+            mrms_files = []
 
-        n_files = self.input_queue.qsize()
-        [w.start() for w in self.workers]
-        for i in tqdm(range(n_files)):
-            self.processed.append(self.done_queue.get(True))
+        tasks = []
+        for f in sim_files:
+            LOGGER.info("Found sim file %s", f)
+            #tasks.append(self.pool.submit(process_sim_file,
+            #                              f,
+            #                              self.l1c_path,
+            #                              self.era5_path))
+        for f in mrms_files:
+            LOGGER.info("Found MRMS file %s", f)
+            tasks.append(self.pool.submit(process_mrms_file,
+                                          f,
+                                          self.day,
+                                          self.l1c_path))
+
+        datasets = []
+        for t in track(tasks, description="Extracting data ..."):
+            dataset = t.result()
+            if dataset is not None:
+                datasets.append(dataset)
+
+        dataset = xr.concat(datasets, "samples")
+        dataset.to_netcdf(self.output_file)
