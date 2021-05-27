@@ -1,49 +1,269 @@
-\title{GPROF-NN: A neural-network based implementation of the Goddard Profiling Algorithm}
+\RequirePackage[l2tabu,orthodox]{nag} % turn on warnings because of bad style
+\documentclass[a4paper,11pt,bibtotoc]{scrartcl}
+\usepackage{natbib}
 
-\documentclass[12pt]{article}
+\usepackage[utf8]{inputenc}
 
-\usepackage{amsmath}
+\usepackage[T1]{fontenc}        % Tries to use Postscript Type 1 Fonts for better rendering
+\usepackage{lmodern}            % Provides the Latin Modern Font which offers more glyphs than the default Computer Modern
+\usepackage{amsmath} % Provides all mathematical commands
+\usepackage{amsfonts} % Provides all mathematical commands
+
+\usepackage{hyperref}           % Provides clickable links in the PDF-document for \ref
+\usepackage{grffile}            % Allow you to include images (like graphicx). Usage: \includegraphics{path/to/file}
+
+% Allows to set units
+\usepackage[ugly]{units}        % Allows you to type units with correct spacing and font style. Usage: $\unit[100]{m}$ or $\unitfrac[100]{m}{s}$
+
+% Additional packages
+\usepackage{url}                % Lets you typeset urls. Usage: \url{http://...}
+\usepackage{breakurl}           % Enables linebreaks for urls
+\usepackage{xspace}             % Use \xpsace in macros to automatically insert space based on context. Usage: \newcommand{\es}{ESPResSo\xspace}
+\usepackage{xcolor}             % Obviously colors. Usage: \color{red} Red text
+\usepackage{booktabs}           % Nice rules for tables. Usage \begin{tabular}\toprule ... \midrule ... \bottomrule
+
+% Source code listings
+\usepackage{listings}           % Source Code Listings. Usage: \begin{lstlisting}...\end{lstlisting}
+\lstloadlanguages{python}       % Default highlighting set to "python"
+
+
 \begin{document}
+
+\title{GPROF-NN: A neural-network based implementation of the Goddard Profiling Algorithm}
+\date{\today}
+
 \maketitle
 
 
 \section{Introduction}
-\section{Methods}
+\section{Methods and data}
 
 This section describes the original GPROF algorithm as well as the two newly
 developed neural-network-based versions.
 
 \subsection{The original GPROF algorithm}
 
-The original GPROF algorithm is based on a Bayesian formulation of the retrieval
-problem. Given an observation $\mathbf{y}$, the result of the retrieval is
-defined as the posterior distribution $P(\mathbf{x} | \mathbf{y})$ of the
-atmospheric state $\mathbf{x}$.
+The original GPROF algorithm, here referred to simply as GPROF, is based on a
+Bayesian formulation of the retrieval problem. Given an observation
+$\mathbf{y}$, the result of the retrieval is defined as the posterior
+distribution $P(\mathbf{x} | \mathbf{y})$ over the values $\mathbf{x}$ of a
+numerical representation of the atmospheric state.
 
-To calculate the posterior $P(\mathbf{x} | \mathbf{y})$ the algorithm uses a
-database consisting of pairs
+ The posterior distribution $P(\mathbf{x} | \mathbf{y})$ is calculated using
+a database consisting of pairs
 $(\mathbf{y}_1, \mathbf{x}_1), \ldots (\mathbf{y}_N, \mathbf{x}_N)$
-of observations $\mathbf{y}_i$ and corresponding states
+of observations $\mathbf{y}_i$ and corresponding atmospheric states
 $\mathbf{x}_i$. Assuming that the database describes the true a priori
-distribution of atmospheric states $\mathbf{x}$ sufficiently well, the expected
+distribution $P(\mathbf{x})$ sufficiently well, the expected
 value w.r.t to the posterior distribution $P(\mathbf{x} | \mathbf{x})$ of the
 atmospheric state $\mathbf{x}$ can be approximated using
-\begin{align}
-  \int_{\mathbf{x} } f(\mathbf{x})\: d\mathbf{x} \approx
-  \frac{\sum_i f(\mathbf{x}) P(\mathbf{y}|\mathbf{x}_i)}{\sum_i P(\mathbf{y}|\mathbf{x})}
+\begin{align}\label{eq:gprof_retrieval}
+  \int_{\mathbf{x} } \mathbf{x}\: dP(\mathbf{x} | \mathbf{y}) =
+  \int_{\mathbf{x} } \mathbf{x}\: \frac{P(\mathbf{y} | \mathbf{x})}{P(\mathbf{y})} dP(\mathbf{x}) \approx
+  \frac{\sum_i \mathbf{x} P(\mathbf{y}|\mathbf{x}_i)}{\sum_i P(\mathbf{y}|\mathbf{x})}
 \end{align}
-The conditional probability of the observation given an atmospheric state
-from the database, $P(\mathbf{y}|\mathbf{x}_i)$, is approximated using a
-Gaussian error model
-\begin{align}
-  P(\mathbf{y}|\mathbf{x}_i) = \frac{1}{\sqrt(2\pi\text{det}(\mathbf{S}^{-1}))}
+The conditional probability $P(\mathbf{y} | \mathbf{x}_i)$ of the observation
+$\mathbf{y}$ given an atmospheric state from the database is modeled assuming
+  unbiased  Gaussian errors in the observations:
+  %
+\begin{align}\label{eq:gprof_error}
+  P(\mathbf{y}|\mathbf{x}_i) = \frac{1}{\sqrt{2\pi\text{det}(\mathbf{S}^{-1})}}
   \exp \left \{
   - \frac{1}{2}
-  (\mathbf{y} - \mathbf{y}_i})^T \mathbf{S}^{-1}  (\mathbf{y} - \mathbf{y}_i)}{2})
-  \right }
+  (\mathbf{y} - \mathbf{y}_i)^T \mathbf{S}^{-1}  (\mathbf{y} - \mathbf{y}_i)
+  \right \}
+\end{align}
+for a certain covariance matrix $\mathbf{S}$ describing the errors due to noise
+as well as other potential error sources that affect the comparison of a real
+observation $\mathbf{y}$ and the observations in the database.
+Eq.~(\ref{eq:gprof_retrieval}) corresponds to a resampling of the
+states in the database with case-specific weights calculated using
+Eq.~\ref{eq:gprof_error}. This can be extended to obtain specific quantiles of
+the a posteriori distribution (described for example in \citet{pfreundschuh18})
+or to derive probabilities of certain characteristics of the a posteriori state
+such as the presence of precipitation in a given observation.
+
+A difficulty of the formulation in Eq.~(\ref{eq:gprof_retrieval}) is that
+calculating the retrieval result requires traversing a large database. To
+speed up the retrieval, observations in the GPROF database are clustered
+with respect to the database observations $\mathbf{y}_i$, so that for each
+cluster of observations only the central observations, the corresponding
+mean state and the number of observations in the cluster need to be stored.
+
+Since the retrieval of complex atmospheric states from the limited information
+content of a multi-spectral microwave observation is underconstrained, it is
+desirable to incorporate ancillary information to increase its accuracy. In
+GPROF the database is split into strata with respect to two-meter temperature
+($T_{2m}$), total-column water vapor ($\text{TCWV}$) surface type ($\text{ST}$)
+as well as an additional airlifting index for observations in mountain regions.
+
+The basic functioning of the GPROF algorithm is illustrated in
+Fig.~\ref{fig:gprof_legacy}. Panel (a) illustrates the reweighting of the
+database entries according to Eq.~(\ref{eq:gprof_retrieval}) and
+(\ref{eq:gprof_error}). The clustering of the observations to improve retrieval
+performance and the stratification of the database to incorporate acillary data
+is illustrated in panel (b) and (c), respectively.
+
+\begin{figure}[hbpt]
+  \centering
+    \includegraphics[width=\textwidth]{../figures/gprof_legacy}
+    \caption{The GPROF retrieval algorithm. Panel (a) illustrates the
+      resampling of the observation based in the database to approximate the a
+      posteriori distribution. Panel (b) exemplifies the clustering of
+      observations that is performed to speed up the calculation of retrieval
+      results. Panel (c) illustrates the incorporation of ancillary data in
+      through application of a stratified retrieval database.}
+  \label{fig:gprof_legacy}
+\end{figure}
+
+\subsection{Training and test data}
+
+The neural-network-based implementations of the GPROF algorithm that will be
+presented below use the same data for training and evaluation as the original
+GPROF algorithm. This is done to ensure a fair comparison comparability of the
+algorithms against each other as well as functional equivalence.
+
+The main part of the GPROF retrieval database consists of atmospheric profiles
+and corresponding observations derived from a year of combined radar-radiometer
+observations from the Dual-frequency Precipitation Radar (DPR) and the GPM
+Microwave Imager (GMI). These profiles are complemented with gauge-corrected
+precipitation estimates derived from ground radar over the US for snow surfaces
+and precipitation derived from ERA5 over sea ice.
+
+The available data has been split into three parts: Data from day 6 to the end
+of each month are used for training and data from day 4 and 5 are used to
+monitor retrieval performance during training and to tune model hyperparameters.
+The data from day 1 to 3 of each month is set aside and used for the final
+comparison of the three algorithms presented in Sect.~\ref{sec:results}.
+
+The various retrieval variables that are present in the database are listed
+in Tab.~\ref{tab:variables}. While surface precipitation is certainly the
+primary target of the GPROF algorithm, the observations are sensitive to
+a range of additional quantities. Profiles are represented at 28 levels
+with a resolution of $500\ \unit{m}$ between $0$ and $10\ \unit{km}$ and
+$1 \ \unit{km}$ above that.
+
+\begin{table}
+  \caption{Retrieval quantities in the retrieval database}
+  \label{tab:variables}
+  \centering
+  \begin{tabular}{l|r|r}
+    Retrieval variable & Unit & Type\\
+    \hline
+    \hline
+
+    Surface precipitation & $\unit{mm\ h^{-1}}$ & Scalar \\
+    Convective precipitation & $\unit{mm\ h^{-1}}$ & Scalar \\
+    Cloud water path & $\unit{kg\ m^{-2}}$ & Scalar \\
+    Rain water path & $\unit{kg\ m^{-2}}$ & Scalar \\
+    Ice water path & $\unit{kg\ m^{-2}}$ & Scalar \\
+    Cloud water content & $\unit{g\ m^{-3}}$ & Profile \\
+    Rain water content & $\unit{g\ m^{-3}}$ & Profile \\
+    Snow water content & $\unit{g\ m^{-3}}$ & Profile \\
+    Latent heat & $\unit{K \ h^{-1}}$ & Profile \\
+  \end{tabular}
+  \end{table}
+
+
+
+\subsection{Probabilistic regression with neural networks}
+
+The ill-posed nature of the retrieval of many atmospheric variables from
+satellite observations requires a probabilistic approach in order to quantify
+the inherent uncertainty of the retrieval results. In many retrievals these
+uncertainties are handled by employing Bayesian methods. As shown in a previous
+study \cite{pfreundschuh18}, instead of a direct application of Bayes theorem
+the posterior distribution may also be predicted directly using neural networks
+in a probabilistic regression framework.
+
+The approach proposed in \citet{pfreundschuh18} uses a quantile regression
+neural network (QRNN) to predict a sequence of quantiles of the posterior
+distribution and has been show to yield equally reliable results as other
+explicitly Bayesian retrieval methods that are commonly used to retrieve
+atmospheric quantities. For each scalar retrieval variable $x$, the QRNN is
+trained to predict a vector of values corresponding to the quantiles of the a
+posteriori distribution by minimizing the sum of the quantile losses
+\begin{align}
+  \mathcal{L}_\tau(\hat{x}, x) &= (\tau - \mathbb{I}_{x < \hat{x}})(x - \hat{x})
+\end{align}
+for the selected quantile levels $\tau = \tau_1, \ldots, \tau_n$.
+
+In addition to QRNNs, another approach for non-parametric probabilistic
+regression has been considered for the GPROF-NN algorithm. This approach
+consists of predicting a binned approximation of the probability density
+function (PDF) of the posterior distribution. A prior application of this
+approach can be found in \cite{metnet}. In lack of a better name, we will refer
+to this approach as density regression neural network (DRNN). For each scalar
+retrieval variable $x$, the DRNN is trained to classify the retrieval input into
+a discrete sequence of bins covering the range of values of $x$. This is done
+by converting values of the scalar retrieval variable $x$ into a categorical
+variable and training the network using a categorical cross entropy loss:
+\begin{align}
+  \mathcal{L}(\hat{x}, x) &= \log(p_i) - \sum_{i \neq j}  \log(p_j)
 \end{align}
 
-This approach can be extended to also estimate other statistics of the a
-posteriori distribution such as its quantiles.
+Figure~\ref{fig:qrnn_drnn} illustrates these two approaches when applied to
+retrieve surface precipitation along the central pixels of the GMI swath.
+While the QRNN provides a direct estimate of the posterior CDF, the DRNN
+provides an estimate of the corresponding PDF. Since both approaches provide
+a direct estimate of the a posteriori distribution, the two approaches can
+be used interchangeably.
+
+\subsection{GPROF-NN 0D}
+
+The GPROF-NN 0D algorithm retrieves all cloud- and precipitation-related
+retrieval variables from a single observation and the ancillary data, which
+makes it functionally equivalent to that algorithm.
+
+\subsubsection{Network architecture}
+
+\begin{figure}[hbpt]
+  \centering
+    \includegraphics[width=\textwidth]{../figures/gprof_nn_0d}
+    \caption{Illustration of the neural network architecture used in the
+      GPROF-NN 0D algorithm. The network consists of a common body and
+      one head for each retrieval variable. Each block in body and head
+      consists of fully-connected layer, layer norm and GELU activation function.
+    }
+  \label{fig:gprof_nn_0d}
+\end{figure}
+
+The network used in the GPROF-NN 0D algorithm is a feed-forward multi-layer
+perceptron a  separate head for each of the different retrieval variables.
+Profile variables share a single head and the expansion of the profile levels
+is performed in the last layer of the network. The basic building block of
+the network consists of a fully-connected layer followed by layer normalization
+and a GELU activation function. The body of the network consists of
+$N_b$ of those blocks and each head of $N_h$. Note that the case $N_b = 0$ is
+equivalent to predicting each retrieval target with a separate neural network.
+A shared body in the neural network allows computations to be shared between
+different retrieval variables and therefore makes inference and training more
+efficient.
+
+\subsubsection{Training}
+
+The GPROF-NN 0D algorithm is trained to predict all retrieval variable in
+parallel by minimizing the sum of all losses. Each network is trained for
+for 70 epochs with the Adam optimizer and a cosine annealing learning rate
+schedule. Warm restarts are performed after 10, 20 and 40 epochs. The initial
+learning rates for the first and second part of the training set to $5\cdot 10^{-4}$
+and reduced to $10^{-4}$ for its last part.
+
+learning rate is 
+
+\subsubsection{Validation-set performance}
+
+\subsection{GPROF-NN 2D}
+
+\subsubsection{Architecture}
+
+
+\subsubsection{Validation-set performance}
+
+
+\section{Results}
+
+\bibliographystyle{alpha}
+\bibliography{research}
 
 \end{document}
