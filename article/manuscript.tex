@@ -242,20 +242,55 @@ efficient.
 
 \subsubsection{Training}
 
-The GPROF-NN 0D algorithm is trained to predict all retrieval variable in
-parallel by minimizing the sum of all losses. Each network is trained for
-for 70 epochs with the Adam optimizer and a cosine annealing learning rate
+The GPROF-NN 0D algorithm is trained to predict all retrieval variables in
+parallel by simply minimizing the sum of all losses. Each network is trained for
+for 70 epochs using the Adam optimizer and a cosine annealing learning rate
 schedule. Warm restarts are performed after 10, 20 and 40 epochs. The initial
-learning rates for the first and second part of the training set to $5\cdot 10^{-4}$
-and reduced to $10^{-4}$ for its last part.
+learning rates for the first and second part of the training set to $5\cdot
+10^{-4}$ and reduced to $10^{-4}$ for its last part.
 
-learning rate is 
+\subsubsection{Hyperparameter tuning}
 
-\subsubsection{Validation-set performance}
+To find a well-performing model, a range of configurations of the network
+architecture described in Fig.~\ref{fig:gprof_nn_0d} has been trained on roughly
+$10\ \unit{\%}$ of the training data and evaluated on a similar fraction of the
+validation data. Each model configuration has been trained once as a QRNN and
+once as a DRNN. The resulting mean percentage (MPE) error and mean absolute
+percentage errors (MAPE) for a subset of the retrieval variables are displayed
+in Fig.~\ref{fig:gprof_nn_0d_tuning}.
+
 
 \subsection{GPROF-NN 2D}
 
 \subsubsection{Architecture}
+
+The network architecture for the GPROF-NN 2D algorithm is a fully-convolutional
+asymmetric encoder-decoder architecture followed by a separate network head for
+each retrieval variable. Each stage of the encoder consists of a downsampling
+layer followed by $N_B$ convolution blocks, each of which consists of two
+exception layers followed by layer activation and GELU activation functions. The
+input and outputs of each of those blocks are connected by a residual
+connection. The decoder stages contain only a single of those blocks per layer.
+Additional skip connections are inserted to provide a short cut between
+respective stages of the encoder and decoder.
+
+\subsubsection{Data augmentation}
+
+Two properties make the application of a convolutional neural network to the GMI
+observations peculiar: First, ground truth data is available only at the center
+of the input images where the GMI observations overlap with DPR observations.
+Secondly, the GMI observations are, due to the conical scanning of the sensor,
+not invariant with respect to translations. This means that when the GMI
+observations are interpreted as a rectilinear image any observed structure will
+look different at the center of the swath compared to the edges. We found that
+naive training of a convolutional neural network with this data can lead to
+artifacts outside the swath center. To avoid these, the original images in the
+training data are augmented on-the-fly with remapped versions that simulate the
+effect of the relative placement of the observations in the swath. In addition
+to this, observations from channels 10 and up are randomly set to missing in the
+outer edges of the swath to simulate the effect of the missing observations that
+effects the outer edges of the GMI swath.
+
 
 
 \subsubsection{Validation-set performance}
