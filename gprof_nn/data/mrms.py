@@ -39,7 +39,6 @@ DATA_RECORD_TYPES = np.dtype(
     ]
 )
 
-
 class MRMSMatchFile:
     """
     Class to read GMI-MRMS match up files.
@@ -147,7 +146,6 @@ class MRMSMatchFile:
         end_time = input_data["scan_time"].data[-1]
         indices = (self.scan_time >= start_time) * (self.scan_time < end_time)
 
-
         data = self.data[indices]
 
         n_scans = input_data.scans.size
@@ -156,7 +154,12 @@ class MRMSMatchFile:
         if indices.sum() <= 0:
             surface_precip = np.zeros((n_scans, n_pixels))
             surface_precip[:] = np.nan
-            input_data["surface_precip"] = ("scans", "pixels"), surface_precip
+            input_data["surface_precip"] = (("scans", "pixels"),
+                                            surface_precip)
+
+
+            input_data["convective_precip"] = (("scans", "pixels"),
+                                               surface_precip)
             return input_data
 
         lats_1c = input_data["latitude"].data.reshape(-1, 1)
@@ -169,14 +172,187 @@ class MRMSMatchFile:
         coords_sim = latlon_to_ecef(lons, lats)
         coords_sim = np.concatenate(coords_sim, 1)
 
+        surface_types = get_surface_type_map(start_time)
+        surface_types = surface_types.interp(
+            latitude=input_data["latitude"],
+            longitude=input_data["longitude"],
+            method="nearest"
+        )
+        input_data["surface_type"].data[:] = surface_types.data
+
         kdtree = KDTree(coords_1c)
         dists, indices = kdtree.query(coords_sim)
 
         matched = np.zeros(n_scans * n_pixels)
         matched[:] = np.nan
         matched[indices] = data["surface_precip"]
-        matched[indices][dists > 5e3] = np.nan
-        matched = matched.reshape((n_scans, n_pixels))
 
+        mrms_ratios = get_mrms_ratios()
+        ratios = mrms_ratios.interp(
+            latitude=xr.DataArray(lats.ravel(), dims="samples"),
+            longitude=xr.DataArray(lons.ravel(), dims="samples")
+        )
+        corrected = (data["surface_precip"] -
+                     data["snow"] +
+                     data["snow"] * ratios)
+        corrected[ratios == 1.0] = np.nan
+
+        matched[indices] = corrected
+        matched[indices][dists > 15e3] = np.nan
+        matched = matched.reshape((n_scans, n_pixels))
         input_data["surface_precip"] = (("scans", "pixels"), matched)
+
+        matched = np.zeros(n_scans * n_pixels)
+        matched[:] = np.nan
+        matched[indices] = data["convective_rain"]
+        matched[indices][dists > 15e3] = np.nan
+        matched = matched.reshape((n_scans, n_pixels))
+        input_data["convective_precip"] = (("scans", "pixels"), matched)
+
         return input_data
+
+################################################################################
+# MRMS / snodas correction factors
+################################################################################
+
+_RATIO_FILE = ("/qdata1/pbrown/dbaseV7/mrms_snow_scale_factors/"
+              "201710-201805_10km_snodas_mrms_ratio_scale.asc."
+              "bin")
+
+_MRMS_RATIOS = None
+
+def get_mrms_ratios():
+    """
+    Cached loading of the MRMS correction factors into an xarray
+    data array.
+
+    Return:
+        xrray.Dataarray containing the MRMS/SNODAS ratios used to correct
+        MRMS snow.
+    """
+    global _MRMS_RATIOS
+    if _MRMS_RATIOS is None:
+        with open(_RATIO_FILE, "rb") as file:
+            buffer = file.read()
+            lon_ll = -129.994995117188
+            d_lon = 0.009998570017
+            n_lon = 7000
+            lons = lon_ll + d_lon * np.arange(n_lon)
+
+            lat_ll = 20.005001068115
+            d_lat = 0.009997142266
+            n_lat = 3500
+            lats = lat_ll + d_lat * np.arange(n_lat)
+
+            offset = 2 * 2 + 4 * 8 + 4
+            array = np.frombuffer(buffer,
+                                  dtype="f4",
+                                  offset=offset,
+                                  count=n_lon * n_lat)
+            ratios = array.reshape((n_lat, n_lon)).copy()
+            ratios[ratios < 0] = np.nan
+
+            _MRMS_RATIOS = xr.DataArray(
+                data=ratios,
+                dims=["latitude", "longitude"],
+                coords={
+                    "latitude": lats,
+                    "longitude": lons
+                }
+            ).fillna(1.0)
+    return _MRMS_RATIOS
+
+
+def get_surface_type_map(time,
+                         sensor="GMI"):
+    """
+    Return dataset contining global surface types for a given
+    data.
+
+    Args:
+        time: datetime object specifying the date for which
+            to load the surface type.
+        sensor: Name of the sensor for which to load the surface type.
+
+    Rerturn:
+        xarray.DataArray containing the global surface types.
+    """
+    time = pd.to_datetime(time)
+    year = time.year - 2000
+    month = time.month
+    day = time.day
+
+    filename = (f"/xdata/drandel/gpm/surfdat/{sensor}_surfmap_{year:02}"
+                f"{month:02}_V7.dat")
+
+    N_LON = 32 * 360
+    N_LAT = 32 * 180
+
+    LATS = np.arange(-90, 90, 1.0 / 32)
+    LONS = np.arange(-180, 180, 1.0 / 32)
+
+    offset = (day - 1) * (20 + N_LON * N_LAT) + 20
+    count = N_LON * N_LAT
+    data = np.fromfile(filename, count=count, offset=offset, dtype="u1")
+    data = data.reshape((N_LAT, N_LON))
+    data = data[::-1]
+
+    attrs = np.fromfile(filename, count=5, offset=offset - 20, dtype="i4")
+
+    arr = xr.DataArray(
+        data=data,
+        dims=["latitude", "longitude"],
+        coords={
+            "latitude": LATS,
+            "longitude": LONS
+        }
+    )
+    arr.attrs["header"] = attrs
+    return arr
+
+
+def get_surface_type_map_legacy(time,
+                                sensor="GMI"):
+    """
+    Return dataset contining pre GPROF V6 global surface types for given
+    data.
+
+    Args:
+        time: datetime object specifying the date for which
+            to load the surface type.
+        sensor: Name of the sensor for which to load the surface type.
+
+    Rerturn:
+        xarray.DataArray containing the global surface types.
+    """
+    time = pd.to_datetime(time)
+    year = time.year - 2000
+    month = time.month
+    day = time.day
+
+    filename = (f"/xdata/drandel/gpm/surfdat/{sensor}_surfmap_{year:02}"
+                f"{month:02}_V3.dat")
+
+    N_LON = 16 * 360
+    N_LAT = 16 * 180
+
+    LATS = np.arange(-90, 90, 1.0 / 16)
+    LONS = np.arange(-180, 180, 1.0 / 16)
+
+    offset = (day - 1) * (20 + N_LON * N_LAT) + 20
+    count = N_LON * N_LAT
+    data = np.fromfile(filename, count=count, offset=offset, dtype="u1")
+    data = data.reshape((N_LAT, N_LON))
+    data = data[::-1]
+    attrs = np.fromfile(filename, count=5, offset=offset - 20, dtype="i4")
+
+    arr = xr.DataArray(
+        data=data,
+        dims=["latitude", "longitude"],
+        coords={
+            "latitude": LATS,
+            "longitude": LONS
+        }
+    )
+    arr.attrs["header"] = attrs
+    return arr

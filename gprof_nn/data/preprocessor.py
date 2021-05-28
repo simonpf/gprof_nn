@@ -455,33 +455,31 @@ def run_preprocessor(l1c_file, output_file=None):
         xarray.Dataset containing the retrieval input data for the given L1C
         file or None when the 'output_file' argument is given.
     """
-    tmp = False
+    file = None
     if output_file is None:
-        tmp = True
-        _, output_file = tempfile.mkstemp()
+        file = tempfile.NamedTemporaryFile(dir="/gdata/simon/tmp")
+        output_file = file.name
     try:
         jobid = str(os.getpid()) + "_pp"
         args = [jobid] + get_preprocessor_settings()
         args.insert(2, l1c_file)
         args.append(output_file)
-        try:
-            subprocess.run(["gprof2020pp_GMI_L1C"] + args,
-                           check=True,
-                           capture_output=True)
-        except subprocess.CalledProcessError as error:
-            LOGGER.warning(
-                "Running the preprocessor for file %s failed with the following"
-                " error: %s",
-                l1c_file,
-                error.stdout + error.stderr,
-            )
-            return None
-
-        if tmp:
+        subprocess.run(["gprof2020pp_GMI_L1C"] + args,
+                       check=True,
+                       capture_output=True)
+        if file is not None:
             data = PreprocessorFile(output_file).to_xarray_dataset()
 
+    except subprocess.CalledProcessError as error:
+        LOGGER.warning(
+            "Running the preprocessor for file %s failed with the following"
+            " error: %s",
+            l1c_file,
+            error.stdout + error.stderr,
+        )
+        return None
     finally:
-        if tmp:
-            Path(output_file).unlink()
-    if tmp:
+        if file is not None:
+            file.close()
+    if file is not None:
         return data
