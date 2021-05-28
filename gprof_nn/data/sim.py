@@ -212,10 +212,10 @@ class GMISimFile:
             if t in PROFILE_NAMES:
                 input_data[t] = (("scans", "pixels", "levels"),
                                  matched_full.astype(np.float32))
-                path = np.trapz(matched_full, x=LEVELS, axis=-1) * 1e-3
-                path_name = t.replace("content", "path").replace("snow", "ice")
-                input_data[path_name] = (("scans", "pixels"),
-                                         path.astype(np.float32))
+                if "content" in t:
+                    path = np.trapz(matched_full, x=LEVELS, axis=-1) * 1e-3
+                    path_name = t.replace("content", "path").replace("snow", "ice")
+                    input_data[path_name] = (("scans", "pixels"), path)
             else:
                 input_data[t] = (("scans", "pixels"),
                                  matched_full.astype(np.float32))

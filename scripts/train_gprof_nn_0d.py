@@ -82,7 +82,7 @@ training_data = DataFolder(
     n_workers=4)
 
 kwargs = {
-    "batch_size": 8 * batch_size,
+    "batch_size": 16 * batch_size,
     "normalizer": normalizer,
     "target": targets,
     "augment": False
@@ -127,7 +127,7 @@ else:
 # Run training
 #
 
-n_epochs = 50
+n_epochs = 75
 logger = TensorBoardLogger(n_epochs)
 logger.set_attributes({
     "n_layers_body": n_layers_body,
@@ -143,7 +143,7 @@ scatter_plot = ScatterPlot(log_scale=True)
 metrics.append(scatter_plot)
 
 optimizer = optim.Adam(model.parameters(), lr=0.0005)
-scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.5, patience=4)
+scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.75, patience=5)
 xrnn.train(training_data=training_data,
            validation_data=validation_data,
            n_epochs=n_epochs,
@@ -153,3 +153,4 @@ xrnn.train(training_data=training_data,
            metrics=metrics,
            device=device,
            mask=-9999)
+xrnn.save(model_path / network_name)

@@ -1,0 +1,49 @@
+\title{GPROF-NN: A neural-network based implementation of the Goddard Profiling Algorithm}
+
+\documentclass[12pt]{article}
+
+\usepackage{amsmath}
+\begin{document}
+\maketitle
+
+
+\section{Introduction}
+\section{Methods}
+
+This section describes the original GPROF algorithm as well as the two newly
+developed neural-network-based versions.
+
+\subsection{The original GPROF algorithm}
+
+The original GPROF algorithm is based on a Bayesian formulation of the retrieval
+problem. Given an observation $\mathbf{y}$, the result of the retrieval is
+defined as the posterior distribution $P(\mathbf{x} | \mathbf{y})$ of the
+atmospheric state $\mathbf{x}$.
+
+To calculate the posterior $P(\mathbf{x} | \mathbf{y})$ the algorithm uses a
+database consisting of pairs
+$(\mathbf{y}_1, \mathbf{x}_1), \ldots (\mathbf{y}_N, \mathbf{x}_N)$
+of observations $\mathbf{y}_i$ and corresponding states
+$\mathbf{x}_i$. Assuming that the database describes the true a priori
+distribution of atmospheric states $\mathbf{x}$ sufficiently well, the expected
+value w.r.t to the posterior distribution $P(\mathbf{x} | \mathbf{x})$ of the
+atmospheric state $\mathbf{x}$ can be approximated using
+\begin{align}
+  \int_{\mathbf{x} } f(\mathbf{x})\: d\mathbf{x} \approx
+  \frac{\sum_i f(\mathbf{x}) P(\mathbf{y}|\mathbf{x}_i)}{\sum_i P(\mathbf{y}|\mathbf{x})}
+\end{align}
+The conditional probability of the observation given an atmospheric state
+from the database, $P(\mathbf{y}|\mathbf{x}_i)$, is approximated using a
+Gaussian error model
+\begin{align}
+  P(\mathbf{y}|\mathbf{x}_i) = \frac{1}{\sqrt(2\pi\text{det}(\mathbf{S}^{-1}))}
+  \exp \left \{
+  - \frac{1}{2}
+  (\mathbf{y} - \mathbf{y}_i})^T \mathbf{S}^{-1}  (\mathbf{y} - \mathbf{y}_i)}{2})
+  \right }
+\end{align}
+
+This approach can be extended to also estimate other statistics of the a
+posteriori distribution such as its quantiles.
+
+\end{document}
