@@ -82,7 +82,7 @@ training_data = DataFolder(
     n_workers=4)
 
 kwargs = {
-    "batch_size": 8 * batch_size,
+    "batch_size": 16 * batch_size,
     "normalizer": normalizer,
     "target": targets,
     "augment": False
@@ -131,7 +131,7 @@ else:
 # Run training
 #
 
-n_epochs = 50
+n_epochs = 75
 logger = TensorBoardLogger(n_epochs)
 logger.set_attributes({
     "n_layers_body": n_layers_body,
