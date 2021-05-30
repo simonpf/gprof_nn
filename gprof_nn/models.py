@@ -28,7 +28,7 @@ for k in BINS:
     if k != "latent_heat":
         BINS[k][0] == 0.0
 
-QUANTILES = np.linspace(1e-3, 1.0 - 1e-3, 128)
+QUANTILES = np.linspace(1e-3, 1.0 - 1e-3, 64)
 
 
 class ClampedExp(nn.Module):

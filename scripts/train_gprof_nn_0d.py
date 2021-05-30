@@ -13,7 +13,7 @@ from quantnn.data import DataFolder
 from quantnn.normalizer import Normalizer
 from quantnn.models.pytorch.logging import TensorBoardLogger
 from quantnn.metrics import ScatterPlot
-from quantnn.transformations import Log
+from quantnn.transformations import LogLinear
 
 from gprof_nn.data.training_data import GPROF0DDataset
 from gprof_nn.models import GPROFNN0D, BINS, QUANTILES
@@ -107,13 +107,17 @@ if network_type == "drnn":
                       exp_activation=False)
     xrnn = DRNN(BINS, model=model)
 elif network_type == "qrnn_exp":
+    transformation = {t: LogLinear() for t in targets}
+    transformation["latent_heat"] = None
     model = GPROFNN0D(n_layers_body,
                       n_layers_head,
                       n_neurons,
-                      128,
+                      64,
                       target=targets,
-                      exp_activation=True)
-    xrnn = QRNN(QUANTILES, model=model)
+                      exp_activation=False)
+    xrnn = QRNN(QUANTILES,
+                model=model,
+                transformation=transformation)
 else:
     model = GPROFNN0D(n_layers_body,
                       n_layers_head,
@@ -142,8 +146,9 @@ metrics = ["MeanSquaredError", "Bias", "CalibrationPlot", "CRPS"]
 scatter_plot = ScatterPlot(log_scale=True)
 metrics.append(scatter_plot)
 
+n_epochs = 10
 optimizer = optim.Adam(model.parameters(), lr=0.0005)
-scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.5, patience=4)
+scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, n_epochs)
 xrnn.train(training_data=training_data,
            validation_data=validation_data,
            n_epochs=n_epochs,
@@ -153,3 +158,30 @@ xrnn.train(training_data=training_data,
            metrics=metrics,
            device=device,
            mask=-9999)
+xrnn.save(model_path / network_name)
+n_epochs = 20
+optimizer = optim.Adam(model.parameters(), lr=0.001)
+scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, n_epochs)
+xrnn.train(training_data=training_data,
+           validation_data=validation_data,
+           n_epochs=n_epochs,
+           optimizer=optimizer,
+           scheduler=scheduler,
+           logger=logger,
+           metrics=metrics,
+           device=device,
+           mask=-9999)
+xrnn.save(model_path / network_name)
+n_epochs = 20
+optimizer = optim.Adam(model.parameters(), lr=0.0001)
+scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, 20)
+xrnn.train(training_data=training_data,
+           validation_data=validation_data,
+           n_epochs=n_epochs,
+           optimizer=optimizer,
+           scheduler=scheduler,
+           logger=logger,
+           metrics=metrics,
+           device=device,
+           mask=-9999)
+xrnn.save(model_path / network_name)
