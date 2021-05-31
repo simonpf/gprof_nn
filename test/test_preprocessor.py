@@ -4,10 +4,13 @@ Tests for reading the preprocessor format.
 from pathlib import Path
 
 import numpy as np
+from quantnn.qrnn import QRNN
+from quantnn.normalizer import Normalizer
 
 from gprof_nn.data.preprocessor import PreprocessorFile
 from gprof_nn.data.training_data import (GPROF0DDataset,
-                                         write_preprocessor_file)
+                                         write_preprocessor_file,
+                                         run_retrieval_0d)
 
 def test_preprocessor_file(tmp_path):
     """
@@ -16,7 +19,7 @@ def test_preprocessor_file(tmp_path):
     dataset.
     """
     path = Path(__file__).parent
-    input_file = path / "data" / "gprof_gmi_era5.nc"
+    input_file = path / "data" / "training_data.nc"
 
     targets = ["surface_precip",
                "ice_water_path",
