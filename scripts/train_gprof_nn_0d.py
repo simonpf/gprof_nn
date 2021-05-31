@@ -122,7 +122,7 @@ else:
     model = GPROFNN0D(n_layers_body,
                       n_layers_head,
                       n_neurons,
-                      128,
+                      64,
                       target=targets,
                       exp_activation=False)
     xrnn = QRNN(QUANTILES, model=model)
