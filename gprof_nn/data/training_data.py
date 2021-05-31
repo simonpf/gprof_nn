@@ -112,9 +112,8 @@ def write_preprocessor_file(
 
 class GPROF0DDataset:
     """
-    Dataset class providing an interface for the single-pixel GPROF
-    training dataset mapping TBs and ancillary data to surface precip
-    values and other target variables.
+    Dataset class providing an interface for the single-pixel GPROF-NN 0D
+    retrieval algorithm.
 
     Attributes:
         x: Rank-2 tensor containing the input data with
@@ -144,8 +143,7 @@ class GPROF0DDataset:
         Create GPROF 0D dataset.
 
         Args:
-            filename: Path to the NetCDF file containing the 0D training data
-                to load.
+            filename: Path to the NetCDF file containing the training data to load.
             target: String or list of strings specifying the names of the
                 variables to use as retrieval targets.
             normalize: Whether or not to normalize the input data.
@@ -153,7 +151,8 @@ class GPROF0DDataset:
                 values with random values.
             batch_size: Number of samples in each training batch.
             shuffle: Whether or not to shuffle the training data.
-            augment: Whether or not to randomly mask high-frequency channels.
+            augment: Whether or not to randomly mask high-frequency channels
+                and to randomly permute ancillary data.
         """
         self.filename = Path(filename)
         self.target = target
@@ -163,7 +162,7 @@ class GPROF0DDataset:
         self.augment = augment
         self._load_data()
 
-        indices_1h = list(range(17, 38))
+        indices_1h = list(range(17, 39))
         if normalizer is None:
             self.normalizer = MinMaxNormalizer(self.x, exclude_indices=indices_1h)
         elif isinstance(normalizer, type):
@@ -201,15 +200,19 @@ class GPROF0DDataset:
         if isinstance(self.y, dict):
             for k, y_k in self.y.items():
                 threshold = _THRESHOLDS[k]
-                indices = (y_k < threshold) * (y_k >= 0.0)
-                y_k[indices] = np.random.uniform(
-                    threshold * 0.01, threshold, indices.sum()
+                indices = (y_k <= threshold) * (y_k >= -threshold)
+                t_l = np.log10(threshold)
+                y_k[indices] = 10 ** np.random.uniform(
+                    t_l - 4, t_l, indices.sum()
                 )
         else:
             threshold = _THRESHOLDS[self.target]
             y = self.y
-            indices = (y < threshold) * (y >= 0.0)
-            y[indices] = np.random.uniform(threshold * 0.01, threshold, indices.sum())
+            indices = (y < threshold) * (y >= -threshold)
+            t_l = np.log10(threshold)
+            y[indices] = 10 ** np.random.uniform(
+                t_l - 4, t_l, indices.sum()
+            )
 
     def _load_data(self):
         """
@@ -244,6 +247,11 @@ class GPROF0DDataset:
             tcwv = variables["total_column_water_vapor"][:][valid].reshape(-1, 1)
             # Surface type
             st = variables["surface_type"][:][valid]
+            if self.augment:
+                _replace_randomly(t2m, 0.01)
+                _replace_randomly(tcwv, 0.01)
+                _replace_randomly(st, 0.01)
+
             n_types = 18
             st_1h = np.zeros((n, n_types), dtype=np.float32)
             st_1h[np.arange(n), st.ravel() - 1] = 1.0
@@ -251,6 +259,8 @@ class GPROF0DDataset:
             # Airmass type is defined slightly different from surface type in
             # that there is a 0 type.
             am = variables["airmass_type"][:][valid]
+            if self.augment:
+                _replace_randomly(am, 0.01)
             n_types = 4
             am_1h = np.zeros((n, n_types), dtype=np.float32)
             am_1h[np.arange(n), np.maximum(am.ravel(), 0)] = 1.0
@@ -537,3 +547,23 @@ class GPROF0DDataset:
             "dydxs": (dims, dydxs),
         }
         return xr.Dataset(data)
+
+
+def _replace_randomly(x, p):
+    """
+    Randomly replaces a fraction of the elements in the tensor with another
+    randomly sampled value.
+
+    Args:
+        x: The input tensor in which to replace some values by random
+             permutations.
+        p: The probability with which to replace any value along the first dimension
+             in x.
+
+    Returns:
+         None, augmentation is performed in place.
+    """
+    indices = np.random.rand(x.shape[0]) > (1.0 - p)
+    indices_r = np.random.permutation(x.shape[0])[:indices.sum()]
+    replacements = x[indices_r, ...]
+    x[indices] = replacements

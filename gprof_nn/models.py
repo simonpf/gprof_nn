@@ -1,9 +1,8 @@
 """
-regn.models
+gprof_nn.models
 ===========
 
-
-
+Neural network models used for the GPROF-NN algorithms.
 """
 import numpy as np
 import torch
@@ -32,7 +31,7 @@ for k in BINS:
     if k != "latent_heat":
         BINS[k][0] == 0.0
 
-QUANTILES = np.linspace(1e-3, 1.0 - 1e-3, 128)
+QUANTILES = np.linspace(1e-3, 1.0 - 1e-3, 64)
 
 
 class ClampedExp(nn.Module):
@@ -100,7 +99,7 @@ class HyperResNetFC(nn.Module):
             else:
                 self.output_activation = None
 
-    def forward(self, x, acc_in, li=1):
+    def forward(self, x, acc_in=None, li=1):
         """
         Forward input through network.
 
