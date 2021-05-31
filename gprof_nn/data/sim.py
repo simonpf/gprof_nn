@@ -42,6 +42,7 @@ ALL_TARGETS = [
 LEVELS = np.concatenate([np.linspace(500.0, 1e4, 20), np.linspace(11e3,
                                                                   18e3,
                                                                   8)])
+N_PIXELS_CENTER = 41
 
 LOGGER = logging.getLogger(__name__)
 
@@ -174,6 +175,8 @@ class GMISimFile:
         i_c = 110
         ix_start = i_c - dx // 2
         ix_end = i_c + 1 + dx // 2
+        i_left = i_c - (N_PIXELS_CENTER // 2 + 1)
+        i_right = i_c + (N_PIXELS_CENTER // 2)
 
         lats_1c = input_data["latitude"][:, ix_start:ix_end].data.reshape(-1, 1)
         lons_1c = input_data["longitude"][:, ix_start:ix_end].data.reshape(-1, 1)
@@ -210,15 +213,21 @@ class GMISimFile:
             matched_full[:, ix_start:ix_end] = matched
 
             if t in PROFILE_NAMES:
-                input_data[t] = (("scans", "pixels", "levels"),
-                                 matched_full.astype(np.float32))
+                data = matched_full[:, i_left:i_right]
+                input_data[t] = (("scans", "pixels_center", "levels"),
+                                 data.astype(np.float32))
                 if "content" in t:
-                    path = np.trapz(matched_full, x=LEVELS, axis=-1) * 1e-3
+                    path = np.trapz(data, x=LEVELS, axis=-1) * 1e-3
                     path_name = t.replace("content", "path").replace("snow", "ice")
-                    input_data[path_name] = (("scans", "pixels"), path)
+                    input_data[path_name] = (("scans", "pixels_center"), path)
             else:
-                input_data[t] = (("scans", "pixels"),
-                                 matched_full.astype(np.float32))
+                if t in ["surface_precip", "convective_precip"]:
+                    input_data[t] = (("scans", "pixels"),
+                                     matched_full.astype(np.float32))
+                else:
+                    input_data[t] = (("scans", "pixels_center"),
+                                     matched_full[:, i_left:i_right].astype(np.float32))
+
         return input_data
 
 
@@ -520,16 +529,22 @@ def add_targets(data):
 
     for t in ALL_TARGETS:
         if not t in data.variables:
-            if "content" in t:
-                d = np.zeros((n_scans, n_pixels, n_levels),
+            if "content" in t or t == "latent_heat":
+                d = np.zeros((n_scans, N_PIXELS_CENTER, n_levels),
                              dtype=np.float32)
                 d[:] = np.nan
-                data[t] = (("scans", "pixels", "levels"), d)
+                data[t] = (("scans", "pixels_center", "levels"), d)
             else:
-                d = np.zeros((n_scans, n_pixels),
-                             dtype=np.float32)
-                d[:] = np.nan
-                data[t] = (("scans", "pixels"), d)
+                if t in ["surface_precip", "convective_precip"]:
+                    d = np.zeros((n_scans, n_pixels),
+                                 dtype=np.float32)
+                    d[:] = np.nan
+                    data[t] = (("scans", "pixels"), d)
+                else:
+                    d = np.zeros((n_scans, N_PIXELS_CENTER),
+                                 dtype=np.float32)
+                    d[:] = np.nan
+                    data[t] = (("scans", "pixels_center"), d)
     return data
 
 ###############################################################################

@@ -198,21 +198,17 @@ class GPROF0DDataset:
         Transforms target values that are zero to small, non-zero values.
         """
         if isinstance(self.y, dict):
-            for k, y_k in self.y.items():
-                threshold = _THRESHOLDS[k]
-                indices = (y_k <= threshold) * (y_k >= -threshold)
+            y = self.y
+        else:
+            y = {self.target: self.y}
+        for k, y_k in y.items():
+            threshold = _THRESHOLDS[k]
+            indices = (y_k <= threshold) * (y_k >= -threshold)
+            if indices.sum() > 0:
                 t_l = np.log10(threshold)
                 y_k[indices] = 10 ** np.random.uniform(
                     t_l - 4, t_l, indices.sum()
                 )
-        else:
-            threshold = _THRESHOLDS[self.target]
-            y = self.y
-            indices = (y < threshold) * (y >= -threshold)
-            t_l = np.log10(threshold)
-            y[indices] = 10 ** np.random.uniform(
-                t_l - 4, t_l, indices.sum()
-            )
 
     def _load_data(self):
         """
@@ -275,12 +271,14 @@ class GPROF0DDataset:
             if isinstance(self.target, list):
                 self.y = {}
                 for l in self.target:
-                    y = variables[l][:][valid].filled(np.nan)
+                    y = variables[l][:].filled(np.nan)
+                    y = _expand_pixels(y)[valid]
                     np.nan_to_num(y, copy=False, nan=-9999)
                     y[y < -400] = -9999
                     self.y[l] = y
             else:
-                y = variables[self.target][:][valid].filled(np.nan)
+                y = variables[self.target][:].filled(np.nan)
+                y = _expand_pixels(y)[valid]
                 np.nan_to_num(y, copy=False, nan=-9999)
                 y[y < -400] = -9999
                 self.y = y
@@ -567,3 +565,120 @@ def _replace_randomly(x, p):
     indices_r = np.random.permutation(x.shape[0])[:indices.sum()]
     replacements = x[indices_r, ...]
     x[indices] = replacements
+
+def _expand_pixels(data):
+    """
+    Expand target data array that only contain data for central pixels.
+
+    Args:
+        data: Array containing data of a retrieval target variable.
+
+    Return:
+        The input data expanded to the full GMI swath along the third
+        dimension.
+    """
+    if data.shape[2] == 221:
+        return data
+    new_shape = list(data.shape)
+    new_shape[2] = 221
+
+    i_start = (221 - data.shape[2]) // 2
+
+    data_new = np.zeros(new_shape, dtype=data.dtype)
+    data_new[:] = np.nan
+    data_new[:, :, i_start:-i_start] = data
+    return data_new
+
+def run_retrieval_0d(input_file,
+                     xrnn,
+                     normalizer,
+                     output_file):
+    """
+    Run GPROF-NN 0D retrieval on input data in NetCDF format.
+
+    Args:
+        input_file: Filename of the NetCDF file containing input data.
+        normalizer: Normalizer object to use to normalize the input.
+        xrnn: The quantnn model to use to run the retrieval.
+        output_file: Output file to store the results to.
+    """
+    dataset = xr.open_dataset(input_file)
+
+    #
+    # Load data into input vector
+    #
+
+    bts = dataset["brightness_temperatures"][:].data
+    invalid = (bts > 500.0) + (bts < 0.0)
+    bts[invalid] = np.nan
+    # 2m temperature
+    t2m = dataset["two_meter_temperature"][:].data[..., np.newaxis]
+    # Total precitable water.
+    tcwv = dataset["total_column_water_vapor"][:].data[..., np.newaxis]
+    # Surface type
+    st = dataset["surface_type"][:].data
+    n_types = 18
+    shape = bts.shape[:3]
+    st_1h = np.zeros(shape + (n_types,), dtype=np.float32)
+    for i in range(n_types):
+        indices = st == i + 1
+        st_1h[indices, i] = 1.0
+    # Airmass type
+    # Airmass type is defined slightly different from surface type in
+    # that there is a 0 type.
+    am = dataset["airmass_type"][:].data
+    n_types = 4
+    am_1h = np.zeros(shape + (n_types,), dtype=np.float32)
+    for i in range(n_types):
+        indices = am == i + 1
+        am_1h[indices, i] = 1.0
+    input_data = np.concatenate([bts, t2m, tcwv, st_1h, am_1h], axis=-1)
+    input_data = normalizer(input_data)
+
+    means = {}
+    precip_1st_tercile = []
+    precip_3rd_tercile = []
+    pop = []
+
+    with torch.no_grad():
+        device = next(iter(xrnn.model.parameters())).device
+        for i in range(input_data.shape[0]):
+            x = torch.tensor(input_data[i].reshape(-1, 39))
+            x = x.float().to(device)
+            y_pred = xrnn.predict(x)
+            if not isinstance(y_pred, dict):
+                y_pred = {"surface_precip": y_pred}
+
+            y_mean = xrnn.posterior_mean(y_pred=y_pred)
+            for k, y in y_pred.items():
+                means.setdefault(k, []).append(y_mean[k].cpu())
+                if k == "surface_precip":
+                    t = xrnn.posterior_quantiles(
+                        y_pred=y, quantiles=[0.333, 0.667], key=k
+                    )
+                    precip_1st_tercile.append(t[:, :1].cpu())
+                    precip_3rd_tercile.append(t[:, 1:].cpu())
+                    p = xrnn.probability_larger_than(y_pred=y, y=1e-4, key=k)
+                    pop.append(p.cpu())
+
+    dims = ["samples", "scans", "pixels", "levels"]
+    data = {}
+    for k in means:
+        y = np.concatenate([t.numpy() for t in means[k]])
+        if y.ndim == 1:
+            y = y.reshape(-1, 221, 221)
+        else:
+            y = y.reshape(-1, 221, 221, 28)
+        data[k] = (dims[:y.ndim], y)
+
+    data["precip_1st_tercile"] = (
+        dims[:3],
+        np.concatenate([t.numpy() for t in precip_1st_tercile]).reshape(-1, 221, 221),
+    )
+    data["precip_3rd_tercile"] = (
+        dims[:3],
+        np.concatenate([t.numpy() for t in precip_3rd_tercile]).reshape(-1, 221, 221),
+    )
+    data["pop"] = (dims[:3], np.concatenate([t.numpy() for t in pop]).reshape(-1, 221, 221))
+    data = xr.Dataset(data)
+    data.to_netcdf(output_file)

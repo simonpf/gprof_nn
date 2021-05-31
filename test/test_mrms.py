@@ -5,6 +5,7 @@ prediction over snow surfaces.
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 from gprof_nn.data.mrms import MRMSMatchFile
 from gprof_nn.data.l1c import L1CFile
@@ -27,6 +28,7 @@ def test_read_file():
     data = ms.to_xarray_dataset(day=23)
 
 
+@pytest.mark.xfail
 def test_match_precip():
     """
     Match surface precip from MRMS file to observations in L1C file.
