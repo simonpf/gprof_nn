@@ -1,9 +1,8 @@
 """
-regn.models
+gprof_nn.models
 ===========
 
-
-
+Neural network models used for the GPROF-NN algorithms.
 """
 import numpy as np
 import torch
