@@ -172,14 +172,6 @@ class MRMSMatchFile:
         coords_sim = latlon_to_ecef(lons, lats)
         coords_sim = np.concatenate(coords_sim, 1)
 
-        surface_types = get_surface_type_map(start_time)
-        surface_types = surface_types.interp(
-            latitude=input_data["latitude"],
-            longitude=input_data["longitude"],
-            method="nearest"
-        )
-        input_data["surface_type"].data[:] = surface_types.data
-
         kdtree = KDTree(coords_1c)
         dists, indices = kdtree.query(coords_sim)
 
