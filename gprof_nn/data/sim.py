@@ -6,7 +6,7 @@ gprof_nn.data.sim
 This module contains functions to read and convert .sim files for GPROF
  v. 7.
 """
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 import logging
 from pathlib import Path
 
@@ -599,7 +599,7 @@ class SimFileProcessor:
                 " any sim files."
             )
         self.era5_path = Path(era5_path)
-        self.pool = ProcessPoolExecutor(max_workers=n_workers)
+        self.pool = ThreadPoolExecutor(max_workers=n_workers)
 
         if day is None:
             self.day = 1
@@ -683,4 +683,5 @@ class SimFileProcessor:
 
         dataset = xr.concat(datasets, "samples")
         filename = output_path / (output_file + f"_{dataset_index:02}.nc")
+        print(f"Writing file: {filename}")
         dataset.to_netcdf(filename)
