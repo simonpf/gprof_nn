@@ -6,6 +6,7 @@ gprof_nn.data.training_data
 This module defines the dataset classes that provide access to
 the training data for the GPROF-NN retrievals.
 """
+import math
 from pathlib import Path
 import logging
 
@@ -78,26 +79,38 @@ def write_preprocessor_file(
     n_scans = data.scans.size
     n_scenes = data.samples.size
 
+    c = math.ceil(n_scenes / 256)
+    if c > 256:
+        raise ValueError(
+            "The dataset contains too many observations to be savely "
+            " converted to a preprocessor file."
+        )
+    n_scans_r = n_scans * n_scenes // c
+    n_pixels_r = n_pixels * c
+
+
     new_dims = ["scans", "pixels", "channels"]
     new_dataset = {
-        "scans": np.arange(n_scans * n_scenes),
-        "pixels": np.arange(n_pixels),
+        "scans": np.arange(n_scans_r),
+        "pixels": np.arange(n_pixels_r),
         "channels": np.arange(15),
     }
     dims = ("scans", "pixels", "channels")
     shape = (n_scans, n_pixels, 15)
     for k in data:
         da = data[k]
-        ns = da.shape[0] * da.shape[1]
-        new_shape = (ns, ) + da.shape[2:]
+        new_shape = (n_scans_r, n_pixels_r) + da.shape[3:]
+        new_shape = new_shape[:len(da.data.shape) - 1]
         dims = da.dims[1:]
+        if "pixels_center" in dims:
+            continue
         new_dataset[k] = (dims, da.data.reshape(new_shape))
 
     if "nominal_eia" in data.attrs:
         new_dataset["earth_incidence_angle"] = (
             ("scans", "pixels", "channels"),
             np.broadcast_to(
-                data.attrs["nominal_eia"].reshape(1, 1, -1), (n_scans, n_pixels, 15)
+                data.attrs["nominal_eia"].reshape(1, 1, -1), (n_scans_r, n_pixels_r, 15)
             ),
         )
 
@@ -621,7 +634,7 @@ def run_retrieval_0d(input_file,
     shape = bts.shape[:3]
     st_1h = np.zeros(shape + (n_types,), dtype=np.float32)
     for i in range(n_types):
-        indices = st == i + 1
+        indices = st == (i + 1)
         st_1h[indices, i] = 1.0
     # Airmass type
     # Airmass type is defined slightly different from surface type in
@@ -630,10 +643,13 @@ def run_retrieval_0d(input_file,
     n_types = 4
     am_1h = np.zeros(shape + (n_types,), dtype=np.float32)
     for i in range(n_types):
-        indices = am == i + 1
+        indices = am == i
         am_1h[indices, i] = 1.0
+    am_1h[am < 0, 0] = 1.0
+
     input_data = np.concatenate([bts, t2m, tcwv, st_1h, am_1h], axis=-1)
-    input_data = normalizer(input_data)
+    input_data = normalizer(input_data.reshape(-1, 39))
+    input_data = input_data.reshape(-1, 221, 221, 39)
 
     means = {}
     precip_1st_tercile = []
