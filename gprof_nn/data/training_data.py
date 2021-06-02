@@ -264,15 +264,16 @@ class GPROF0DDataset:
                 r = np.random.rand(bts.shape[0])
                 bts[r > 0.8, 10:15] = np.nan
 
-            # 2m temperature
+            # 2m temperature, values less than 0 must be missing.
             t2m = variables["two_meter_temperature"][:][valid].reshape(-1, 1)
-            # Total precitable water.
+            t2m[t2m < 0] = np.nan
+
+            # Total precitable water, values less than 0 are missing.
             tcwv = variables["total_column_water_vapor"][:][valid].reshape(-1, 1)
             # Surface type
             st = variables["surface_type"][:][valid]
             if self.augment:
                 _replace_randomly(t2m, 0.01)
-                _replace_randomly(tcwv, 0.01)
                 _replace_randomly(st, 0.01)
 
             n_types = 18
