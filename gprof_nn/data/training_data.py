@@ -58,35 +58,44 @@ _THRESHOLDS = {
 
 
 def write_preprocessor_file(
-    input_file,
-        output_file,
-        template=None
+    input_data,
+    output_file,
+    template=None
 ):
     """
     Extract sample from training data file and write to preprocessor format.
 
     Args:
-        input_file: Path to the NetCDF4 file containing the training or test
-            data.
+        input_data: Path to a NetCDF4 file containing the training or test
+            data or xarray.Dataset containing the data to write to a
+            preprocessor file.
         output_file: Path of the file to write the output to.
         template: Template preprocessor file use to determine the orbit header
              information. If not provided this data will be filled with dummy
              values.
     """
-    data = xr.open_dataset(input_file)
+    if not isinstance(input_data, xr.Dataset):
+        data = xr.open_dataset(input_file)
+    else:
+        data = input_data
     new_names = {"brightness_temps": "brightness_temperatures"}
     n_pixels = data.pixels.size
     n_scans = data.scans.size
-    n_scenes = data.samples.size
+    if hasattr(data, "samples"):
+        n_scenes = data.samples.size
+        dim_offset = 1
+    else:
+        n_scenes = 1
+        dim_offset = 0
 
-    c = math.ceil(n_scenes / 256)
+    c = math.ceil(n_scenes / (n_pixels * 256))
     if c > 256:
         raise ValueError(
             "The dataset contains too many observations to be savely "
             " converted to a preprocessor file."
         )
-    n_scans_r = n_scans * n_scenes // c
-    n_pixels_r = n_pixels * c
+    n_scans_r = n_scans * n_scenes
+    n_pixels_r = n_pixels
 
 
     new_dims = ["scans", "pixels", "channels"]
@@ -98,13 +107,18 @@ def write_preprocessor_file(
     dims = ("scans", "pixels", "channels")
     shape = (n_scans, n_pixels, 15)
     for k in data:
-        da = data[k]
-        new_shape = (n_scans_r, n_pixels_r) + da.shape[3:]
-        new_shape = new_shape[:len(da.data.shape) - 1]
-        dims = da.dims[1:]
-        if "pixels_center" in dims:
-            continue
-        new_dataset[k] = (dims, da.data.reshape(new_shape))
+        if k == "scan_time":
+            da = data[k]
+            new_dataset[k] = (("scans",), da.data.ravel()[:n_scans_r])
+        else:
+            da = data[k]
+            new_shape = (n_scans_r, n_pixels_r) + da.shape[(2 + dim_offset):]
+            new_shape = new_shape[:len(da.data.shape) - dim_offset]
+            print(k, new_shape)
+            dims = da.dims[dim_offset:]
+            if "pixels_center" in dims:
+                continue
+            new_dataset[k] = (dims, da.data.reshape(new_shape))
 
     if "nominal_eia" in data.attrs:
         new_dataset["earth_incidence_angle"] = (

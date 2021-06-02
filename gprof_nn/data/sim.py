@@ -9,6 +9,8 @@ This module contains functions to read and convert .sim files for GPROF
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 import logging
 from pathlib import Path
+import traceback
+import sys
 
 import numpy as np
 import pandas as pd
@@ -26,6 +28,7 @@ from gprof_nn.data.mrms import (MRMSMatchFile,
                                 get_surface_type_map,
                                 get_surface_type_map_legacy)
 from gprof_nn.utils import CONUS
+from gprof_nn.logging import console
 
 ALL_TARGETS = [
     "surface_precip",
@@ -649,7 +652,7 @@ class SimFileProcessor:
             i += 1
 
         n_datasets = len(tasks)
-        n_chunks = 4
+        n_chunks = 1
         chunk_size = n_datasets // n_chunks + 1
         datasets = []
         output_path = Path(self.output_file).parent
@@ -666,6 +669,8 @@ class SimFileProcessor:
                     "The follow error was encountered while collecting "
                     " results: %s", e
                 )
+                console.print_exception()
+                dataset = None
             if dataset is not None:
                 datasets.append(dataset)
 

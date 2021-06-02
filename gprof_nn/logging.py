@@ -11,6 +11,7 @@ import multiprocessing
 import os
 
 from rich.logging import RichHandler
+from rich.console import Console
 
 _LOG_LEVEL = os.environ.get('GPROF_NN_LOG_LEVEL', 'WARNING').upper()
 logging.basicConfig(
@@ -21,3 +22,5 @@ logging.basicConfig(
 )
 _MP_LOGGER = multiprocessing.get_logger()
 _MP_LOGGER.setLevel(_LOG_LEVEL)
+
+console = Console()
