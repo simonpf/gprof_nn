@@ -5,6 +5,8 @@ VALIDATION_DATA=/gdata/simon/gprof_nn/validation_data/gmi/era5
 
 MODEL_PATH=${HOME}/src/gprof_nn/models/
 TARGETS="surface_precip convective_precip rain_water_path ice_water_path cloud_water_path cloud_water_content snow_water_content rain_water_content"
+#TARGETS="surface_precip rain_water_content"
+TARGETS="surface_precip"
 
 export QUANTNN_LOG_LEVEL=INFO
 export OMP_NUM_THREADS=4

@@ -73,7 +73,8 @@ normalizer = Normalizer.load("../data/normalizer_gprof_0d_gmi.pckl")
 kwargs = {
     "batch_size": batch_size,
     "normalizer": normalizer,
-    "target": targets
+    "target": targets,
+    "augment": False
 }
 training_data = DataFolder(
     training_data,
@@ -82,7 +83,7 @@ training_data = DataFolder(
     n_workers=4)
 
 kwargs = {
-    "batch_size": 16 * batch_size,
+    "batch_size": 8 * batch_size,
     "normalizer": normalizer,
     "target": targets,
     "augment": False
@@ -125,7 +126,7 @@ else:
                       64,
                       target=targets,
                       exp_activation=False)
-    xrnn = QRNN(QUANTILES, model=model)
+    xrnn = QRNN(quantiles=QUANTILES, model=model)
 
 #
 # Run training
@@ -147,7 +148,7 @@ scatter_plot = ScatterPlot(log_scale=True)
 metrics.append(scatter_plot)
 
 n_epochs = 10
-optimizer = optim.Adam(model.parameters(), lr=0.0005)
+optimizer = optim.Adam(model.parameters(), lr=0.001)
 scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, n_epochs)
 xrnn.train(training_data=training_data,
            validation_data=validation_data,
