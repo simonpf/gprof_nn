@@ -4,8 +4,6 @@ Tests for reading the preprocessor format.
 from pathlib import Path
 
 import numpy as np
-from quantnn.qrnn import QRNN
-from quantnn.normalizer import Normalizer
 
 from gprof_nn.data.preprocessor import PreprocessorFile
 from gprof_nn.data.training_data import (GPROF0DDataset,

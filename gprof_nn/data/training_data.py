@@ -8,6 +8,7 @@ the training data for the GPROF-NN retrievals.
 """
 from pathlib import Path
 import logging
+import os
 
 from netCDF4 import Dataset
 import numpy as np
@@ -160,6 +161,9 @@ class GPROF0DDataset:
         self.batch_size = batch_size
         self.shuffle = shuffle
         self.augment = augment
+
+        seed = int.from_bytes(os.urandom(4), "big") + os.getpid()
+        self._rng = np.random.default_rng(seed)
         self._load_data()
 
         indices_1h = list(range(17, 39))
@@ -206,7 +210,7 @@ class GPROF0DDataset:
             indices = (y_k <= threshold) * (y_k >= -threshold)
             if indices.sum() > 0:
                 t_l = np.log10(threshold)
-                y_k[indices] = 10 ** np.random.uniform(
+                y_k[indices] = 10 ** self._rng.uniform(
                     t_l - 4, t_l, indices.sum()
                 )
 
@@ -224,7 +228,8 @@ class GPROF0DDataset:
 
             # Brightness temperatures
             sp = dataset["surface_precip"][:]
-            valid = np.isfinite(sp)
+            qf = dataset["quality_flag"][:]
+            valid = np.isfinite(sp) * (qf == 0)
             n = valid.sum()
 
             bts = dataset["brightness_temperatures"][:][valid]
@@ -234,7 +239,7 @@ class GPROF0DDataset:
 
             # Simulate missing high-frequency channels
             if self.augment:
-                r = np.random.rand(bts.shape[0])
+                r = self._rng.random(bts.shape[0])
                 bts[r > 0.8, 10:15] = np.nan
 
             # 2m temperature, values less than 0 must be missing.
@@ -246,8 +251,8 @@ class GPROF0DDataset:
             # Surface type
             st = variables["surface_type"][:][valid]
             if self.augment:
-                _replace_randomly(t2m, 0.01)
-                _replace_randomly(st, 0.01)
+                _replace_randomly(t2m, 0.01, rng=self._rng)
+                _replace_randomly(st, 0.01, rng=self._rng)
 
             n_types = 18
             st_1h = np.zeros((n, n_types), dtype=np.float32)
@@ -355,7 +360,7 @@ class GPROF0DDataset:
     def _shuffle(self):
         if not self._shuffled:
             LOGGER.info("Shuffling dataset %s.", self.filename.name)
-            indices = np.random.permutation(self.x.shape[0])
+            indices = self._rng.permutation(self.x.shape[0])
             self.x = self.x[indices, :]
             if isinstance(self.y, dict):
                 self.y = {k: self.y[k][indices] for k in self.y}
@@ -548,7 +553,7 @@ class GPROF0DDataset:
         return xr.Dataset(data)
 
 
-def _replace_randomly(x, p):
+def _replace_randomly(x, p, rng=None):
     """
     Randomly replaces a fraction of the elements in the tensor with another
     randomly sampled value.
@@ -562,8 +567,12 @@ def _replace_randomly(x, p):
     Returns:
          None, augmentation is performed in place.
     """
-    indices = np.random.rand(x.shape[0]) > (1.0 - p)
-    indices_r = np.random.permutation(x.shape[0])[:indices.sum()]
+    if rng is None:
+        indices = np.random.rand(x.shape[0]) > (1.0 - p)
+        indices_r = np.random.permutation(x.shape[0])[:indices.sum()]
+    else:
+        indices = rng.random(x.shape[0]) > (1.0 - p)
+        indices_r = rng.permutation(x.shape[0])[:indices.sum()]
     replacements = x[indices_r, ...]
     x[indices] = replacements
 
