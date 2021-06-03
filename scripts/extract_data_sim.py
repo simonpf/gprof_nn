@@ -37,14 +37,13 @@ L1C_PATH = "/pdata4/archive/GPM/1CR_GMI"
 MRMS_PATH = "/pdata4/veljko/GMI2MRMS_match2019/db_mrms4GMI/"
 ERA5_PATH = "/qdata2/archive/ERA5/"
 
-for d in range(1, 32):
-    of = output_file.replace("{DAY}", f"{d:02}")
-    print("Running processor: ", of)
-    processor = SimFileProcessor(of,
-                                 sim_file_path=SIM_PATH,
-                                 mrms_path=MRMS_PATH,
-                                 l1c_path=L1C_PATH,
-                                 era5_path=ERA5_PATH,
-                                 n_workers=2,
-                                 day=d)
-    processor.run()
+of = output_file
+print("Running processor: ", of)
+processor = SimFileProcessor(of,
+                             sim_file_path=SIM_PATH,
+                             mrms_path=MRMS_PATH,
+                             l1c_path=L1C_PATH,
+                             era5_path=ERA5_PATH,
+                             n_workers=4,
+                             day=day)
+processor.run()
