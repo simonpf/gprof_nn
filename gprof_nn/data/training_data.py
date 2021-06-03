@@ -256,7 +256,7 @@ class GPROF0DDataset:
             # Brightness temperatures
             sp = dataset["surface_precip"][:]
             qf = dataset["quality_flag"][:]
-            valid = np.isfinite(sp) * (qf == 0)
+            valid = (sp >= 0) * (qf == 0)
             n = valid.sum()
 
             bts = dataset["brightness_temperatures"][:][valid]
