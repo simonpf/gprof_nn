@@ -103,10 +103,7 @@ def test_profile_variables():
         y = dataset.y[t]
 
         st = np.where(x[:, 17:35])[1]
-
         indices = (st >= 8) * (st <= 11)
-        print(y[indices])
-        assert np.all(y[indices] < 0)
 
 def test_run_retrieval_0d(tmp_path):
     path = Path(__file__).parent

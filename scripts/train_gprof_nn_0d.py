@@ -80,7 +80,7 @@ training_data = DataFolder(
     training_data,
     dataset_factory,
     kwargs=kwargs,
-    n_workers=4)
+    active_datasets=4)
 
 kwargs = {
     "batch_size": 8 * batch_size,
@@ -92,7 +92,7 @@ validation_data = DataFolder(
     validation_data,
     dataset_factory,
     kwargs=kwargs,
-    n_workers=2
+    active_datasets=2
 )
 
 #

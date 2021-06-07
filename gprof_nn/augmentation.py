@@ -144,7 +144,9 @@ def get_transformation_coordinates(x_i,
     coords += np.array([y, c_i]).reshape(-1, 1, 1)
     return coords
 
-def extract_domain(data, x_i, x_o, y, coords=None):
+def extract_domain(data, x_i, x_o, y,
+                   coords=None,
+                   order=1):
     """
     Extract and reproject region from input data.
 
@@ -163,9 +165,9 @@ def extract_domain(data, x_i, x_o, y, coords=None):
     if len(data.shape) == 3:
         results = np.zeros((M, N, data.shape[2]))
         for i in range(data.shape[2]):
-            results[:, :, i] = map_coordinates(data[:, :, i], coords)
+            results[:, :, i] = map_coordinates(data[:, :, i], coords, order)
     else:
-        results = map_coordinates(data, coords)
+        results = map_coordinates(data, coords, order=order)
     return results
 
 
