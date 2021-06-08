@@ -165,7 +165,11 @@ def extract_domain(data, x_i, x_o, y,
     if len(data.shape) == 3:
         results = np.zeros((M, N, data.shape[2]))
         for i in range(data.shape[2]):
-            results[:, :, i] = map_coordinates(data[:, :, i], coords, order)
+            results[:, :, i] = map_coordinates(
+                data[:, :, i],
+                coords,
+                order=order
+            )
     else:
         results = map_coordinates(data, coords, order=order)
     return results

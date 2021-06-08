@@ -25,6 +25,8 @@ import quantnn.density as qd
 
 from gprof_nn.data.preprocessor import PreprocessorFile
 from gprof_nn.data.bin import PROFILE_NAMES
+from gprof_nn.augmentation import (M, N, extract_domain,
+                                   get_transformation_coordinates)
 
 LOGGER = logging.getLogger(__name__)
 _DEVICE = torch.device("cpu")
@@ -115,7 +117,6 @@ def write_preprocessor_file(
             da = data[k]
             new_shape = (n_scans_r, n_pixels_r) + da.shape[(2 + dim_offset):]
             new_shape = new_shape[:len(da.data.shape) - dim_offset]
-            print(k, new_shape)
             dims = da.dims[dim_offset:]
             if "pixels_center" in dims:
                 continue
@@ -735,20 +736,19 @@ def run_retrieval_0d(input_file,
 
 class GPROF2DDataset:
     """
-    Dataset class providing an interface for the single-pixel GPROF-NN 0D
+    Dataset class providing an interface for the convolutional GPROF-NN 2D
     retrieval algorithm.
 
     Attributes:
-        x: Rank-2 tensor containing the input data with
-           samples along first dimension.
+        x: Rank-4 tensor containing the input data with
+           samples along first dimension and channels along second.
         y: The target values
         filename: The filename from which the data is loaded.
-        target: The name of the variable used as target variable.
+        target: The name of the variable(s) used as retrieval target(s).
         batch_size: The size of data batches returned by __getitem__ method.
         normalizer: The normalizer used to normalize the data.
         shuffle: Whether or not the ordering of the data is shuffled.
-        augment: Whether or not high-frequency observations are randomly set to
-            missing to simulate observations at the edge of the swath.
+        augment: Whether or not data augmentation is applied.
     """
 
     def __init__(
@@ -763,7 +763,7 @@ class GPROF2DDataset:
         augment=True,
     ):
         """
-        Create GPROF 0D dataset.
+        Load GPROF 2D data.
 
         Args:
             filename: Path to the NetCDF file containing the training data to load.
@@ -814,10 +814,10 @@ class GPROF2DDataset:
             self._shuffle()
 
     def __repr__(self):
-        return f"GPROF0DDataset({self.filename.name}, n_batches={len(self)})"
+        return f"GPROF2DDataset({self.filename.name}, n_batches={len(self)})"
 
     def __str__(self):
-        return f"GPROF0DDataset({self.filename.name}, n_batches={len(self)})"
+        return self.__repr__()
 
     def _transform_zeros(self):
         """
@@ -849,173 +849,112 @@ class GPROF2DDataset:
             #
 
             # Brightness temperatures
-            sp = dataset["surface_precip"][:]
-            qf = dataset["quality_flag"][:]
             n = dataset.dimensions["samples"].size
 
-            x = np.zeros(n, 39, M, N)
+            x = np.zeros((n, 39, M, N))
+            if isinstance(self.target, list):
+                y = {}
+            else:
+                y = np.zeros(
+                    (n, M, N,) + dataset[self.target][0].shape[3:],
+                    dtype=np.float32
+                )
             for i in range(n):
                 if self.augment:
-                    x_o = 2.0 * self.rng.rand() - 1.0
-                    x_i = 2.0 * self.rng.rand() - 1.0
-                    y = 2.0 * self.rng.rand() - 1.0
+                    p_x_o = 2.0 * self._rng.random() - 1.0
+                    p_x_i = 2.0 * self._rng.random() - 1.0
+                    p_y = 2.0 * self._rng.random() - 1.0
                 else:
-                    x_o = 0.0
-                    x_i = 0.0
-                    y = 0.0
+                    p_x_o = 0.0
+                    p_x_i = 0.0
+                    p_y = 0.0
 
-                coords = get_transformation_coordinates(x_i, x_o, y)
+                coords = get_transformation_coordinates(p_x_i, p_x_o, p_y)
 
-                tbs = dataset["brightness_temperatures"][i]
-                tbs = extract_domain(tbs, x_i, x_o, y, coords=coords)
-                tbs = tbs[np.newaxis, ...]
+                tbs = dataset["brightness_temperatures"][i][:]
+                tbs = extract_domain(tbs, p_x_i, p_x_o, p_y, coords=coords)
+                tbs = np.transpose(tbs, (2, 0, 1))
 
-                t2m = variables["two_meter_temperature"][i]
-                t2m = extract_domain(t2m, x_i, x_o, y, coords=coords)
+                invalid = (tbs > 500.0) + (tbs < 0.0)
+                tbs[invalid] = np.nan
+
+                # Simulate missing high-frequency channels
+                if self.augment:
+                    r = self._rng.random()
+                    if r > 0.95:
+                        tbs[:, :15] = np.nan
+
+                t2m = variables["two_meter_temperature"][i][:]
+                t2m = extract_domain(t2m, p_x_i, p_x_o, p_y, coords=coords)
                 t2m = t2m[np.newaxis, ...]
+                t2m[t2m < 0] = np.nan
 
-                tcwv = variables["total_column_water_vapor"][i]
-                tcwv = extract_domain(tcwv, x_i, x_o, y, coords=coords)
+                tcwv = variables["total_column_water_vapor"][i][:]
+                tcwv = extract_domain(tcwv, p_x_i, p_x_o, p_y, coords=coords)
                 tcwv = tcwv[np.newaxis, ...]
+                tcwv[tcwv < 0] = np.nan
 
-                st = dataset["surface_type"][i]
-                st = extract_domain(st, x_i, x_o, y, coords=coords, order=0)
+                st = dataset["surface_type"][i][:]
+                st = extract_domain(st, p_x_i, p_x_o, p_y, coords=coords, order=0)
                 st_1h = np.zeros((18,) + st.shape, dtype=np.float32)
-                st_1h[st, np.arange(st.shape[0]), np.arange(st.shape[1])] = 1.0
+                for j in range(18):
+                    st_1h[j, st == (j + 1)] = 1.0
 
-                at = dataset["airmass_type"][i]
-                at = extract_domain(at, x_i, x_o, y, coords=coords, order=0)
-                at_1h = np.zeros((14,) + st.shape, dtype=np.float32)
-                at_1h[np.maximum(at, 0),
-                      np.arange(st.shape[0]),
-                      np.arange(st.shape[1])] = 1.0
+                at = dataset["airmass_type"][i][:]
+                at = extract_domain(at, p_x_i, p_x_o, p_y, coords=coords, order=0)
+                at_1h = np.zeros((4,) + st.shape, dtype=np.float32)
+                for j in range(4):
+                    at_1h[j, np.maximum(at, 0) == j] = 1.0
 
-                x[i] = np.concatenate([tbs, t2m, tcwv, st, at], axis=0)
+                x[i] = np.concatenate([tbs, t2m, tcwv, st_1h, at_1h], axis=0)
 
+                if isinstance(self.target, list):
+                    for k in self.target:
 
-
-            invalid = (bts > 500.0) + (bts < 0.0)
-            bts[invalid] = np.nan
-
-            # Simulate missing high-frequency channels
-            if self.augment:
-                r = self._rng.random(bts.shape[0])
-                bts[r > 0.8, 10:15] = np.nan
-
-            # 2m temperature, values less than 0 must be missing.
-            t2m = variables["two_meter_temperature"][:][valid].reshape(-1, 1)
-            t2m[t2m < 0] = np.nan
-
-            # Total precitable water, values less than 0 are missing.
-            tcwv = variables["total_column_water_vapor"][:][valid].reshape(-1, 1)
-            # Surface type
-            st = variables["surface_type"][:][valid]
-            if self.augment:
-                _replace_randomly(t2m, 0.01, rng=self._rng)
-                _replace_randomly(st, 0.01, rng=self._rng)
-
-            n_types = 18
-            st_1h = np.zeros((n, n_types), dtype=np.float32)
-            st_1h[np.arange(n), st.ravel() - 1] = 1.0
-            # Airmass type
-            # Airmass type is defined slightly different from surface type in
-            # that there is a 0 type.
-            am = variables["airmass_type"][:][valid]
-            if self.augment:
-                _replace_randomly(am, 0.01)
-            n_types = 4
-            am_1h = np.zeros((n, n_types), dtype=np.float32)
-            am_1h[np.arange(n), np.maximum(am.ravel(), 0)] = 1.0
-
-            self.x = np.concatenate([bts, t2m, tcwv, st_1h, am_1h], axis=1)
-
-            #
-            # Output data
-            #
-
-            n = dataset.dimensions["samples"].size
-            if isinstance(self.target, list):
-                self.y = {}
-                for l in self.target:
-                    y = variables[l][:].filled(np.nan)
-                    y = _expand_pixels(y)[valid]
-                    np.nan_to_num(y, copy=False, nan=-9999)
-                    y[y < -400] = -9999
-                    self.y[l] = y
-            else:
-                y = variables[self.target][:].filled(np.nan)
-                y = _expand_pixels(y)[valid]
-                np.nan_to_num(y, copy=False, nan=-9999)
-                y[y < -400] = -9999
-                self.y = y
-
-            LOGGER.info(
-                "Loaded %s samples from %s", self.x.shape[0], self.filename.name
-            )
-
-    def save(self, filename):
-        """
-        Store dataset as NetCDF file.
-
-        Args:
-            filename: The name of the file to which to write the dataset.
-        """
-        if self.normalize:
-            x = self.normalizer.invert(self.x)
-        else:
-            x = self.x
-        y = self.y
-
-        n_samples = x.shape[0]
-        n_pixels = 221
-        n_scans = n_samples // 221
-        n_levels = 28
-        if (n_samples % 221) > 0:
-            n_scans += 1
-
-        bts = np.zeros((1, n_scans, n_pixels, 15), dtype=np.float32)
-        t2m = np.zeros((1, n_scans, n_pixels), dtype=np.float32)
-        tcwv = np.zeros((1, n_scans, n_pixels), dtype=np.float32)
-        st = np.zeros((1, n_scans, n_pixels), dtype=np.float32)
-        at = np.zeros((1, n_scans, n_pixels), dtype=np.float32)
-
-        bts.reshape((-1, 15))[:n_samples] = x[:, :15]
-        t2m.ravel()[:n_samples] = x[:, 15]
-        tcwv.ravel()[:n_samples] = x[:, 16]
-        st.ravel()[:n_samples] = np.where(x[:, 17: 17 + 18])[1]
-        at.ravel()[:n_samples] = np.where(x[:, 17 + 18: 17 + 22])[1]
-
-        dataset = xr.open_dataset(self.filename)
-
-        dims = ("samples", "scans", "pixels", "channel")
-        new_dataset = {
-            "brightness_temperatures": (dims, bts),
-            "two_meter_temperature": (dims[:-1], t2m),
-            "total_column_water_vapor": (dims[:-1], tcwv),
-            "surface_type": (dims[:-1], st),
-            "airmass_type": (dims[:-1], at),
-        }
-        dims = ("samples", "scans", "pixels", "levels")
-        if isinstance(self.y, dict):
-            for k, v in self.y.items():
-                shape = (1, n_scans, n_pixels, n_levels)
-                n_dims = v.ndim
-                data = np.zeros(shape[:2 + n_dims], dtype=np.float32)
-                if n_dims == 2:
-                    data.reshape(-1, 28)[:n_samples] = v
+                        y_k_r = _expand_pixels(dataset[k][i][:][np.newaxis, ...])
+                        y_k = y.setdefault(
+                            k,
+                            np.zeros((n, M, N) + y_k_r.shape[3:],
+                                     dtype=np.float32)
+                        )
+                        y_k_i = extract_domain(y_k_r[0], p_x_i, p_x_o, p_y,
+                                               coords=coords)
+                        if k == "latent_heat":
+                            y_k_i[y_k_i < -400] = -9999
+                        else:
+                            y_k_i[y_k_i < 0] = -9999
+                            y_k[i] = y_k_i
                 else:
-                    data.ravel()[:n_samples] = v
-                new_dataset[k] = (dims[:2 + n_dims], data)
-        else:
-            shape = (1, n_scans, n_pixels)
-            data = np.zeros(shape)
-            data.reshape(-1)[:n_samples] = self.y
-            new_dataset[k] = (dims[:-1], data)
-            new_dataset["surface_precip"] = (("samples", "scans", "pixels",),
-                                             self.y[np.newaxis, :])
-        new_dataset = xr.Dataset(new_dataset)
-        new_dataset.attrs = dataset.attrs
-        new_dataset.to_netcdf(filename)
+                    y_r = _expand_pixels(dataset[self.target][i][:][np.newaxis, ...])
+                    y_i = extract_domain(y_r[0], p_x_i, p_x_o, p_y,
+                                         coords=coords)
+                    if self.target == "latent_heat":
+                        y_i[y_i < -400] = -9999
+                    else:
+                        y_i[y_i < 0] = -9999
+                    y[i] = y_i
+
+                # Also flip data if requested.
+                if self.augment:
+                    r = self._rng.random()
+                    if r > 0.5:
+                        x[i] = np.flip(x[i], 1)
+                        if isinstance(self.target, list):
+                            for k in self.target:
+                                y[k][i] = np.flip(y[k][i], 0)
+                        else:
+                            y[i] = np.flip(y[i], 0)
+
+                    r = self._rng.random()
+                    if r > 0.5:
+                        x[i] = np.flip(x[i], 2)
+                        if isinstance(self.target, list):
+                            for k in self.targets:
+                                y[k][i] = np.flip(y[k][i], 1)
+                        else:
+                            y[i] = np.flip(y[i], 1)
+        self.x = x
+        self.y = y
 
     def _shuffle(self):
         if not self._shuffled:
@@ -1073,141 +1012,3 @@ class GPROF2DDataset:
         else:
             return self.x.shape[0]
 
-    def evaluate(self, xrnn, batch_size=16384, device=_DEVICE):
-        """
-        Run retrieval on test dataset and returns results as
-        xarray Dataset.
-
-        Args:
-            model: The QRNN or DRNN model to evaluate.
-            batch_size: The batch size to use for the evaluation.
-            device: On which device to run the evaluation.
-
-        Return:
-            ``xarray.Dataset`` containing the predicted and reference values
-            for the data in this dataset.
-        """
-        means = {}
-        precip_1st_tercile = []
-        precip_3rd_tercile = []
-        pop = []
-
-        with torch.no_grad():
-            for i in range(len(self)):
-                x, y = self[i]
-
-                y_pred = xrnn.predict(x)
-                if not isinstance(y_pred, dict):
-                    y_pred = {"surface_precip": y_pred}
-
-                y_mean = xrnn.posterior_mean(y_pred=y_pred)
-                for k, y in y_pred.items():
-                    means.setdefault(k, []).append(y_mean[k].cpu())
-                    if k == "surface_precip":
-                        t = xrnn.posterior_quantiles(
-                            y_pred=y, quantiles=[0.333, 0.667], key=k
-                        )
-                        precip_1st_tercile.append(t[:, :1].cpu())
-                        precip_3rd_tercile.append(t[:, 1:].cpu())
-                        p = self.model.probability_larger_than(y_pred=y, y=1e-4, key=k)
-                        pop.append(p.cpu())
-
-        dims = ["samples", "levels"]
-        data = {}
-        for k in means:
-            y = np.concatenate(means[k].numpy())
-            if y.ndim == 1:
-                y = y.reshape(-1, 221)
-            else:
-                y = y.reshape(-1, 221, 28)
-            data[k] = (dims[: y.ndim], y)
-
-        data["precip_1st_tercile"] = (
-            dims[:2],
-            np.concatenate(precip_1st_tercile.numpy()).reshape(-1, 221),
-        )
-        data["precip_3rd_tercile"] = (
-            dims[:2],
-            np.concatenate(precip_3rd_tercile.numpy()).reshape(-1, 221),
-        )
-        data["pop"] = (dims[:2], np.concatenate(pop.numpy()).reshape(-1, 221))
-        return xr.Dataset(data)
-
-    def evaluate_sensitivity(self, model, batch_size=512, device=_DEVICE):
-        """
-        Run retrieval on dataset.
-        """
-        n_samples = self.x.shape[0]
-        y_means = []
-        y_trues = []
-        grads = []
-        surfaces = []
-        airmasses = []
-        dydxs = []
-
-        st_indices = torch.arange(19).reshape(1, -1).to(device)
-        am_indices = torch.arange(4).reshape(1, -1).to(device)
-        i_start = 0
-        model.model.to(device)
-
-        loss = torch.nn.MSELoss()
-
-        model.model.eval()
-
-        for i in tqdm(range(n_samples // batch_size + 1)):
-            i_start = i * batch_size
-            i_end = i_start + batch_size
-            if i_start >= n_samples:
-                break
-
-            model.model.zero_grad()
-
-            x = torch.tensor(self.x[i_start:i_end]).float().to(device)
-            x_l = x.clone()
-            x_l[:, 0] -= 0.01
-            x_r = x.clone()
-            x_r[:, 0] += 0.01
-            y = torch.tensor(self.y[i_start:i_end]).float().to(device)
-
-            x.requires_grad = True
-            y.requires_grad = True
-            i_start += batch_size
-
-            y_pred = model.predict(x)
-            y_mean = model.posterior_mean(y_pred=y_pred).reshape(-1)
-            y_mean_l = model.posterior_mean(x_l).reshape(-1)
-            y_mean_r = model.posterior_mean(x_r).reshape(-1)
-            dydx = (y_mean_r - y_mean_l) / 0.02
-            torch.sum(y_mean).backward()
-
-            y_means.append(y_mean.detach().cpu())
-            y_trues.append(y.detach().cpu())
-            grads.append(x.grad[:, :15].cpu())
-            surfaces += [(x[:, 17:36] * st_indices).sum(1).cpu()]
-            airmasses += [(x[:, 36:] * am_indices).sum(1).cpu()]
-            dydxs += [dydx.cpu()]
-
-        y_means = torch.cat(y_means, 0).detach().numpy()
-        y_trues = torch.cat(y_trues, 0).detach().numpy()
-        grads = torch.cat(grads, 0).detach().numpy()
-        surfaces = torch.cat(surfaces, 0).detach().numpy()
-        airmasses = torch.cat(airmasses, 0).detach().numpy()
-        dydxs = torch.cat(dydxs, 0).detach().numpy()
-
-        dims = ["samples"]
-
-        data = {
-            "gradients": (
-                dims
-                + [
-                    "channels",
-                ],
-                grads,
-            ),
-            "surface_type": (dims, surfaces),
-            "airmass_type": (dims, airmasses),
-            "y_mean": (dims, y_means),
-            "y_true": (dims, y_trues),
-            "dydxs": (dims, dydxs),
-        }
-        return xr.Dataset(data)

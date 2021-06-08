@@ -12,8 +12,9 @@ from quantnn.qrnn import QRNN
 from quantnn.normalizer import Normalizer
 from quantnn.models.pytorch.xception import XceptionFpn
 
-from gprof_nn.data.training_data import GPROF0DDataset, run_retrieval_0d
-
+from gprof_nn.data.training_data import (GPROF0DDataset,
+                                         run_retrieval_0d,
+                                         GPROF2DDataset)
 
 
 def test_gprof_0d_dataset():
@@ -23,7 +24,7 @@ def test_gprof_0d_dataset():
     """
     path = Path(__file__).parent
     input_file = path / "data" / "training_data.nc"
-    dataset = GPROF0DDataset(input_file, batch_size=1)
+    dataset = GPROF0DDataset(input_file, batch_size=1, augment=False)
 
     xs = []
     ys = []
@@ -106,6 +107,9 @@ def test_profile_variables():
         indices = (st >= 8) * (st <= 11)
 
 def test_run_retrieval_0d(tmp_path):
+    """
+    Test running 0D version of retrieval on training data file.
+    """
     path = Path(__file__).parent
     input_file = path / "data" / "training_data.nc"
     qrnn = QRNN.load(path / "data" / "gprof_nn_0d.pckl")
@@ -119,3 +123,83 @@ def test_run_retrieval_0d(tmp_path):
     assert "surface_precip" in results.variables
 
 
+def test_gprof_2d_dataset():
+    """
+    Ensure that iterating over 2D dataset conserves
+    statistics.
+    """
+    path = Path(__file__).parent
+    input_file = path / "data" / "training_data.nc"
+    dataset = GPROF2DDataset(input_file,
+                             batch_size=1,
+                             augment=False,
+                             transform_zeros=True)
+
+    xs = []
+    ys = []
+
+    x_mean_ref = dataset.x.sum(axis=0)
+    y_mean_ref = dataset.y.sum(axis=0)
+
+    for x, y in dataset:
+        xs.append(x)
+        ys.append(y)
+
+    xs = torch.cat(xs, dim=0)
+    ys = torch.cat(ys, dim=0)
+
+    x_mean = xs.sum(dim=0).detach().numpy()
+    y_mean = ys.sum(dim=0).detach().numpy()
+
+    y_mean = y_mean[np.isfinite(y_mean)]
+    y_mean_ref = y_mean_ref[np.isfinite(y_mean_ref)]
+
+    assert np.all(np.isclose(x_mean, x_mean_ref, atol=1e-3))
+    assert np.all(np.isclose(y_mean, y_mean_ref, atol=1e-3))
+
+
+def test_gprof_2d_dataset_profiles():
+    """
+    Ensure that loading of profile variables works.
+    """
+    path = Path(__file__).parent
+    input_file = path / "data" / "training_data.nc"
+    dataset = GPROF2DDataset(input_file,
+                             batch_size=1,
+                             augment=False,
+                             transform_zeros=True,
+                             target=[
+                                 "rain_water_content",
+                                 "snow_water_content",
+                                 "cloud_water_content"
+                             ])
+
+    xs = []
+    ys = {}
+
+    x_mean_ref = dataset.x.sum(axis=0)
+    y_mean_ref = {}
+    for k in dataset.target:
+        y_mean_ref[k] = dataset.y[k].sum(axis=0)
+
+    for x, y in dataset:
+        xs.append(x)
+        for k in y:
+            ys.setdefault(k, []).append(y[k])
+
+    xs = torch.cat(xs, dim=0)
+    for k in dataset.target:
+        ys[k] = torch.cat(ys[k], dim=0)
+
+    x_mean = xs.sum(dim=0).detach().numpy()
+    y_mean = {}
+    for k in dataset.target:
+        y_mean[k] = ys[k].sum(dim=0).detach().numpy()
+
+    for k in dataset.target:
+        y_mean[k] = y_mean[k][np.isfinite(y_mean[k])]
+        y_mean_ref[k] = y_mean_ref[k][np.isfinite(y_mean_ref[k])]
+
+    assert np.all(np.isclose(x_mean, x_mean_ref, atol=1e-3))
+    for k in dataset.target:
+        assert np.all(np.isclose(y_mean[k], y_mean_ref[k], atol=1e-3))
