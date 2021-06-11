@@ -116,6 +116,36 @@ DATA_RECORD_TYPES = np.dtype(
     ]
 )
 
+DATA_RECORD_TYPES_PROFILES = np.dtype(
+    [
+        ("pixel_status", "i1"),
+        ("quality_flag", "i1"),
+        ("l1c_quality_flag", "i1"),
+        ("surface_type_index", "i1"),
+        ("tcwv_index", "i1"),
+        ("pop_index", "i1"),
+        ("t2m_index", "i2"),
+        ("airmass_index", "i2"),
+        ("sun_glint_angle", "i1"),
+        ("precip_flag", "i1"),
+        ("latitude", "f4"),
+        ("longitude", "f4"),
+        ("surface_precip", "f4"),
+        ("frozen_precip", "f4"),
+        ("convective_precip", "f4"),
+        ("rain_water_path", "f4"),
+        ("cloud_water_path", "f4"),
+        ("ice_water_path", "f4"),
+        ("most_likely_precip", "f4"),
+        ("precip_1st_tertial", "f4"),
+        ("precip_3rd_tertial", "f4"),
+        ("profile_t2m_index", "i2"),
+        ("profile_number", f"{N_SPECIES}i2"),
+        ("profile_scale", f"{N_SPECIES}f4"),
+        ("profiles", f"{4 * N_LAYERS}f4"),
+    ]
+)
+
 DATA_RECORD_TYPES_SENSITIVITY = np.dtype(
     [
         ("pixel_status", "i1"),
@@ -144,7 +174,7 @@ DATA_RECORD_TYPES_SENSITIVITY = np.dtype(
         ("precip_3rd_tertial", "f4"),
         ("profile_t2m_index", "i2"),
         ("profile_number", f"{N_SPECIES}i2"),
-        ("profile_scale", f"{N_SPECIES}f4"),
+        ("profile_scale", f"{N_SPECIES}f4")
     ]
 )
 
@@ -154,7 +184,10 @@ class RetrievalFile:
     Class to read binary retrieval results from the GPROF 7 algorithm.
     """
 
-    def __init__(self, filename, has_sensitivity=False):
+    def __init__(self,
+                 filename,
+                 has_sensitivity=False,
+                 has_profiles=False):
         """
         Read retrieval results.
 
@@ -165,6 +198,11 @@ class RetrievalFile:
                 is only produced by a customized version of the GPROF
                 retrieval.
         """
+        if has_sensitivity and has_profiles:
+            raise ValueError(
+                "Retrieval file can only include either sensitivity data or "
+                "profile data. Not both."
+            )
         filename = Path(filename)
         self.filename = filename
         if filename.suffix == ".gz":
@@ -183,6 +221,8 @@ class RetrievalFile:
 
         if has_sensitivity:
             self.data_record_types = DATA_RECORD_TYPES_SENSITIVITY
+        elif has_profiles:
+            self.data_record_types = DATA_RECORD_TYPES_PROFILES
         else:
             self.data_record_types = DATA_RECORD_TYPES
 
@@ -249,13 +289,27 @@ class RetrievalFile:
             for k, d in data.items():
                 d[i] = s[k]
 
-        dims = ["scans", "pixels", "channels"]
-        data = {
-            k: (dims[: len(d.shape)], d)
-            for k, d in data.items()
-            if not k.startswith("profile")
-        }
-        return xarray.Dataset(data)
+        if "profiles" in data:
+            rwc = data["profiles"][..., :28]
+            cwc = data["profiles"][..., 28:56]
+            swc = data["profiles"][..., 56:84]
+            lh = data["profiles"][..., 84:112]
+
+            dataset = {
+                "rain_water_content": (("scans", "pixels", "levels"), rwc),
+                "cloud_water_content": (("scans", "pixels", "levels"), cwc),
+                "snow_water_content": (("scans", "pixels", "levels"), swc),
+                "latent_heat": (("scans", "pixels", "levels"), lh)
+            }
+        else:
+            dataset = {}
+
+        dims = ["scans", "pixels", "channels", "levels"]
+        for k, d in data.items():
+            if "profile" not in k:
+                dataset[k] = (dims[: len(d.shape)], d)
+
+        return xarray.Dataset(dataset)
 
 
 class Retrieval:

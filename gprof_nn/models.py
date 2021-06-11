@@ -8,7 +8,12 @@ import numpy as np
 import torch
 from torch import nn
 from torch.nn.functional import softplus
-from regn.data.csu.bin import PROFILE_NAMES
+from quantnn.models.pytorch.xception import (UpsamplingBlock,
+                                             DownsamplingBlock)
+
+
+from gprof_nn.data.bin import PROFILE_NAMES
+
 
 BINS = {
     "surface_precip": np.logspace(-5.0, 2.5, 129),
@@ -225,6 +230,136 @@ class GPROFNN0D(nn.Module):
             results[k], _ = self.heads[k](y, acc, self.n_layers_body + 1)
             if k in PROFILE_NAMES:
                 results[k] = results[k].reshape(self.profile_shape)
+        if not isinstance(self.target, list):
+            return results[self.target]
+        return results
+
+class Head2D(nn.Module):
+    """
+    Head module for GPROF-NN 2D network.
+    """
+    def __init__(self,
+                 n_inputs,
+                 n_hidden,
+                 n_outputs,
+                 n_layers):
+        super().__init__()
+        self.layers = nn.ModuleList()
+        for i in range(n_layers - 1):
+            self.layers.append(nn.Sequential(
+                nn.Conv2d(n_inputs, n_hidden, 1),
+                nn.BatchNorm2d(n_hidden),
+                nn.ReLU(),
+            ))
+            n_inputs = n_hidden
+        self.layers.append(nn.Sequential(
+            nn.Conv2d(n_hidden, n_outputs, 1),
+        ))
+
+    def forward(self, x):
+        "Propagate input through head."
+        for l in self.layers[:-1]:
+            y = l(x)
+            n = min(x.shape[1], y.shape[1])
+            y[:, :n] += x[:, :n]
+            x = y
+        return self.layers[-1](y)
+
+
+class GPROFNN2D(nn.Module):
+    """
+    Feature pyramid network (FPN) with 5 stages based on xception
+    architecture.
+    """
+
+    def __init__(self,
+                 n_outputs,
+                 n_features=128,
+                 ancillary=True,
+                 target=["surface_precip"],
+                 n_layers_head=3,
+                 blocks=2):
+        """
+        Args:
+            n_inputs: Number of input channels.
+            n_outputs: The number of output channels,
+            n_features: The number of features in the xception blocks.
+            blocks: The number of blocks per stage
+        """
+        super().__init__()
+        self.ancillary = ancillary
+        self.target = target
+        self.n_outputs = n_outputs
+
+        if isinstance(blocks, int):
+            blocks = [blocks] * 5
+
+        self.in_block = nn.Conv2d(15, n_features, 1)
+
+        self.down_block_2 = DownsamplingBlock(n_features, blocks[0])
+        self.down_block_4 = DownsamplingBlock(n_features, blocks[1])
+        self.down_block_8 = DownsamplingBlock(n_features, blocks[2])
+        self.down_block_16 = DownsamplingBlock(n_features, blocks[3])
+        self.down_block_32 = DownsamplingBlock(n_features, blocks[4])
+
+        self.up_block_16 = UpsamplingBlock(n_features)
+        self.up_block_8 = UpsamplingBlock(n_features)
+        self.up_block_4 = UpsamplingBlock(n_features)
+        self.up_block_2 = UpsamplingBlock(n_features)
+        self.up_block = UpsamplingBlock(n_features)
+
+        n_inputs = 2 * n_features
+        if self.ancillary:
+            n_inputs += 24
+
+        targets = self.target
+        if not isinstance(targets, list):
+            targets = [targets]
+        self.heads = nn.ModuleDict()
+        for k in targets:
+            if k in PROFILE_NAMES:
+                self.heads[k] = Head2D(n_inputs,
+                                       n_features,
+                                       28 * n_outputs,
+                                       n_layers_head)
+            else:
+                self.heads[k] = Head2D(n_inputs,
+                                       n_features,
+                                       n_outputs,
+                                       n_layers_head)
+
+    def forward(self, x):
+        """
+        Propagate input through block.
+        """
+        x_in = self.in_block(x[:, :15])
+        x_in[:, :15] += x[:, :15]
+
+        x_2 = self.down_block_2(x_in)
+        x_4 = self.down_block_4(x_2)
+        x_8 = self.down_block_8(x_4)
+        x_16 = self.down_block_16(x_8)
+        x_32 = self.down_block_32(x_16)
+
+        x_16_u = self.up_block_16(x_32, x_16)
+        x_8_u = self.up_block_8(x_16_u, x_8)
+        x_4_u = self.up_block_4(x_8_u, x_4)
+        x_2_u = self.up_block_2(x_4_u, x_2)
+        x_u = self.up_block(x_2_u, x_in)
+
+        if self.ancillary:
+            x = torch.cat([x_in, x_u, x[:, 15:]], 1)
+        else:
+            x = torch.cat([x_in, x_u], 1)
+
+        results = {}
+        for k in self.target:
+            y = self.heads[k](x)
+            if k in PROFILE_NAMES:
+                profile_shape = y.shape[:1] + (self.n_outputs,) + y.shape[2:4] + (28,)
+                results[k] = y.reshape(profile_shape)
+            else:
+                results[k] = y
         if not isinstance(self.target, list):
             return results[self.target]
         return results

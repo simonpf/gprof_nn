@@ -1,5 +1,5 @@
 #TRAINING_DATA=/gdata/simon/gprof_nn/validation_data/gmi/era5
-TRAINING_DATA=/home/simonpf/src/gprof_nn/data/validation_data/gmi/era5
+TRAINING_DATA=/home/simonpf/src/gprof_nn/data/training_data/gmi/era5
 #VALIDATION_DATA=/gdata/simon/gprof_nn/validation_data/gmi/era5
 VALIDATION_DATA=/home/simonpf/src/gprof_nn/data/validation_data/gmi/era5
 
