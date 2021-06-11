@@ -87,7 +87,7 @@ def test_profile_variables():
     or snow.
     """
     path = Path(__file__).parent
-    input_file = path / "data" / "gprof_gmi_era5.nc"
+    input_file = path / "data" / "training_data.nc"
 
     PROFILE_TARGETS = [
         "rain_water_content",

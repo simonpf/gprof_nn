@@ -412,7 +412,8 @@ class GPROF0DDataset:
             LOGGER.info("Finished iterating through dataset %s.", self.filename.name)
             raise IndexError()
         if i == 0:
-            self._shuffle()
+            if self.shuffle:
+                self._shuffle()
             if self.transform_zeros:
                 self._transform_zeros()
 
@@ -731,7 +732,7 @@ def run_retrieval_0d(input_file,
     bts[invalid] = np.nan
     # 2m temperature
     t2m = dataset["two_meter_temperature"][:].data[..., np.newaxis]
-    # Total precitable water.
+    # Total precipitable water.
     tcwv = dataset["total_column_water_vapor"][:].data[..., np.newaxis]
     # Surface type
     st = dataset["surface_type"][:].data
