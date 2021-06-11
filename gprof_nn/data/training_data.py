@@ -441,6 +441,8 @@ class GPROF0DDataset:
         """
         if self.batch_size:
             n = self.x.shape[0] // self.batch_size
+            if (self.x.shape[0] % self.batch_size) > 0:
+                n = n + 1
             return n
         else:
             return self.x.shape[0]
@@ -647,11 +649,11 @@ def run_retrieval_0d_bin(input_file,
         xrnn: The quantnn model to use to run the retrieval.
         output_file: Output file to store the results to.
     """
-    dataset = GPRO0DDataset(input_file,
-                            shuffle=False,
-                            augment=False,
-                            batch_size=2048,
-                            normalizer=normalizer)
+    dataset = GPROF0DDataset(input_file,
+                             shuffle=False,
+                             augment=False,
+                             batch_size=2048,
+                             normalizer=normalizer)
 
     means = {}
     precip_1st_tercile = []
@@ -661,7 +663,7 @@ def run_retrieval_0d_bin(input_file,
     with torch.no_grad():
         device = next(iter(xrnn.model.parameters())).device
         for i in range(len(dataset)):
-            x = torch.tensor(input_data[i].reshape(-1, 39))
+            x, _ = dataset[i]
             x = x.float().to(device)
             y_pred = xrnn.predict(x)
             if not isinstance(y_pred, dict):
@@ -674,8 +676,8 @@ def run_retrieval_0d_bin(input_file,
                     t = xrnn.posterior_quantiles(
                         y_pred=y, quantiles=[0.333, 0.667], key=k
                     )
-                    precip_1st_tercile.append(t[:, :1].cpu())
-                    precip_3rd_tercile.append(t[:, 1:].cpu())
+                    precip_1st_tercile.append(t[:, 0].cpu())
+                    precip_3rd_tercile.append(t[:, 1].cpu())
                     p = xrnn.probability_larger_than(y_pred=y, y=1e-4, key=k)
                     pop.append(p.cpu())
 
@@ -688,19 +690,17 @@ def run_retrieval_0d_bin(input_file,
         data[k] = reference[k]
 
     data["precip_1st_tercile_gprof_nn_0d"] = (
-        dims[:3],
+        dims[:1],
         np.concatenate([t.numpy() for t in precip_1st_tercile])
     )
     data["precip_3rd_tercile_gprof_nn_0d"] = (
-        dims[:3],
+        dims[:1],
         np.concatenate([t.numpy() for t in precip_3rd_tercile])
     )
-    data["pop"] = (dims[:3], np.concatenate([t.numpy() for t in pop]))
+    data["pop"] = (dims[:1], np.concatenate([t.numpy() for t in pop]))
     data = xr.Dataset(data)
 
-    data["surface_type"] = dataset["surface_type"]
-    data["surface_type"] = dataset["surface_type"]
-
+    data["surface_type"] = reference["surface_type"]
     data.to_netcdf(output_file)
 
 
@@ -719,7 +719,8 @@ def run_retrieval_0d(input_file,
     """
     dataset = xr.open_dataset(input_file)
     if "scans" not in dataset.dims:
-        run_retrieval_0d_sim(input_file, xrnn, normalizer, output_file)
+        run_retrieval_0d_bin(input_file, xrnn, normalizer, output_file)
+        return None
 
     #
     # Load data into input vector

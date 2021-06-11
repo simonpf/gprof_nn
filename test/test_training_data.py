@@ -130,7 +130,7 @@ def test_run_retrieval_0d_sim(tmp_path):
     from bin data.
     """
     path = Path(__file__).parent
-    input_file = path / "data" / "training_data.nc"
+    input_file = path / "data" / "training_data_bin.nc"
     qrnn = QRNN.load(path / "data" / "gprof_nn_0d.pckl")
     normalizer = Normalizer.load(path / "data" / "normalizer.pckl")
     run_retrieval_0d(input_file,
@@ -139,7 +139,6 @@ def test_run_retrieval_0d_sim(tmp_path):
                      tmp_path / "results.nc")
 
     results = xr.load_dataset(tmp_path / "results.nc")
-    print(results)
     assert "surface_precip" in results.variables
 
 
