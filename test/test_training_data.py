@@ -106,6 +106,7 @@ def test_profile_variables():
         st = np.where(x[:, 17:35])[1]
         indices = (st >= 8) * (st <= 11)
 
+
 def test_run_retrieval_0d(tmp_path):
     """
     Test running 0D version of retrieval on training data file.
@@ -120,6 +121,25 @@ def test_run_retrieval_0d(tmp_path):
                      tmp_path / "results.nc")
 
     results = xr.load_dataset(tmp_path / "results.nc")
+    assert "surface_precip" in results.variables
+
+
+def test_run_retrieval_0d_sim(tmp_path):
+    """
+    Test running 0D version of retrieval on training data file extracted
+    from bin data.
+    """
+    path = Path(__file__).parent
+    input_file = path / "data" / "training_data.nc"
+    qrnn = QRNN.load(path / "data" / "gprof_nn_0d.pckl")
+    normalizer = Normalizer.load(path / "data" / "normalizer.pckl")
+    run_retrieval_0d(input_file,
+                     qrnn,
+                     normalizer,
+                     tmp_path / "results.nc")
+
+    results = xr.load_dataset(tmp_path / "results.nc")
+    print(results)
     assert "surface_precip" in results.variables
 
 

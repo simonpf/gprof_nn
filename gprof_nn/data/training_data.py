@@ -632,6 +632,78 @@ def _expand_pixels(data):
     data_new[:, :, i_start:-i_start] = data
     return data_new
 
+
+def run_retrieval_0d_bin(input_file,
+                         xrnn,
+                         normalizer,
+                         output_file):
+    """
+    Run GPROF-0D retrieval on input data from data extracted from
+    bin files.
+
+    Args:
+        input_file: Filename of the NetCDF file containing input data.
+        normalizer: Normalizer object to use to normalize the input.
+        xrnn: The quantnn model to use to run the retrieval.
+        output_file: Output file to store the results to.
+    """
+    dataset = GPRO0DDataset(input_file,
+                            shuffle=False,
+                            augment=False,
+                            batch_size=2048,
+                            normalizer=normalizer)
+
+    means = {}
+    precip_1st_tercile = []
+    precip_3rd_tercile = []
+    pop = []
+
+    with torch.no_grad():
+        device = next(iter(xrnn.model.parameters())).device
+        for i in range(len(dataset)):
+            x = torch.tensor(input_data[i].reshape(-1, 39))
+            x = x.float().to(device)
+            y_pred = xrnn.predict(x)
+            if not isinstance(y_pred, dict):
+                y_pred = {"surface_precip": y_pred}
+
+            y_mean = xrnn.posterior_mean(y_pred=y_pred)
+            for k, y in y_pred.items():
+                means.setdefault(k, []).append(y_mean[k].cpu())
+                if k == "surface_precip":
+                    t = xrnn.posterior_quantiles(
+                        y_pred=y, quantiles=[0.333, 0.667], key=k
+                    )
+                    precip_1st_tercile.append(t[:, :1].cpu())
+                    precip_3rd_tercile.append(t[:, 1:].cpu())
+                    p = xrnn.probability_larger_than(y_pred=y, y=1e-4, key=k)
+                    pop.append(p.cpu())
+
+    dims = ["samples", "levels"]
+    data = {}
+    reference = xr.open_dataset(input_file)
+    for k in means:
+        y = np.concatenate([t.numpy() for t in means[k]])
+        data[k + "gprof_nn_0d"] = (dims[:y.ndim], y)
+        data[k] = reference[k]
+
+    data["precip_1st_tercile_gprof_nn_0d"] = (
+        dims[:3],
+        np.concatenate([t.numpy() for t in precip_1st_tercile])
+    )
+    data["precip_3rd_tercile_gprof_nn_0d"] = (
+        dims[:3],
+        np.concatenate([t.numpy() for t in precip_3rd_tercile])
+    )
+    data["pop"] = (dims[:3], np.concatenate([t.numpy() for t in pop]))
+    data = xr.Dataset(data)
+
+    data["surface_type"] = dataset["surface_type"]
+    data["surface_type"] = dataset["surface_type"]
+
+    data.to_netcdf(output_file)
+
+
 def run_retrieval_0d(input_file,
                      xrnn,
                      normalizer,
@@ -646,6 +718,8 @@ def run_retrieval_0d(input_file,
         output_file: Output file to store the results to.
     """
     dataset = xr.open_dataset(input_file)
+    if "scans" not in dataset.dims:
+        run_retrieval_0d_sim(input_file, xrnn, normalizer, output_file)
 
     #
     # Load data into input vector
@@ -910,7 +984,6 @@ class GPROF2DDataset:
 
                 if isinstance(self.target, list):
                     for k in self.target:
-
                         y_k_r = _expand_pixels(dataset[k][i][:][np.newaxis, ...])
                         y_k = y.setdefault(
                             k,
@@ -919,15 +992,17 @@ class GPROF2DDataset:
                         )
                         y_k_i = extract_domain(y_k_r[0], p_x_i, p_x_o, p_y,
                                                coords=coords)
+                        np.nan_to_num(y_k_i, copy=False, nan=-9999)
                         if k == "latent_heat":
                             y_k_i[y_k_i < -400] = -9999
                         else:
                             y_k_i[y_k_i < 0] = -9999
-                            y_k[i] = y_k_i
+                        y_k[i] = y_k_i
                 else:
                     y_r = _expand_pixels(dataset[self.target][i][:][np.newaxis, ...])
                     y_i = extract_domain(y_r[0], p_x_i, p_x_o, p_y,
                                          coords=coords)
+                    np.nan_to_num(y_i, copy=False, nan=-9999)
                     if self.target == "latent_heat":
                         y_i[y_i < -400] = -9999
                     else:
