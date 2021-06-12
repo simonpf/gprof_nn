@@ -57,9 +57,12 @@ parser.add_argument('output_file', metavar="output_file", type=str, nargs=1,
                     help='The file to which to write the retrieval results.')
 parser.add_argument('--template_file', metavar="template_file", type=str,
                     help='Preprocessor file to use as template..')
+parser.add_argument('--profiles', action="store_true",
+                    help='Flag to include profiles in output.')
 args = parser.parse_args()
 input_file = Path(args.input_file[0])
 output_file = Path(args.output_file[0])
+profiles = args.profiles
 if args.template_file is None:
     template_file = None
 else:
@@ -97,13 +100,20 @@ for input_file, output_file in zip(input_files, output_files):
         i = 0
         n_samples = input_data.samples.size
         n_chunks = n_samples // chunk_size
+
+        if profiles:
+            profiles = "1"
+        else:
+            profiles = "0"
+        print("PROFILES: ", profiles)
+
         if (n_samples % chunk_size) > 0:
             n_chunks += 1
         for i in track(range(n_chunks)):
             i_start = i * chunk_size
             i_end = i_start + chunk_size
-            _, preprocessor_file = tempfile.mkstemp()
-            _, retrieval_file = tempfile.mkstemp()
+            _, preprocessor_file = tempfile.mkstemp(dir="/gdata/simon/tmp")
+            _, retrieval_file = tempfile.mkstemp(dir="/gdata/simon/tmp")
             print("Writing preprocessor file.")
             write_preprocessor_file(input_data[{"samples": slice(i_start, i_end)}],
                                     preprocessor_file,
@@ -114,9 +124,10 @@ for input_file, output_file in zip(input_files, output_files):
                             str(retrieval_file),
                             "log",
                             "/qdata1/pbrown/gpm/ancillary/",
-                            "0"])
+                            profiles])
             print("Storing results.")
-            results += [reshape_data(RetrievalFile(retrieval_file).to_xarray_dataset())]
+            retrieval = RetrievalFile(retrieval_file, has_profiles=profiles).to_xarray_dataset()
+            results += [reshape_data(retrieval)]
         results = xr.concat(results, "samples")
         results.to_netcdf(output_file)
     finally:
