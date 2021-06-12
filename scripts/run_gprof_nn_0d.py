@@ -3,6 +3,7 @@ Run GPROF-NN 0D algorithm on input data in GPROF-NN training
 data format.
 """
 import argparse
+from pathlib import Path
 
 from quantnn.qrnn import QRNN
 from quantnn.normalizer import Normalizer
@@ -20,7 +21,7 @@ parser = argparse.ArgumentParser(
 )
 parser.add_argument('model', metavar="model", type=str,
                     help="Stored quantnn model to use for the retrieval.")
-parser.add_argument('normalizer', metavar="model", type=str,
+parser.add_argument('normalizer', metavar="normalizer", type=str,
                     help="The normalizer to use to normalize the input data.")
 parser.add_argument('input_file', metavar="input_file", type=str,
                     help='The NetCDF4 file containing the input data.')
@@ -30,8 +31,8 @@ parser.add_argument('output_file', metavar="output_file", type=str,
 args = parser.parse_args()
 model = args.model
 normalizer = args.normalizer
-input_file = args.input_file
-output_file = args.output_file
+input_file = Path(args.input_file)
+output_file = Path(args.output_file)
 
 #
 # Check inputs.
@@ -50,9 +51,9 @@ else:
     output_files = [output_file]
 
 xrnn = QRNN.load(model)
+normalizer = Normalizer.load(normalizer)
 for input_file, output_file in zip(input_files,
                                    output_files):
-    normalizer = Normalizer.load(normalizer)
     run_retrieval_0d(input_file,
                      xrnn,
                      normalizer,

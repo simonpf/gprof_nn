@@ -65,23 +65,28 @@ def load_retrieval_results(files_gprof,
     results_gprof_nn_0d = []
     reference = []
 
-    for f in files_gprof:
-        results_gprof.append(xr.load_dataset(f))
-    for f in files_gprof_nn_0d:
-        results_gprof_nn_0d.append(xr.load_dataset(f))
     for f in files_reference:
         reference.append(xr.load_dataset(f))
-
-    results_gprof = xr.concat(results_gprof, "samples")
-    results_gprof_nn_0d = xr.concat(results_gprof_nn_0d, "samples")
     reference = xr.concat(reference, "samples")
 
-    for v in reference.variables:
-        if not (v in results_gprof.variables
-                and v in results_gprof_nn_0d.variables):
-            continue
-        data = reference[v].data
-        reference[v + "_gprof"] = results_gprof[v]
-        reference[v + "_gprof_nn_0d"] = results_gprof_nn_0d[v]
+    for f in files_gprof:
+        results_gprof.append(xr.load_dataset(f))
+    if files_gprof:
+        results_gprof = xr.concat(results_gprof, "samples")
+        for v in reference.variables:
+            if not v in results_gprof.variables:
+                continue
+            data = reference[v].data
+            reference[v + "_gprof"] = results_gprof[v]
+
+    for f in files_gprof_nn_0d:
+        results_gprof_nn_0d.append(xr.load_dataset(f))
+    if files_gprof_nn_0d:
+        results_gprof_nn_0d = xr.concat(results_gprof_nn_0d, "samples")
+        for v in reference.variables:
+            if not v in results_gprof_nn_0d.variables:
+                continue
+            data = reference[v].data
+            reference[v + "_gprof_nn_0d"] = results_gprof_nn_0d[v]
 
     return reference

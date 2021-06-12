@@ -1,5 +1,5 @@
-export OMP_NUM_THREADS=4
-for DAY in {20..31}
+export OMP_NUM_THREADS=32
+for DAY in {01..13}
 do
     python extract_data_sim.py ${DAY} /gdata/simon/gprof_nn/gprof_gmi_era5_${DAY}.nc
 done

@@ -44,6 +44,6 @@ processor = SimFileProcessor(of,
                              mrms_path=MRMS_PATH,
                              l1c_path=L1C_PATH,
                              era5_path=ERA5_PATH,
-                             n_workers=4,
+                             n_workers=32,
                              day=day)
 processor.run()
