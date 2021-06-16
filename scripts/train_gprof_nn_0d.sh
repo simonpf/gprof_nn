@@ -11,4 +11,4 @@ TARGETS="surface_precip"
 export QUANTNN_LOG_LEVEL=INFO
 export OMP_NUM_THREADS=4
 
-python train_gprof_nn_0d.py  ${TRAINING_DATA} ${VALIDATION_DATA} ${MODEL_PATH} --n_neurons 256 --n_layers_body 6 --n_layers_head 2 --device cuda:0 --targets ${TARGETS} --type qrnn --batch_size 4096
+python train_gprof_nn_0d.py  ${TRAINING_DATA} ${VALIDATION_DATA} ${MODEL_PATH} --n_neurons_body 128 --n_layers_body 4 --n_neurons_head 128 --n_layers_head 2 --activation ReLU --residuals simple --device cuda:0 --targets ${TARGETS} --type qrnn --batch_size 512

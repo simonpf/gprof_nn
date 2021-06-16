@@ -27,6 +27,7 @@ FILENAMES = {
     False: "GPM_profile_clustersNRV7.dat",
 }
 
+
 class ProfileClusters:
     """
     Interface to read profile cluster databases.
@@ -91,5 +92,74 @@ class ProfileClusters:
                     "profiles it should be one of ['cloud_water_content', "
                     "'latent_heat']."
                 )
-        t2m_index = np.clip(int((t2m - 268.0) / 3), 0, 11)
-        return self.data[species_index, t2m_index]
+        t2m_indices = self.get_t2m_indices(t2m)
+        return self.data[species_index, t2m_indices]
+
+    def get_profile_data(self, species):
+        """
+        Return all profiles for given species.
+
+        Args:
+            species: The name of the species.
+
+        Return:
+            Numpy array of shape ``(28, 40)`` containing the 40 profiles
+            for the requested species.
+        """
+        if self.raining:
+            if species == "rain_water_content":
+                species_index = 0
+            elif species == "cloud_water_content":
+                species_index = 1
+            elif species == "snow_water_content":
+                species_index = 2
+            elif species == "latent_heat":
+                species_index = 4
+            else:
+                return -9999.9 * np.ones((N_TEMPS, N_LAYERS, N_CLUSTERS))
+        else:
+            if species == "cloud_water_content":
+                species_index = 0
+            elif species == "latent_heat":
+                species_index = 1
+            else:
+                return -9999.9 * np.ones((N_TEMPS, N_LAYERS, N_CLUSTERS))
+        return np.transpose(self.data[species_index], axes=(0, 2, 1))
+
+
+    def get_t2m_indices(self, t2m):
+        if isinstance(t2m, np.ndarray):
+            t2m_indices = np.clip(((t2m - 268.0) / 3).astype(np.int), 0, 11)
+        else:
+            t2m_indices = np.clip(int((t2m - 268.0) / 3), 0, 11)
+        return t2m_indices
+
+    def get_scales_and_indices(self,
+                               species,
+                               t2m,
+                               profiles):
+        """
+        Calculate scaling factors and profiles indices for given species.
+
+
+        """
+        output_shape = profiles.shape[:-1]
+        if not self.raining and species != "cloud_water_content":
+            return (np.zeros(output_shape, dtype=np.float32),
+                    np.zeros(output_shape, dtype=np.int32))
+
+        centers = self.get_profiles(species, t2m)
+        scales = profiles.sum(axis=-1)
+        profiles = profiles / scales[..., np.newaxis]
+
+        shape = [1] * (len(profiles.shape) - 2) + [40, 28]
+
+        mse = np.mean(
+            (profiles[..., np.newaxis, :] - centers.reshape(shape)) ** 2,
+            axis=-1
+        )
+        indices = np.argmin(mse, axis=-1)
+        return scales, indices
+
+
+

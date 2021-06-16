@@ -8,11 +8,16 @@ import numpy as np
 import torch
 from torch import nn
 from torch.nn.functional import softplus
+from quantnn.qrnn import QRNN
+from quantnn.drnn import DRNN
 from quantnn.models.pytorch.xception import (UpsamplingBlock,
                                              DownsamplingBlock)
 
 
+from gprof_nn import ALL_TARGETS
 from gprof_nn.data.bin import PROFILE_NAMES
+from gprof_nn.data.preprocessor import PreprocessorLoader0D
+from gprof_nn.data.training_data import GPROF0DDataset
 
 
 BINS = {
@@ -38,33 +43,164 @@ for k in BINS:
 
 QUANTILES = np.linspace(0.0, 1.0, 66)[1:-1]
 
+RESIDUALS = ["none", "simple", "hyper"]
 
-class ClampedExp(nn.Module):
+###############################################################################
+# GPROF-NN 0D
+###############################################################################
+
+class MLP(nn.Module):
     """
-    Clamped version of the exponential function that avoids exploding values.
+    Vanilla Fully-connected feed-forward neural network.
     """
-    def __init__(self):
-        super().__init__()
-        self.sp = torch.nn.Softplus()
-
-    def forward(self, x):
-        return torch.exp(x)
-
-
-class HyperResNetFC(nn.Module):
-    """
-    Fully-connected network with DenseNet-type hyperresidual connections,
-    layer norm and GELU activations.
-    """
-
     def __init__(
         self,
         n_inputs,
         n_neurons,
         n_outputs,
         n_layers,
-        output_activation=None,
-        internal=False,
+        activation="ReLU",
+        internal=False
+    ):
+        """
+        Create MLP object.
+
+        Args:
+            n_inputs: Number of input features in first layer.
+            n_outputs: Number of output values.
+            n_neurons: Number of neurons in hidden layers.
+            n_layers: Number of layers including the output layer.
+            activation: The activation function to use in each layer.
+            internal: Whether or not activation layer norm and activation
+                are applied to output from last layer.
+        """
+        super().__init__()
+        self.n_layers = n_layers
+        self.n_neurons = n_neurons
+        self.layers = nn.ModuleList()
+        self.internal = internal
+        self.activation = getattr(nn, activation)
+        for i in range(n_layers - 1):
+            self.layers.append(
+                nn.Sequential(
+                    nn.Linear(n_inputs, n_neurons, bias=False),
+                    nn.LayerNorm(n_neurons),
+                    self.activation(),
+                )
+            )
+            n_inputs = n_neurons
+        if n_layers > 0:
+            if self.internal:
+                self.output_layer = nn.Sequential(
+                    nn.Linear(n_inputs, n_neurons, bias=False),
+                    nn.LayerNorm(n_neurons),
+                    self.activation(),
+                )
+            else:
+                self.output_layer = nn.Linear(n_inputs, n_outputs, bias=False)
+
+    def forward(self, x, *args, **kwargs):
+        """
+        Forward input through network.
+
+        Args:
+            x: The 2D input tensor to propagate through the network.
+        """
+        if self.n_layers == 0:
+            return x, None
+
+        for l in self.layers:
+            y = l(x)
+            x = y
+
+        y = self.output_layer(x)
+        return y, None
+
+
+class ResidualMLP(MLP):
+    """
+    Fully-connected feed-forward neural network with residual
+    connections between adjacent layers.
+    """
+    def __init__(
+        self,
+        n_inputs,
+        n_neurons,
+        n_outputs,
+        n_layers,
+        activation="ReLU",
+        internal=False
+    ):
+        """
+        Create MLP with residual connection.
+
+        Args:
+            n_inputs: Number of input features in first layer.
+            n_outputs: Number of output values.
+            n_neurons: Number of neurons in hidden layers.
+            n_layers: Number of layers including the output layer.
+            activation: The activation function to use in each layer.
+            internal: Whether or not activation layer norm and activation
+                are applied to output from last layer.
+        """
+        super().__init__(
+            n_inputs,
+            n_neurons,
+            n_outputs,
+            n_layers,
+            activation=activation,
+            internal=internal
+        )
+        if n_inputs != n_neurons:
+            self.projection = nn.Linear(n_inputs, n_neurons)
+        else:
+            self.projection = None
+
+
+    def forward(self, x, *args, **kwargs):
+        """
+        Forward input through network.
+
+        Args:
+            x: The 2D input tensor to propagate through the network.
+        """
+        if self.n_layers == 0:
+            return x, None
+
+        if self.layers:
+            l = self.layers[0]
+            y = l(x)
+            if self.projection is not None:
+                y = y + self.projection(x)
+            else:
+                y = y + x
+            x = y
+
+        for l in self.layers[1:]:
+            y = l(x)
+            y += x
+            x = y
+
+        y = self.output_layer(x)
+        if self.internal:
+            y += x
+        return y, None
+
+
+class HyperResidualMLP(ResidualMLP):
+    """
+    Fully-connected feed-forward neural network with residual
+    connections between adjacent layers and hyper-residual
+    connections between all layers.
+    """
+    def __init__(
+        self,
+        n_inputs,
+        n_neurons,
+        n_outputs,
+        n_layers,
+        activation="ReLU",
+        internal=False
     ):
         """
         Create network object.
@@ -78,31 +214,14 @@ class HyperResNetFC(nn.Module):
             internal: If set to true, residuals will be applied to output
                 from last layer.
         """
-        super().__init__()
-        self.n_layers = n_layers
-        self.n_neurons = n_neurons
-        self.layers = nn.ModuleList()
-        self.internal = internal
-        for i in range(n_layers - 1):
-            self.layers.append(
-                nn.Sequential(
-                    nn.Linear(n_inputs, n_neurons, bias=False),
-                    nn.LayerNorm(n_neurons),
-                    nn.GELU(),
-                )
-            )
-            n_inputs = n_neurons
-        if n_layers > 0:
-            self.output_layer = nn.Linear(n_inputs, n_outputs, bias=False)
-            if output_activation is not None:
-                if internal:
-                    self.output_activation = nn.Sequential(
-                        nn.LayerNorm(n_outputs), output_activation()
-                    )
-                else:
-                    self.output_activation = output_activation()
-            else:
-                self.output_activation = None
+        super().__init__(
+            n_inputs,
+            n_neurons,
+            n_outputs,
+            n_layers,
+            activation=activation,
+            internal=internal
+        )
 
     def forward(self, x, acc_in=None, li=1):
         """
@@ -117,94 +236,126 @@ class HyperResNetFC(nn.Module):
         if self.n_layers == 0:
             return x, None
 
-        acc = torch.zeros((x.shape[0], self.n_neurons), dtype=x.dtype, device=x.device)
+        acc = torch.zeros((x.shape[0], self.n_neurons),
+                          dtype=x.dtype,
+                          device=x.device)
         if acc_in is not None:
             acc += acc_in
 
-        for l in self.layers:
+        if self.layers:
+            l = self.layers[0]
             y = l(x)
-            y[:, : x.shape[1]] += x
+            if self.projection is not None:
+                y = y + self.projection(x)
+            else:
+                y = y + x
             if li > 1:
-                y[:, : acc.shape[1]] += (1.0 / (li - 1)) * acc
-            acc[:, : x.shape[1]] += x
+                y += (1.0 / (li - 1)) * acc
+            acc += x
             li += 1
             x = y
+
+        for l in self.layers[1:]:
+            y = l(x)
+            y += x
+            if li > 1:
+                y += (1.0 / (li - 1)) * acc
+            acc += x
+            li += 1
+            x = y
+
         y = self.output_layer(x)
         if self.internal:
-            y[:, : x.shape[1]] += x
+            y += x
             if li > 1:
-                y[:, : acc.shape[1]] += (1.0 / (li - 1)) * acc
-            acc[:, : x.shape[1]] += x
-
-        if self.output_activation:
-            return self.output_activation(y), acc
+                y += (1.0 / (li - 1)) * acc
+            acc += x
         return y, acc
 
 
-class GPROFNN0D(nn.Module):
+class MultiHeadMLP(nn.Module):
     """
-    Pytorch neural network model for the GPROF 0D retrieval.
+    Pytorch neural network model for the GPROF-NN 0D retrieval.
 
-    The model is a fully-connected residual network model with multiple heads for each
-    of the retrieval targets.
+    The model is a fully-connected residual network model with a separate
+    head for each retrieval target.
 
     Attributes:
-         n_layers: The total number of layers in the network.
-         n_neurons: The number of neurons in the hidden layers of the network.
-         n_outputs: How many quantiles to predict for each retrieval target.
-         target: Single string or list containing the retrieval targets
-               to predict.
+        n_layers_body: The number of layers in the body of the network.
+        n_neurons_body: The number of neurons in the hidden layers of the
+            body of the network.
+        n_layers_head: The number of layers in each head of the network.
+        n_neurons_head: The number of neurons in the hidden layers of the
+            head of the network.
+        n_outputs: How many quantiles to predict for each retrieval target.
+        target: Single string or list containing the retrieval targets
+              to predict.
     """
 
     def __init__(
         self,
+        n_inputs,
         n_layers_body,
+        n_neurons_body,
         n_layers_head,
-        n_neurons,
+        n_neurons_head,
         n_outputs,
+        residuals="none",
         target="surface_precip",
-        exp_activation=False,
+        activation="ReLU"
     ):
         self.target = target
         self.profile_shape = (-1, n_outputs, 28)
         self.n_layers_body = n_layers_body
-        self.n_neurons = n_neurons
+        self.n_neurons_body = n_neurons_body
+
+        residuals = residuals.lower()
+        if residuals not in RESIDUALS:
+            raise ValueError(
+                f"'residuals' argument should be one of f{RESIDUALS}.")
+        if residuals == "none":
+            module_class = MLP
+        elif residuals == "hyper":
+            module_class = HyperResidualMLP
+        else:
+            module_class = ResidualMLP
 
         super().__init__()
-        self.body = HyperResNetFC(
-            39, n_neurons, n_neurons, n_layers_body, nn.GELU, internal=True
+        self.body = module_class(
+            n_inputs,
+            n_neurons_body,
+            n_neurons_body,
+            n_layers_body,
+            activation=activation,
+            internal=True
         )
-        self.heads = nn.ModuleDict()
 
         if not isinstance(self.target, list):
             targets = [self.target]
         else:
             targets = self.target
-
         if n_layers_body > 0:
-            n_in = n_neurons
+            n_in = n_neurons_body
         else:
             n_in = 39
+
+        self.heads = nn.ModuleDict()
         for t in targets:
-            if exp_activation and t != "latent_heat":
-                activation = ClampedExp
-            else:
-                activation = None
             if t in PROFILE_NAMES:
-                self.heads[t] = HyperResNetFC(
+                self.heads[t] = module_class(
                     n_in,
-                    n_neurons,
+                    n_neurons_head,
                     28 * n_outputs,
                     n_layers_head,
-                    output_activation=activation,
+                    activation=activation
                 )
             else:
-                self.heads[t] = HyperResNetFC(
+                self.heads[t] = module_class(
                     n_in,
-                    n_neurons,
+                    n_neurons_head,
                     n_outputs,
                     n_layers_head,
-                    output_activation=activation,
+                    activation=activation
                 )
 
     def forward(self, x):
@@ -233,6 +384,105 @@ class GPROFNN0D(nn.Module):
         if not isinstance(self.target, list):
             return results[self.target]
         return results
+
+
+class GPROF_NN_0D_QRNN(QRNN):
+    """
+    DRNN-based version of the GPROF-NN 0D algorithm.
+    """
+    def __init__(self,
+                 n_layers_body,
+                 n_neurons_body,
+                 n_layers_head,
+                 n_neurons_head,
+                 activation="ReLU",
+                 residuals="simple",
+                 targets=None,
+                 transformation=None
+    ):
+        residuals = residuals.lower()
+        if residuals not in RESIDUALS:
+            raise ValueError(
+                f"'residuals' argument should be one of {RESIDUALS}."
+            )
+
+        if targets is None:
+            targets = ALL_TARGETS
+        self.targets = targets
+
+        if transformation is not None and not isinstance(transformation, dict):
+            if type(transformation) is type:
+                transformation = {t: transformation() for t in targets}
+            else:
+                transformation = {t: transformation for t in targets}
+            if "latent_heat" in targets:
+                transformation["latent_heat"] = None
+
+        model = MultiHeadMLP(39,
+                             n_layers_body,
+                             n_neurons_body,
+                             n_layers_head,
+                             n_neurons_head,
+                             64,
+                             target=targets,
+                             residuals=residuals,
+                             activation=activation)
+
+        super().__init__(n_inputs=39,
+                         quantiles=QUANTILES,
+                         model=model,
+                         transformation=transformation)
+
+        self.preprocessor_class = PreprocessorLoader0D
+        self.training_data_class = GPROF0DDataset
+
+
+class GPROF_NN_0D_DRNN(DRNN):
+    """
+    DRNN-based version of the GPROF-NN 0D algorithm.
+    """
+    def __init__(self,
+                 n_layers_body,
+                 n_neurons_body,
+                 n_layers_head,
+                 n_neurons_head,
+                 activation="ReLU",
+                 residuals="simple",
+                 targets=None
+    ):
+        residuals = residuals.lower()
+        if residuals not in RESIDUALS:
+            raise ValueError(
+                f"'residuals' argument should be one of {RESIDUALS}."
+            )
+
+        if targets is None:
+            targets = ALL_TARGETS
+        self.targets = targets
+
+        model = MultiHeadMLP(39,
+                             n_layers_body,
+                             n_neurons_body,
+                             n_layers_head,
+                             n_neurons_head,
+                             128,
+                             target=targets,
+                             residuals=residuals,
+                             activation=activation)
+
+        super().__init__(n_inputs=39,
+                         bins=BINS,
+                         model=model)
+
+        self.preprocessor_class = PreprocessorLoader0D
+        self.training_data_class = GPROF0DDataset
+
+
+###############################################################################
+# GPROF-NN 2D
+###############################################################################
+
+
 
 class Head2D(nn.Module):
     """
@@ -352,11 +602,16 @@ class GPROFNN2D(nn.Module):
         else:
             x = torch.cat([x_in, x_u], 1)
 
+        if not isinstance(self.target, list):
+            targets = [self.target]
+        else:
+            targets = self.target
+
         results = {}
-        for k in self.target:
+        for k in targets:
             y = self.heads[k](x)
             if k in PROFILE_NAMES:
-                profile_shape = y.shape[:1] + (self.n_outputs,) + y.shape[2:4] + (28,)
+                profile_shape = y.shape[:1] + (self.n_outputs, 28) + y.shape[2:4]
                 results[k] = y.reshape(profile_shape)
             else:
                 results[k] = y

@@ -13,9 +13,12 @@ import subprocess
 import tempfile
 
 import numpy as np
-import xarray
+import torch
+import xarray as xr
 
-from regn.data.csu import retrieval
+from gprof_nn.data import retrieval
+from gprof_nn.data.retrieval import calculate_frozen_precip
+from gprof_nn.data.profiles import ProfileClusters
 from pathlib import Path
 
 LOGGER = logging.getLogger(__name__)
@@ -29,6 +32,13 @@ N_TEMPERATURES = 12
 N_LAYERS = 28
 N_PROFILES = 80
 N_CHANNELS = 15
+
+TB_MIN = 40.0
+TB_MAX = 325.0
+LAT_MIN = -90.0
+LAT_MAX = 90.0
+LON_MIN = -180.0
+LON_MAX = 180.0
 
 DATE_TYPE = np.dtype(
     [
@@ -60,7 +70,7 @@ ORBIT_HEADER_TYPES = np.dtype(
 
 SCAN_HEADER_TYPES = np.dtype(
     [
-        ("date", DATE_TYPE),
+        ("scan_date", DATE_TYPE),
         ("scan_latitude", "f4"),
         ("scan_longitude", "f4"),
         ("scan_altitude", "f4"),
@@ -129,12 +139,12 @@ def write_scan_header(output, template=None):
         header = template.get_scan_header(0)
     else:
         header = np.recarray(1, dtype=SCAN_HEADER_TYPES)
-        header["date"]["year"] = 6
-        header["date"]["month"] = 6
-        header["date"]["day"] = 6
-        header["date"]["hour"] = 6
-        header["date"]["minute"] = 6
-        header["date"]["second"] = 6
+        header["scan_date"]["year"] = 6
+        header["scan_date"]["month"] = 6
+        header["scan_date"]["day"] = 6
+        header["scan_date"]["hour"] = 6
+        header["scan_date"]["minute"] = 6
+        header["scan_date"]["second"] = 6
     header.tofile(output)
 
 
@@ -279,7 +289,7 @@ class PreprocessorFile:
 
         scan_times = np.zeros(self.n_scans, dtype="datetime64[ns]")
         for i in range(self.n_scans):
-            date = self.get_scan_header(i)["date"]
+            date = self.get_scan_header(i)["scan_date"]
             year = date["year"][0]
             month = date["month"][0]
             day = date["day"][0]
@@ -290,9 +300,12 @@ class PreprocessorFile:
                 f"{year:04}-{month:02}-{day:02}" f"T{hour:02}:{minute:02}:{second:02}"
             )
         data["scan_time"] = ("scans",), scan_times
-        return xarray.Dataset(data)
+        return xr.Dataset(data)
 
-    def write_retrieval_results(self, path, results):
+    def write_retrieval_results(self,
+                                path,
+                                results,
+                                ancillary_data=None):
         """
         Write retrieval result to GPROF binary format.
 
@@ -308,19 +321,24 @@ class PreprocessorFile:
         path = Path(path)
         filename = path / self._get_retrieval_filename()
 
+        if ancillary_data is not None:
+            profiles_raining = ProfileCulsters(ancillary_data, True)
+            profiles_non_raining = ProfileClusters(ancillary_data, False)
+        else:
+            profiles_raining = None
+            profiles_non_raining = None
+
         with open(filename, "wb") as file:
             self._write_retrieval_orbit_header(file)
-            self._write_retrieval_profile_info(file)
+            self._write_retrieval_profile_info(file, ancillary_data)
             for i in range(self.n_scans):
                 self._write_retrieval_scan_header(file, i)
-
-                precip_mean = results["precip_mean"][i]
-                precip_1st_tertial = results["precip_1st_tertial"][i]
-                precip_3rd_tertial = results["precip_3rd_tertial"][i]
-                pop = results["precip_pop"][i]
-
                 self._write_retrieval_scan(
-                    file, precip_mean, precip_1st_tertial, precip_3rd_tertial, pop
+                    file,
+                    i,
+                    results,
+                    profiles_raining=profiles_raining,
+                    profiles_non_raining=profiles_non_raining
                 )
         return filename
 
@@ -328,8 +346,8 @@ class PreprocessorFile:
         """
         Produces GPROF compliant filename from retrieval results dict.
         """
-        start_date = self.get_scan_header(0)["date"]
-        end_date = self.get_scan_header(-1)["date"]
+        start_date = self.get_scan_header(0)["scan_date"]
+        end_date = self.get_scan_header(-1)["scan_date"]
 
         name = "2A.QCORE.GMI.V7."
 
@@ -363,7 +381,11 @@ class PreprocessorFile:
         new_header["algorithm"] = "QPROF"
         new_header.tofile(file)
 
-    def _write_retrieval_profile_info(self, file):
+    def _write_retrieval_profile_info(self,
+                                      file,
+                                      clusters_raining=None,
+                                      clusters_non_raining=None):
+
         """
         Write the retrieval profile info to an opened binary file.
 
@@ -371,33 +393,68 @@ class PreprocessorFile:
             file: Handle to the binary file to write the data to.
         """
         profile_info = np.recarray(1, dtype=retrieval.PROFILE_INFO_TYPES)
-        profile_info.tofile(file)
 
-    def _write_retrieval_scan_header(self, file, i):
+        profile_info["n_species"] = 5
+        profile_info["n_temps"] = 12
+        profile_info["n_layers"] = 28
+        profile_info["species_description"][0][0] = "RAIN WATER CONENT".encode()
+        profile_info["species_description"][0][1] = "CLOUD WATER CONENT".encode()
+        profile_info["species_description"][0][2] = "SNOW WATER CONTENT".encode()
+        profile_info["species_description"][0][3] = "MISSING".encode()
+        profile_info["species_description"][0][4] = "LATENT HEAT".encode()
+        profile_info["height_top_layers"] = np.concatenate([
+            np.linspace(0.5e3, 10e3, 20),
+            np.linspace(11e3, 19e3, 8)
+            ])
+
+        if ((clusters_raining is not None) and
+            (clusters_non_raining is not None)):
+            for i, s in enumerate([
+                    "rain_water_content",
+                    "cloud_water_content",
+                    "snow_water_content",
+                    "latent_heat"
+            ]):
+                profiles = [clusters_raining.get_profile_data(s),
+                            clusters_non_raining.get_profile_data(s)]
+                profiles = np.concatenate(profiles, axis=-1)
+                i_start = i * N_TEMPERATURES * N_LAYERS * N_PROFILES
+                i_end = i_start + N_TEMPERATURES * N_LAYERS * N_PROFILES
+                profile_info["profiles"][0, i_start:i_end] = profiles.ravel()
+        else:
+            profile_info["profiles"] = -9999.9
+
+
+    def _write_retrieval_scan_header(self, file, scan_index):
         """
         Write the scan header corresponding to the ith header in the file
         to a given file stream.
 
         Args:
             file: Handle to the binary file to write the data to.
-            i: The index of the scan for which to write the header.
+            scan_index: The index of the scan for which to write the header.
         """
-        header = self.get_scan_header(i)
+        header = self.get_scan_header(scan_index)
         scan_header = np.recarray(1, dtype=retrieval.SCAN_HEADER_TYPES)
         scan_header["scan_latitude"] = header["scan_latitude"]
         scan_header["scan_longitude"] = header["scan_longitude"]
         scan_header["scan_altitude"] = header["scan_altitude"]
-        scan_header["date"]["year"] = header["date"]["year"]
-        scan_header["date"]["month"] = header["date"]["month"]
-        scan_header["date"]["day"] = header["date"]["day"]
-        scan_header["date"]["hour"] = header["date"]["hour"]
-        scan_header["date"]["minute"] = header["date"]["minute"]
-        scan_header["date"]["second"] = header["date"]["second"]
-        scan_header["date"]["millisecond"] = 0.0
+        scan_header["scan_date"]["year"] = header["scan_date"]["year"]
+        scan_header["scan_date"]["month"] = header["scan_date"]["month"]
+        scan_header["scan_date"]["day"] = header["scan_date"]["day"]
+        scan_header["scan_date"]["hour"] = header["scan_date"]["hour"]
+        scan_header["scan_date"]["minute"] = header["scan_date"]["minute"]
+        scan_header["scan_date"]["second"] = header["scan_date"]["second"]
+        scan_header["scan_date"]["millisecond"] = 0.0
         scan_header.tofile(file)
 
     def _write_retrieval_scan(
-        self, file, precip_mean, precip_1st_tertial, precip_3rd_tertial, precip_pop
+            self,
+            file,
+            scan_index,
+            retrieval_data,
+            profiles_raining=None,
+            profiles_non_raining=None
     ):
         """
         Write retrieval data from a full scan to a binary stream.
@@ -411,14 +468,252 @@ class PreprocessorFile:
             precip_3rd_tertial: 1D array containing the 3rd tertial retrieved from the data
             precip_pop: 1D array containing the probability of precipitation in the scan.
         """
-        n_pixels = precip_mean.shape[-1]
-        pixels = np.recarray(n_pixels, dtype=retrieval.DATA_RECORD_TYPES)
+        data = retrieval_data[{"scans": scan_index}]
+        scan_data = self.get_scan(scan_index)
 
-        pixels["surface_precip"] = precip_mean
-        pixels["precip_1st_tertial"] = precip_1st_tertial
-        pixels["precip_3rd_tertial"] = precip_3rd_tertial
-        pixels["pop_index"] = precip_pop.astype(np.dtype("i1"))
-        pixels.tofile(file)
+        out_data = np.recarray(self.n_pixels, dtype=retrieval.DATA_RECORD_TYPES)
+
+        # Pixel status
+        ps = out_data["pixel_status"]
+        ps[:] = 0
+        indices = ((scan_data["latitude"] < LAT_MIN) +
+                   (scan_data["latitude"] > LAT_MAX) +
+                   (scan_data["longitude"] < LON_MIN) +
+                   (scan_data["longitude"] > LON_MAX))
+        ps[indices] = 1
+        indices = np.any(((scan_data["brightness_temperatures"] < TB_MIN) +
+                          (scan_data["brightness_temperatures"] > TB_MAX)),
+                         axis=-1)
+        ps[indices] = 2
+        indices = ((scan_data["two_meter_temperature"] < 0) +
+                   (scan_data["total_column_water_vapor"] < 0) +
+                   (scan_data["surface_type"] < 0) +
+                   (scan_data["airmass_type"] < 0))
+        ps[indices] = 4
+
+        out_data["quality_flag"] = 0
+        out_data["l1c_quality_flag"] = scan_data["quality_flag"]
+        out_data["surface_type"] = scan_data["surface_type"]
+        out_data["tcwv_index"] = scan_data["total_column_water_vapor"].astype(int)
+        out_data["pop_index"] = data["pop"].astype(int)
+        out_data["t2m_index"] = scan_data["two_meter_temperature"].astype(int)
+        out_data["airmass_index"] = scan_data["airmass_type"]
+        out_data["sunglint_angle"] = scan_data["sunglint_angle"]
+        out_data["precip_flag"] = data["precip_flag"]
+        out_data["latitude"] = scan_data["latitude"]
+        out_data["longitude"] = scan_data["longitude"]
+
+        out_data["surface_precip"] = data["surface_precip"]
+
+        wet_bulb_temperature = scan_data["wet_bulb_temperature"]
+        surface_type = scan_data["surface_type"]
+        surface_precip = data["surface_precip"]
+        frozen_precip = calculate_frozen_precip(
+            wet_bulb_temperature,
+            surface_type,
+            surface_precip
+        )
+        out_data["frozen_precip"] = frozen_precip
+        out_data["convective_precip"] = data["convective_precip"]
+        out_data["rain_water_path"] = data["rain_water_path"]
+        out_data["cloud_water_path"] = data["cloud_water_path"]
+        out_data["ice_water_path"] = data["ice_water_path"]
+        out_data["most_likely_precip"] = data["surface_precip"]
+        out_data["precip_1st_tercile"] = data["precip_1st_tercile"]
+        out_data["precip_3rd_tercile"] = data["precip_3rd_tercile"]
+
+        if profiles_raining is not None and profiles_non_raining is not None:
+            t2m = scan_data["two_meter_temperature"].data
+
+            t2m_indices = profiles_raining.get_t2m_indices(t2m)
+            out_data["profile_t2m_index"] = t2m_indices
+
+            for i, s in enumerate([
+                    "rain_water_content",
+                    "cloud_water_content",
+                    "snow_water_content",
+                    "latent_heat"
+            ]):
+                scales_r, indices_r = profiles_raining.get_scales_and_indices(
+                    s, t2m, data["s"].data
+                )
+                scales_nr, indices_nr = profiles_non_raining.get_scales_and_indices(
+                    s, t2m, data["s"].data
+                )
+                scales = np.where(surface_precip > 1e-3, scales_r, scales_nr)
+                indices = np.where(surface_precip > 1e-3, indices_r, indices_nr)
+
+                out_data["profile_number"].data[i] = indices + 1
+                out_data["profile_scale"].data[i] = scales
+
+        else:
+            out_data["profile_t2m_index"] = -9999.9
+            out_data["profile_scale"] = -9999.9
+            out_data["profile_number"] -9999
+        out_data.tofile(file)
+
+
+class PreprocessorLoader0D:
+    """
+    Interface class to run the GPROF-NN retrieval on preprocessor files.
+    """
+    def __init__(self,
+                 filename,
+                 normalizer,
+                 scans_per_batch=256):
+        """
+        Create preprocessor loader.
+
+        Args:
+            filename: Path to the preprocessor file from which to load the
+                input data.
+            normalizer: The normalizer object to use to normalize the input
+                data.
+            scans_per_batch: How scans should be combined into a single
+                batch.
+        """
+        self.filename = filename
+        preprocessor_file = PreprocessorFile(filename)
+        self.data = preprocessor_file.to_xarray_dataset()
+        self.normalizer = normalizer
+        self.n_scans = self.data.scans.size
+        self.n_pixels = self.data.pixels.size
+        self.scans_per_batch = scans_per_batch
+
+    def __len__(self):
+        """
+        The number of batches in the preprocessor file.
+        """
+        n = self.n_scans // self.scans_per_batch
+        if (self.n_scans % self.scans_per_batch) > 0:
+            n = n + 1
+        return n
+
+    def get_batch(self, i):
+        """
+        Return batch of retrieval inputs as PyTorch tensor.
+
+        Args:
+            i: The index of the batch.
+
+        Return:
+            PyTorch Tensor ``x`` containing the normalized inputs.
+        """
+        i_start = i * self.scans_per_batch
+        i_end = min(i_start + self.scans_per_batch,
+                    self.n_scans)
+
+        n = (i_end - i_start) * self.data.pixels.size
+        x = np.zeros((n, 39), dtype=np.float32)
+
+        tbs = self.data["brightness_temperatures"].data[i_start:i_end]
+        tbs = tbs.reshape(-1, 15)
+        t2m = self.data["two_meter_temperature"].data[i_start:i_end]
+        t2m = t2m.reshape(-1)
+        tcwv = self.data["total_column_water_vapor"].data[i_start:i_end]
+        tcwv = tcwv.reshape(-1)
+        st = self.data["surface_type"].data[i_start:i_end]
+        st = st.reshape(-1)
+        at = np.maximum(self.data["airmass_type"].data[i_start:i_end], 0.0)
+        at = at.reshape(-1)
+
+        x[:, :15] = tbs
+        x[:, :15][x[:, :15] < 0] = np.nan
+
+        x[:, 15] = t2m
+        x[:, 15][x[:, 15] < 0] = np.nan
+
+        x[:, 16] = tcwv
+        x[:, 16][x[:, 16] < 0] = np.nan
+
+        for i in range(18):
+            x[:, 17 + i][st == i + 1] = 1.0
+
+        for i in range(4):
+            x[:, 35 + i][at == i] = 1.0
+
+        x = self.normalizer(x)
+        return torch.tensor(x)
+
+    def run_retrieval(self,
+                      xrnn):
+        """
+        Run retrieval on input data.
+
+        Args:
+            xrnn: The network to run the retrieval with.
+
+        Return:
+            ``xarray.Dataset`` containing the retrieval results.
+        """
+        means = {}
+        precip_1st_tercile = []
+        precip_3rd_tercile = []
+        pop = []
+
+        with torch.no_grad():
+            device = next(iter(xrnn.model.parameters())).device
+            for i in range(len(self)):
+                x = self.get_batch(i)
+                x = x.float().to(device)
+                y_pred = xrnn.predict(x)
+                if not isinstance(y_pred, dict):
+                    y_pred = {"surface_precip": y_pred}
+
+                y_mean = xrnn.posterior_mean(y_pred=y_pred)
+                for k, y in y_pred.items():
+                    means.setdefault(k, []).append(y_mean[k].cpu())
+                    if k == "surface_precip":
+                        t = xrnn.posterior_quantiles(
+                            y_pred=y, quantiles=[0.333, 0.667], key=k
+                        )
+                        precip_1st_tercile.append(t[:, :1].cpu())
+                        precip_3rd_tercile.append(t[:, 1:].cpu())
+                        p = xrnn.probability_larger_than(y_pred=y, y=1e-4, key=k)
+                        pop.append(p.cpu())
+
+        dims = ["scans", "pixels", "levels"]
+        data = {}
+        for k in means:
+            y = np.concatenate([t.numpy() for t in means[k]])
+            if y.ndim == 1:
+                y = y.reshape(-1, 221)
+            else:
+                y = y.reshape(-1, 221, 28)
+            data[k] = (dims[:y.ndim], y)
+
+        data["precip_1st_tercile"] = (
+            dims[:2],
+            np.concatenate([t.numpy() for t in precip_1st_tercile]).reshape(-1, 221),
+        )
+        data["precip_3rd_tercile"] = (
+            dims[:2],
+            np.concatenate([t.numpy() for t in precip_3rd_tercile]).reshape(-1, 221),
+        )
+        pop = np.concatenate([t.numpy() for t in pop]).reshape(-1, 221)
+        data["pop"] = (dims[:2], pop)
+        data["precip_flag"] = (dims[:2], pop > 0.5)
+        data = xr.Dataset(data)
+        return data
+
+    def write_retrieval_results(self,
+                                output_path,
+                                results,
+                                ancillary_data=None):
+        """
+        Write retrieval results to file.
+
+        Args:
+            output_path: The folder to which to write the output.
+            results: ``xarray.Dataset`` containing the retrieval results.
+            ancillary_data: The folder containing the profile clusters.
+        """
+        preprocessor_file = PreprocessorFile(self.filename)
+        preprocessor_file.write_retrieval_results(
+            output_path,
+            results,
+            ancillary_data=ancillary_data
+        )
 
 
 ###############################################################################

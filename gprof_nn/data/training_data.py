@@ -448,65 +448,22 @@ class GPROF0DDataset:
         else:
             return self.x.shape[0]
 
-    def evaluate(self, xrnn, batch_size=16384, device=_DEVICE):
+    def run_retrieval(self,
+                      xrnn):
         """
         Run retrieval on test dataset and returns results as
         xarray Dataset.
 
         Args:
-            model: The QRNN or DRNN model to evaluate.
-            batch_size: The batch size to use for the evaluation.
-            device: On which device to run the evaluation.
+            xrnn: The QRNN or DRNN model to evaluate.
 
         Return:
             ``xarray.Dataset`` containing the predicted and reference values
             for the data in this dataset.
         """
-        means = {}
-        precip_1st_tercile = []
-        precip_3rd_tercile = []
-        pop = []
-
-        with torch.no_grad():
-            for i in range(len(self)):
-                x, y = self[i]
-
-                y_pred = xrnn.predict(x)
-                if not isinstance(y_pred, dict):
-                    y_pred = {"surface_precip": y_pred}
-
-                y_mean = xrnn.posterior_mean(y_pred=y_pred)
-                for k, y in y_pred.items():
-                    means.setdefault(k, []).append(y_mean[k].cpu())
-                    if k == "surface_precip":
-                        t = xrnn.posterior_quantiles(
-                            y_pred=y, quantiles=[0.333, 0.667], key=k
-                        )
-                        precip_1st_tercile.append(t[:, :1].cpu())
-                        precip_3rd_tercile.append(t[:, 1:].cpu())
-                        p = self.model.probability_larger_than(y_pred=y, y=1e-4, key=k)
-                        pop.append(p.cpu())
-
-        dims = ["samples", "levels"]
-        data = {}
-        for k in means:
-            y = np.concatenate(means[k].numpy())
-            if y.ndim == 1:
-                y = y.reshape(-1, 221)
-            else:
-                y = y.reshape(-1, 221, 28)
-            data[k] = (dims[: y.ndim], y)
-
-        data["precip_1st_tercile"] = (
-            dims[:2],
-            np.concatenate(precip_1st_tercile.numpy()).reshape(-1, 221),
-        )
-        data["precip_3rd_tercile"] = (
-            dims[:2],
-            np.concatenate(precip_3rd_tercile.numpy()).reshape(-1, 221),
-        )
-        data["pop"] = (dims[:2], np.concatenate(pop.numpy()).reshape(-1, 221))
-        return xr.Dataset(data)
+        return run_retrieval_0d(self.filename,
+                                xrnn,
+                                self.normalizer)
 
     def evaluate_sensitivity(self, model, batch_size=512, device=_DEVICE):
         """
@@ -638,8 +595,7 @@ def _expand_pixels(data):
 
 def run_retrieval_0d_bin(input_file,
                          xrnn,
-                         normalizer,
-                         output_file):
+                         normalizer):
     """
     Run GPROF-0D retrieval on input data from data extracted from
     bin files.
@@ -649,6 +605,9 @@ def run_retrieval_0d_bin(input_file,
         normalizer: Normalizer object to use to normalize the input.
         xrnn: The quantnn model to use to run the retrieval.
         output_file: Output file to store the results to.
+
+    Return:
+        'xarray.Datset' containing the retrieval results.
     """
     dataset = GPROF0DDataset(input_file,
                              shuffle=False,
@@ -702,13 +661,12 @@ def run_retrieval_0d_bin(input_file,
     data = xr.Dataset(data)
 
     data["surface_type"] = reference["surface_type"]
-    data.to_netcdf(output_file)
+    return data
 
 
 def run_retrieval_0d(input_file,
                      xrnn,
-                     normalizer,
-                     output_file):
+                     normalizer):
     """
     Run GPROF-NN 0D retrieval on input data in NetCDF format.
 
@@ -716,11 +674,13 @@ def run_retrieval_0d(input_file,
         input_file: Filename of the NetCDF file containing input data.
         normalizer: Normalizer object to use to normalize the input.
         xrnn: The quantnn model to use to run the retrieval.
-        output_file: Output file to store the results to.
+
+    Return:
+        'xarray.Datset' containing the retrieval results.
     """
     dataset = xr.open_dataset(input_file)
     if "scans" not in dataset.dims:
-        run_retrieval_0d_bin(input_file, xrnn, normalizer, output_file)
+        run_retrieval_0d_bin(input_file, xrnn, normalizer)
         return None
 
     #
@@ -803,7 +763,7 @@ def run_retrieval_0d(input_file,
     )
     data["pop"] = (dims[:3], np.concatenate([t.numpy() for t in pop]).reshape(-1, 221, 221))
     data = xr.Dataset(data)
-    data.to_netcdf(output_file)
+    return data
 
 ###############################################################################
 # GPROF-NN 2D
@@ -1026,7 +986,7 @@ class GPROF2DDataset:
                     if r > 0.5:
                         x[i] = np.flip(x[i], 2)
                         if isinstance(self.target, list):
-                            for k in self.targets:
+                            for k in self.target:
                                 y[k][i] = np.flip(y[k][i], 1)
                         else:
                             y[i] = np.flip(y[i], 1)
