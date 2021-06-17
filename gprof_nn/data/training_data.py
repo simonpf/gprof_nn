@@ -944,12 +944,13 @@ class GPROF2DDataset:
 
                 x[i] = np.concatenate([tbs, t2m, tcwv, st_1h, at_1h], axis=0)
 
+                dims = (n, 28)
                 if isinstance(self.target, list):
                     for k in self.target:
                         y_k_r = _expand_pixels(dataset[k][i][:][np.newaxis, ...])
                         y_k = y.setdefault(
                             k,
-                            np.zeros((n, M, N) + y_k_r.shape[3:],
+                            np.zeros(dims[:y_k_r.ndim - 2] + (M, N),
                                      dtype=np.float32)
                         )
                         y_k_i = extract_domain(y_k_r[0], p_x_i, p_x_o, p_y,
@@ -959,7 +960,11 @@ class GPROF2DDataset:
                             y_k_i[y_k_i < -400] = -9999
                         else:
                             y_k_i[y_k_i < 0] = -9999
-                        y_k[i] = y_k_i
+                        if y_k_i.ndim > 2:
+                            y_k[i] = np.transpose(y_k_i, (2, 0, 1))
+                        else:
+                            y_k[i] = y_k_i
+
                 else:
                     y_r = _expand_pixels(dataset[self.target][i][:][np.newaxis, ...])
                     y_i = extract_domain(y_r[0], p_x_i, p_x_o, p_y,
@@ -969,7 +974,10 @@ class GPROF2DDataset:
                         y_i[y_i < -400] = -9999
                     else:
                         y_i[y_i < 0] = -9999
-                    y[i] = y_i
+                    if y_i.ndim > 2:
+                        y[i] = np.transpose(y_i, (2, 0, 1))
+                    else:
+                        y[i] = y_i
 
                 # Also flip data if requested.
                 if self.augment:

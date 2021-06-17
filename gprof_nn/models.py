@@ -246,12 +246,14 @@ class HyperResidualMLP(ResidualMLP):
             l = self.layers[0]
             y = l(x)
             if self.projection is not None:
-                y = y + self.projection(x)
+                x_p = self.projection(x)
             else:
-                y = y + x
+                x_p = x
+            y = y + x_p
+
             if li > 1:
                 y += (1.0 / (li - 1)) * acc
-            acc += x
+            acc += x_p
             li += 1
             x = y
 
@@ -483,10 +485,9 @@ class GPROF_NN_0D_DRNN(DRNN):
 ###############################################################################
 
 
-
-class Head2D(nn.Module):
+class MLPHead(nn.Module):
     """
-    Head module for GPROF-NN 2D network.
+    MLP-type head for convolutional network.
     """
     def __init__(self,
                  n_inputs,
@@ -498,8 +499,8 @@ class Head2D(nn.Module):
         for i in range(n_layers - 1):
             self.layers.append(nn.Sequential(
                 nn.Conv2d(n_inputs, n_hidden, 1),
-                nn.BatchNorm2d(n_hidden),
-                nn.ReLU(),
+                nn.GroupNorm(1, n_hidden),
+                nn.ReLU()
             ))
             n_inputs = n_hidden
         self.layers.append(nn.Sequential(
@@ -516,7 +517,7 @@ class Head2D(nn.Module):
         return self.layers[-1](y)
 
 
-class GPROFNN2D(nn.Module):
+class XceptionFPN(nn.Module):
     """
     Feature pyramid network (FPN) with 5 stages based on xception
     architecture.
@@ -524,41 +525,49 @@ class GPROFNN2D(nn.Module):
 
     def __init__(self,
                  n_outputs,
-                 n_features=128,
+                 n_blocks,
+                 n_features_body,
+                 n_layers_head,
+                 n_features_head,
                  ancillary=True,
-                 target=["surface_precip"],
-                 n_layers_head=3,
-                 blocks=2):
+                 target=None):
         """
         Args:
-            n_inputs: Number of input channels.
             n_outputs: The number of output channels,
-            n_features: The number of features in the xception blocks.
-            blocks: The number of blocks per stage
+            n_blocks: The number of blocks in each stage of the encoder.
+            n_features_body: The number of features/channels in the network
+                body.
+            n_layers_head: The number of layers in each network head.
+            n_features_head: The number of features in each layer of each head.
+            ancillary: Whether or not to make use of ancillary data.
+            target: List of target variables.
         """
         super().__init__()
         self.ancillary = ancillary
-        self.target = target
+        if target is None:
+            self.target = ["surface_precip"]
+        else:
+            self.target = target
         self.n_outputs = n_outputs
 
-        if isinstance(blocks, int):
-            blocks = [blocks] * 5
+        if isinstance(n_blocks, int):
+            n_blocks = [n_blocks] * 5
 
-        self.in_block = nn.Conv2d(15, n_features, 1)
+        self.in_block = nn.Conv2d(15, n_features_body, 1)
 
-        self.down_block_2 = DownsamplingBlock(n_features, blocks[0])
-        self.down_block_4 = DownsamplingBlock(n_features, blocks[1])
-        self.down_block_8 = DownsamplingBlock(n_features, blocks[2])
-        self.down_block_16 = DownsamplingBlock(n_features, blocks[3])
-        self.down_block_32 = DownsamplingBlock(n_features, blocks[4])
+        self.down_block_2 = DownsamplingBlock(n_features_body, n_blocks[0])
+        self.down_block_4 = DownsamplingBlock(n_features_body, n_blocks[1])
+        self.down_block_8 = DownsamplingBlock(n_features_body, n_blocks[2])
+        self.down_block_16 = DownsamplingBlock(n_features_body, n_blocks[3])
+        self.down_block_32 = DownsamplingBlock(n_features_body, n_blocks[4])
 
-        self.up_block_16 = UpsamplingBlock(n_features)
-        self.up_block_8 = UpsamplingBlock(n_features)
-        self.up_block_4 = UpsamplingBlock(n_features)
-        self.up_block_2 = UpsamplingBlock(n_features)
-        self.up_block = UpsamplingBlock(n_features)
+        self.up_block_16 = UpsamplingBlock(n_features_body)
+        self.up_block_8 = UpsamplingBlock(n_features_body)
+        self.up_block_4 = UpsamplingBlock(n_features_body)
+        self.up_block_2 = UpsamplingBlock(n_features_body)
+        self.up_block = UpsamplingBlock(n_features_body)
 
-        n_inputs = 2 * n_features
+        n_inputs = 2 * n_features_body
         if self.ancillary:
             n_inputs += 24
 
@@ -568,15 +577,15 @@ class GPROFNN2D(nn.Module):
         self.heads = nn.ModuleDict()
         for k in targets:
             if k in PROFILE_NAMES:
-                self.heads[k] = Head2D(n_inputs,
-                                       n_features,
-                                       28 * n_outputs,
-                                       n_layers_head)
+                self.heads[k] = MLPHead(n_inputs,
+                                        n_features_head,
+                                        28 * n_outputs,
+                                        n_layers_head)
             else:
-                self.heads[k] = Head2D(n_inputs,
-                                       n_features,
-                                       n_outputs,
-                                       n_layers_head)
+                self.heads[k] = MLPHead(n_inputs,
+                                        n_features_head,
+                                        n_outputs,
+                                        n_layers_head)
 
     def forward(self, x):
         """
@@ -618,3 +627,94 @@ class GPROFNN2D(nn.Module):
         if not isinstance(self.target, list):
             return results[self.target]
         return results
+
+
+class GPROF_NN_2D_QRNN(QRNN):
+    """
+    QRNN-based version of the GPROF-NN 2D algorithm.
+    """
+    def __init__(self,
+                 n_blocks,
+                 n_features_body,
+                 n_layers_head,
+                 n_features_head,
+                 activation="ReLU",
+                 targets=None,
+                 transformation=None
+    ):
+        """
+        Args:
+            n_blocks: The number of blocks in each downsampling stage.
+            n_features_body: The number of features in the network body.
+            n_layers_head: The number of hidden layers in each head.
+            n_features_head: The number of features in each head.
+            activation: The activation to use in the network.
+            targets: List of retrieval targets to retrieve.
+            transformation: Transformation to apply to outputs.
+        """
+        if targets is None:
+            targets = ALL_TARGETS
+        self.targets = targets
+
+        if transformation is not None and not isinstance(transformation, dict):
+            if type(transformation) is type:
+                transformation = {t: transformation() for t in targets}
+            else:
+                transformation = {t: transformation for t in targets}
+            if "latent_heat" in targets:
+                transformation["latent_heat"] = None
+
+        model = XceptionFPN(64,
+                            n_blocks,
+                            n_features_body,
+                            n_layers_head,
+                            n_features_head,
+                            target=targets)
+
+        super().__init__(n_inputs=39,
+                         quantiles=QUANTILES,
+                         model=model,
+                         transformation=transformation)
+
+        self.preprocessor_class = PreprocessorLoader0D
+        self.training_data_class = GPROF0DDataset
+
+
+class GPROF_NN_2D_DRNN(DRNN):
+    """
+    QRNN-based version of the GPROF-NN 2D algorithm.
+    """
+    def __init__(self,
+                 n_blocks,
+                 n_features_body,
+                 n_layers_head,
+                 n_features_head,
+                 activation="ReLU",
+                 targets=None,
+    ):
+        """
+        Args:
+            n_blocks: The number of blocks in each downsampling stage.
+            n_features_body: The number of features in the network body.
+            n_layers_head: The number of hidden layers in each head.
+            n_features_head: The number of features in each head.
+            activation: The activation to use in the network.
+            targets: List of retrieval targets to retrieve.
+        """
+        if targets is None:
+            targets = ALL_TARGETS
+        self.targets = targets
+
+        model = XceptionFPN(128,
+                            n_blocks,
+                            n_features_body,
+                            n_layers_head,
+                            n_features_head,
+                            target=targets)
+
+        super().__init__(n_inputs=39,
+                         bins=BINS,
+                         model=model)
+
+        self.preprocessor_class = PreprocessorLoader0D
+        self.training_data_class = GPROF0DDataset

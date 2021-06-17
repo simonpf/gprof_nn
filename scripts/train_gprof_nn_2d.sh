@@ -11,4 +11,4 @@ TARGETS="rain_water_content"
 export QUANTNN_LOG_LEVEL=INFO
 export OMP_NUM_THREADS=4
 
-python train_gprof_nn_2d.py  ${TRAINING_DATA} ${VALIDATION_DATA} ${MODEL_PATH} --n_neurons 64 --n_blocks 1 --n_layers_head 2 --device cpu --targets ${TARGETS} --type qrnn --batch_size 1
+python train_gprof_nn_2d.py  ${TRAINING_DATA} ${VALIDATION_DATA} ${MODEL_PATH} --n_features_head 64 --n_features_body  128 --n_blocks 1 --n_layers_head 2 --device cpu --targets ${TARGETS} --type qrnn --batch_size 1

@@ -8,7 +8,8 @@ from gprof_nn.models import (
     HyperResidualMLP,
     MultiHeadMLP,
     GPROF_NN_0D_QRNN,
-    GPROF_NN_0D_DRNN
+    GPROF_NN_0D_DRNN,
+    GPROF_NN_2D_QRNN
 )
 
 
@@ -21,6 +22,7 @@ def test_mlp():
     x = torch.ones(1, 39)
     y, acc = network(x, None)
     assert np.all(np.isclose(y.detach().numpy(), x.detach().numpy()))
+
 
 def test_residual_mlp():
     """
@@ -40,6 +42,7 @@ def test_residual_mlp():
         p[:] = 0.0
     y, acc = network(x, None)
     assert np.all(np.isclose(y.detach().numpy(), x.detach().numpy()))
+
 
 def test_hyper_residual_mlp():
     """
@@ -72,5 +75,15 @@ def test_gprof_nn_0d():
 
     network = GPROF_NN_0D_DRNN(0, 128, 1, 64, activation="GELU")
     x = torch.ones(1, 39)
+    y = network.predict(x)
+    assert all([t in y for t in ALL_TARGETS])
+
+
+def test_gprof_nn_2d():
+    """
+    Tests for GPROFNN2D classes module with hyper-residual connections.
+    """
+    network = GPROF_NN_2D_QRNN(2, 128, 2, 64)
+    x = torch.ones(1, 39, 128, 128)
     y = network.predict(x)
     assert all([t in y for t in ALL_TARGETS])

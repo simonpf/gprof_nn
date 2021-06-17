@@ -16,57 +16,106 @@ from quantnn.metrics import ScatterPlot
 from quantnn.transformations import LogLinear
 
 from gprof_nn.data.training_data import GPROF2DDataset
-from gprof_nn.models import GPROFNN2D, BINS, QUANTILES
+from gprof_nn.models import GPROF_NN_2D_QRNN, GPROF_NN_2D_DRNN
 
 ###############################################################################
 # Command line arguments.
 ###############################################################################
 
 parser = argparse.ArgumentParser(
-        description='Training script for the GPROF-NN-2D algorithm.')
-parser.add_argument('training_data', metavar='training_data', type=str, nargs=1,
+        description='Training script for the GPROF-NN-0D algorithm.')
+
+
+# Input and output data
+parser.add_argument('training_data',
+                    metavar='training_data',
+                    type=str,
+                    nargs=1,
                     help='Path to training data.')
-parser.add_argument('validation_data', metavar='validation_data', type=str, nargs=1,
+parser.add_argument('validation_data',
+                    metavar='validation_data',
+                    type=str,
+                    nargs=1,
                     help='Path to validation data.')
-parser.add_argument('model_path', metavar='model_path', type=str, nargs=1,
+parser.add_argument('model_path',
+                    metavar='model_path',
+                    type=str,
+                    nargs=1,
                     help='Where to store the model.')
-parser.add_argument('--n_blocks', metavar='n_blocks', type=int, nargs=1,
-                    help='How many layers in body of network.')
-parser.add_argument('--n_layers_head', metavar='n_layers', type=int, nargs=1,
-                    help='How many layers in head of network.')
-parser.add_argument('--n_neurons', metavar='n_neurons', type=int, nargs=1,
-                    help='How many neurons in each hidden layer.')
+
+# Model configuration
+parser.add_argument('--type',
+                    metavar="network_type",
+                    type=str,
+                    nargs=1,
+                    help="The type of network: drnn, qrnn or qrnn_exp")
+parser.add_argument('--n_blocks',
+                    metavar='n_blocks',
+                    type=int,
+                    nargs=1,
+                    default=4,
+                    help=('How many blocks in each downsampling stage of the'
+                          'body of the network.'))
+parser.add_argument('--n_features_body',
+                    metavar='n_features_body',
+                    type=int,
+                    nargs=1,
+                    default=256,
+                    help='How many features in the body of the network.')
+parser.add_argument('--n_layers_head',
+                    metavar='n_layers',
+                    type=int,
+                    nargs=1,
+                    default=2,
+                    help= ('How many layers in each head of the network.'))
+parser.add_argument('--n_features_head',
+                    metavar='n_features_head',
+                    type=int,
+                    nargs=1,
+                    default=128,
+                    help='How many neurons/features in each head.')
+parser.add_argument('--activation',
+                    metavar='activation',
+                    type=str,
+                    nargs=1,
+                    default="ReLU",
+                    help='The activation function to apply after each hidden layer.')
+parser.add_argument('--residuals',
+                    metavar='residuals',
+                    type=str,
+                    nargs=1,
+                    default='simple',
+                    help='The type of residual connections to apply.')
+
+# Other
 parser.add_argument('--device', metavar="device", type=str, nargs=1,
                     help="The name of the device on which to run the training")
-parser.add_argument('--type', metavar="target_1 target_2", type=str, nargs=1,
-                    help="The type of network: drnn, qrnn or qrnn_exp")
 parser.add_argument('--targets', metavar="target_1 target_2", type=str, nargs="+",
                     help="The target on which to train the network")
 parser.add_argument('--batch_size', metavar="n", type=int, nargs=1,
                     help="The batch size to use for training.")
 
 args = parser.parse_args()
+
 training_data = args.training_data[0]
 validation_data = args.validation_data[0]
-n_layers_head = args.n_layers_head[0]
-n_neurons = args.n_neurons[0]
+
 n_blocks = args.n_blocks[0]
+n_features_body = args.n_features_body[0]
+n_layers_head = args.n_layers_head[0]
+n_features_head = args.n_features_head[0]
+
+activation = args.activation[0]
+residuals = args.residuals[0]
+
 device = args.device[0]
 targets = args.targets
 network_type = args.type[0]
 batch_size = args.batch_size[0]
 
-#
-# Prepare output
-#
-
-model_path = Path(args.model_path[0])
-model_path.mkdir(parents=False, exist_ok=True)
-network_name = f"gprof_nn_2d_gmi_{network_type}_{n_blocks}_{n_layers_head}_{n_neurons}.pt"
-
-#
-# Load the data.
-#
+###############################################################################
+# Prepare in- and output.
+###############################################################################
 
 dataset_factory = GPROF2DDataset
 normalizer = Normalizer.load("../data/normalizer_gprof_0d_gmi.pckl")
@@ -74,13 +123,13 @@ kwargs = {
     "batch_size": batch_size,
     "normalizer": normalizer,
     "target": targets,
-    "augment": False
+    "augment": True
 }
 training_data = DataFolder(
     training_data,
     dataset_factory,
     kwargs=kwargs,
-    n_workers=4)
+    n_workers=6)
 
 kwargs = {
     "batch_size": 8 * batch_size,
@@ -95,46 +144,53 @@ validation_data = DataFolder(
     n_workers=2
 )
 
+model_path = Path(args.model_path[0])
+model_path.mkdir(parents=False, exist_ok=True)
+network_name = (f"gprof_nn_2d_gmi_{network_type}_{n_blocks}_{n_features_body}"
+                "_{n_layers_head}_{n_features_head}.pt")
+
+###############################################################################
+# Prepare in- and output.
+###############################################################################
+
 #
 # Create neural network model
 #
 
 if network_type == "drnn":
-    model = GPROFNN2D(128,
-                      n_features=n_neurons,
-                      ancillary=True,
-                      blocks=n_blocks,
-                      target=targets)
-    xrnn = DRNN(BINS, model=model)
+    xrnn = GPROF_NN_2D_DRNN(n_blocks,
+                            n_features_body,
+                            n_layers_head,
+                            n_features_head,
+                            target=targets)
 elif network_type == "qrnn_exp":
     transformation = {t: LogLinear() for t in targets}
     transformation["latent_heat"] = None
-    model = GPROFNN2D(64,
-                      n_features=n_neurons,
-                      ancillary=True,
-                      blocks=n_blocks,
-                      target=targets)
-    xrnn = QRNN(QUANTILES,
-                model=model,
-                transformation=transformation)
+    xrnn = GPROF_NN_2D_QRNN(n_blocks,
+                            n_features_body,
+                            n_layers_head,
+                            n_features_head,
+                            transformations=transformation,
+                            targets=targets)
 else:
-    model = GPROFNN2D(64,
-                      n_features=n_neurons,
-                      ancillary=True,
-                      blocks=n_blocks,
-                      target=targets)
-    xrnn = QRNN(quantiles=QUANTILES, model=model)
+    xrnn = GPROF_NN_2D_QRNN(n_blocks,
+                            n_features_body,
+                            n_layers_head,
+                            n_features_head,
+                            targets=targets)
+model = xrnn.model
 
-#
-# Run training
-#
+###############################################################################
+# Run the training.
+###############################################################################
 
-n_epochs = 75
+n_epochs = 20
 logger = TensorBoardLogger(n_epochs)
 logger.set_attributes({
     "n_blocks": n_blocks,
+    "n_features_body": n_features_body,
     "n_layers_head": n_layers_head,
-    "n_neurons": n_neurons,
+    "n_features_head": n_features_head,
     "targets": ", ".join(targets),
     "type": network_type,
     "optimizer": "adam"
