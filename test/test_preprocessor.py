@@ -4,8 +4,10 @@ Tests for reading the preprocessor format.
 from pathlib import Path
 
 import numpy as np
+from quantnn.normalizer import Normalizer
 
-from gprof_nn.data.preprocessor import PreprocessorFile
+from gprof_nn.data.preprocessor import (PreprocessorFile,
+                                        PreprocessorLoader0D)
 from gprof_nn.data.training_data import (GPROF0DDataset,
                                          write_preprocessor_file,
                                          run_retrieval_0d)
@@ -61,3 +63,54 @@ def test_preprocessor_file(tmp_path):
     at_pp = preprocessor_data["airmass_type"].data
     assert np.all(np.isclose(np.where(dataset.x[:, 17 + 18:17 + 22])[1],
                              at_pp[:, :].ravel()[:n]))
+
+
+def test_preprocessor_0d():
+    """
+    Ensure that preprocessor loader correctly loads batch from preprocessor
+    file.
+    """
+    path = Path(__file__).parent
+    input_file = path / "data" / "GMIERA5_190101_027510.pp"
+    normalizer = Normalizer.load(path / "data" / "normalizer.pckl")
+    loader = PreprocessorLoader0D(input_file, normalizer)
+    data = loader.data
+
+    x = loader.get_batch(0).detach().numpy()
+    x = normalizer.invert(x)
+    tbs = np.nan_to_num(x[:, :15], nan=-9999.0)
+    t2m = x[:, 15]
+    tcwv = x[:, 16]
+    st = np.where(x[:, 17:35])[1] + 1
+    at = np.where(x[:, 35:])[1]
+    n = st.shape[0]
+
+    assert np.all(np.isclose(
+        tbs,
+        data["brightness_temperatures"].data.reshape(-1, 15)[:n],
+        rtol=1e-3
+    ))
+    assert np.all(np.isclose(
+        t2m,
+        data["two_meter_temperature"].data.ravel()[:n],
+        rtol=1e-3
+    ))
+    assert np.all(np.isclose(
+        tcwv,
+        data["total_column_water_vapor"].data.ravel()[:n],
+        rtol=1e-3
+    ))
+    assert np.all(np.isclose(
+        st,
+        data["surface_type"].data.ravel()[:n],
+        rtol=1e-3
+    ))
+    assert np.all(np.isclose(
+        at,
+        np.maximum(data["airmass_type"].data.ravel(), 0.0)[:n],
+        rtol=1e-3
+    ))
+
+
+
+

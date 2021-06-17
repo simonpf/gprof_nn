@@ -1,47 +1,89 @@
 import numpy as np
 import torch
-from gprof_nn.models import GPROFNN0D, HyperResNetFC
+from quantnn.transformations import LogLinear
+from gprof_nn import ALL_TARGETS
+from gprof_nn.models import (
+    MLP,
+    ResidualMLP,
+    HyperResidualMLP,
+    MultiHeadMLP,
+    GPROF_NN_0D_QRNN,
+    GPROF_NN_0D_DRNN,
+    GPROF_NN_2D_QRNN
+)
 
 
-def test_hyperres_fc():
+def test_mlp():
+    """
+    Tests for MLP module.
+    """
     # Make sure 0-layer configuration does nothing.
-    network = HyperResNetFC(39, 128, 128, 0)
+    network = MLP(39, 128, 128, 0)
     x = torch.ones(1, 39)
     y, acc = network(x, None)
     assert np.all(np.isclose(y.detach().numpy(), x.detach().numpy()))
 
-    # Make sure 1-layer interal configuration returns accumulator
-    # containing input.
-    network = HyperResNetFC(39, 128, 128, 1, internal=True)
-    x = torch.ones(1, 39)
-    y, acc = network(x, None)
-    assert np.all(np.isclose(acc.detach().numpy()[:, :39], x.detach().numpy()))
 
-    # Make sure 2-layer interal configuration returns accumulator
-    # containing input.
-    network = HyperResNetFC(39, 128, 128, 2, internal=False)
+def test_residual_mlp():
+    """
+    Tests for MLP module with residual connections.
+    """
+    # Make sure 0-layer configuration does nothing.
+    network = ResidualMLP(39, 128, 128, 0)
     x = torch.ones(1, 39)
     y, acc = network(x, None)
-    print(y)
-    assert np.all(np.isclose(acc.detach().numpy()[:, :39], x.detach().numpy()))
+    assert np.all(np.isclose(y.detach().numpy(), x.detach().numpy()))
+
+    # Make sure residuals are forwarded through network in internal
+    # configuration.
+    network = ResidualMLP(39, 39, 39, 3, internal=True)
+    x = torch.ones(1, 39)
+    for p in network.parameters():
+        p[:] = 0.0
+    y, acc = network(x, None)
+    assert np.all(np.isclose(y.detach().numpy(), x.detach().numpy()))
+
+
+def test_hyper_residual_mlp():
+    """
+    Tests for MLP module with hyper-residual connections.
+    """
+    network = HyperResidualMLP(39, 128, 128, 0)
+    x = torch.ones(1, 39)
+    y, acc = network(x, None)
+    assert np.all(np.isclose(y.detach().numpy(), x.detach().numpy()))
+
+    # Make sure residuals and hyperresiduals are forwarded through network
+    # in internal configuration.
+    network = HyperResidualMLP(39, 39, 39, 3, internal=True)
+    x = torch.ones(1, 39)
+    for p in network.parameters():
+        p[:] = 0.0
+    y, acc = network(x, None)
+    assert np.all(np.isclose(y.detach().numpy(), 3.0 * x.detach().numpy()))
+    assert np.all(np.isclose(acc.detach().numpy(), 4.0 * x.detach().numpy()))
 
 
 def test_gprof_nn_0d():
-    targets = "surface_precip"
-    network = GPROFNN0D(0, 1, 128, 128, target=targets)
-
+    """
+    Tests for GPROFNN0D classes module with hyper-residual connections.
+    """
+    network = GPROF_NN_0D_QRNN(0, 128, 1, 64, activation="GELU", transformation=LogLinear)
     x = torch.ones(1, 39)
-    y = network(x)
+    y = network.predict(x)
+    assert all([t in y for t in ALL_TARGETS])
 
-    assert type(y) == torch.Tensor
-
-    targets = ["surface_precip", "rain_water_content"]
-    network = GPROFNN0D(0, 1, 128, 128, target=targets)
-
+    network = GPROF_NN_0D_DRNN(0, 128, 1, 64, activation="GELU")
     x = torch.ones(1, 39)
-    y = network(x)
+    y = network.predict(x)
+    assert all([t in y for t in ALL_TARGETS])
 
-    assert type(y) == dict
-    assert type(y["surface_precip"]) == torch.Tensor
-    assert type(y["rain_water_content"]) == torch.Tensor
-    assert y["rain_water_content"].shape == (1, 128, 28)
+
+def test_gprof_nn_2d():
+    """
+    Tests for GPROFNN2D classes module with hyper-residual connections.
+    """
+    network = GPROF_NN_2D_QRNN(2, 128, 2, 64)
+    x = torch.ones(1, 39, 128, 128)
+    y = network.predict(x)
+    assert all([t in y for t in ALL_TARGETS])

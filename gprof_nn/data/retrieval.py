@@ -14,6 +14,8 @@ import numpy as np
 from quantnn.normalizer import Normalizer
 import torch
 import xarray
+import scipy as sp
+import scipy.interpolate
 
 LOGGER = logging.getLogger(__name__)
 
@@ -92,12 +94,12 @@ DATA_RECORD_TYPES = np.dtype(
         ("pixel_status", "i1"),
         ("quality_flag", "i1"),
         ("l1c_quality_flag", "i1"),
-        ("surface_type_index", "i1"),
+        ("surface_type", "i1"),
         ("tcwv_index", "i1"),
         ("pop_index", "i1"),
         ("t2m_index", "i2"),
         ("airmass_index", "i2"),
-        ("sun_glint_angle", "i1"),
+        ("sunglint_angle", "i1"),
         ("precip_flag", "i1"),
         ("latitude", "f4"),
         ("longitude", "f4"),
@@ -108,8 +110,8 @@ DATA_RECORD_TYPES = np.dtype(
         ("cloud_water_path", "f4"),
         ("ice_water_path", "f4"),
         ("most_likely_precip", "f4"),
-        ("precip_1st_tertial", "f4"),
-        ("precip_3rd_tertial", "f4"),
+        ("precip_1st_tercile", "f4"),
+        ("precip_3rd_tercile", "f4"),
         ("profile_t2m_index", "i2"),
         ("profile_number", f"{N_SPECIES}i2"),
         ("profile_scale", f"{N_SPECIES}f4"),
@@ -121,12 +123,12 @@ DATA_RECORD_TYPES_PROFILES = np.dtype(
         ("pixel_status", "i1"),
         ("quality_flag", "i1"),
         ("l1c_quality_flag", "i1"),
-        ("surface_type_index", "i1"),
+        ("surface_type", "i1"),
         ("tcwv_index", "i1"),
         ("pop_index", "i1"),
         ("t2m_index", "i2"),
         ("airmass_index", "i2"),
-        ("sun_glint_angle", "i1"),
+        ("sunglint_angle", "i1"),
         ("precip_flag", "i1"),
         ("latitude", "f4"),
         ("longitude", "f4"),
@@ -151,7 +153,7 @@ DATA_RECORD_TYPES_SENSITIVITY = np.dtype(
         ("pixel_status", "i1"),
         ("quality_flag", "i1"),
         ("l1c_quality_flag", "i1"),
-        ("surface_type_index", "i1"),
+        ("surface_type", "i1"),
         ("tcwv_index", "i1"),
         ("pop_index", "i1"),
         ("t2m_index", "i2"),
@@ -312,113 +314,257 @@ class RetrievalFile:
         return xarray.Dataset(dataset)
 
 
-class Retrieval:
+PREPROCESSOR = "preprocessor"
+TRAINING_DATA = "training_data"
+
+class RetrievalDriver:
+    """
+    Helper class that implements the logic to run the GPROF-NN retrieval.
+    """
     N_CHANNELS = 15
 
-    def __init__(self, preprocessor_file, normalizer_file, model, scans_per_batch=128):
+    def __init__(self,
+                 input_file,
+                 normalizer,
+                 model,
+                 ancillary_data=None,
+                 output_file=None):
+        """
+        Args:
+            input_file: Path to the file containing the input data for the
+                 retrieval.
+            normalizer_file: Path to the file containing the normalizer.
+            model: The neural network to use for the retrieval.
+
+
+
+        """
         from gprof_nn.data.preprocessor import PreprocessorFile
-
-        self.preprocessor_file = preprocessor_file
-        self.normalizer_file = normalizer_file
-        self.input_data = PreprocessorFile(preprocessor_file).to_xarray_dataset()
-        self.normalizer = Normalizer.load(normalizer_file)
+        input_file = Path(input_file)
+        self.input_file = input_file
+        self.normalizer = normalizer
         self.model = model
+        self.ancillary_data = None
 
-        self.n_scans = self.input_data.scans.size
-        self.n_pixels = self.input_data.pixels.size
-        self.scans_per_batch = scans_per_batch
-        self.n_batches = self.n_scans // scans_per_batch
-        remainder = self.n_scans % scans_per_batch
-        if remainder > 0:
-            self.n_batches += 1
+        suffix = input_file.suffix
+        if suffix.endswith("pp"):
+            self.format = PREPROCESSOR
+        else:
+            self.format = TRAINING_DATA
 
-    def __len__(self):
-        return self.n_batches
+        if self.format == PREPROCESSOR:
+            self.input_data = model.preprocessor_class(input_file,
+                                                       self.normalizer)
+        else:
+            self.input_data = model.training_data_class(
+                input_file,
+                normalizer=normalizer,
+                shuffle=False,
+                augment=False
+            )
 
-    def __getitem__(self, i):
-        if i > self.n_batches:
-            raise IndexError()
-        return self._get_batch_0d(i)
+        output_suffix = ".BIN"
+        if self.format == TRAINING_DATA:
+            output_suffix = ".nc"
 
-    def _get_batch_0d(self, i):
-
-        i_start = i * self.scans_per_batch
-        i_end = (i + 1) * self.scans_per_batch
-
-        bts = self.input_data["brightness_temperatures"][i_start:i_end, :, :].data
-        bts = bts.reshape(-1, Retrieval.N_CHANNELS).copy()
-        bts[bts < 0] = np.nan
-
-        # 2m temperature
-        t2m = self.input_data["two_meter_temperature"][i_start:i_end, :].data
-        t2m = t2m.reshape(-1, 1)
-        # Total precipitable water.
-        tcwv = self.input_data["total_column_water_vapor"][i_start:i_end, :].data
-        tcwv = tcwv.reshape(-1, 1)
-
-        # Surface type
-        n = bts.shape[0]
-        st = self.input_data["surface_type"][i_start:i_end, :].data
-        st = st.reshape(-1, 1).astype(int)
-        n_types = 19
-        st_1h = np.zeros((n, n_types), dtype=np.float32)
-        st_1h[np.arange(n), st.ravel()] = 1.0
-
-        # Airmass type
-        am = self.input_data["airmass_type"][i_start:i_end, :].data
-        am = np.maximum(am.reshape(-1, 1).astype(int), 0)
-        n_types = 4
-        am_1h = np.zeros((n, n_types), dtype=np.float32)
-        am_1h[np.arange(n), am.ravel()] = 1.0
-
-        x = np.concatenate([bts, t2m, tcwv, st_1h, am_1h], axis=1)
-        return self.normalizer(x)
+        if output_file is None:
+            self.output_file = Path(
+                self.input_file.name.replace(suffix, output_suffix)
+            )
+        elif Path(output_file).is_dir():
+            self.output_file = (
+                Path(output_file) /
+                self.input_file.name.replace(suffix, output_suffix)
+                )
+        else:
+            self.output_file = output_file
+        print(self.output_file)
 
     def run_retrieval(self):
+        results = self.input_data.run_retrieval(self.model)
+        if self.format == PREPROCESSOR:
+            self.input_data.write_retrieval_results(
+                self.output_file.parent,
+                results,
+                ancillary_data=self.ancillary_data
+            )
+        else:
+            results.to_netcdf(self.output_file)
 
-        means = {}
-        precip_1st_tercile = []
-        precip_3rd_tercile = []
-        pop = []
 
-        with torch.no_grad():
-            for i in range(len(self)):
-                x = self[i]
+def calculate_frozen_precip(
+        wet_bulb_temperature,
+        surface_type,
+        surface_precip
+):
+    """
+    Calculate amount of frozen precipitation based on wet-bulb
+    temperature lookup table.
 
-                y_pred = self.model.predict(x)
-                if not isinstance(y_pred, dict):
-                    y_pred = {"surface_precip": y_pred}
+    Args:
+        wet_bulb_temperature: The wet bulb temperature in K.
+        surface_type: The surface type for each observation.
+        surface_precip: The total amount of surface precipitation.
 
-                y_mean = self.model.posterior_mean(y_pred=y_pred)
-                for k, y in y_pred.items():
-                    means.setdefault(k, []).append(y_mean[k].cpu())
-                    if k == "surface_precip":
-                        t = self.model.posterior_quantiles(
-                            y_pred=y, quantiles=[0.333, 0.667], key=k
-                        )
-                        precip_1st_tercile.append(t[:, :1].cpu())
-                        precip_3rd_tercile.append(t[:, 1:].cpu())
-                        p = self.model.probability_larger_than(y_pred=y, y=1e-4, key=k)
-                        pop.append(p.cpu())
+    Returns:
+        Array of same shape as 'surface_precip' containing the corresponding,
+        estimated amount of frozen precipitation.
+    """
+    t = np.minimum(wet_bulb_temperature, TWB_TABLE[0, 0] + 273.15)
+    t = np.maximum(t, TWB_TABLE[-1, 0] + 273.15)
+    f_ocean = TWB_INTERP_OCEAN(t)
+    f_land = TWB_INTERP_LAND(t)
 
-        dims = ["scans", "pixels", "levels"]
-        data = {}
-        for k in means:
-            y = np.concatenate(means[k].numpy())
-            if y.ndim == 1:
-                y = y.reshape(-1, 221)
-            else:
-                y = y.reshape(-1, 221, 28)
-            data[k] = (dims[: y.ndim], y)
+    ocean_pixels = (surface_type == 1)
+    f = 1.0 - np.where(ocean_pixels, f_ocean, f_land) / 100.0
+    return f * surface_precip
 
-        data["precip_1st_tercile"] = (
-            dims[:2],
-            np.concatenate(precip_1st_tercile.numpy()).reshape(-1, 221),
-        )
-        data["precip_3rd_tercile"] = (
-            dims[:2],
-            np.concatenate(precip_3rd_tercile.numpy()).reshape(-1, 221),
-        )
-        data["precip_pip"] = (dims[:2], np.concatenate(pop.numpy()).reshape(-1, 221))
 
-        return xarray.Dataset(data)
+TWB_TABLE = np.array([
+    [-6.5,    0.00,    0.00],
+    [-6.4,    0.10,    0.30],
+    [-6.3,    0.20,    0.60],
+    [-6.2,    0.30,    0.90],
+    [-6.1,    0.40,    1.20],
+    [-6.0,    0.50,    1.50],
+    [-5.9,    0.60,    1.80],
+    [-5.8,    0.70,    2.10],
+    [-5.7,    0.80,    2.40],
+    [-5.6,    0.90,    2.70],
+    [-5.5,    1.00,    3.00],
+    [-5.4,    1.05,    3.10],
+    [-5.3,    1.10,    3.20],
+    [-5.2,    1.15,    3.30],
+    [-5.1,    1.20,    3.40],
+    [-5.0,    1.25,    3.50],
+    [-4.9,    1.30,    3.60],
+    [-4.8,    1.35,    3.70],
+    [-4.7,    1.40,    3.80],
+    [-4.6,    1.45,    3.90],
+    [-4.5,    1.50,    4.00],
+    [-4.4,    1.60,    4.10],
+    [-4.3,    1.70,    4.20],
+    [-4.2,    1.80,    4.30],
+    [-4.1,    1.90,    4.40],
+    [-4.0,    2.00,    4.50],
+    [-3.9,    2.10,    4.60],
+    [-3.8,    2.20,    4.70],
+    [-3.7,    2.30,    4.80],
+    [-3.6,    2.40,    4.90],
+    [-3.5,    2.50,    5.00],
+    [-3.4,    2.55,    5.20],
+    [-3.3,    2.60,    5.40],
+    [-3.2,    2.65,    5.60],
+    [-3.1,    2.70,    5.80],
+    [-3.0,    2.75,    6.00],
+    [-2.9,    2.80,    6.20],
+    [-2.8,    2.85,    6.40],
+    [-2.7,    2.90,    6.60],
+    [-2.6,    2.95,    6.80],
+    [-2.5,    3.00,    7.00],
+    [-2.4,    3.10,    7.10],
+    [-2.3,    3.20,    7.20],
+    [-2.2,    3.30,    7.30],
+    [-2.1,    3.40,    7.40],
+    [-2.0,    3.50,    7.50],
+    [-1.9,    3.60,    7.60],
+    [-1.8,    3.70,    7.70],
+    [-1.7,    3.80,    7.80],
+    [-1.6,    3.90,    7.90],
+    [-1.5,    4.00,    8.00],
+    [-1.4,    4.10,    8.20],
+    [-1.3,    4.20,    8.40],
+    [-1.2,    4.30,    8.60],
+    [-1.1,    4.40,    8.80],
+    [-1.0,    4.50,    9.00],
+    [-0.9,    4.60,    9.20],
+    [-0.8,    4.70,    9.40],
+    [-0.7,    4.80,    9.60],
+    [-0.6,    4.90,    9.80],
+    [-0.5,    5.00,   10.00],
+    [-0.4,    6.60,   11.60],
+    [-0.3,    8.20,   13.20],
+    [-0.2,    9.80,   14.80],
+    [-0.1,   11.40,   16.40],
+    [0.0,   13.00,   18.00],
+    [0.1,   14.60,   19.60],
+    [0.2,   16.20,   21.20],
+    [0.3,   17.80,   22.80],
+    [0.4,   19.40,   24.40],
+    [0.5,   21.00,   26.00],
+    [0.6,   25.80,   29.00],
+    [0.7,   30.60,   32.00],
+    [0.8,   35.40,   35.00],
+    [0.9,   40.20,   38.00],
+    [1.0,   45.00,   41.00],
+    [1.1,   49.80,   44.00],
+    [1.2,   54.60,   47.00],
+    [1.3,   59.40,   50.00],
+    [1.4,   64.20,   53.00],
+    [1.5,   69.00,   56.00],
+    [1.6,   71.30,   57.90],
+    [1.7,   73.60,   59.80],
+    [1.8,   75.90,   61.70],
+    [1.9,   78.20,   63.60],
+    [2.0,   80.50,   65.50],
+    [2.1,   82.80,   67.40],
+    [2.2,   85.10,   69.30],
+    [2.3,   87.40,   71.20],
+    [2.4,   89.70,   73.10],
+    [2.5,   92.00,   75.00],
+    [2.6,   92.55,   76.30],
+    [2.7,   93.10,   77.60],
+    [2.8,   93.65,   78.90],
+    [2.9,   94.20,   80.20],
+    [3.0,   94.75,   81.50],
+    [3.1,   95.30,   82.80],
+    [3.2,   95.85,   84.10],
+    [3.3,   96.40,   85.40],
+    [3.4,   96.95,   86.70],
+    [3.5,   97.50,   88.00],
+    [3.6,   97.60,   88.70],
+    [3.7,   97.70,   89.40],
+    [3.8,   97.80,   90.10],
+    [3.9,   97.90,   90.80],
+    [4.0,   98.00,   91.50],
+    [4.1,   98.10,   92.20],
+    [4.2,   98.20,   92.90],
+    [4.3,   98.30,   93.60],
+    [4.4,   98.40,   94.30],
+    [4.5,   98.50,   95.00],
+    [4.6,   98.55,   95.25],
+    [4.7,   98.60,   95.50],
+    [4.8,   98.65,   95.75],
+    [4.9,   98.70,   96.00],
+    [5.0,   98.75,   96.25],
+    [5.1,   98.80,   96.50],
+    [5.2,   98.85,   96.75],
+    [5.3,   98.90,   97.00],
+    [5.4,   98.95,   97.25],
+    [5.5,   99.00,   97.50],
+    [5.6,   99.10,   97.75],
+    [5.7,   99.20,   98.00],
+    [5.8,   99.30,   98.25],
+    [5.9,   99.40,   98.50],
+    [6.0,   99.50,   98.75],
+    [6.1,   99.60,   99.00],
+    [6.2,   99.70,   99.25],
+    [6.3,   99.80,   99.50],
+    [6.4,   99.90,   99.75],
+    [6.5,  100.00,  100.00]
+])
+
+
+TWB_INTERP_LAND = sp.interpolate.interp1d(
+    TWB_TABLE[:, 0] + 273.15,
+    TWB_TABLE[:, 1],
+    assume_sorted=True
+)
+
+
+TWB_INTERP_OCEAN = sp.interpolate.interp1d(
+    TWB_TABLE[:, 0] + 273.15,
+    TWB_TABLE[:, 2],
+    assume_sorted=True
+)
+
