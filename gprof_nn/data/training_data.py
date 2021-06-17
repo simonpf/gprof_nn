@@ -277,9 +277,6 @@ class GPROF0DDataset:
             tcwv = variables["total_column_water_vapor"][:][valid].reshape(-1, 1)
             # Surface type
             st = variables["surface_type"][:][valid]
-            if self.augment:
-                _replace_randomly(t2m, 0.01, rng=self._rng)
-                _replace_randomly(st, 0.01, rng=self._rng)
 
             n_types = 18
             st_1h = np.zeros((n, n_types), dtype=np.float32)
@@ -288,8 +285,6 @@ class GPROF0DDataset:
             # Airmass type is defined slightly different from surface type in
             # that there is a 0 type.
             am = variables["airmass_type"][:][valid]
-            if self.augment:
-                _replace_randomly(am, 0.01)
             n_types = 4
             am_1h = np.zeros((n, n_types), dtype=np.float32)
             am_1h[np.arange(n), np.maximum(am.ravel(), 0)] = 1.0
