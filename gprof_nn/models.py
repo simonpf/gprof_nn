@@ -240,7 +240,10 @@ class HyperResidualMLP(ResidualMLP):
                           dtype=x.dtype,
                           device=x.device)
         if acc_in is not None:
-            acc += acc_in
+            if self.projection is not None:
+                acc += self.projection(acc_in)
+            else:
+                acc += acc_in
 
         if self.layers:
             l = self.layers[0]
