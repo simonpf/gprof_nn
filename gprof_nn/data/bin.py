@@ -17,6 +17,8 @@ import numpy as np
 import xarray as xr
 import tqdm.asyncio
 
+from gprof_nn.definitions import PROFILE_NAMES
+
 LOGGER = logging.getLogger(__name__)
 
 N_LAYERS = 28
@@ -52,13 +54,6 @@ GMI_BIN_RECORD_TYPES = np.dtype(
         ("latent_heat", [(f"l_{i:02}", np.float32) for i in range(N_LAYERS)]),
     ]
 )
-
-PROFILE_NAMES = [
-    "rain_water_content",
-    "cloud_water_content",
-    "snow_water_content",
-    "latent_heat",
-]
 
 ###############################################################################
 # Input file.

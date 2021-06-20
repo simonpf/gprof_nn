@@ -17,6 +17,8 @@ from pathlib import Path
 import numpy as np
 import xarray as xr
 
+from gprof_nn.definitions import MISSING
+
 N_SPECIES = 5
 N_TEMPS = 12
 N_LAYERS = 28
@@ -46,9 +48,9 @@ class ProfileClusters:
         self.raining = raining
 
         filename = self.path / FILENAMES[self.raining]
-        shape = (N_SPECIES, N_TEMPS, N_CLUSTERS, N_LAYERS)
+        shape = (N_TEMPS, N_SPECIES, N_CLUSTERS, N_LAYERS)
         if not self.raining:
-            shape = (1, N_TEMPS, N_CLUSTERS, N_LAYERS)
+            shape = (N_TEMPS, 1, N_CLUSTERS, N_LAYERS)
         self.data = np.fromfile(filename, dtype=np.float32).reshape(shape)
 
     def get_profiles(self,
@@ -63,7 +65,8 @@ class ProfileClusters:
 
         Return:
            2D array containing the 40 profiles for the given species and
-           two-meter temperature.
+           two-meter temperature with clusters along the first dimension
+           and layers along the second.
         """
         if self.raining:
             if species == "rain_water_content":
@@ -93,11 +96,13 @@ class ProfileClusters:
                     "'latent_heat']."
                 )
         t2m_indices = self.get_t2m_indices(t2m)
-        return self.data[species_index, t2m_indices]
+        data = self.data[t2m_indices, species_index]
+        return data
 
     def get_profile_data(self, species):
         """
-        Return all profiles for given species.
+        Return profile data for given species in the format that is used to store profiles
+        in retrieval file header, i.e. in the order ``(t2m, layers, clusters)``.
 
         Args:
             species: The name of the species.
@@ -116,18 +121,25 @@ class ProfileClusters:
             elif species == "latent_heat":
                 species_index = 4
             else:
-                return -9999.9 * np.ones((N_TEMPS, N_LAYERS, N_CLUSTERS))
+                return MISSING * np.zeros((N_TEMPS, N_LAYERS, N_CLUSTERS))
         else:
             if species == "cloud_water_content":
                 species_index = 0
-            elif species == "latent_heat":
-                species_index = 1
             else:
                 return -9999.9 * np.ones((N_TEMPS, N_LAYERS, N_CLUSTERS))
-        return np.transpose(self.data[species_index], axes=(0, 2, 1))
-
+        return np.transpose(self.data[:, species_index], axes=(0, 2, 1))
 
     def get_t2m_indices(self, t2m):
+        """
+        Calculate the two-meter temperature indices for given temperatures.
+
+        Args:
+            t2m: Arbitrarily-shaped array containing two-meter temperatures.
+
+        Return:
+            Array of same shape as ``t2m`` but with the values transformed to the
+            indices that identify the corresponding profile clusters.
+        """
         if isinstance(t2m, np.ndarray):
             t2m_indices = np.clip(((t2m - 268.0) / 3).astype(np.int), 0, 11)
         else:
@@ -139,23 +151,34 @@ class ProfileClusters:
                                t2m,
                                profiles):
         """
-        Calculate scaling factors and profiles indices for given species.
+        Matches profiles to corresponding profile shapes and scaling factors.
 
+        Args:
+            species: The name of the species for which to calculate scaling
+                 factors and profile indices.
+            t2m: The values of two-meter temperature corresponding to each
+                profile.
+            profiles: Array of profiles containing layers along the last
+                dimension.
 
+        Returns:
+            Tuple ``(scales, indices)`` cotaining the scaling factors in
+            ``scales`` and profile indices in ``indices``.
         """
         output_shape = profiles.shape[:-1]
         if not self.raining and species != "cloud_water_content":
             return (np.zeros(output_shape, dtype=np.float32),
                     np.zeros(output_shape, dtype=np.int32))
 
+        # Centers have shape (..., 40, 28) with layers along last dimension.
         centers = self.get_profiles(species, t2m)
         scales = profiles.sum(axis=-1)
+        # Profiles have shape (..., 28)
         profiles = profiles / scales[..., np.newaxis]
 
-        shape = [1] * (len(profiles.shape) - 2) + [40, 28]
-
+        # Insert dummy dimension to trigger broadcasting across profile centers.
         mse = np.mean(
-            (profiles[..., np.newaxis, :] - centers.reshape(shape)) ** 2,
+            (profiles[..., np.newaxis, :] - centers) ** 2,
             axis=-1
         )
         indices = np.argmin(mse, axis=-1)

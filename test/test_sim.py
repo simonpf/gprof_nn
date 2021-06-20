@@ -99,10 +99,10 @@ def test_orographic_enhancement(tmp_path):
     cp = input_data["convective_precip"].data
 
     indices = (st == 17) * (at == 1) * np.isfinite(sp)
-    assert np.all(np.isclose(sp[indices] * 2.05213, sp_ref[indices]))
-    assert np.all(np.isclose(cp[indices] * 2.05213, cp_ref[indices]))
+    assert np.all(np.isclose(sp[indices], sp_ref[indices] * 2.05213))
+    assert np.all(np.isclose(cp[indices], cp_ref[indices] * 2.05213))
 
     indices = (st != 17) * (st != 18) * np.isfinite(sp)
-    assert np.all(np.isclose(sp[indices], sp_ref[indices]))
-    assert np.all(np.isclose(cp[indices], cp_ref[indices]))
+    assert np.all(np.isclose(sp[indices], sp_ref[indices], rtol=1e-3))
+    assert np.all(np.isclose(cp[indices], cp_ref[indices], rtol=1e-3))
 

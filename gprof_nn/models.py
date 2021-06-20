@@ -14,8 +14,7 @@ from quantnn.models.pytorch.xception import (UpsamplingBlock,
                                              DownsamplingBlock)
 
 
-from gprof_nn import ALL_TARGETS
-from gprof_nn.data.bin import PROFILE_NAMES
+from gprof_nn.definitions import ALL_TARGETS, PROFILE_NAMES
 from gprof_nn.data.preprocessor import PreprocessorLoader0D
 from gprof_nn.data.training_data import GPROF0DDataset
 

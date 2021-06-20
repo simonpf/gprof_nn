@@ -20,6 +20,7 @@ from netCDF4 import Dataset
 from rich.progress import track
 import xarray as xr
 
+from gprof_nn.definitions import ALL_TARGETS
 from gprof_nn.coordinates import latlon_to_ecef
 from gprof_nn.data.preprocessor import PreprocessorFile, run_preprocessor
 from gprof_nn.data.l1c import L1CFile
@@ -29,18 +30,6 @@ from gprof_nn.data.mrms import (MRMSMatchFile,
                                 get_surface_type_map_legacy)
 from gprof_nn.utils import CONUS
 from gprof_nn.logging import console
-
-ALL_TARGETS = [
-    "surface_precip",
-    "convective_precip",
-    "cloud_water_content",
-    "rain_water_content",
-    "snow_water_content",
-    "latent_heat",
-    "ice_water_path",
-    "rain_water_path",
-    "cloud_water_path"
-]
 
 LEVELS = np.concatenate([np.linspace(500.0, 1e4, 20), np.linspace(11e3,
                                                                   18e3,

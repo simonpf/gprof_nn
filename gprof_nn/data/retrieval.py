@@ -53,8 +53,8 @@ ORBIT_HEADER_TYPES = np.dtype(
         ("sensor", "a12"),
         ("preprocessor", "a12"),
         ("algorithm", "a12"),
-        ("profile_database_file", "a128"),
         ("radiometer_file", "a128"),
+        ("profile_database_file", "a128"),
         ("creation_date", DATE6_TYPE),
         ("granule_start_date", DATE6_TYPE),
         ("granule_end_date", DATE6_TYPE),
@@ -96,9 +96,9 @@ DATA_RECORD_TYPES = np.dtype(
         ("l1c_quality_flag", "i1"),
         ("surface_type", "i1"),
         ("tcwv_index", "i1"),
-        ("pop_index", "i1"),
-        ("t2m_index", "i2"),
-        ("airmass_index", "i2"),
+        ("pop", "i1"),
+        ("two_meter_temperature", "i2"),
+        ("airmass_type", "i2"),
         ("sunglint_angle", "i1"),
         ("precip_flag", "i1"),
         ("latitude", "f4"),
@@ -113,7 +113,7 @@ DATA_RECORD_TYPES = np.dtype(
         ("precip_1st_tercile", "f4"),
         ("precip_3rd_tercile", "f4"),
         ("profile_t2m_index", "i2"),
-        ("profile_number", f"{N_SPECIES}i2"),
+        ("profile_index", f"{N_SPECIES}i2"),
         ("profile_scale", f"{N_SPECIES}f4"),
     ]
 )
@@ -124,10 +124,10 @@ DATA_RECORD_TYPES_PROFILES = np.dtype(
         ("quality_flag", "i1"),
         ("l1c_quality_flag", "i1"),
         ("surface_type", "i1"),
-        ("tcwv_index", "i1"),
-        ("pop_index", "i1"),
-        ("t2m_index", "i2"),
-        ("airmass_index", "i2"),
+        ("total_column_water_vapor", "i1"),
+        ("pop", "i1"),
+        ("two_meter_temperature", "i2"),
+        ("airmass_type", "i2"),
         ("sunglint_angle", "i1"),
         ("precip_flag", "i1"),
         ("latitude", "f4"),
@@ -139,10 +139,10 @@ DATA_RECORD_TYPES_PROFILES = np.dtype(
         ("cloud_water_path", "f4"),
         ("ice_water_path", "f4"),
         ("most_likely_precip", "f4"),
-        ("precip_1st_tertial", "f4"),
-        ("precip_3rd_tertial", "f4"),
+        ("precip_1st_tercile", "f4"),
+        ("precip_3rd_tercile", "f4"),
         ("profile_t2m_index", "i2"),
-        ("profile_number", f"{N_SPECIES}i2"),
+        ("profile_index", f"{N_SPECIES}i2"),
         ("profile_scale", f"{N_SPECIES}f4"),
         ("profiles", f"{4 * N_LAYERS}f4"),
     ]
@@ -155,9 +155,9 @@ DATA_RECORD_TYPES_SENSITIVITY = np.dtype(
         ("l1c_quality_flag", "i1"),
         ("surface_type", "i1"),
         ("tcwv_index", "i1"),
-        ("pop_index", "i1"),
-        ("t2m_index", "i2"),
-        ("airmass_index", "i2"),
+        ("pop", "i1"),
+        ("two_meter_temperature", "i2"),
+        ("airmass_type", "i2"),
         ("sun_glint_angle", "i1"),
         ("precip_flag", "i1"),
         ("latitude", "f4"),
@@ -172,10 +172,10 @@ DATA_RECORD_TYPES_SENSITIVITY = np.dtype(
         ("cloud_water_path", "f4"),
         ("ice_water_path", "f4"),
         ("most_likely_precip", "f4"),
-        ("precip_1st_tertial", "f4"),
-        ("precip_3rd_tertial", "f4"),
+        ("precip_1st_tercile", "f4"),
+        ("precip_3rd_tercile", "f4"),
         ("profile_t2m_index", "i2"),
-        ("profile_number", f"{N_SPECIES}i2"),
+        ("profile_index", f"{N_SPECIES}i2"),
         ("profile_scale", f"{N_SPECIES}f4")
     ]
 )
@@ -213,7 +213,13 @@ class RetrievalFile:
         else:
             with open(filename, "rb") as file:
                 self.data = file.read()
-        self.orbit_header = np.frombuffer(self.data, ORBIT_HEADER_TYPES, count=1)
+        self.orbit_header = np.frombuffer(self.data,
+                                          ORBIT_HEADER_TYPES,
+                                          count=1)
+        self.profile_info = np.frombuffer(self.data,
+                                          PROFILE_INFO_TYPES,
+                                          count=1,
+                                          offset=ORBIT_HEADER_TYPES.itemsize)
         self.n_scans = self.orbit_header["number_of_scans"][0]
         self.n_pixels = self.orbit_header["number_of_pixels"][0]
 
@@ -283,20 +289,42 @@ class RetrievalFile:
         """
         Return retrieval results as xarray dataset.
         """
-        data = {
-            k: np.zeros((self.n_scans, self.n_pixels) + d[0].shape)
-            for k, d in self.data_record_types.fields.items()
-        }
-        for i, s in enumerate(self.scans):
-            for k, d in data.items():
-                d[i] = s[k]
+        data = {}
+        for s in self.scans:
+            for k in self.data_record_types.fields:
+                data.setdefault(k, []).append(s[k])
 
-        if "profiles" in data:
-            rwc = data["profiles"][..., :28]
-            cwc = data["profiles"][..., 28:56]
-            swc = data["profiles"][..., 56:84]
-            lh = data["profiles"][..., 84:112]
+        for k in data:
+            data[k] = np.stack(data[k], axis=0)
 
+        if "profile_scale" in data:
+            shape = (N_SPECIES, N_TEMPERATURES, N_LAYERS, N_PROFILES)
+            profiles = self.profile_info["profiles"].reshape(shape)
+
+            profile_indices = data["profile_index"]
+            temperature_indices = data["profile_t2m_index"]
+            factors = data["profile_scale"]
+
+            rwc = (
+                profiles[0, temperature_indices, :, profile_indices[..., 0]]
+                * factors[..., np.newaxis, 0]
+            )
+            cwc = (
+                profiles[1, temperature_indices, :, profile_indices[..., 1]]
+                * factors[..., np.newaxis, 1]
+            )
+            swc = (
+                profiles[2, temperature_indices, :, profile_indices[..., 2]]
+                * factors[..., np.newaxis, 2]
+            )
+            swc = (
+                profiles[3, temperature_indices, :, profile_indices[..., 3]]
+                * factors[..., np.newaxis, 3]
+            )
+            lh = (
+                profiles[4, temperature_indices, :, profile_indices[..., 4]]
+                * factors[..., np.newaxis, 4]
+            )
             dataset = {
                 "rain_water_content": (("scans", "pixels", "levels"), rwc),
                 "cloud_water_content": (("scans", "pixels", "levels"), cwc),
@@ -344,7 +372,7 @@ class RetrievalDriver:
         self.input_file = input_file
         self.normalizer = normalizer
         self.model = model
-        self.ancillary_data = None
+        self.ancillary_data = ancillary_data
 
         suffix = input_file.suffix
         if suffix.endswith("pp"):
@@ -378,18 +406,25 @@ class RetrievalDriver:
                 )
         else:
             self.output_file = output_file
-        print(self.output_file)
 
     def run_retrieval(self):
+        """
+        Run retrieval and store results to file.
+
+        Return:
+            Name of the output file that the results have been written
+            to.
+        """
         results = self.input_data.run_retrieval(self.model)
         if self.format == PREPROCESSOR:
-            self.input_data.write_retrieval_results(
+            return self.input_data.write_retrieval_results(
                 self.output_file.parent,
                 results,
                 ancillary_data=self.ancillary_data
             )
         else:
             results.to_netcdf(self.output_file)
+            return self.output_file
 
 
 def calculate_frozen_precip(

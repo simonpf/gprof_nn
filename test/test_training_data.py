@@ -115,12 +115,9 @@ def test_run_retrieval_0d(tmp_path):
     input_file = path / "data" / "training_data.nc"
     qrnn = QRNN.load(path / "data" / "gprof_nn_0d.pckl")
     normalizer = Normalizer.load(path / "data" / "normalizer.pckl")
-    run_retrieval_0d(input_file,
-                     qrnn,
-                     normalizer,
-                     tmp_path / "results.nc")
-
-    results = xr.load_dataset(tmp_path / "results.nc")
+    results = run_retrieval_0d(input_file,
+                               qrnn,
+                               normalizer)
     assert "surface_precip" in results.variables
 
 
@@ -133,12 +130,9 @@ def test_run_retrieval_0d_sim(tmp_path):
     input_file = path / "data" / "training_data_bin.nc"
     qrnn = QRNN.load(path / "data" / "gprof_nn_0d.pckl")
     normalizer = Normalizer.load(path / "data" / "normalizer.pckl")
-    run_retrieval_0d(input_file,
-                     qrnn,
-                     normalizer,
-                     tmp_path / "results.nc")
-
-    results = xr.load_dataset(tmp_path / "results.nc")
+    results = run_retrieval_0d(input_file,
+                               qrnn,
+                               normalizer)
     assert "surface_precip" in results.variables
 
 

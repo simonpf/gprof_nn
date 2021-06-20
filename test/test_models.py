@@ -1,7 +1,7 @@
 import numpy as np
 import torch
 from quantnn.transformations import LogLinear
-from gprof_nn import ALL_TARGETS
+from gprof_nn.definitions import ALL_TARGETS
 from gprof_nn.models import (
     MLP,
     ResidualMLP,
@@ -68,12 +68,21 @@ def test_gprof_nn_0d():
     """
     Tests for GPROFNN0D classes module with hyper-residual connections.
     """
-    network = GPROF_NN_0D_QRNN(0, 128, 1, 64, activation="GELU", transformation=LogLinear)
+    network = GPROF_NN_0D_QRNN(3, 128, 2, 64, activation="GELU", transformation=LogLinear)
+    x = torch.ones(1, 39)
+    y = network.predict(x)
+    assert all([t in y for t in ALL_TARGETS])
+    network = GPROF_NN_0D_QRNN(3, 128, 2, 64,
+                               activation="GELU",
+                               residuals="hyper",
+                               transformation=LogLinear)
     x = torch.ones(1, 39)
     y = network.predict(x)
     assert all([t in y for t in ALL_TARGETS])
 
-    network = GPROF_NN_0D_DRNN(0, 128, 1, 64, activation="GELU")
+    network = GPROF_NN_0D_DRNN(3, 128, 2, 64,
+                               residuals="hyper",
+                               activation="GELU")
     x = torch.ones(1, 39)
     y = network.predict(x)
     assert all([t in y for t in ALL_TARGETS])

@@ -23,6 +23,7 @@ from quantnn.utils import apply
 import quantnn.quantiles as qq
 import quantnn.density as qd
 
+from gprof_nn.definitions import ALL_TARGETS
 from gprof_nn.data.preprocessor import PreprocessorFile
 from gprof_nn.data.bin import PROFILE_NAMES
 from gprof_nn.augmentation import (M, N, extract_domain,
@@ -32,19 +33,6 @@ LOGGER = logging.getLogger(__name__)
 _DEVICE = torch.device("cpu")
 if torch.cuda.is_available():
     _DEVICE = torch.device("cuda")
-
-ALL_TARGETS = [
-    "surface_precip",
-    "convective_precip",
-    "rain_water_path",
-    "ice_water_path",
-    "cloud_water_path",
-    "total_column_water_vapor",
-    "rain_water_content",
-    "cloud_water_content",
-    "snow_water_content",
-    "latent_heat",
-]
 
 _THRESHOLDS = {
     "surface_precip": 1e-4,
@@ -183,7 +171,6 @@ class GPROF0DDataset:
             augment: Whether or not to randomly mask high-frequency channels
                 and to randomly permute ancillary data.
         """
-        print(f"OPENING {filename}.")
         self.filename = Path(filename)
         self.target = target
         self.transform_zeros = transform_zeros
@@ -676,8 +663,7 @@ def run_retrieval_0d(input_file,
     """
     dataset = xr.open_dataset(input_file)
     if "scans" not in dataset.dims:
-        run_retrieval_0d_bin(input_file, xrnn, normalizer)
-        return None
+        return run_retrieval_0d_bin(input_file, xrnn, normalizer)
 
     #
     # Load data into input vector
