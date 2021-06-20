@@ -144,7 +144,7 @@ training_data = DataFolder(
     n_workers=4)
 
 kwargs = {
-    "batch_size": 8 * batch_size,
+    "batch_size": 4 * batch_size,
     "normalizer": normalizer,
     "target": targets,
     "augment": False
@@ -236,8 +236,8 @@ xrnn.train(training_data=training_data,
            device=device,
            mask=-9999)
 xrnn.save(model_path / network_name)
-n_epochs = 20
-optimizer = optim.Adam(model.parameters(), lr=0.0005)
+n_epochs = 30
+optimizer = optim.Adam(model.parameters(), lr=0.001)
 scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, n_epochs)
 xrnn.train(training_data=training_data,
            validation_data=validation_data,

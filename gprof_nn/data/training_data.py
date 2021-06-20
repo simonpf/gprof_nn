@@ -183,6 +183,7 @@ class GPROF0DDataset:
             augment: Whether or not to randomly mask high-frequency channels
                 and to randomly permute ancillary data.
         """
+        print(f"OPENING {filename}.")
         self.filename = Path(filename)
         self.target = target
         self.transform_zeros = transform_zeros

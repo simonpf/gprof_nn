@@ -170,7 +170,7 @@ elif network_type == "qrnn_exp":
                             n_features_body,
                             n_layers_head,
                             n_features_head,
-                            transformations=transformation,
+                            transformation=transformation,
                             targets=targets)
 else:
     xrnn = GPROF_NN_2D_QRNN(n_blocks,
@@ -184,7 +184,7 @@ model = xrnn.model
 # Run the training.
 ###############################################################################
 
-n_epochs = 20
+n_epochs = 60
 logger = TensorBoardLogger(n_epochs)
 logger.set_attributes({
     "n_blocks": n_blocks,
@@ -200,6 +200,19 @@ metrics = ["MeanSquaredError", "Bias", "CalibrationPlot", "CRPS"]
 scatter_plot = ScatterPlot(log_scale=True)
 metrics.append(scatter_plot)
 
+n_epochs = 10
+optimizer = optim.Adam(model.parameters(), lr=0.001)
+scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, n_epochs)
+xrnn.train(training_data=training_data,
+           validation_data=validation_data,
+           n_epochs=n_epochs,
+           optimizer=optimizer,
+           scheduler=scheduler,
+           logger=logger,
+           metrics=metrics,
+           device=device,
+           mask=-9999)
+xrnn.save(model_path / network_name)
 n_epochs = 20
 optimizer = optim.Adam(model.parameters(), lr=0.001)
 scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, n_epochs)
@@ -213,29 +226,16 @@ xrnn.train(training_data=training_data,
            device=device,
            mask=-9999)
 xrnn.save(model_path / network_name)
-#n_epochs = 20
-#optimizer = optim.Adam(model.parameters(), lr=0.001)
-#scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, n_epochs)
-#xrnn.train(training_data=training_data,
-#           validation_data=validation_data,
-#           n_epochs=n_epochs,
-#           optimizer=optimizer,
-#           scheduler=scheduler,
-#           logger=logger,
-#           metrics=metrics,
-#           device=device,
-#           mask=-9999)
-#xrnn.save(model_path / network_name)
-#n_epochs = 20
-#optimizer = optim.Adam(model.parameters(), lr=0.0001)
-#scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, 20)
-#xrnn.train(training_data=training_data,
-#           validation_data=validation_data,
-#           n_epochs=n_epochs,
-#           optimizer=optimizer,
-#           scheduler=scheduler,
-#           logger=logger,
-#           metrics=metrics,
-#           device=device,
-#           mask=-9999)
-#xrnn.save(model_path / network_name)
+n_epochs = 30
+optimizer = optim.Adam(model.parameters(), lr=0.001)
+scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, n_epochs)
+xrnn.train(training_data=training_data,
+           validation_data=validation_data,
+           n_epochs=n_epochs,
+           optimizer=optimizer,
+           scheduler=scheduler,
+           logger=logger,
+           metrics=metrics,
+           device=device,
+           mask=-9999)
+xrnn.save(model_path / network_name)
