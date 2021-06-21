@@ -965,21 +965,21 @@ class GPROF2DDataset:
                 if self.augment:
                     r = self._rng.random()
                     if r > 0.5:
-                        x[i] = np.flip(x[i], 1)
+                        x[i] = np.flip(x[i], -2)
                         if isinstance(self.target, list):
                             for k in self.target:
-                                y[k][i] = np.flip(y[k][i], 0)
+                                y[k][i] = np.flip(y[k][i], -2)
                         else:
-                            y[i] = np.flip(y[i], 0)
+                            y[i] = np.flip(y[i], -2)
 
                     r = self._rng.random()
                     if r > 0.5:
-                        x[i] = np.flip(x[i], 2)
+                        x[i] = np.flip(x[i], -1)
                         if isinstance(self.target, list):
                             for k in self.target:
-                                y[k][i] = np.flip(y[k][i], 1)
+                                y[k][i] = np.flip(y[k][i], -1)
                         else:
-                            y[i] = np.flip(y[i], 1)
+                            y[i] = np.flip(y[i], -1)
         self.x = x
         self.y = y
 
