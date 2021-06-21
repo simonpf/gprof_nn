@@ -25,3 +25,10 @@ PROFILE_NAMES = [
     "snow_water_content",
     "latent_heat",
 ]
+
+# Minimum and maximum two-meter temperature. Defined in GPM_arraydef.f.
+T2M_MIN = 220
+T2M_MAX = 320
+# Minimum and maximum total column water vapor. Defined in GPM_arraydef.f.
+TCWV_MIN = 0
+TCWV_MAX = 78

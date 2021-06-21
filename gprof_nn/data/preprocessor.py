@@ -17,7 +17,11 @@ import numpy as np
 import torch
 import xarray as xr
 
-from gprof_nn.definitions import MISSING
+from gprof_nn.definitions import (MISSING,
+                                  TCWV_MIN,
+                                  TCWV_MAX,
+                                  T2M_MIN,
+                                  T2M_MAX)
 from gprof_nn.data import retrieval
 from gprof_nn.data.retrieval import calculate_frozen_precip
 from gprof_nn.data.profiles import ProfileClusters
@@ -517,12 +521,17 @@ class PreprocessorFile:
                    (scan_data["airmass_type"] < 0))
         ps[indices] = 4
 
-        out_data["quality_flag"] = 0
         out_data["l1c_quality_flag"] = scan_data["quality_flag"]
         out_data["surface_type"] = scan_data["surface_type"]
-        out_data["tcwv_index"] = scan_data["total_column_water_vapor"].astype(int)
+
+        tcwv = np.round(scan_data["total_column_water_vapor"]).astype(int)
+        tcwv = np.clip(tcwv, TCWV_MIN, TCWV_MAX)
+        out_data["total_column_water_vapor"] = tcwv
+        t2m = np.round(scan_data["two_meter_temperature"]).astype(int)
+        t2m = np.clip(t2m, T2M_MIN, T2M_MAX)
+        out_data["two_meter_temperature"] = t2m
+
         out_data["pop"] = data["pop"].astype(int)
-        out_data["two_meter_temperature"] = scan_data["two_meter_temperature"].astype(int)
         out_data["airmass_type"] = scan_data["airmass_type"]
         out_data["sunglint_angle"] = scan_data["sunglint_angle"]
         out_data["precip_flag"] = data["precip_flag"]
@@ -539,49 +548,59 @@ class PreprocessorFile:
             surface_type,
             surface_precip
         )
+        frozen_precip[surface_precip < 0] = MISSING
         out_data["frozen_precip"] = frozen_precip
         out_data["convective_precip"] = data["convective_precip"]
         out_data["rain_water_path"] = data["rain_water_path"]
         out_data["cloud_water_path"] = data["cloud_water_path"]
         out_data["ice_water_path"] = data["ice_water_path"]
-        out_data["most_likely_precip"] = data["surface_precip"]
+        out_data["most_likely_precip"] = data["most_likely_precip"]
         out_data["precip_1st_tercile"] = data["precip_1st_tercile"]
         out_data["precip_3rd_tercile"] = data["precip_3rd_tercile"]
+        if "pixel_status" in data.variables:
+            out_data["pixel_status"] = data["pixel_status"]
+        if "quality_flag" in data.variables:
+            out_data["quality_flag"] = data["quality_flag"]
 
         if profiles_raining is not None and profiles_non_raining is not None:
             t2m = scan_data["two_meter_temperature"]
             t2m_indices = profiles_raining.get_t2m_indices(t2m)
-            out_data["profile_t2m_index"] = t2m_indices
+            out_data["profile_t2m_index"] = t2m_indices + 1
 
             profile_indices = np.zeros((self.n_pixels, N_SPECIES),
                                        dtype=np.float32)
             profile_scales = np.zeros((self.n_pixels, N_SPECIES),
                                       dtype=np.float32)
-
+            precip_flag = data["precip_flag"].data
             for i, s in enumerate([
                     "rain_water_content",
                     "cloud_water_content",
                     "snow_water_content",
                     "latent_heat"
             ]):
+                invalid = np.all(data[s].data < -500, axis=-1)
                 scales_r, indices_r = profiles_raining.get_scales_and_indices(
                     s, t2m, data[s].data
                 )
                 scales_nr, indices_nr = profiles_non_raining.get_scales_and_indices(
                     s, t2m, data[s].data
                 )
-                scales = np.where(surface_precip > 1e-3, scales_r, scales_nr)
-                indices = np.where(surface_precip > 1e-3, indices_r, indices_nr)
+                scales = np.where(surface_precip > 0.01, scales_r, scales_nr)
+                indices = np.where(surface_precip > 0.01,
+                                   indices_r,
+                                   indices_nr + 40)
 
                 profile_indices[:, i] = indices + 1
+                profile_indices[invalid, i] = 0
                 profile_scales[:, i] = scales
+                profile_scales[invalid, i] = 1.0
             out_data["profile_index"] = profile_indices
             out_data["profile_scale"] = profile_scales
 
         else:
-            out_data["profile_t2m_index"] = MISSING
-            out_data["profile_scale"] = MISSING
-            out_data["profile_index"] = MISSING
+            out_data["profile_t2m_index"] = 0
+            out_data["profile_scale"] = 1.0
+            out_data["profile_index"] = 0
         out_data.tofile(file)
 
 

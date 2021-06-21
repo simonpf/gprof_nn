@@ -17,6 +17,8 @@ import xarray
 import scipy as sp
 import scipy.interpolate
 
+from gprof_nn.definitions import MISSING
+
 LOGGER = logging.getLogger(__name__)
 
 N_SPECIES = 5
@@ -95,7 +97,7 @@ DATA_RECORD_TYPES = np.dtype(
         ("quality_flag", "i1"),
         ("l1c_quality_flag", "i1"),
         ("surface_type", "i1"),
-        ("tcwv_index", "i1"),
+        ("total_column_water_vapor", "i1"),
         ("pop", "i1"),
         ("two_meter_temperature", "i2"),
         ("airmass_type", "i2"),
@@ -154,7 +156,7 @@ DATA_RECORD_TYPES_SENSITIVITY = np.dtype(
         ("quality_flag", "i1"),
         ("l1c_quality_flag", "i1"),
         ("surface_type", "i1"),
-        ("tcwv_index", "i1"),
+        ("total_column_water_vapor", "i1"),
         ("pop", "i1"),
         ("two_meter_temperature", "i2"),
         ("airmass_type", "i2"),
@@ -299,32 +301,38 @@ class RetrievalFile:
 
         if "profile_scale" in data:
             shape = (N_SPECIES, N_TEMPERATURES, N_LAYERS, N_PROFILES)
-            profiles = self.profile_info["profiles"].reshape(shape)
+            profiles = self.profile_info["profiles"].reshape(shape, order="f")
 
             profile_indices = data["profile_index"]
             temperature_indices = data["profile_t2m_index"]
             factors = data["profile_scale"]
 
+            temperature_indices[np.all(factors < 0.0, axis=-1)] = 0
+
+            invalid = (profile_indices == 0)
+            profile_indices[invalid] = 1
+            temperature_indices[np.all(invalid, axis=-1)] = 1
+
             rwc = (
-                profiles[0, temperature_indices, :, profile_indices[..., 0]]
+                profiles[0, temperature_indices - 1, :, profile_indices[..., 0] - 1]
                 * factors[..., np.newaxis, 0]
             )
+            rwc[invalid[..., 0]] = MISSING
             cwc = (
-                profiles[1, temperature_indices, :, profile_indices[..., 1]]
+                profiles[1, temperature_indices - 1, :, profile_indices[..., 1] - 1]
                 * factors[..., np.newaxis, 1]
             )
+            cwc[invalid[..., 1]] = MISSING
             swc = (
-                profiles[2, temperature_indices, :, profile_indices[..., 2]]
+                profiles[2, temperature_indices - 1, :, profile_indices[..., 2] - 1]
                 * factors[..., np.newaxis, 2]
             )
-            swc = (
-                profiles[3, temperature_indices, :, profile_indices[..., 3]]
-                * factors[..., np.newaxis, 3]
-            )
+            swc[invalid[..., 2]] = MISSING
             lh = (
-                profiles[4, temperature_indices, :, profile_indices[..., 4]]
+                profiles[4, temperature_indices - 1, :, profile_indices[..., 4] - 1]
                 * factors[..., np.newaxis, 4]
             )
+            lh[invalid[..., 4]] = MISSING
             dataset = {
                 "rain_water_content": (("scans", "pixels", "levels"), rwc),
                 "cloud_water_content": (("scans", "pixels", "levels"), cwc),
@@ -445,8 +453,9 @@ def calculate_frozen_precip(
         Array of same shape as 'surface_precip' containing the corresponding,
         estimated amount of frozen precipitation.
     """
-    t = np.minimum(wet_bulb_temperature, TWB_TABLE[0, 0] + 273.15)
-    t = np.maximum(t, TWB_TABLE[-1, 0] + 273.15)
+    t = np.clip(wet_bulb_temperature,
+                TWB_TABLE[0, 0] + 273.15,
+                TWB_TABLE[-1, 0] + 273.15)
     f_ocean = TWB_INTERP_OCEAN(t)
     f_land = TWB_INTERP_LAND(t)
 
@@ -593,13 +602,15 @@ TWB_TABLE = np.array([
 TWB_INTERP_LAND = sp.interpolate.interp1d(
     TWB_TABLE[:, 0] + 273.15,
     TWB_TABLE[:, 1],
-    assume_sorted=True
+    assume_sorted=True,
+    kind="linear"
 )
 
 
 TWB_INTERP_OCEAN = sp.interpolate.interp1d(
     TWB_TABLE[:, 0] + 273.15,
     TWB_TABLE[:, 2],
-    assume_sorted=True
+    assume_sorted=True,
+    kind="linear"
 )
 
