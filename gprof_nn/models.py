@@ -719,4 +719,4 @@ class GPROF_NN_2D_DRNN(DRNN):
                          model=model)
 
         self.preprocessor_class = PreprocessorLoader0D
-        self.training_data_class = GPROF0DDataset
+        self.training_data_class = GPROF2DDataset

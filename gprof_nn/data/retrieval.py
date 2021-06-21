@@ -307,9 +307,7 @@ class RetrievalFile:
             temperature_indices = data["profile_t2m_index"]
             factors = data["profile_scale"]
 
-            temperature_indices[np.all(factors < 0.0, axis=-1)] = 0
-
-            invalid = (profile_indices == 0)
+            invalid = (profile_indices <= 0)
             profile_indices[invalid] = 1
             temperature_indices[np.all(invalid, axis=-1)] = 1
 

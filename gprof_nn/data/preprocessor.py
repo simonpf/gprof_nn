@@ -744,6 +744,7 @@ class PreprocessorLoader0D:
         pop = np.concatenate([t.numpy() for t in pop]).reshape(-1, 221)
         data["pop"] = (dims[:2], pop)
         data["precip_flag"] = (dims[:2], pop > 0.5)
+        data["most_likely_precip"] = data["surface_precip"]
         data = xr.Dataset(data)
         return data
 
