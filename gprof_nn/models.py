@@ -15,8 +15,12 @@ from quantnn.models.pytorch.xception import (UpsamplingBlock,
 
 
 from gprof_nn.definitions import ALL_TARGETS, PROFILE_NAMES
-from gprof_nn.data.preprocessor import PreprocessorLoader0D
-from gprof_nn.data.training_data import GPROF0DDataset
+from gprof_nn.retrieval import (NetcdfLoader0D,
+                                NetcdfLoader2D,
+                                PreprocessorLoader0D,
+                                PreprocessorLoader2D)
+from gprof_nn.data.training_data import (GPROF0DDataset,
+                                         GPROF2DDataset)
 
 
 BINS = {
@@ -438,7 +442,7 @@ class GPROF_NN_0D_QRNN(QRNN):
                          transformation=transformation)
 
         self.preprocessor_class = PreprocessorLoader0D
-        self.training_data_class = GPROF0DDataset
+        self.netcdf_class = NetcdfLoader0D
 
 
 class GPROF_NN_0D_DRNN(DRNN):
@@ -480,6 +484,9 @@ class GPROF_NN_0D_DRNN(DRNN):
 
         self.preprocessor_class = PreprocessorLoader0D
         self.training_data_class = GPROF0DDataset
+
+        self.preprocessor_class = PreprocessorLoader0D
+        self.netcdf_class = NetcdfLoader0D
 
 
 ###############################################################################
@@ -678,8 +685,8 @@ class GPROF_NN_2D_QRNN(QRNN):
                          model=model,
                          transformation=transformation)
 
-        self.preprocessor_class = PreprocessorLoader0D
-        self.training_data_class = GPROF0DDataset
+        self.preprocessor_class = PreprocessorLoader2D
+        self.netcdf_class = NetcdfLoader2D
 
 
 class GPROF_NN_2D_DRNN(DRNN):
@@ -718,5 +725,5 @@ class GPROF_NN_2D_DRNN(DRNN):
                          bins=BINS,
                          model=model)
 
-        self.preprocessor_class = PreprocessorLoader0D
-        self.training_data_class = GPROF2DDataset
+        self.preprocessor_class = PreprocessorLoader2D
+        self.netcdf_class = NetcdfLoader2D

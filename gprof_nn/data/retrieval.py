@@ -390,7 +390,7 @@ class RetrievalDriver:
             self.input_data = model.preprocessor_class(input_file,
                                                        self.normalizer)
         else:
-            self.input_data = model.training_data_class(
+            self.input_data = model.netcdf_class(
                 input_file,
                 normalizer=normalizer,
                 shuffle=False,

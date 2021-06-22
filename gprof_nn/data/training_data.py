@@ -7,13 +7,14 @@ This module defines the dataset classes that provide access to
 the training data for the GPROF-NN retrievals.
 """
 import math
-from pathlib import Path
 import logging
 import os
+from pathlib import Path
 
 from netCDF4 import Dataset
 import numpy as np
 import torch
+from torch import nn
 import xarray as xr
 
 import quantnn
@@ -25,7 +26,7 @@ import quantnn.density as qd
 
 from gprof_nn.definitions import ALL_TARGETS
 from gprof_nn.data.preprocessor import PreprocessorFile
-from gprof_nn.data.bin import PROFILE_NAMES
+from gprof_nn.definitions import PROFILE_NAMES
 from gprof_nn.augmentation import (M, N, extract_domain,
                                    get_transformation_coordinates)
 
@@ -431,23 +432,6 @@ class GPROF0DDataset:
         else:
             return self.x.shape[0]
 
-    def run_retrieval(self,
-                      xrnn):
-        """
-        Run retrieval on test dataset and returns results as
-        xarray Dataset.
-
-        Args:
-            xrnn: The QRNN or DRNN model to evaluate.
-
-        Return:
-            ``xarray.Dataset`` containing the predicted and reference values
-            for the data in this dataset.
-        """
-        return run_retrieval_0d(self.filename,
-                                xrnn,
-                                self.normalizer)
-
     def evaluate_sensitivity(self, model, batch_size=512, device=_DEVICE):
         """
         Run retrieval on dataset.
@@ -576,177 +560,6 @@ def _expand_pixels(data):
     return data_new
 
 
-def run_retrieval_0d_bin(input_file,
-                         xrnn,
-                         normalizer):
-    """
-    Run GPROF-0D retrieval on input data from data extracted from
-    bin files.
-
-    Args:
-        input_file: Filename of the NetCDF file containing input data.
-        normalizer: Normalizer object to use to normalize the input.
-        xrnn: The quantnn model to use to run the retrieval.
-        output_file: Output file to store the results to.
-
-    Return:
-        'xarray.Dataset' containing the retrieval results.
-    """
-    dataset = GPROF0DDataset(input_file,
-                             shuffle=False,
-                             augment=False,
-                             batch_size=2048,
-                             normalizer=normalizer)
-
-    means = {}
-    precip_1st_tercile = []
-    precip_3rd_tercile = []
-    pop = []
-
-    with torch.no_grad():
-        device = next(iter(xrnn.model.parameters())).device
-        for i in range(len(dataset)):
-            x, _ = dataset[i]
-            x = x.float().to(device)
-            y_pred = xrnn.predict(x)
-            if not isinstance(y_pred, dict):
-                y_pred = {"surface_precip": y_pred}
-
-            y_mean = xrnn.posterior_mean(y_pred=y_pred)
-            for k, y in y_pred.items():
-                means.setdefault(k, []).append(y_mean[k].cpu())
-                if k == "surface_precip":
-                    t = xrnn.posterior_quantiles(
-                        y_pred=y, quantiles=[0.333, 0.667], key=k
-                    )
-                    precip_1st_tercile.append(t[:, 0].cpu())
-                    precip_3rd_tercile.append(t[:, 1].cpu())
-                    p = xrnn.probability_larger_than(y_pred=y, y=1e-4, key=k)
-                    pop.append(p.cpu())
-
-    dims = ["samples", "levels"]
-    data = {}
-    reference = xr.open_dataset(input_file)
-    for k in means:
-        y = np.concatenate([t.numpy() for t in means[k]])
-        data[k + "gprof_nn_0d"] = (dims[:y.ndim], y)
-        data[k] = reference[k]
-
-    data["precip_1st_tercile_gprof_nn_0d"] = (
-        dims[:1],
-        np.concatenate([t.numpy() for t in precip_1st_tercile])
-    )
-    data["precip_3rd_tercile_gprof_nn_0d"] = (
-        dims[:1],
-        np.concatenate([t.numpy() for t in precip_3rd_tercile])
-    )
-    data["pop"] = (dims[:1], np.concatenate([t.numpy() for t in pop]))
-    data = xr.Dataset(data)
-    data["most_likely_precip"] = data["surface_precip"]
-    data["surface_type"] = reference["surface_type"]
-    return data
-
-
-def run_retrieval_0d(input_file,
-                     xrnn,
-                     normalizer):
-    """
-    Run GPROF-NN 0D retrieval on input data in NetCDF format.
-
-    Args:
-        input_file: Filename of the NetCDF file containing input data.
-        normalizer: Normalizer object to use to normalize the input.
-        xrnn: The quantnn model to use to run the retrieval.
-
-    Return:
-        'xarray.Dataset' containing the retrieval results.
-    """
-    dataset = xr.open_dataset(input_file)
-    if "scans" not in dataset.dims:
-        return run_retrieval_0d_bin(input_file, xrnn, normalizer)
-
-    #
-    # Load data into input vector
-    #
-
-    bts = dataset["brightness_temperatures"][:].data
-    invalid = (bts > 500.0) + (bts < 0.0)
-    bts[invalid] = np.nan
-    # 2m temperature
-    t2m = dataset["two_meter_temperature"][:].data[..., np.newaxis]
-    # Total precipitable water.
-    tcwv = dataset["total_column_water_vapor"][:].data[..., np.newaxis]
-    # Surface type
-    st = dataset["surface_type"][:].data
-    n_types = 18
-    shape = bts.shape[:3]
-    st_1h = np.zeros(shape + (n_types,), dtype=np.float32)
-    for i in range(n_types):
-        indices = st == (i + 1)
-        st_1h[indices, i] = 1.0
-    # Airmass type
-    # Airmass type is defined slightly different from surface type in
-    # that there is a 0 type.
-    am = dataset["airmass_type"][:].data
-    n_types = 4
-    am_1h = np.zeros(shape + (n_types,), dtype=np.float32)
-    for i in range(n_types):
-        indices = am == i
-        am_1h[indices, i] = 1.0
-    am_1h[am < 0, 0] = 1.0
-
-    input_data = np.concatenate([bts, t2m, tcwv, st_1h, am_1h], axis=-1)
-    input_data = normalizer(input_data.reshape(-1, 39))
-    input_data = input_data.reshape(-1, 221, 221, 39)
-
-    means = {}
-    precip_1st_tercile = []
-    precip_3rd_tercile = []
-    pop = []
-
-    with torch.no_grad():
-        device = next(iter(xrnn.model.parameters())).device
-        for i in range(input_data.shape[0]):
-            x = torch.tensor(input_data[i].reshape(-1, 39))
-            x = x.float().to(device)
-            y_pred = xrnn.predict(x)
-            if not isinstance(y_pred, dict):
-                y_pred = {"surface_precip": y_pred}
-
-            y_mean = xrnn.posterior_mean(y_pred=y_pred)
-            for k, y in y_pred.items():
-                means.setdefault(k, []).append(y_mean[k].cpu())
-                if k == "surface_precip":
-                    t = xrnn.posterior_quantiles(
-                        y_pred=y, quantiles=[0.333, 0.667], key=k
-                    )
-                    precip_1st_tercile.append(t[:, :1].cpu())
-                    precip_3rd_tercile.append(t[:, 1:].cpu())
-                    p = xrnn.probability_larger_than(y_pred=y, y=1e-4, key=k)
-                    pop.append(p.cpu())
-
-    dims = ["samples", "scans", "pixels", "levels"]
-    data = {}
-    for k in means:
-        y = np.concatenate([t.numpy() for t in means[k]])
-        if y.ndim == 1:
-            y = y.reshape(-1, 221, 221)
-        else:
-            y = y.reshape(-1, 221, 221, 28)
-        data[k] = (dims[:y.ndim], y)
-
-    data["precip_1st_tercile"] = (
-        dims[:3],
-        np.concatenate([t.numpy() for t in precip_1st_tercile]).reshape(-1, 221, 221),
-    )
-    data["precip_3rd_tercile"] = (
-        dims[:3],
-        np.concatenate([t.numpy() for t in precip_3rd_tercile]).reshape(-1, 221, 221),
-    )
-    data["pop"] = (dims[:3], np.concatenate([t.numpy() for t in pop]).reshape(-1, 221, 221))
-    data["most_likely_precip"] = data["surface_precip"]
-    data = xr.Dataset(data)
-    return data
 
 ###############################################################################
 # GPROF-NN 2D
@@ -1036,92 +849,9 @@ class GPROF2DDataset:
         """
         if self.batch_size:
             n = self.x.shape[0] // self.batch_size
+            if self.x.shape[0] % self.batch_size > 0:
+                n = n + 1
             return n
         else:
             return self.x.shape[0]
 
-    def run_retrieval(self,
-                      xrnn):
-        """
-        Run retrieval on test dataset and returns results as
-        xarray Dataset.
-
-        Args:
-            xrnn: The QRNN or DRNN model to evaluate.
-
-        Return:
-            ``xarray.Dataset`` containing the predicted and reference values
-            for the data in this dataset.
-        """
-        return run_retrieval_2d(self.filename,
-                                xrnn,
-                                self.normalizer)
-
-
-def run_retrieval_2d(input_file,
-                     xrnn,
-                     normalizer):
-    """
-    Run GPROF-NN 2D retrieval on input data in NetCDF format.
-
-    Args:
-        input_file: Filename of the NetCDF file containing input data.
-        normalizer: Normalizer object to use to normalize the input.
-        xrnn: The quantnn model to use to run the retrieval.
-
-    Return:
-        'xarray.Dataset' containing the retrieval results.
-    """
-    dataset = GPROF2DDataset(input_file,
-                             shuffle=False,
-                             augment=False,
-                             batch_size=8,
-                             normalizer=normalizer)
-
-    means = {}
-    precip_1st_tercile = []
-    precip_3rd_tercile = []
-    pop = []
-
-    with torch.no_grad():
-        device = next(iter(xrnn.model.parameters())).device
-        for i in range(len(dataset)):
-            x, _ = dataset[i]
-            x = x.float().to(device)
-            y_pred = xrnn.predict(x)
-            if not isinstance(y_pred, dict):
-                y_pred = {"surface_precip": y_pred}
-
-            y_mean = xrnn.posterior_mean(y_pred=y_pred)
-            for k, y in y_pred.items():
-                means.setdefault(k, []).append(y_mean[k].cpu())
-                if k == "surface_precip":
-                    t = xrnn.posterior_quantiles(
-                        y_pred=y, quantiles=[0.333, 0.667], key=k
-                    )
-                    precip_1st_tercile.append(t[:, 0].cpu())
-                    precip_3rd_tercile.append(t[:, 1].cpu())
-                    p = xrnn.probability_larger_than(y_pred=y, y=1e-4, key=k)
-                    pop.append(p.cpu())
-
-    dims = ["samples", "levels"]
-    data = {}
-    reference = xr.open_dataset(input_file)
-    for k in means:
-        y = np.concatenate([t.numpy() for t in means[k]])
-        data[k + "gprof_nn_0d"] = (dims[:y.ndim], y)
-        data[k] = reference[k]
-
-    data["precip_1st_tercile_gprof_nn_0d"] = (
-        dims[:1],
-        np.concatenate([t.numpy() for t in precip_1st_tercile])
-    )
-    data["precip_3rd_tercile_gprof_nn_0d"] = (
-        dims[:1],
-        np.concatenate([t.numpy() for t in precip_3rd_tercile])
-    )
-    data["pop"] = (dims[:1], np.concatenate([t.numpy() for t in pop]))
-    data = xr.Dataset(data)
-    data["most_likely_precip"] = data["surface_precip"]
-    data["surface_type"] = reference["surface_type"]
-    return data
