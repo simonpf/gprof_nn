@@ -201,6 +201,8 @@ class RetrievalFile:
                 gradients of the surface precip retrieval. This special
                 is only produced by a customized version of the GPROF
                 retrieval.
+            has_profiles: Flag indicating whether the file contains full
+                profile output.
         """
         if has_sensitivity and has_profiles:
             raise ValueError(
@@ -287,9 +289,17 @@ class RetrievalFile:
         )
         return np.frombuffer(self.data, SCAN_HEADER_TYPES, count=1, offset=offset)
 
-    def to_xarray_dataset(self):
+    def to_xarray_dataset(self, full_profiles=True):
         """
         Return retrieval results as xarray dataset.
+
+        Args:
+            full_profiles: If 'True' the full profile variables will be
+                read in when available. If 'False' the compressed profiles
+                will be loaded even if full profiles are available.
+
+        Return:
+            'xarray.Dataset' containing all variables in the retrieval file.
         """
         data = {}
         for s in self.scans:
@@ -299,7 +309,7 @@ class RetrievalFile:
         for k in data:
             data[k] = np.stack(data[k], axis=0)
 
-        if "profiles" in data:
+        if "profiles" in data and full_profiles:
             species = [
                 "rain_water_content",
                 "cloud_water_content",
@@ -322,7 +332,7 @@ class RetrievalFile:
 
             invalid = (profile_indices <= 0)
             profile_indices[invalid] = 1
-            temperature_indices[np.all(invalid, axis=-1)] = 1
+            temperature_indices = np.mimum(np.maximum(temperature_indices, 1), 12)
 
             rwc = (
                 profiles[0, temperature_indices - 1, :, profile_indices[..., 0] - 1]

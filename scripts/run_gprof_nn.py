@@ -69,4 +69,4 @@ for input_file, output_file in zip(input_files,
                                 normalizer,
                                 xrnn,
                                 output_file=output_file)
-    retrieval.run_retrieval()
+    retrieval.run()
