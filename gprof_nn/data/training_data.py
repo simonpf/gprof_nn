@@ -256,7 +256,7 @@ class GPROF0DDataset:
             # Simulate missing high-frequency channels
             if self.augment:
                 r = self._rng.random(bts.shape[0])
-                bts[r > 0.8, 10:15] = np.nan
+                bts[r > 0.9, 10:15] = np.nan
 
             # 2m temperature, values less than 0 must be missing.
             t2m = variables["two_meter_temperature"][:][valid].reshape(-1, 1)
@@ -713,8 +713,9 @@ class GPROF2DDataset:
                 # Simulate missing high-frequency channels
                 if self.augment:
                     r = self._rng.random()
+                    n = self._rng.randint(10, 30)
                     if r > 0.95:
-                        tbs[:, :15] = np.nan
+                        tbs[:, 10:15, :n] = np.nan
 
                 t2m = variables["two_meter_temperature"][i][:]
                 t2m = extract_domain(t2m, p_x_i, p_x_o, p_y, coords=coords)

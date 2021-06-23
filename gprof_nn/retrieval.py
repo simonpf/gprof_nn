@@ -29,17 +29,16 @@ from gprof_nn.data.preprocessor import PreprocessorFile
 
 def calculate_padding_dimensions(t):
     """
-    Calculate list of padding values to extend second-to-last and last
+    Calculate list of PyTorch padding values to extend second-to-last and last
     dimensions of the tensor to multiples of 32.
 
     Args:
         t: The ``torch.Tensor`` to pad.
 
     Return
-        A tuple ``(p_l_m, p_r_m, p_l_n, p_r_n)`` containing the
-        left and right padding  for the second to
-        last dimension (``p_l_m, p_r_m``) and for the last dimension
-        (``p_l_n, p_r_n``).
+        A tuple ``(p_l_n, p_r_n, p_l_m, p_r_m)`` containing the
+        left and right padding  for the second to last dimension
+        (``p_l_m, p_r_m``) and for the last dimension (``p_l_n, p_r_n``).
     """
     shape = t.shape
 
@@ -62,10 +61,10 @@ def combine_input_data_2d(dataset):
     retrieval.
 
     Args:
-         ``xarray.Dataset`` with the input variables.
+         ``xarray.Dataset`` containing the input variables.
 
     Return:
-        Rank-4 input tensor containing the input data with feature oriented
+        Rank-4 input tensor containing the input data with features oriented
         along the first axis.
     """
     bts = dataset["brightness_temperatures"][:].data
@@ -107,12 +106,14 @@ def combine_input_data_2d(dataset):
 ###############################################################################
 
 
-PREPROCESSOR = "preprocessor"
-TRAINING_DATA = "training_data"
+GPROF_BINARY = "GPROF_BINARY"
+NETCDF = "NETCDF"
 
 class RetrievalDriver:
     """
-    Helper class that implements the logic to run the GPROF-NN retrieval.
+    The ``RetrievalDriver`` class implements the logic for running the GPROF-NN
+    retrieval using different neural network models and writing output to
+    different formats.
     """
     N_CHANNELS = 15
 
@@ -123,14 +124,14 @@ class RetrievalDriver:
                  ancillary_data=None,
                  output_file=None):
         """
+        Create retrieval driver.
+
         Args:
-            input_file: Path to the file containing the input data for the
-                 retrieval.
-            normalizer_file: Path to the file containing the normalizer.
+            input_file: Path to the preprocessor or NetCDF file containing the
+                input data for the retrieval.
+            normalizer_file: The normalizer object to use to normalize the
+                input data.
             model: The neural network to use for the retrieval.
-
-
-
         """
         from gprof_nn.data.preprocessor import PreprocessorFile
         input_file = Path(input_file)
@@ -139,13 +140,15 @@ class RetrievalDriver:
         self.model = model
         self.ancillary_data = ancillary_data
 
+        # Determine input format.
         suffix = input_file.suffix
         if suffix.endswith("pp"):
-            self.format = PREPROCESSOR
+            self.input_format = GPROF_BINARY
         else:
-            self.format = TRAINING_DATA
+            self.input_format = NETCDF
 
-        if self.format == PREPROCESSOR:
+        # Load input data.
+        if self.input_format == GPROF_BINARY:
             self.input_data = model.preprocessor_class(input_file,
                                                        self.normalizer)
         else:
@@ -154,10 +157,24 @@ class RetrievalDriver:
                 normalizer=normalizer
             )
 
+        # Determine output format.
+        if output_file is None:
+            self.output_format = self.input_format
+        else:
+            if self.input_format == NETCDF:
+                self.output_format = NETCDF
+            else:
+                output_file = Path(output_file)
+                if suffix.lower().endswith("bin"):
+                    self.output_format = GPROF_BINARY
+                else:
+                    self.output_format = NETCDF
+
         output_suffix = ".BIN"
-        if self.format == TRAINING_DATA:
+        if self.output_format == NETCDF:
             output_suffix = ".nc"
 
+        # Determine output filename.
         if output_file is None:
             self.output_file = Path(
                 self.input_file.name.replace(suffix, output_suffix)
@@ -246,7 +263,7 @@ class RetrievalDriver:
             to.
         """
         results = self._run(self.model)
-        if self.format == PREPROCESSOR:
+        if self.output_format == GPROF_BINARY:
             return self.input_data.write_retrieval_results(
                 self.output_file.parent,
                 results,
@@ -254,7 +271,7 @@ class RetrievalDriver:
             )
         else:
             results.to_netcdf(self.output_file)
-            return self.output_file
+        return self.output_file
 
 
 ###############################################################################
