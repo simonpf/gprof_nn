@@ -73,9 +73,9 @@ class SimFile:
         sim files.
         """
         if day is None:
-            pattern = sensor.FILE_PATTERN.format(day="??")
+            pattern = sensor.SIM_FILE_PATTERN.format(day="??")
         else:
-            pattern = sensor.FILE_PATTERN.format(day=f"{day:02}")
+            pattern = sensor.SIM_FILE_PATTERN.format(day=f"{day:02}")
         path = Path(path)
         files = list(path.glob("**/????/" + pattern))
         if not files:

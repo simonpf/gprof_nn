@@ -14,19 +14,22 @@ import h5py
 import pandas as pd
 import xarray as xr
 
-_RE_META_INFO = re.compile("NumberScansGranule=(\d*);")
-FILENAME_RE = re.compile(
-    r"1C-R\.GPM\.GMI\.([\w-]*)\.(\d{8})-" r"S(\d{6})-E(\d{6})\.(\w*)\.(\w*)\.HDF5"
-)
+from gprof_nn import sensors
+
+
+_RE_META_INFO = re.compile(r"NumberScansGranule=(\d*);")
 
 
 class L1CFile:
     """
     Interface class to GPROF L1C-R files in HDF5 format.
     """
-
     @classmethod
-    def open_granule(cls, granule, path, date=None):
+    def open_granule(cls,
+                     granule,
+                     path,
+                     date=None,
+                     sensor=sensors.GMI):
         """
         Find and open L1C file with a given granule number.
 
@@ -45,11 +48,17 @@ class L1CFile:
             year = date.year - 2000
             month = date.month
             day = date.day
-            path = Path(path) / f"{year:02}{month:02}" / f"{year:02}{month:02}{day:02}"
-            files = path.glob(f"1C-R.GPM.GMI.*{granule:06}.V05A.HDF5")
+            path = (Path(path) /
+                    f"{year:02}{month:02}" /
+                    f"{year:02}{month:02}{day:02}")
+            files = path.glob(
+                sensor.L1C_FILE_PREFIX + "*{granule:06}.V05A.HDF5"
+            )
         else:
             path = Path(path)
-            files = path.glob(f"**/1C-R.GPM.GMI.*{granule:06}.V05A.HDF5")
+            files = path.glob(
+                f"**/" + sensor.L1C_FILE_PREFIX + "*{granule:06}.V05A.HDF5"
+            )
 
         try:
             f = next(iter(files))
@@ -57,12 +66,17 @@ class L1CFile:
         except StopIteration:
             if date is not None:
                 return cls.open_granule(granule, path, None)
-            raise Exception(f"Could not find a L1C file with granule number {granule}.")
+            raise Exception(
+                f"Could not find a L1C file with granule number {granule}."
+            )
 
     @classmethod
-    def find_file(cls, date, path):
+    def find_file(cls,
+                  date,
+                  path,
+                  sensor=sensors.GMI):
         """
-        Find and open L1C file with a given granule number.
+        Find L1C files for given time.
 
         Args:
             date: The date of the file used to determine sub-folders
@@ -80,25 +94,15 @@ class L1CFile:
         month = date.month
         day = date.day
         data_path = Path(path) / f"{year:02}{month:02}" / f"{year:02}{month:02}{day:02}"
-        files = list(data_path.glob(f"1C-R.GPM.GMI.*.V05A.HDF5"))
-        files += list(path.glob(f"1C-R.GPM.GMI.*.V05A.HDF5"))
+        files = list(data_path.glob(sensor.L1C_FILE_PREFIX + "*.V05A.HDF5"))
+        files += list(path.glob(sensor.L1C_FILE_PREFIX + "*.V05A.HDF5"))
 
         start_times = []
         end_times = []
         for f in files:
-            match = FILENAME_RE.match(f.name)
-            year = match.group(2)
-            start = match.group(3)
-            end = match.group(4)
-
-            start = np.datetime64(
-                f"{year[0:4]}-{year[4:6]}-{year[6:8]}"
-                f"T{start[0:2]}:{start[2:4]}:{start[4:6]}"
-            )
-            end = np.datetime64(
-                f"{year[0:4]}-{year[4:6]}-{year[6:8]}"
-                f"T{end[0:2]}:{end[2:4]}:{end[4:6]}"
-            )
+            l1c = cls(f)
+            start = l1c.start_time
+            end = l1c.end_time
             if end < start:
                 end += np.timedelta64(1, "D")
             start_times.append(start)
@@ -107,19 +111,23 @@ class L1CFile:
         end_times = np.array(end_times)
         date = date.to_datetime64()
 
-        ind = np.where((start_times <= date) * (end_times >= date))[0][0]
-        filename = files[ind]
+        inds = np.where((start_times <= date) * (end_times >= date))[0]
+        if len(inds) == 0:
+            raise ValueError(
+                "No file found for the requested date."
+            )
+        filename = files[inds[0]]
 
         return L1CFile(filename)
 
     @classmethod
-    def find_files(cls, date, roi, path):
+    def find_files(cls, date, roi, path, sensor=sensors.GMI):
         """
-        Find and open L1C file with a given granule number.
+        Find L1C files for a given day covering a rectangular region
+        of interest (ROI).
 
         Args:
-            date: The date of the file used to determine sub-folders
-                corresponding to month and day.
+            date: A date specifying a day for which to find observations.
             roi: Tuple ``(lon_min, lat_min, lon_max, lat_max)`` describing a
                 rectangular bounding box around the region of interest.
             path: The root of the directory tree containing the
@@ -137,13 +145,17 @@ class L1CFile:
         day = date.day
         data_path = Path(path) / f"{year:02}{month:02}" / f"{year:02}{month:02}{day:02}"
         files = list(
-            data_path.glob(f"1C-R.GPM.GMI.*{date.year:04}{month:02}{day:02}*.V05A.HDF5")
+            data_path.glob(
+                sensor.L1C_FILE_PREFIX +
+                f"*{date.year:04}{month:02}{day:02}*.V05A.HDF5"
+            )
         )
-        files += list(
-            path.glob(f"1C-R.GPM.GMI.*{date.year:04}{month:02}{day:02}*.V05A.HDF5")
-        )
-
+        files += list(path.glob(
+            sensor.L1C_FILE_PREFIX +
+            f"*{date.year:04}{month:02}{day:02}*.V05A.HDF5"
+        ))
         for f in files:
+            print(f)
             f = L1CFile(f)
             if f.covers_roi(roi):
                 yield f
@@ -157,6 +169,32 @@ class L1CFile:
         """
         self.filename = path
         self.path = Path(path)
+
+    @property
+    def start_time(self):
+        with h5py.File(self.path, "r") as input:
+            year = input["S1/ScanTime/Year"][0]
+            month = input["S1/ScanTime/Month"][0]
+            day = input["S1/ScanTime/DayOfMonth"][0]
+            hour = input["S1/ScanTime/Hour"][0]
+            minute = input["S1/ScanTime/Minute"][0]
+            second = input["S1/ScanTime/Second"][0]
+        return np.datetime64(
+            f"{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}"
+        )
+
+    @property
+    def end_time(self):
+        with h5py.File(self.path, "r") as input:
+            year = input["S1/ScanTime/Year"][-1]
+            month = input["S1/ScanTime/Month"][-1]
+            day = input["S1/ScanTime/DayOfMonth"][-1]
+            hour = input["S1/ScanTime/Hour"][-1]
+            minute = input["S1/ScanTime/Minute"][-1]
+            second = input["S1/ScanTime/Second"][-1]
+        return np.datetime64(
+            f"{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}"
+        )
 
     def __repr__(self):
         """String representation for file."""
@@ -417,9 +455,14 @@ class L1CFile:
             lats_sc = input["S1/SCstatus/SClatitude"][indices]
             lons_sc = input["S1/SCstatus/SClongitude"][indices]
             alt_sc = input["S1/SCstatus/SClongitude"][indices]
-            tbs = np.concatenate(
-                [input["S1/Tc"][indices, :], input["S2/Tc"][indices, :]], axis=-1
-            )
+
+            # Handle case that observations are split up.
+            if "S2" in input.keys():
+                tbs = np.concatenate(
+                    [input["S1/Tc"][indices, :], input["S2/Tc"][indices, :]], axis=-1
+                )
+            else:
+                tbs = input["S1/Tc"][indices, :]
 
             n_scans = lats.shape[0]
             times = np.zeros(n_scans, dtype="datetime64[ms]")
@@ -452,5 +495,11 @@ class L1CFile:
                 "brightness_temperatures": (dims + ("channels",), tbs),
                 "scan_time": (dims[:1], times),
             }
+
+            if "incidenceAngle" in input["S1"].keys():
+                data["incidence_angle"] = (
+                    dims,
+                    input["S1/incidenceAngle"][indices, :, 0]
+                )
 
         return xr.Dataset(data)

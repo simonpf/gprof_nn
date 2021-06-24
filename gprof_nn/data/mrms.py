@@ -3,7 +3,7 @@
 gprof_nn.data.mrms
 ==================
 
-Interface class to read GMI-MRMS match ups used over snow surfaces.
+Interface class to read GPROF MRMS match ups used over snow surfaces.
 """
 import gzip
 from pathlib import Path
@@ -13,6 +13,7 @@ import xarray as xr
 import pandas as pd
 from pykdtree.kdtree import KDTree
 
+from gprof_nn import sensors
 from gprof_nn.coordinates import latlon_to_ecef
 
 
@@ -50,11 +51,12 @@ class MRMSMatchFile:
         year: The year from which the observations stem.
         month: The month from which the observations stem.
     """
-
-    file_pattern = "????_MRMS2GMI_gprof_db_??all.bin.gz"
+    file_pattern = "????_MRMS2{sensor}_*.bin.gz"
 
     @classmethod
-    def find_files(cls, path):
+    def find_files(cls,
+                   path,
+                   sensor=sensors.GMI):
         """
         Generator providing access to all files that match the naming scheme
         for GMI-MRMS match file in a give folder.
@@ -67,15 +69,29 @@ class MRMSMatchFile:
             files in the given directory.
         """
         path = Path(path)
-        return list(path.glob(cls.file_pattern))
+        return list(path.glob(cls.file_pattern.format(sensor=sensor.__name__)))
 
-    def __init__(self, filename):
+    def __init__(self,
+                 filename,
+                 sensor=None):
         """
         Reads gzipped matchup file.
 
         Args:
             filename: The name of the file to read.
         """
+        filename = Path(filename)
+        if sensor is None:
+            if "GMI" in filename.name:
+                sensor = sensors.GMI
+            elif "MHS" in filename.name:
+                sensor = sensor.MHS
+            else:
+                raise ValueError(
+                    "Could not infer sensor from filename. Consider passing "
+                    "the sensor argument explicitly."
+                )
+
         with open(filename, "rb") as source:
             buffer = gzip.decompress(source.read())
         self.data = np.frombuffer(buffer, DATA_RECORD_TYPES)
@@ -149,7 +165,7 @@ class MRMSMatchFile:
         data = self.data[indices]
 
         n_scans = input_data.scans.size
-        n_pixels = 221
+        n_pixels = input_data.pixels.size
 
         if indices.sum() <= 0:
             surface_precip = np.zeros((n_scans, n_pixels))
