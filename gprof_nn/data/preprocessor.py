@@ -24,6 +24,7 @@ from gprof_nn.definitions import (MISSING,
                                   TCWV_MAX,
                                   T2M_MIN,
                                   T2M_MAX)
+from gprof_nn import sensors
 from gprof_nn.data import retrieval
 from gprof_nn.data.profiles import ProfileClusters
 from pathlib import Path
@@ -624,7 +625,9 @@ def get_preprocessor_settings():
     return [v for _, v in PREPROCESSOR_SETTINGS.items()]
 
 
-def run_preprocessor(l1c_file, output_file=None):
+def run_preprocessor(l1c_file,
+                     sensor=sensors.GMI,
+                     output_file=None):
     """
     Run preprocessor on L1C GMI file.
 
@@ -647,7 +650,7 @@ def run_preprocessor(l1c_file, output_file=None):
         args = [jobid] + get_preprocessor_settings()
         args.insert(2, l1c_file)
         args.append(output_file)
-        subprocess.run(["gprof2020pp_GMI_L1C"] + args,
+        subprocess.run([sensor.PREPROCESSOR] + args,
                        check=True,
                        capture_output=True)
         if file is not None:

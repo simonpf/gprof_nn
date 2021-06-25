@@ -52,12 +52,12 @@ class L1CFile:
                     f"{year:02}{month:02}" /
                     f"{year:02}{month:02}{day:02}")
             files = path.glob(
-                sensor.L1C_FILE_PREFIX + "*{granule:06}.V05A.HDF5"
+                sensor.L1C_FILE_PREFIX + f"*{granule:06}.V05A.HDF5"
             )
         else:
             path = Path(path)
             files = path.glob(
-                f"**/" + sensor.L1C_FILE_PREFIX + "*{granule:06}.V05A.HDF5"
+                "**/" + sensor.L1C_FILE_PREFIX + f"*{granule:06}.V05A.HDF5"
             )
 
         try:
@@ -121,17 +121,19 @@ class L1CFile:
         return L1CFile(filename)
 
     @classmethod
-    def find_files(cls, date, roi, path, sensor=sensors.GMI):
+    def find_files(cls, date, path, roi=None, sensor=sensors.GMI):
         """
         Find L1C files for a given day covering a rectangular region
         of interest (ROI).
 
         Args:
             date: A date specifying a day for which to find observations.
-            roi: Tuple ``(lon_min, lat_min, lon_max, lat_max)`` describing a
-                rectangular bounding box around the region of interest.
             path: The root of the directory tree containing the
                 L1C files.
+            roi: Tuple ``(lon_min, lat_min, lon_max, lat_max)`` describing a
+                rectangular bounding box around the region of interest.
+            sensor: Sensor object defining the sensor for which to find the
+                L1C file.
 
         Return:
              Generator providing files with observations within the given ROI
@@ -157,8 +159,12 @@ class L1CFile:
         for f in files:
             print(f)
             f = L1CFile(f)
-            if f.covers_roi(roi):
+            if roi is not None:
+                if f.covers_roi(roi):
+                    yield f
+            else:
                 yield f
+
 
     def __init__(self, path):
         """

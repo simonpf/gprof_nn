@@ -72,7 +72,7 @@ def test_find_files():
     date = np.datetime64("2019-01-01T00:30:00")
 
     roi = (-35, -68, -10, -62)
-    files = list(L1CFile.find_files(date, roi, l1c_path))
+    files = list(L1CFile.find_files(date, l1c_path, roi=roi))
     assert len(files) == 1
 
     data = files[0].to_xarray_dataset(roi)
@@ -89,5 +89,5 @@ def test_find_files():
     assert np.all(np.sum(lats < -62, -1) > 1)
 
     roi = (-35, 60, -10, 62)
-    files = list(L1CFile.find_files(date, roi, l1c_path))
+    files = list(L1CFile.find_files(date, l1c_path, roi=roi))
     assert len(files) == 0

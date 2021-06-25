@@ -47,7 +47,7 @@ def test_read_file_mhs():
 
     data = ms.to_xarray_dataset(day=23)
 
-
+@pytest.mark.xfail(reason="SNOWDAS files not available.")
 def test_match_precip():
     """
     Match surface precip from MRMS file to observations in L1C file.
@@ -58,7 +58,7 @@ def test_match_precip():
     path = Path(__file__).parent / "data"
 
     mrms_file = MRMSMatchFile(path / TEST_FILE_GMI)
-    l1c_files = L1CFile.find_files(date, roi, path)
+    l1c_files = L1CFile.find_files(date, path, roi=roi)
     for f in l1c_files:
         print(f)
         data = mrms_file.match_targets(f.to_xarray_dataset(roi=CONUS))

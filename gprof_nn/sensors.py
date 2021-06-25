@@ -28,7 +28,8 @@ class GMI:
     """
     SIM_FILE_PATTERN = "GMI.dbsatTb.??????{day}.??????.sim"
     L1C_FILE_PREFIX = "1C-R.GPM.GMI."
-    N_FREQS = 15  # The number of GMI channels.
+    N_FREQS = 15
+    PREPROCESSOR = "gprof2020pp_GMI_L1C"
     SIM_FILE_RECORD = np.dtype([
         ("pixel_index", "i4"),
         ("scan_index", "i4"),
@@ -73,13 +74,15 @@ class GMI:
         ]
     )
 
+
 class MHS:
     """
     The GPROF Microwave Imager (GMI) sensor.
     """
     SIM_FILE_PATTERN = "MHS.dbsatTb.??????{day}.??????.sim"
-    L1C_FILE_PATTERN = "1C.METOP?.MHS."
-    N_FREQS = 5 # The number of GMI channels.
+    L1C_FILE_PREFIX = "1C.METOP?.MHS."
+    PREPROCESSOR = "gprof2020pp_MHS_L1C"
+    N_FREQS = 5
     N_ANGLES = 10
     SIM_FILE_RECORD = np.dtype([
         ("pixel_index", "i4"),
