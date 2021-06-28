@@ -29,6 +29,8 @@ class GMI:
     SIM_FILE_PATTERN = "GMI.dbsatTb.??????{day}.??????.sim"
     L1C_FILE_PREFIX = "1C-R.GPM.GMI."
     N_FREQS = 15
+    L1C_PATH="/pdata4/archive/GPM/1CR_GMI"
+    SIM_FILE_PATH="/qdata1/pbrown/dbaseV7/simV7"
     SIM_FILE_RECORD = np.dtype([
         ("pixel_index", "i4"),
         ("scan_index", "i4"),
@@ -110,6 +112,8 @@ class MHS:
     """
     SIM_FILE_PATTERN = "MHS.dbsatTb.??????{day}.??????.sim"
     L1C_FILE_PREFIX = "1C.METOP?.MHS."
+    L1C_PATH="/pdata4/archive/GPM/1C_METOPB"
+    SIM_FILE_PATH="/qdata1/pbrown/dbaseV7/simV7"
     N_FREQS = 5
     N_ANGLES = 10
     SIM_FILE_RECORD = np.dtype([

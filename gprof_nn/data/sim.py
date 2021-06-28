@@ -20,7 +20,11 @@ from netCDF4 import Dataset
 from rich.progress import track
 import xarray as xr
 
-from gprof_nn.definitions import ALL_TARGETS, N_LAYERS, LEVELS
+from gprof_nn import sensors
+from gprof_nn.definitions import (ALL_TARGETS,
+                                  N_LAYERS,
+                                  LEVELS,
+                                  DATABASE_MONTHS)
 from gprof_nn.coordinates import latlon_to_ecef
 from gprof_nn.data.preprocessor import PreprocessorFile, run_preprocessor
 from gprof_nn.data.l1c import L1CFile
@@ -436,7 +440,8 @@ def _add_era5_precip(input_data, l1c_data, era5_data):
     input_data["convective_precip"].data[indices] = 1000.0 * cp.data
 
 
-def process_sim_file(sim_filename, l1c_path, era5_path):
+def process_sim_file(sim_filename,
+                     era5_path):
     """
     Extract 2D training scenes from sim file.
 
@@ -457,24 +462,26 @@ def process_sim_file(sim_filename, l1c_path, era5_path):
     import gprof_nn.logging
     LOGGER.info("Starting processing sim file %s.", sim_filename)
     sim_file = SimFile(sim_filename)
-    l1c_file = L1CFile.open_granule(sim_file.granule, l1c_path)
+    l1c_file = L1CFile.open_granule(sim_file.granule,
+                                    sensors.GMI.L1C_PATH)
 
     LOGGER.info("Running preprocessor for sim file %s.", sim_filename)
-    data_pp = run_preprocessor(l1c_file.filename)
+    data_pp = run_preprocessor(l1c_file.filename, sensor=sensors.GMI)
     if data_pp is None:
         return None
     LOGGER.info("Matching retrieval targets for file %s.", sim_filename)
     sim_file.match_targets(data_pp)
     l1c_data = l1c_file.to_xarray_dataset()
 
-    LOGGER.info("Adding ERA5 precip for file %s.", sim_filename)
-    start_time = data_pp["scan_time"].data[0]
-    end_time = data_pp["scan_time"].data[-1]
-    LOGGER.info("Loading ERA5 data: %s %s", start_time, end_time)
-    era5_data = _load_era5_data(start_time, end_time, era5_path)
-    _add_era5_precip(data_pp, l1c_data, era5_data)
-    LOGGER.info("Added era5 precip.")
-    apply_orographic_enhancement(data_pp)
+    if sensor == sensors.GMI:
+        LOGGER.info("Adding ERA5 precip for file %s.", sim_filename)
+        start_time = data_pp["scan_time"].data[0]
+        end_time = data_pp["scan_time"].data[-1]
+        LOGGER.info("Loading ERA5 data: %s %s", start_time, end_time)
+        era5_data = _load_era5_data(start_time, end_time, era5_path)
+        _add_era5_precip(data_pp, l1c_data, era5_data)
+        LOGGER.info("Added era5 precip.")
+        apply_orographic_enhancement(data_pp)
 
     surface_type = data_pp.variables["surface_type"].data
     snow = (surface_type >= 8) * (surface_type <= 11)
@@ -482,10 +489,14 @@ def process_sim_file(sim_filename, l1c_path, era5_path):
         if v in ["surface_precip", "convective_precip"]:
             data_pp[v].data[snow] = np.nan
 
-    return _extract_scenes(data_pp)
+    data = _extract_scenes(data_pp)
+    data["source"] = ("samples", np.zeros(data.samples.size,
+                                          dtype=np.int8))
+    return data
 
 
-def process_mrms_file(mrms_filename, day, l1c_path):
+def process_mrms_file(mrms_filename,
+                      day):
     """
     Extract training data from MRMS-GMI match up files for given day.
     Matches the observations in the MRMS file with input data from the
@@ -495,25 +506,27 @@ def process_mrms_file(mrms_filename, day, l1c_path):
     Args:
         mrms_filename: Filename of the MRMS file to process.
         day: The day of the month for which to extract data.
-        l1c_path: Path to the root of the directory tree containing the L1C
-             observations.
     """
     import gprof_nn.logging
     LOGGER.info("Starting processing MRMS file %s.", mrms_filename)
     mrms_file = MRMSMatchFile(mrms_filename)
+    sensor = mrmr_file.sensor
 
     indices = np.where(mrms_file.data["scan_time"][:, 2] == day)[0]
     if len(indices) <= 0:
         return None
     date = mrms_file.scan_time[indices[len(indices) // 2]]
-    l1c_files = list(L1CFile.find_files(date, CONUS, l1c_path))
+    l1c_files = list(L1CFile.find_files(date,
+                                        l1c_path,
+                                        roi=CONUS,
+                                        sensor=sensor))
 
     scenes = []
     LOGGER.info("Found %s L1C file for MRMS file %s.",
                 len(l1c_files),
                 mrms_filename)
     for f in l1c_files:
-        data_pp = run_preprocessor(f.filename)
+        data_pp = run_preprocessor(f.filename, sensor=sensor)
         if data_pp is None:
             continue
 
@@ -535,9 +548,39 @@ def process_mrms_file(mrms_filename, day, l1c_path):
 
     if scenes:
         dataset = xr.concat(scenes, "samples")
+        dataset["source"] = ("samples",), np.ones(dataset.samples, dtype=int8)
         return add_targets(dataset)
 
     return None
+
+
+def extend_pixels(data, n_pixels=221):
+    """
+    Extends 'pixels' dimension of dataset to 221.
+    """
+    dimensions = {n: d for n,d in data.dims.items()}
+    print(dimensions)
+    dimensions["pixels"] = n_pixels
+    data_new = {n: d for n,d in data.dims.items()}
+    data_new["pixels"] = np.arange(n_pixels)
+
+    data_new = {}
+    for n, v in data.variables.items():
+        shape = (dimensions[d] for d in v.dims)
+        print(shape)
+        dims = [v for v in v.dims]
+        x = np.zeros(shape, v.dtype)
+        x[:] = np.nan
+        data_new[v] = (dims, x)
+
+    l = (n_pixels - data.pixels.size) // 2
+    r = n_pixels - data.pixels.size - l
+
+    data_new_sub = data_new[{"pixels": slice(l, r)}]
+    for n, v in data.variables.items():
+        data_new_sub[n].data = data[n].data
+
+    return data_new
 
 
 def add_targets(data):
@@ -578,9 +621,7 @@ class SimFileProcessor:
     def __init__(
         self,
         output_file,
-        sim_file_path=None,
-        mrms_path=None,
-        l1c_path=None,
+        sensor,
         era5_path=None,
         n_workers=4,
         day=None,
@@ -599,21 +640,7 @@ class SimFileProcessor:
         """
 
         self.output_file = output_file
-        if sim_file_path is not None:
-            self.sim_file_path = Path(sim_file_path)
-        else:
-            self.sim_file_path = None
-        if mrms_path is not None:
-            self.mrms_path = Path(mrms_path)
-        else:
-            self.mrms_path = None
-
-        if l1c_path is None:
-            raise ValueError(
-                "The 'l1c_path' argument must be provided in order to process "
-                "any sim files."
-            )
-        self.l1c_path = Path(l1c_path)
+        self.sensor = sensor
 
         if era5_path is None:
             raise ValueError(
@@ -637,20 +664,34 @@ class SimFileProcessor:
         of the driver.
         """
         if self.sim_file_path is not None:
-            sim_files = SimFile.find_files(self.sim_file_path, day=self.day)
+            sim_files = SimFile.find_files(self.sim_file_path,
+                                           sensor=self.sensor,
+                                           day=self.day)
         else:
             sim_files = []
         sim_files = np.random.permutation(sim_files)
+
         if self.mrms_path is not None:
-            mrms_files = MRMSMatchFile.find_files(self.mrms_path)
+            mrms_files = MRMSMatchFile.find_files(self.mrms_path,
+                                                  sensor=self.sensor)
         else:
             mrms_files = []
-        mrms_files = np.random.permutation(mrms_files)
+        mrms_files = np.random.permutation(mrms_files,
+                                           sensor=self.sensor)
+
+        l1c_files = []
+        for year, month in DATABASE_MONTHS:
+            date = datetime(year, month, day)
+            l1c_files += L1CFile.find_file(date,
+                                           self.L1C_PATH,
+                                           self.sensor)
 
         n_sim_files = len(sim_files)
         print(f"Found {n_sim_files} .sim files.")
         n_mrms_files = len(mrms_files)
         print(f"Found {n_mrms_files} MRMS files.")
+        n_l1c_files = len(mrms_files)
+        print(f"Found {n_l1c_files} MRMS files.")
         i = 0
 
         # Submit tasks interleaving .sim and MRMS files.
