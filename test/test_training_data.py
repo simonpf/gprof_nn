@@ -13,7 +13,6 @@ from quantnn.normalizer import Normalizer
 from quantnn.models.pytorch.xception import XceptionFpn
 
 from gprof_nn.data.training_data import (GPROF0DDataset,
-                                         run_retrieval_0d,
                                          GPROF2DDataset)
 
 
@@ -105,35 +104,6 @@ def test_profile_variables():
 
         st = np.where(x[:, 17:35])[1]
         indices = (st >= 8) * (st <= 11)
-
-
-def test_run_retrieval_0d(tmp_path):
-    """
-    Test running 0D version of retrieval on training data file.
-    """
-    path = Path(__file__).parent
-    input_file = path / "data" / "training_data.nc"
-    qrnn = QRNN.load(path / "data" / "gprof_nn_0d.pckl")
-    normalizer = Normalizer.load(path / "data" / "normalizer.pckl")
-    results = run_retrieval_0d(input_file,
-                               qrnn,
-                               normalizer)
-    assert "surface_precip" in results.variables
-
-
-def test_run_retrieval_0d_sim(tmp_path):
-    """
-    Test running 0D version of retrieval on training data file extracted
-    from bin data.
-    """
-    path = Path(__file__).parent
-    input_file = path / "data" / "training_data_bin.nc"
-    qrnn = QRNN.load(path / "data" / "gprof_nn_0d.pckl")
-    normalizer = Normalizer.load(path / "data" / "normalizer.pckl")
-    results = run_retrieval_0d(input_file,
-                               qrnn,
-                               normalizer)
-    assert "surface_precip" in results.variables
 
 
 def test_gprof_2d_dataset():

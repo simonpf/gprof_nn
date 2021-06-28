@@ -1,24 +1,29 @@
+"""
+Tests for the reading and processing of .sim files.
+"""
 from pathlib import Path
 
 import numpy as np
+import xarray as xr
 
 from gprof_nn.data.l1c import L1CFile
-from gprof_nn.data.sim import (GMISimFile,
+from gprof_nn.data.sim import (SimFile,
                                _load_era5_data,
                                _add_era5_precip,
-                               apply_orographic_enhancement)
-
+                               apply_orographic_enhancement,
+                               extend_pixels)
 from gprof_nn.data.preprocessor import PreprocessorFile
 
-def test_find_granule():
+
+def test_match_l1c_gmi():
     """
-    Test finding of specific L1C file and reading data into
-    xarray.Dataset.
+    Tests reading a GMI L1C file and matching it to data in
+    a GMI .sim file.
     """
     data_path = Path(__file__).parent / "data"
     l1c_file = L1CFile.open_granule(27510, data_path)
     l1c_data = l1c_file.to_xarray_dataset()
-    sim_file = GMISimFile(data_path / "GMI.dbsatTb.20190101.027510.sim")
+    sim_file = SimFile(data_path / "GMI.dbsatTb.20190101.027510.sim")
 
     targets = ["latent_heat",
                "rain_water_content",
@@ -31,22 +36,47 @@ def test_find_granule():
     assert "snow_water_content" in l1c_data.variables.keys()
     assert "rain_water_content" in l1c_data.variables.keys()
 
+
+def test_match_l1c_mhs():
+    """
+    Tests reading a GMI L1C file and matching it to data in
+    a GMI .sim file.
+    """
+    data_path = Path(__file__).parent / "data"
+    l1c_file = L1CFile.open_granule(27510, data_path)
+    l1c_data = l1c_file.to_xarray_dataset()
+    sim_file = SimFile(data_path / "MHS.dbsatTb.20190101.027510.sim")
+
+    targets = ["surface_precip",
+               "latent_heat",
+               "rain_water_content",
+               "ice_water_path"]
+
+    sim_file.match_targets(l1c_data, targets=targets)
+
+    assert "latent_heat" in l1c_data.variables.keys()
+    assert "ice_water_path" in l1c_data.variables.keys()
+    assert "snow_water_content" in l1c_data.variables.keys()
+    assert "rain_water_content" in l1c_data.variables.keys()
+
+    assert "brightness_temperature_biases" in l1c_data.variables.keys()
+    assert "simulated_brightness_temperatures" in l1c_data.variables.keys()
+
+
 def test_find_files():
     """
     Assert that find_file functions successfully finds file in test data folder
     except when search is restricted to a different day.
     """
     path = Path(__file__).parent / "data"
-    sim_files = GMISimFile.find_files(path)
+    sim_files = SimFile.find_files(path)
     assert len(sim_files) == 1
 
-    sim_files = GMISimFile.find_files(path, day=1)
+    sim_files = SimFile.find_files(path, day=1)
     assert len(sim_files) == 1
 
-    sim_files = GMISimFile.find_files(path, day=2)
+    sim_files = SimFile.find_files(path, day=2)
     assert len(sim_files) == 0
-
-
 
 
 def test_match_era5_precip():
@@ -68,7 +98,7 @@ def test_match_era5_precip():
                                 end_time,
                                 data_path)
 
-    sim_file = GMISimFile(data_path / "GMI.dbsatTb.20190101.027510.sim")
+    sim_file = SimFile(data_path / "GMI.dbsatTb.20190101.027510.sim")
     sim_file.match_targets(input_data)
     _add_era5_precip(input_data,
                      l1c_data,
@@ -85,7 +115,7 @@ def test_orographic_enhancement(tmp_path):
 
     preprocessor_file = PreprocessorFile(path / "GMIERA5_190101_027510.pp")
     input_data = preprocessor_file.to_xarray_dataset()
-    sim_file = GMISimFile(path / "GMI.dbsatTb.20190101.027510.sim")
+    sim_file = SimFile(path / "GMI.dbsatTb.20190101.027510.sim")
     sim_file.match_targets(input_data)
 
     st = input_data["surface_type"].data
@@ -105,4 +135,13 @@ def test_orographic_enhancement(tmp_path):
     indices = (st != 17) * (st != 18) * np.isfinite(sp)
     assert np.all(np.isclose(sp[indices], sp_ref[indices], rtol=1e-3))
     assert np.all(np.isclose(cp[indices], cp_ref[indices], rtol=1e-3))
+
+def test_extend_dataset():
+    data = xr.Dataset({
+        "data": (("scans", "pixels"), np.zeros((221, 1)))
+    })
+    extended = extend_pixels(data)
+    print(extended.data)
+    assert np.all(np.isclose(extended.data[:, 110], 0.0))
+
 

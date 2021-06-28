@@ -254,7 +254,7 @@ class RetrievalDriver:
 
         return self.input_data.finalize(data)
 
-    def run_retrieval(self):
+    def run(self):
         """
         Run retrieval and store results to file.
 
@@ -280,8 +280,14 @@ class RetrievalDriver:
 
 
 class NetcdfLoader:
-
+    """
+    Base class for netcdf loader object that implements generic
+    element access.
+    """
     def __init__(self):
+        """
+        Create NetcdfLoader.
+        """
         self.n_samples = 0
         self.batch_size = 1
 
@@ -316,6 +322,17 @@ class NetcdfLoader0D(NetcdfLoader):
                  filename,
                  normalizer,
                  batch_size=16 * 1024):
+        """
+        Create loader for input data in NetCDF format that provides input
+        data for the GPROF-NN 0D retrieval.
+
+        Args:
+            filename: The name of the NetCDF file containing the input data.
+            normalizer: The normalizer object to use to normalize the input
+                data.
+            batch_size: How many observations to combine into a single
+                input batch.
+        """
         super().__init__()
         self.filename = filename
         self.normalizer = normalizer
@@ -324,16 +341,13 @@ class NetcdfLoader0D(NetcdfLoader):
         self._load_data()
         self.n_samples = self.input_data.shape[0]
 
-        self.dimensions = ("samples", "pixels")
-        self.profile_dimensions = ("samples", "pixels")
-
         self.scalar_dimensions = ("samples")
         self.profile_dimensions = ("samples", "layers")
 
     def _load_data(self):
         """
         Load data from training data NetCDF format into the
-        objects 'input_data' attribute.
+        'input_data' attribute of the object.
         """
         dataset = xr.open_dataset(self.filename)
 
@@ -537,7 +551,18 @@ class PreprocessorLoader0D:
 
     def finalize(self, data):
         """
-        Reshape retrieval results into shape of input data.
+        Transform retrieval results into format of input data. Recreates
+        the scan and pixel dimensions that are lost due to the batch-wise
+        processing of the retrieval.
+
+        Args:
+            data: 'xarray.Dataset' containing the retrieval results
+                produced by evaluating the GPROF-NN model on the input
+                data from the loader.
+
+        Return:
+            The data in 'data' modified to match the format of the input
+            data.
         """
         scans = np.arange(data.samples.size // 221)
         pixels = np.arange(221)
@@ -546,7 +571,6 @@ class PreprocessorLoader0D:
                                            names=names)
         data = data.assign(samples=index).unstack('samples')
         return data.transpose("scans", "pixels", "layers")
-
 
     def write_retrieval_results(self,
                                 output_path,
@@ -586,17 +610,16 @@ class PreprocessorLoader2D:
                 input data.
             normalizer: The normalizer object to use to normalize the input
                 data.
-            scans_per_batch: How scans should be combined into a single
-                batch.
         """
         self.filename = filename
-        preprocessor_file = PreprocessorFile(filename)
-        self.data = preprocessor_file.to_xarray_dataset()
         self.normalizer = normalizer
-        self.n_scans = self.data.scans.size
-        self.n_pixels = self.data.pixels.size
 
-        input_data = combine_input_data_2d(self.data)
+        preprocessor_file = PreprocessorFile(filename)
+        data = preprocessor_file.to_xarray_dataset()
+        self.n_scans = data.scans.size
+        self.n_pixels = data.pixels.size
+
+        input_data = combine_input_data_2d(data)
         self.input_data = self.normalizer(input_data)
         self.padding = calculate_padding_dimensions(input_data)
 
