@@ -57,6 +57,9 @@ def test_match_l1c_mhs():
     assert "snow_water_content" in l1c_data.variables.keys()
     assert "rain_water_content" in l1c_data.variables.keys()
 
+    assert "brightness_temperature_biases" in l1c_data.variables.keys()
+    assert "simulated_brightness_temperatures" in l1c_data.variables.keys()
+
 
 def test_find_files():
     """

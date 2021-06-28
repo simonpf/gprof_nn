@@ -158,6 +158,51 @@ class SimFile:
         n_angles = 0
         if hasattr(self.sensor, "N_ANGLES"):
             n_angles = self.sensor.N_ANGLES
+        n_freqs = self.sensor.N_FREQS
+
+        if "tbs_simulated" in self.data.dtype.fields:
+            if n_angles > 0:
+                shape = (n_scans, dx + 1, n_angles, n_freqs)
+                full_shape = (n_scans, n_pixels, n_angles, n_freqs)
+                matched = np.zeros((n_scans * (dx + 1), n_angles * n_freqs))
+                dims = ("scans", "pixels_center", "angles", "channels_sim")
+            else:
+                shape = (n_scans, dx + 1, n_freqs)
+                full_shape = (n_scans, n_pixels, n_freqs)
+                matched = np.zeros((n_scans * (dx + 1), n_freqs))
+                dims = ("scans", "pixels_center", "channels_sim")
+            matched[:] = np.nan
+            matched[indices, ...] = self.data["tbs_simulated"]
+            matched[indices, ...][dists > 5e3] = np.nan
+            matched = matched.reshape(shape)
+
+            matched_full = np.zeros(full_shape, dtype=np.float32)
+            matched_full[:] = np.nan
+            matched_full[:, ix_start:ix_end] = matched
+
+            input_data["simulated_brightness_temperatures"] = (
+                dims,
+                matched_full[:, i_left:i_right]
+            )
+
+        if "tbs_bias" in self.data.dtype.fields:
+            shape = (n_scans, dx + 1, n_freqs)
+            full_shape = (n_scans, n_pixels, n_freqs)
+            matched = np.zeros((n_scans * (dx + 1), n_freqs))
+
+            matched[:] = np.nan
+            matched[indices, ...] = self.data["tbs_bias"]
+            matched[indices, ...][dists > 5e3] = np.nan
+            matched = matched.reshape(shape)
+
+            matched_full = np.zeros(full_shape, dtype=np.float32)
+            matched_full[:] = np.nan
+            matched_full[:, ix_start:ix_end] = matched
+
+            input_data["brightness_temperature_biases"] = (
+                ("scans", "pixels_center", "channels_sim"),
+                matched_full[:, i_left:i_right]
+            )
 
         # Extract matching data
         for t in targets:
