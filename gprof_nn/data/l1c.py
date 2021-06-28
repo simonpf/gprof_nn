@@ -44,7 +44,7 @@ class L1CFile:
             L1CFile object providing access to the requested file.
         """
         if date is not None:
-            date = pd.TimeStamp(date)
+            date = pd.Timestamp(date)
             year = date.year - 2000
             month = date.month
             day = date.day
@@ -95,6 +95,23 @@ class L1CFile:
         day = date.day
         data_path = Path(path) / f"{year:02}{month:02}" / f"{year:02}{month:02}{day:02}"
         files = list(data_path.glob(sensor.L1C_FILE_PREFIX + "*.V05A.HDF5"))
+
+        # Add files from following day.
+        date_f = date + pd.DateOffset(1)
+        year = date_f.year - 2000
+        month = date_f.month
+        day = date_f.day
+        data_path = Path(path) / f"{year:02}{month:02}" / f"{year:02}{month:02}{day:02}"
+        files += list(data_path.glob(sensor.L1C_FILE_PREFIX + "*.V05A.HDF5"))
+
+        # Add files from previous day.
+        date_f = date - pd.DateOffset(1)
+        year = date_f.year - 2000
+        month = date_f.month
+        day = date_f.day
+        data_path = Path(path) / f"{year:02}{month:02}" / f"{year:02}{month:02}{day:02}"
+        files += list(data_path.glob(sensor.L1C_FILE_PREFIX + "*.V05A.HDF5"))
+
         files += list(path.glob(sensor.L1C_FILE_PREFIX + "*.V05A.HDF5"))
 
         start_times = []
@@ -111,6 +128,10 @@ class L1CFile:
         end_times = np.array(end_times)
         date = date.to_datetime64()
 
+        if len(start_times) == 0 or len(end_times) == 0:
+            raise ValueError(
+                "No file found for the requested date."
+            )
         inds = np.where((start_times <= date) * (end_times >= date))[0]
         if len(inds) == 0:
             raise ValueError(
@@ -157,7 +178,6 @@ class L1CFile:
             f"*{date.year:04}{month:02}{day:02}*.V05A.HDF5"
         ))
         for f in files:
-            print(f)
             f = L1CFile(f)
             if roi is not None:
                 if f.covers_roi(roi):

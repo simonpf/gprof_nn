@@ -29,7 +29,6 @@ class GMI:
     SIM_FILE_PATTERN = "GMI.dbsatTb.??????{day}.??????.sim"
     L1C_FILE_PREFIX = "1C-R.GPM.GMI."
     N_FREQS = 15
-    PREPROCESSOR = "gprof2020pp_GMI_L1C"
     SIM_FILE_RECORD = np.dtype([
         ("pixel_index", "i4"),
         ("scan_index", "i4"),
@@ -73,6 +72,36 @@ class GMI:
             ("brightness_temperatures", "15f4"),
         ]
     )
+    PREPROCESSOR = "gprof2020pp_GMI_L1C"
+    PREPROCESSOR_ORBIT_HEADER = np.dtype([
+        ("satellite", "a12"),
+        ("sensor", "a12"),
+        ("preprocessor", "a12"),
+        ("profile_database_file", "a128"),
+        ("radiometer_file", "a128"),
+        ("calibration_file", "a128"),
+        ("granule_number", "i"),
+        ("number_of_scans", "i"),
+        ("number_of_pixels", "i"),
+        ("n_channels", "i"),
+        ("frequencies", f"{N_FREQS}f4"),
+        ("comment", "a40"),
+    ])
+    PREPROCESSOR_RECORD = np.dtype([
+        ("latitude", "f4"),
+        ("longitude", "f4"),
+        ("brightness_temperatures", f"{N_FREQS}f4"),
+        ("earth_incidence_angle", f"{N_FREQS}f4"),
+        ("wet_bulb_temperature", "f4"),
+        ("lapse_rate", "f4"),
+        ("total_column_water_vapor", "f4"),
+        ("surface_temperature", "f4"),
+        ("two_meter_temperature", "f4"),
+        ("quality_flag", "i"),
+        ("sunglint_angle", "i1"),
+        ("surface_type", "i1"),
+        ("airmass_type", "i2"),
+    ])
 
 
 class MHS:
@@ -81,7 +110,6 @@ class MHS:
     """
     SIM_FILE_PATTERN = "MHS.dbsatTb.??????{day}.??????.sim"
     L1C_FILE_PREFIX = "1C.METOP?.MHS."
-    PREPROCESSOR = "gprof2020pp_MHS_L1C"
     N_FREQS = 5
     N_ANGLES = 10
     SIM_FILE_RECORD = np.dtype([
@@ -102,8 +130,7 @@ class MHS:
         ("tbs_simulated", f"{N_FREQS * N_ANGLES}f4"),
         ("tbs_bias", f"{N_FREQS}f4")
     ])
-
-    MHS_FILE_RECORD = np.dtype(
+    MRMS_FILE_RECORD = np.dtype(
         [
             ("latitude", "f4"),
             ("longitude", "f4"),
@@ -125,3 +152,33 @@ class MHS:
             ("brightness_temperatures", "5f4"),
         ]
     )
+    PREPROCESSOR = "gprof2020pp_MHS_L1C"
+    PREPROCESSOR_ORBIT_HEADER = np.dtype([
+        ("satellite", "a12"),
+        ("sensor", "a12"),
+        ("preprocessor", "a12"),
+        ("profile_database_file", "a128"),
+        ("radiometer_file", "a128"),
+        ("calibration_file", "a128"),
+        ("granule_number", "i"),
+        ("number_of_scans", "i"),
+        ("number_of_pixels", "i"),
+        ("n_channels", "i"),
+        ("frequencies", f"{N_FREQS}f4"),
+        ("comment", "a40"),
+    ])
+    PREPROCESSOR_RECORD = np.dtype([
+        ("latitude", "f4"),
+        ("longitude", "f4"),
+        ("brightness_temperatures", f"{N_FREQS}f4"),
+        ("earth_incidence_angle", f"f4"),
+        ("wet_bulb_temperature", "f4"),
+        ("lapse_rate", "f4"),
+        ("total_column_water_vapor", "f4"),
+        ("surface_temperature", "f4"),
+        ("two_meter_temperature", "f4"),
+        ("quality_flag", "i"),
+        ("sunglint_angle", "i1"),
+        ("surface_type", "i1"),
+        ("airmass_type", "i2"),
+    ])
