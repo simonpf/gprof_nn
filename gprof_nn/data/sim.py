@@ -172,12 +172,12 @@ class SimFile:
                 shape = (n_scans, dx + 1, n_angles, n_freqs)
                 full_shape = (n_scans, n_pixels, n_angles, n_freqs)
                 matched = np.zeros((n_scans * (dx + 1), n_angles * n_freqs))
-                dims = ("scans", "pixels_center", "angles", "channels_sim")
+                dims = ("scans", "pixels_center", "angles", "channels")
             else:
                 shape = (n_scans, dx + 1, n_freqs)
                 full_shape = (n_scans, n_pixels, n_freqs)
                 matched = np.zeros((n_scans * (dx + 1), n_freqs))
-                dims = ("scans", "pixels_center", "channels_sim")
+                dims = ("scans", "pixels_center", "channels")
             matched[:] = np.nan
             matched[indices, ...] = self.data["tbs_simulated"]
             matched[indices, ...][dists > 5e3] = np.nan
@@ -207,7 +207,7 @@ class SimFile:
             matched_full[:, ix_start:ix_end] = matched
 
             input_data["brightness_temperature_biases"] = (
-                ("scans", "pixels_center", "channels_sim"),
+                ("scans", "pixels_center", "channels"),
                 matched_full[:, i_left:i_right]
             )
 
@@ -440,11 +440,20 @@ def _add_era5_precip(input_data, l1c_data, era5_data):
     tp = era5_data["tp"].interp(
         {"latitude": lats, "longitude": lons, "time": time}, method="nearest"
     )
-    input_data["surface_precip"].data[indices] = 1000.0 * tp.data
+    if len(input_data.surface_precip.dims) > 2:
+        tp = tp.data[..., np.newaxis]
+    else:
+        tp = tp.data
+    input_data["surface_precip"].data[indices] = 1000.0 * tp
+
     cp = era5_data["cp"].interp(
         {"latitude": lats, "longitude": lons, "time": time}, method="nearest"
     )
-    input_data["convective_precip"].data[indices] = 1000.0 * cp.data
+    if len(input_data.surface_precip.dims) > 2:
+        cp = cp.data[..., np.newaxis]
+    else:
+        cp = cp.data
+    input_data["convective_precip"].data[indices] = 1000.0 * cp
 
 
 def process_sim_file(sim_filename,
@@ -482,6 +491,14 @@ def process_sim_file(sim_filename,
     data_pp = run_preprocessor(l1c_file.filename, sensor=sensors.GMI)
     if data_pp is None:
         return None
+
+    sensor = sim_file.sensor
+    if sensor != sensors.GMI:
+        data_pp = data_pp.rename({
+            "channels": "channels_gmi",
+            "brightness_temperatures": "brightness_temperatures_gmi"}
+        )
+
     LOGGER.info("Matching retrieval targets for file %s.", sim_filename)
     sim_file.match_targets(data_pp)
     l1c_data = l1c_file.to_xarray_dataset()
@@ -492,7 +509,6 @@ def process_sim_file(sim_filename,
         if v in ["surface_precip", "convective_precip"]:
             data_pp[v].data[snow] = np.nan
 
-    sensor = sim_file.sensor
     if sensor == sensors.GMI:
         LOGGER.info("Adding ERA5 precip for file %s.", sim_filename)
         start_time = data_pp["scan_time"].data[0]
@@ -506,6 +522,8 @@ def process_sim_file(sim_filename,
         sea_ice = (surface_type == 2) + (surface_type == 16)
         for v in ["surface_precip", "convective_precip"]:
             data_pp[v].data[sea_ice] = np.nan
+
+
 
     data = _extract_scenes(data_pp)
     data["source"] = ("samples", np.zeros(data.samples.size,
@@ -567,6 +585,7 @@ def process_mrms_file(mrms_filename,
         data_pp["convective_precip"].data[~snow] = np.nan
         apply_orographic_enhancement(data_pp)
 
+        add_targets(data_pp, sensor)
         new_scenes = _extract_scenes(data_pp)
         if new_scenes is not None:
             scenes.append(new_scenes)
@@ -576,7 +595,7 @@ def process_mrms_file(mrms_filename,
         dataset["source"] = (("samples",),
                              np.ones(dataset.samples.size, dtype=np.int8))
         dataset = extend_pixels(dataset)
-        return add_targets(dataset)
+        return dataset
 
     return None
 
@@ -599,7 +618,7 @@ def process_l1c_file(l1c_filename,
     data_pp = run_preprocessor(l1c_filename, sensor=sensor)
     if data_pp is None:
         return None
-    data_pp = add_targets(data_pp)
+    data_pp = add_targets(data_pp, sensor)
     l1c_data = L1CFile(l1c_filename).to_xarray_dataset()
 
     start_time = data_pp["scan_time"].data[0]
@@ -665,7 +684,8 @@ def extend_pixels(data, n_pixels=221):
     return data_new
 
 
-def add_targets(data):
+def add_targets(data,
+                sensor):
     """
     Helper function to ensure all target variables are present in
     dataset.
@@ -692,6 +712,72 @@ def add_targets(data):
                                  dtype=np.float32)
                     d[:] = np.nan
                     data[t] = (("scans", "pixels_center"), d)
+
+    if sensor != sensors.GMI:
+        d = np.zeros((n_scans, n_pixels, 15), dtype=np.float32)
+        d[:] = np.nan
+        data["brightness_temperatures_gmi"] = (
+                ("scans", "pixels", "channels_gmi"), d
+        )
+        if hasattr(sensor, "N_ANGLES"):
+            n_angles = sensor.N_ANGLES
+
+            shape = (n_scans, n_pixels, n_angles, sensor.N_FREQS)
+            d = np.zeros(shape, dtype=np.float32)
+            d[:] = np.nan
+            data["simulated_brightness_temperatures"] = (
+                    ("scans", "pixels", "angles", "channels"), d
+            )
+
+            for v in ["surface_precip", "convective_precip"]:
+                values = data[v].data
+                new_shape = (n_scans, n_pixels, n_angles)
+                values = np.broadcast_to(values[..., np.newaxis], new_shape)
+                data[v] = (("scans", "pixels", "angles"), values.copy())
+
+        else:
+            shape = (n_scans, n_pixels, sensor.N_FREQS)
+            d = np.zeros(shape, dtype=np.float32)
+            d[:] = np.nan
+            data["simulated_brightness_temperatures"] = (
+                    ("scans", "pixels", "channels"), d
+            )
+
+        shape = (n_scans, n_pixels, sensor.N_FREQS)
+        d = np.zeros(shape, dtype=np.float32)
+        d[:] = np.nan
+        data["brightness_temperature_biases"] = (
+                ("scans", "pixels", "channels"), d
+        )
+    return data
+
+def add_brightness_temperatures(data, sensor):
+    if "brightness_temperatures" in data.variables.keys():
+        return data
+    n_samples = data.samples.size
+    n_scans = data.scans.size
+    n_pixels = data.pixels.size
+
+    if hasattr(sensor, "N_ANGLES"):
+        n_angles = sensor.N_ANGLES
+        n_channels = sensor.N_FREQS
+
+        shape = (n_samples, n_scans, n_pixels, n_angles, n_channels)
+        bts = np.zeros(shape, dtype=np.float32)
+        bts[:] = np.nan
+        data["brightness_temperatures"] = (
+                ("samples", "scans", "pixels", "angles", "channels"),
+                bts
+        )
+    else:
+        n_channels = sensor.N_FREQS
+        shape = (n_samples, n_scans, n_pixels, n_channels)
+        bts = np.zeros(shape, dtype=np.float32)
+        bts[:] = np.nan
+        data["brightness_temperatures"] = (
+                ("samples", "scans", "pixels", "channels"),
+                bts
+        )
     return data
 
 ###############################################################################
@@ -767,7 +853,7 @@ class SimFileProcessor:
         l1c_files = np.random.permutation(l1c_files)
 
         n_sim_files = len(sim_files)
-        print(f"Found {n_sim_files} .sim files.")
+        print(f"Found {n_sim_files} SIM files.")
         n_mrms_files = len(mrms_files)
         print(f"Found {n_mrms_files} MRMS files.")
         n_l1c_files = len(l1c_files)
@@ -815,14 +901,17 @@ class SimFileProcessor:
                 )
                 console.print_exception()
                 dataset = None
+
+            print(dataset)
             if dataset is not None:
+                dataset = add_brightness_temperatures(dataset, self.sensor)
                 datasets.append(dataset)
 
             if len(datasets) >= chunk_size:
                 chunk_index += 1
                 filename = output_path / (output_file + f"_{dataset_index:02}.nc")
                 print(f"Concatenating data file: {filename}")
-                dataset = xr.concat(datasets, "samples")
+                dataset = xr.concat(datasets, "samples", fill_value=np.nan)
                 print(f"Writing file: {filename}")
                 dataset.to_netcdf(filename)
                 if chunk_index == (n_datasets % n_chunks):
