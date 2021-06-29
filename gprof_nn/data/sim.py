@@ -9,6 +9,7 @@ This module contains functions to read and convert .sim files for GPROF
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 import logging
 from pathlib import Path
+import tempfile
 import traceback
 import sys
 
@@ -333,20 +334,24 @@ def _extract_scenes(data):
     if np.all(np.isnan(sp)):
         return None
 
-    i_start, i_end = np.where(np.any(~np.isnan(sp), axis=1))[0][[0, -1]]
-
+    i_start = 0
+    i_end =  data.scans.size
 
     scenes = []
     i = i_start
     while i_start + n < i_end:
         subscene = data[{"scans": slice(i_start, i_start + n)}]
-        sp = subscene["surface_precip"]
-        scenes.append(subscene)
-        i_start += n
+        sp = subscene["surface_precip"].data
+        if np.isfinite(sp).sum() > 5:
+            scenes.append(subscene)
+            i_start += n
+        else:
+            i_start += n // 2
 
     if scenes:
         return xr.concat(scenes, "samples")
     return None
+
 
 def _find_l1c_file(path, sim_file):
     """
@@ -446,9 +451,15 @@ def process_sim_file(sim_filename,
     Extract 2D training scenes from sim file.
 
     This method reads a given sim file, matches it with the input data
-    from the corresponding l1c and preprocessor files, adds ERA5 precip
-    over sea ice and returns a dataset of 221 x 221 scenes for training
-    of the GPROF-NN 2D algorithm.
+    from the GMI L1C file and preprocessor files and reshapes the
+    data to scenes of dimensions 221 x 221.
+
+    For the GMI sensor also ERA5 precip over sea ice and sea ice edge are
+    added to the surface precipitation.
+    
+    Surface and convective precipitation over mountains is set to NAN.
+    This is also done for precipitation over sea ice for sensors that
+    are not GMI.
 
     Args:
         sim_filename: Filename of the Sim file to process.
@@ -473,6 +484,13 @@ def process_sim_file(sim_filename,
     sim_file.match_targets(data_pp)
     l1c_data = l1c_file.to_xarray_dataset()
 
+    surface_type = data_pp.variables["surface_type"].data
+    snow = (surface_type >= 8) * (surface_type <= 11)
+    for v in data_pp.variables:
+        if v in ["surface_precip", "convective_precip"]:
+            data_pp[v].data[snow] = np.nan
+
+    sensor = sim_file.sensor
     if sensor == sensors.GMI:
         LOGGER.info("Adding ERA5 precip for file %s.", sim_filename)
         start_time = data_pp["scan_time"].data[0]
@@ -482,12 +500,10 @@ def process_sim_file(sim_filename,
         _add_era5_precip(data_pp, l1c_data, era5_data)
         LOGGER.info("Added era5 precip.")
         apply_orographic_enhancement(data_pp)
-
-    surface_type = data_pp.variables["surface_type"].data
-    snow = (surface_type >= 8) * (surface_type <= 11)
-    for v in data_pp.variables:
-        if v in ["surface_precip", "convective_precip"]:
-            data_pp[v].data[snow] = np.nan
+    else:
+        sea_ice = (surface_type == 2) + (surface_type == 16)
+        for v in ["surface_precip", "convective_precip"]:
+            data_pp[v].data[sea_ice] = np.nan
 
     data = _extract_scenes(data_pp)
     data["source"] = ("samples", np.zeros(data.samples.size,
@@ -510,14 +526,14 @@ def process_mrms_file(mrms_filename,
     import gprof_nn.logging
     LOGGER.info("Starting processing MRMS file %s.", mrms_filename)
     mrms_file = MRMSMatchFile(mrms_filename)
-    sensor = mrmr_file.sensor
+    sensor = mrms_file.sensor
 
     indices = np.where(mrms_file.data["scan_time"][:, 2] == day)[0]
     if len(indices) <= 0:
         return None
     date = mrms_file.scan_time[indices[len(indices) // 2]]
     l1c_files = list(L1CFile.find_files(date,
-                                        l1c_path,
+                                        sensor.L1C_PATH,
                                         roi=CONUS,
                                         sensor=sensor))
 
@@ -526,17 +542,24 @@ def process_mrms_file(mrms_filename,
                 len(l1c_files),
                 mrms_filename)
     for f in l1c_files:
-        data_pp = run_preprocessor(f.filename, sensor=sensor)
+        # Extract scans over CONUS ans run preprocessor.
+        _, f_roi = tempfile.mkstemp()
+        try:
+            f.extract_scans(CONUS, f_roi)
+            data_pp = run_preprocessor(f_roi, sensor=sensor)
+        finally:
+            Path(f_roi).unlink()
         if data_pp is None:
             continue
 
         LOGGER.info("Matching MRMS data for %s.",
                     f.filename)
         mrms_file.match_targets(data_pp)
-        surface_type = data_pp["surface_type"]
+        surface_type = data_pp["surface_type"].data
         snow = (surface_type >= 8) * (surface_type <= 11)
         if snow.sum() <= 0:
             continue
+
         # Keep only obs over snow.
         data_pp["surface_precip"].data[~snow] = np.nan
         data_pp["convective_precip"].data[~snow] = np.nan
@@ -544,11 +567,13 @@ def process_mrms_file(mrms_filename,
 
         new_scenes = _extract_scenes(data_pp)
         if new_scenes is not None:
-            scenes.append(_extract_scenes(data_pp))
+            scenes.append(new_scenes)
 
     if scenes:
         dataset = xr.concat(scenes, "samples")
-        dataset["source"] = ("samples",), np.ones(dataset.samples, dtype=int8)
+        dataset["source"] = (("samples",),
+                             np.ones(dataset.samples.size, dtype=np.int8))
+        dataset = extend_pixels(dataset)
         return add_targets(dataset)
 
     return None
@@ -556,29 +581,39 @@ def process_mrms_file(mrms_filename,
 
 def extend_pixels(data, n_pixels=221):
     """
-    Extends 'pixels' dimension of dataset to 221.
+    Extends 'pixels' dimension of dataset to 'n_pixels'.
+
+    Args:
+        data: The 'xarray.Dataset' which should be extened to match
+            the given size 'n_pixels' along the 'pixels' dimension.
+        n_pixels: The desired extent of the 'pixels' dimension.
+
+    Return:
+        A new xarray dataset containing the variables of 'data' but with
+        the 'pixels' dimensions extend to the given size.
     """
+    if "pixels" in data.dims and data.pixels.size == 221:
+        return data
     dimensions = {n: d for n,d in data.dims.items()}
-    print(dimensions)
     dimensions["pixels"] = n_pixels
     data_new = {n: d for n,d in data.dims.items()}
     data_new["pixels"] = np.arange(n_pixels)
 
     data_new = {}
     for n, v in data.variables.items():
-        shape = (dimensions[d] for d in v.dims)
-        print(shape)
+        shape = tuple(dimensions[d] for d in v.dims)
         dims = [v for v in v.dims]
         x = np.zeros(shape, v.dtype)
         x[:] = np.nan
-        data_new[v] = (dims, x)
+        data_new[n] = (dims, x)
 
     l = (n_pixels - data.pixels.size) // 2
     r = n_pixels - data.pixels.size - l
 
-    data_new_sub = data_new[{"pixels": slice(l, r)}]
+    data_new = xr.Dataset(data_new)
+    data_new_sub = data_new[{"pixels": slice(l, -r)}]
     for n, v in data.variables.items():
-        data_new_sub[n].data = data[n].data
+        data_new_sub[n].data[:] = data[n].data[:]
 
     return data_new
 

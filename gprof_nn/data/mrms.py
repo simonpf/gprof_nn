@@ -17,29 +17,6 @@ from gprof_nn import sensors
 from gprof_nn.coordinates import latlon_to_ecef
 
 
-DATA_RECORD_TYPES = np.dtype(
-    [
-        ("latitude", "f4"),
-        ("longitude", "f4"),
-        ("scan_time", f"5i4"),
-        ("quality_flag", f"f4"),
-        ("surface_precip", "f4"),
-        ("surface_rain", "f4"),
-        ("convective_rain", "f4"),
-        ("stratiform_rain", "f4"),
-        ("snow", "f4"),
-        ("quality_index", "f4"),
-        ("gauge_fraction", "f4"),
-        ("standard_deviation", "f4"),
-        ("n_stratiform", "i4"),
-        ("n_convective", "i4"),
-        ("n_rain", "i4"),
-        ("n_snow", "i4"),
-        ("fraction_missing", "f4"),
-        ("brightness_temperatures", "15f4"),
-    ]
-)
-
 class MRMSMatchFile:
     """
     Class to read GMI-MRMS match up files.
@@ -85,16 +62,17 @@ class MRMSMatchFile:
             if "GMI" in filename.name:
                 sensor = sensors.GMI
             elif "MHS" in filename.name:
-                sensor = sensor.MHS
+                sensor = sensors.MHS
             else:
                 raise ValueError(
                     "Could not infer sensor from filename. Consider passing "
                     "the sensor argument explicitly."
                 )
+        self.sensor = sensor
 
         with open(filename, "rb") as source:
             buffer = gzip.decompress(source.read())
-        self.data = np.frombuffer(buffer, DATA_RECORD_TYPES)
+        self.data = np.frombuffer(buffer, sensor.MRMS_RECORD)
         self.n_obs = self.data.size
 
         self.scan_time = np.zeros(self.n_obs, dtype="datetime64[ns]")
@@ -134,7 +112,7 @@ class MRMSMatchFile:
         data = self.data[indices]
         dims = ("samples",)
         dataset = {}
-        for k in DATA_RECORD_TYPES.names:
+        for k in self.sensor.MRMS_RECORD.names:
             if k == "brightness_temperatures":
                 ds = dims + ("channel",)
             elif k == "scan_time":
@@ -228,6 +206,13 @@ _RATIO_FILE = ("/qdata1/pbrown/dbaseV7/mrms_snow_scale_factors/"
               "bin")
 
 _MRMS_RATIOS = None
+
+def has_snowdas_ratios():
+    """
+    Simple test function to determine whether snowdas ratio files are
+    present on system.
+    """
+    return Path(_RATIO_FILE).exists()
 
 def get_mrms_ratios():
     """

@@ -287,34 +287,35 @@ class L1CFile:
                             name, shape=(n_scans,) + shape[1:], data=item[indices]
                         )
 
-                g = output.create_group("S2")
-                for name, item in input["S2"].items():
-                    if isinstance(item, h5py.Dataset):
-                        shape = item.shape
-                        g.create_dataset(
-                            name, shape=(n_scans,) + shape[1:], data=item[indices]
-                        )
-                for a in input["S2"].attrs:
-                    s = input["S2"].attrs[a].decode()
-                    s = _RE_META_INFO.sub(f"NumberScansGranule={n_scans};", s)
-                    s = np.bytes_(s)
-                    g.attrs[a] = s
+                if "S2" in input.keys():
+                    g = output.create_group("S2")
+                    for name, item in input["S2"].items():
+                        if isinstance(item, h5py.Dataset):
+                            shape = item.shape
+                            g.create_dataset(
+                                name, shape=(n_scans,) + shape[1:], data=item[indices]
+                            )
+                    for a in input["S2"].attrs:
+                        s = input["S2"].attrs[a].decode()
+                        s = _RE_META_INFO.sub(f"NumberScansGranule={n_scans};", s)
+                        s = np.bytes_(s)
+                        g.attrs[a] = s
 
-                g_st = g.create_group("ScanTime")
-                for name, item in input["S2/ScanTime"].items():
-                    if isinstance(item, h5py.Dataset):
-                        shape = item.shape
-                        g_st.create_dataset(
-                            name, shape=(n_scans,) + shape[1:], data=item[indices]
-                        )
-
-                g_sc = g.create_group("SCstatus")
-                for name, item in input["S2/SCstatus"].items():
-                    if isinstance(item, h5py.Dataset):
-                        shape = item.shape
-                        g_sc.create_dataset(
-                            name, shape=(n_scans,) + shape[1:], data=item[indices]
-                        )
+                    g_st = g.create_group("ScanTime")
+                    for name, item in input["S2/ScanTime"].items():
+                        if isinstance(item, h5py.Dataset):
+                            shape = item.shape
+                            g_st.create_dataset(
+                                name, shape=(n_scans,) + shape[1:], data=item[indices]
+                            )
+    
+                    g_sc = g.create_group("SCstatus")
+                    for name, item in input["S2/SCstatus"].items():
+                        if isinstance(item, h5py.Dataset):
+                            shape = item.shape
+                            g_sc.create_dataset(
+                                name, shape=(n_scans,) + shape[1:], data=item[indices]
+                            )
 
                 for a in input.attrs:
                     output.attrs[a] = input.attrs[a]

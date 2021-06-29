@@ -11,7 +11,9 @@ from gprof_nn.data.sim import (SimFile,
                                _load_era5_data,
                                _add_era5_precip,
                                apply_orographic_enhancement,
-                               extend_pixels)
+                               extend_pixels,
+                               process_mrms_file,
+                               process_sim_file)
 from gprof_nn.data.preprocessor import PreprocessorFile
 
 
@@ -137,11 +139,70 @@ def test_orographic_enhancement(tmp_path):
     assert np.all(np.isclose(cp[indices], cp_ref[indices], rtol=1e-3))
 
 def test_extend_dataset():
+    """
+    Ensure that extending a dataset along pixel dimensions works as expected.
+    """
     data = xr.Dataset({
         "data": (("scans", "pixels"), np.zeros((221, 1)))
     })
     extended = extend_pixels(data)
-    print(extended.data)
     assert np.all(np.isclose(extended.data[:, 110], 0.0))
 
+
+def test_process_sim_file_gmi():
+    sim_file = (Path(__file__).parent /
+                "data" /
+                "GMI.dbsatTb.20181001.026079.sim")
+    era5_path = "/qdata2/archive/ERA5/"
+    data = process_sim_file(sim_file, era5_path)
+
+    assert np.all(data["source"].data == 0)
+    sp = data["surface_precip"].data
+    st = data["surface_type"].data
+    snow = (st >= 8) * (st <= 11)
+    assert np.all(np.isnan(sp[snow]))
+
+
+def test_process_mrms_file_gmi():
+    """
+    Test processing of MRMS-GMI matches for a given day.
+    """
+    mrms_file = (Path(__file__).parent /
+                 "data" /
+                 "1801_MRMS2GMI_gprof_db_08all.bin.gz")
+    era5_path = "/qdata2/archive/ERA5/"
+    data = process_mrms_file(mrms_file, 24)
+    assert data is not None
+    assert data.pixels.size == 221
+    assert np.all(data["source"].data == 1)
+
+
+def test_process_sim_file_mhs():
+    sim_file = (Path(__file__).parent /
+                "data" /
+                "MHS.dbsatTb.20181001.026079.sim")
+    era5_path = "/qdata2/archive/ERA5/"
+    data = process_sim_file(sim_file, era5_path)
+
+    assert np.all(data["source"].data == 0)
+    sp = data["surface_precip"].data
+    st = data["surface_type"].data
+    snow = (st >= 8) * (st <= 11)
+    sea_ice = (st == 2) + (st == 16)
+
+    assert np.all(np.isnan(sp[snow + sea_ice]))
+
+
+def test_process_mrms_file_mhs():
+    """
+    Test processing of MRMS-MHS (NOAA-19) matches for a given day.
+    """
+    mrms_file = (Path(__file__).parent /
+                 "data" /
+                 "1801_MRMS2MHS_DB1_01.bin.gz")
+    era5_path = "/qdata2/archive/ERA5/"
+    data = process_mrms_file(mrms_file, 23)
+    assert data is not None
+    assert data.pixels.size == 221
+    assert np.all(data["source"].data == 1)
 

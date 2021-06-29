@@ -52,7 +52,7 @@ class GMI:
         ("d_tbs", f"{N_FREQS}f4"),
         ("tbs_bias", f"{N_FREQS}f4"),
     ])
-    MRMS_FILE_RECORD = np.dtype(
+    MRMS_RECORD = np.dtype(
         [
             ("latitude", "f4"),
             ("longitude", "f4"),
@@ -111,8 +111,8 @@ class MHS:
     The GPROF Microwave Imager (GMI) sensor.
     """
     SIM_FILE_PATTERN = "MHS.dbsatTb.??????{day}.??????.sim"
-    L1C_FILE_PREFIX = "1C.METOP?.MHS."
-    L1C_PATH="/pdata4/archive/GPM/1C_METOPB"
+    L1C_FILE_PREFIX = "1C.*.MHS."
+    L1C_PATH="/pdata4/archive/GPM/1C_NOAA19"
     SIM_FILE_PATH="/qdata1/pbrown/dbaseV7/simV7"
     N_FREQS = 5
     N_ANGLES = 10
@@ -134,12 +134,22 @@ class MHS:
         ("tbs_simulated", f"{N_FREQS * N_ANGLES}f4"),
         ("tbs_bias", f"{N_FREQS}f4")
     ])
-    MRMS_FILE_RECORD = np.dtype(
+    MRMS_RECORD = np.dtype(
         [
+            ("datasetnum", "i"),
             ("latitude", "f4"),
             ("longitude", "f4"),
+            ("orbitnum", "i"),
+            ("scan_number", "i"),
+            ("pixel_number", "i"),
             ("scan_time", f"5i4"),
-            ("quality_flag", f"f4"),
+            ("skin_temperature", "f4"),
+            ("total_column_water_vapor", "f4"),
+            ("surface_type", "f4"),
+            ("quality_flag", "f4"),
+            ("two_meter_temperature", "f4"),
+            ("wet_bulb_temperature", "f4"),
+            ("lapse_rate_500", "f4"),
             ("surface_precip", "f4"),
             ("surface_rain", "f4"),
             ("convective_rain", "f4"),
@@ -153,7 +163,7 @@ class MHS:
             ("n_rain", "i4"),
             ("n_snow", "i4"),
             ("fraction_missing", "f4"),
-            ("brightness_temperatures", "5f4"),
+            ("brightness_temperatures", "5f4")
         ]
     )
     PREPROCESSOR = "gprof2020pp_MHS_L1C"

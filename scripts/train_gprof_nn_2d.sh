@@ -9,4 +9,4 @@ TARGETS="surface_precip convective_precip rain_water_path ice_water_path cloud_w
 export QUANTNN_LOG_LEVEL=INFO
 export OMP_NUM_THREADS=4
 
-python train_gprof_nn_2d.py  ${TRAINING_DATA} ${VALIDATION_DATA} ${MODEL_PATH} --n_features_head 256 --n_features_body  256 --n_blocks 2 --n_layers_head 4 --device cuda:0 --targets ${TARGETS} --type qrnn_exp --batch_size 2
+python train_gprof_nn_2d.py  ${TRAINING_DATA} ${VALIDATION_DATA} ${MODEL_PATH} --n_features_head 256 --n_features_body  256 --n_blocks 8 --n_layers_head 4 --device cuda:0 --targets ${TARGETS} --type qrnn_exp --batch_size 2
