@@ -26,10 +26,10 @@ class GMI:
     """
     The GPROF Microwave Imager (GMI) sensor.
     """
-    SIM_FILE_PATTERN = "GMI.dbsatTb.??????{day}.??????.sim"
-    L1C_FILE_PREFIX = "1C-R.GPM.GMI."
     N_FREQS = 15
-    L1C_PATH="/pdata4/archive/GPM/1CR_GMI"
+    L1C_FILE_PREFIX = "1C-R.GPM.GMI."
+    L1C_FILE_PATH="/pdata4/archive/GPM/1CR_GMI"
+    SIM_FILE_PATTERN = "GMI.dbsatTb.??????{day}.??????.sim"
     SIM_FILE_PATH="/qdata1/pbrown/dbaseV7/simV7"
     SIM_FILE_RECORD = np.dtype([
         ("pixel_index", "i4"),
@@ -52,6 +52,7 @@ class GMI:
         ("d_tbs", f"{N_FREQS}f4"),
         ("tbs_bias", f"{N_FREQS}f4"),
     ])
+    MRMS_FILE_PATH = "/pdata4/veljko/GMI2MRMS_match2019/db_mrms4GMI/"
     MRMS_RECORD = np.dtype(
         [
             ("latitude", "f4"),
@@ -110,12 +111,12 @@ class MHS:
     """
     The GPROF Microwave Imager (GMI) sensor.
     """
-    SIM_FILE_PATTERN = "MHS.dbsatTb.??????{day}.??????.sim"
-    L1C_FILE_PREFIX = "1C.*.MHS."
-    L1C_PATH="/pdata4/archive/GPM/1C_NOAA19"
-    SIM_FILE_PATH="/qdata1/pbrown/dbaseV7/simV7"
     N_FREQS = 5
     N_ANGLES = 10
+    L1C_FILE_PREFIX = "1C.*.MHS."
+    L1C_FILE_PATH="/pdata4/archive/GPM/1C_NOAA19"
+    SIM_FILE_PATTERN = "MHS.dbsatTb.??????{day}.??????.sim"
+    SIM_FILE_PATH="/qdata1/pbrown/dbaseV7/simV7x"
     SIM_FILE_RECORD = np.dtype([
         ("pixel_index", "i4"),
         ("scan_index", "i4"),
@@ -134,6 +135,7 @@ class MHS:
         ("tbs_simulated", f"{N_FREQS * N_ANGLES}f4"),
         ("tbs_bias", f"{N_FREQS}f4")
     ])
+    MRMS_FILE_PATH = "/pdata4/veljko/MHS2MRMS_match2019/monthly_2021/"
     MRMS_RECORD = np.dtype(
         [
             ("datasetnum", "i"),

@@ -7,6 +7,7 @@ This module contains functions to read and convert .sim files for GPROF
  v. 7.
 """
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
+from datetime import datetime
 import logging
 from pathlib import Path
 import tempfile
@@ -25,7 +26,8 @@ from gprof_nn import sensors
 from gprof_nn.definitions import (ALL_TARGETS,
                                   N_LAYERS,
                                   LEVELS,
-                                  DATABASE_MONTHS)
+                                  DATABASE_MONTHS,
+                                  MISSING)
 from gprof_nn.coordinates import latlon_to_ecef
 from gprof_nn.data.preprocessor import PreprocessorFile, run_preprocessor
 from gprof_nn.data.l1c import L1CFile
@@ -474,7 +476,7 @@ def process_sim_file(sim_filename,
     LOGGER.info("Starting processing sim file %s.", sim_filename)
     sim_file = SimFile(sim_filename)
     l1c_file = L1CFile.open_granule(sim_file.granule,
-                                    sensors.GMI.L1C_PATH)
+                                    sensors.GMI.L1C_FILE_PATH)
 
     LOGGER.info("Running preprocessor for sim file %s.", sim_filename)
     data_pp = run_preprocessor(l1c_file.filename, sensor=sensors.GMI)
@@ -533,7 +535,7 @@ def process_mrms_file(mrms_filename,
         return None
     date = mrms_file.scan_time[indices[len(indices) // 2]]
     l1c_files = list(L1CFile.find_files(date,
-                                        sensor.L1C_PATH,
+                                        sensor.L1C_FILE_PATH,
                                         roi=CONUS,
                                         sensor=sensor))
 
@@ -579,6 +581,48 @@ def process_mrms_file(mrms_filename,
     return None
 
 
+def process_l1c_file(l1c_filename,
+                     sensor,
+                     era5_path):
+    """
+    Match L1C files with ERA5 surface and convective precipitation for
+    sea-ice and sea-ice-edge surfaces.
+
+    Args:
+        l1c_filename: Path to a L1C file which to match with ERA5 precip.
+        sensor: Sensor class defining the sensor for which to process the
+            L1C files.
+        era5_path: Root of the directory tree containing the ERA5 data.
+    """
+    import gprof_nn.logging
+    l1c_file = L1CFile(l1c_filename)
+    data_pp = run_preprocessor(l1c_filename, sensor=sensor)
+    if data_pp is None:
+        return None
+    data_pp = add_targets(data_pp)
+    l1c_data = L1CFile(l1c_filename).to_xarray_dataset()
+
+    start_time = data_pp["scan_time"].data[0]
+    end_time = data_pp["scan_time"].data[-1]
+    era5_data = _load_era5_data(start_time, end_time, era5_path)
+    _add_era5_precip(data_pp, l1c_data, era5_data)
+    apply_orographic_enhancement(data_pp)
+
+    surface_type = data_pp["surface_type"].data
+    sea_ice = (surface_type == 2) + (surface_type == 16)
+    for v in ["surface_precip", "convective_precip"]:
+        data_pp[v].data[~sea_ice] = np.nan
+
+    scenes = _extract_scenes(data_pp)
+    scenes["source"] = (
+        ("samples",),
+        2 * np.ones(scenes.samples.size, dtype=np.int8)
+    )
+    if scenes is not None:
+        scenes = extend_pixels(scenes)
+    return scenes
+
+
 def extend_pixels(data, n_pixels=221):
     """
     Extends 'pixels' dimension of dataset to 'n_pixels'.
@@ -604,7 +648,10 @@ def extend_pixels(data, n_pixels=221):
         shape = tuple(dimensions[d] for d in v.dims)
         dims = [v for v in v.dims]
         x = np.zeros(shape, v.dtype)
-        x[:] = np.nan
+        if v.dtype in [np.float32, np.float64]:
+            x[:] = np.nan
+        else:
+            x[:] = -1
         data_new[n] = (dims, x)
 
     l = (n_pixels - data.pixels.size) // 2
@@ -698,52 +745,54 @@ class SimFileProcessor:
         stores the names of the produced result files in the ``processed`` attribute
         of the driver.
         """
-        if self.sim_file_path is not None:
-            sim_files = SimFile.find_files(self.sim_file_path,
-                                           sensor=self.sensor,
-                                           day=self.day)
-        else:
-            sim_files = []
+        sim_file_path = self.sensor.SIM_FILE_PATH
+        sim_files = SimFile.find_files(sim_file_path,
+                                       sensor=self.sensor,
+                                       day=self.day)
         sim_files = np.random.permutation(sim_files)
 
-        if self.mrms_path is not None:
-            mrms_files = MRMSMatchFile.find_files(self.mrms_path,
-                                                  sensor=self.sensor)
-        else:
-            mrms_files = []
-        mrms_files = np.random.permutation(mrms_files,
-                                           sensor=self.sensor)
+        mrms_file_path = self.sensor.MRMS_FILE_PATH
+        mrms_files = MRMSMatchFile.find_files(mrms_file_path,
+                                              sensor=self.sensor)
+        mrms_files = np.random.permutation(mrms_files)
 
+        l1c_file_path = self.sensor.L1C_FILE_PATH
         l1c_files = []
         for year, month in DATABASE_MONTHS:
-            date = datetime(year, month, day)
-            l1c_files += L1CFile.find_file(date,
-                                           self.L1C_PATH,
-                                           self.sensor)
+            date = datetime(year, month, self.day)
+            l1c_files += L1CFile.find_files(date,
+                                            l1c_file_path,
+                                            sensor=self.sensor)
+        l1c_files = [f.filename for f in l1c_files]
+        l1c_files = np.random.permutation(l1c_files)
 
         n_sim_files = len(sim_files)
         print(f"Found {n_sim_files} .sim files.")
         n_mrms_files = len(mrms_files)
         print(f"Found {n_mrms_files} MRMS files.")
-        n_l1c_files = len(mrms_files)
-        print(f"Found {n_l1c_files} MRMS files.")
+        n_l1c_files = len(l1c_files)
+        print(f"Found {n_l1c_files} L1C files.")
         i = 0
 
         # Submit tasks interleaving .sim and MRMS files.
         tasks = []
-        while i < max(n_sim_files, n_mrms_files):
+        while i < max(n_sim_files, n_mrms_files, n_l1c_files):
             if i < n_sim_files:
                 sim_file = sim_files[i]
                 tasks.append(self.pool.submit(process_sim_file,
                                               sim_file,
-                                              self.l1c_path,
                                               self.era5_path))
             if i < n_mrms_files:
                 mrms_file = mrms_files[i]
                 tasks.append(self.pool.submit(process_mrms_file,
                                               mrms_file,
-                                              self.day,
-                                              self.l1c_path))
+                                              self.day))
+            if i < n_l1c_files:
+                l1c_file = l1c_files[i]
+                tasks.append(self.pool.submit(process_l1c_file,
+                                              l1c_file,
+                                              self.sensor,
+                                              self.era5_path))
             i += 1
 
         n_datasets = len(tasks)

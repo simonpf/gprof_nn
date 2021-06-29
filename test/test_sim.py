@@ -6,6 +6,7 @@ from pathlib import Path
 import numpy as np
 import xarray as xr
 
+from gprof_nn import sensors
 from gprof_nn.data.l1c import L1CFile
 from gprof_nn.data.sim import (SimFile,
                                _load_era5_data,
@@ -13,7 +14,8 @@ from gprof_nn.data.sim import (SimFile,
                                apply_orographic_enhancement,
                                extend_pixels,
                                process_mrms_file,
-                               process_sim_file)
+                               process_sim_file,
+                               process_l1c_file)
 from gprof_nn.data.preprocessor import PreprocessorFile
 
 
@@ -177,6 +179,22 @@ def test_process_mrms_file_gmi():
     assert np.all(data["source"].data == 1)
 
 
+def test_process_l1c_file_gmi():
+    l1c_file = (Path(__file__).parent /
+                "data" /
+                "1C-R.GPM.GMI.XCAL2016-C.20180124-S000358-E013632.022190.V05A.HDF5")
+    era5_path = "/qdata2/archive/ERA5/"
+    data = process_l1c_file(l1c_file, sensors.GMI, era5_path)
+
+    assert np.all(data["source"].data == 2)
+
+    sp = data["surface_precip"].data
+    st = data["surface_type"].data
+    si = (st == 2) + (st == 16)
+    assert np.all(np.isfinite(sp[si]))
+    assert np.all(np.isnan(sp[~si]))
+
+
 def test_process_sim_file_mhs():
     sim_file = (Path(__file__).parent /
                 "data" /
@@ -206,3 +224,18 @@ def test_process_mrms_file_mhs():
     assert data.pixels.size == 221
     assert np.all(data["source"].data == 1)
 
+
+def test_process_l1c_file_mhs():
+    l1c_file = (Path(__file__).parent /
+                "data" /
+                "1C.METOPB.MHS.XCAL2016-V.20190101-S011834-E025954.032624.V05A.HDF5")
+    era5_path = "/qdata2/archive/ERA5/"
+    data = process_l1c_file(l1c_file, sensors.MHS, era5_path)
+
+    assert np.all(data["source"].data == 2)
+
+    sp = data["surface_precip"].data
+    st = data["surface_type"].data
+    si = (st == 2) + (st == 16)
+    assert np.all(np.isfinite(sp[si]))
+    assert np.all(np.isnan(sp[~si]))
