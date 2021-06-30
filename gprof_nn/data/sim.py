@@ -692,6 +692,7 @@ def add_targets(data,
     """
     n_scans = data.scans.size
     n_pixels = data.pixels.size
+    n_pixels_center = 41
     n_levels = 28
 
     for t in ALL_TARGETS:
@@ -722,11 +723,11 @@ def add_targets(data,
         if hasattr(sensor, "N_ANGLES"):
             n_angles = sensor.N_ANGLES
 
-            shape = (n_scans, n_pixels, n_angles, sensor.N_FREQS)
+            shape = (n_scans, n_pixels_center, n_angles, sensor.N_FREQS)
             d = np.zeros(shape, dtype=np.float32)
             d[:] = np.nan
             data["simulated_brightness_temperatures"] = (
-                    ("scans", "pixels", "angles", "channels"), d
+                    ("scans", "pixels_center", "angles", "channels"), d
             )
 
             for v in ["surface_precip", "convective_precip"]:
@@ -736,18 +737,18 @@ def add_targets(data,
                 data[v] = (("scans", "pixels", "angles"), values.copy())
 
         else:
-            shape = (n_scans, n_pixels, sensor.N_FREQS)
+            shape = (n_scans, n_pixels_center, sensor.N_FREQS)
             d = np.zeros(shape, dtype=np.float32)
             d[:] = np.nan
             data["simulated_brightness_temperatures"] = (
-                    ("scans", "pixels", "channels"), d
+                    ("scans", "pixels_center", "channels"), d
             )
 
-        shape = (n_scans, n_pixels, sensor.N_FREQS)
+        shape = (n_scans, n_pixels_center, sensor.N_FREQS)
         d = np.zeros(shape, dtype=np.float32)
         d[:] = np.nan
         data["brightness_temperature_biases"] = (
-                ("scans", "pixels", "channels"), d
+                ("scans", "pixels_center", "channels"), d
         )
     return data
 
@@ -902,7 +903,6 @@ class SimFileProcessor:
                 console.print_exception()
                 dataset = None
 
-            print(dataset)
             if dataset is not None:
                 dataset = add_brightness_temperatures(dataset, self.sensor)
                 datasets.append(dataset)

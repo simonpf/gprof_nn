@@ -54,6 +54,6 @@ print("Running processor: ", of)
 processor = SimFileProcessor(of,
                              sensor,
                              era5_path=ERA5_PATH,
-                             n_workers=32,
+                             n_workers=4,
                              day=day)
 processor.run()
