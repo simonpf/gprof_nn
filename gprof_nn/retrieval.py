@@ -383,27 +383,29 @@ class NetcdfLoader0D(NetcdfLoader):
 
         input_data = np.concatenate([bts, t2m, tcwv, st_1h, am_1h], axis=-1)
         input_data = input_data.astype(np.float32)
-        input_data = self.normalizer(input_data.reshape(-1, 39))
-        self.input_data = input_data
 
         if input_data.ndim > 2:
             self.kind = "standard"
         else:
             self.kind = "bin"
 
+        input_data = self.normalizer(input_data.reshape(-1, 39))
+        self.input_data = input_data
+
+
     def finalize(self, data):
         """
         Reshape retrieval results into shape of input data.
         """
         if self.kind == "standard":
-            samples = np.arange(data.samples // (221 * 221))
+            samples = np.arange(data.samples.size // (221 * 221))
             scans = np.arange(221)
             pixels = np.arange(221)
             names = ("samples_t", "scans", "pixels")
             index = pd.MultiIndex.from_product((samples, scans, pixels),
                                                names=names)
-            data = data.rename_dims({"samples_t": "samples"})
             data = data.assign(samples=index).unstack('samples')
+            data = data.rename_dims({"samples_t": "samples"})
         return data
 
 
