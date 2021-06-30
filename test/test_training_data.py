@@ -12,28 +12,32 @@ from quantnn.qrnn import QRNN
 from quantnn.normalizer import Normalizer
 from quantnn.models.pytorch.xception import XceptionFpn
 
+from gprof_nn import sensors
 from gprof_nn.data.training_data import (GPROF0DDataset,
                                          GPROF2DDataset)
 
 
-def test_gprof_0d_dataset():
+def test_gprof_0d_dataset_gmi():
     """
     Ensure that iterating over single-pixel dataset conserves
     statistics.
     """
     path = Path(__file__).parent
     input_file = path / "data" / "training_data.nc"
-    dataset = GPROF0DDataset(input_file, batch_size=1, augment=False)
+    dataset = GPROF0DDataset(input_file,
+                             batch_size=1,
+                             augment=False,
+                             targets=["surface_precip"])
 
     xs = []
     ys = []
 
     x_mean_ref = dataset.x.sum(axis=0)
-    y_mean_ref = dataset.y.sum(axis=0)
+    y_mean_ref = dataset.y["surface_precip"].sum(axis=0)
 
     for x, y in dataset:
         xs.append(x)
-        ys.append(y)
+        ys.append(y["surface_precip"])
 
     xs = torch.cat(xs, dim=0)
     ys = torch.cat(ys, dim=0)
@@ -45,7 +49,7 @@ def test_gprof_0d_dataset():
     assert np.all(np.isclose(y_mean, y_mean_ref, rtol=1e-3))
 
 
-def test_gprof_0d_dataset_multi_target():
+def test_gprof_0d_dataset_multi_target_gmi():
     """
     Ensure that iterating over single-pixel dataset conserves
     statistics.
@@ -53,14 +57,20 @@ def test_gprof_0d_dataset_multi_target():
     path = Path(__file__).parent
     input_file = path / "data" / "training_data.nc"
     dataset = GPROF0DDataset(
-        input_file, target=["surface_precip", "rain_water_content"], batch_size=1
+        input_file,
+        targets=["surface_precip",
+                 "latent_heat",
+                 "rain_water_content"],
+        batch_size=1,
+        transform_zeros=False
+
     )
 
     xs = []
     ys = {}
 
-    x_mean_ref = dataset.x.sum(axis=0)
-    y_mean_ref = {k: dataset.y[k].sum(axis=0) for k in dataset.y}
+    x_mean_ref = np.sum(dataset.x, axis=0)
+    y_mean_ref = {k: np.sum(dataset.y[k], axis=0) for k in dataset.y}
 
     for x, y in dataset:
         xs.append(x)
@@ -69,16 +79,85 @@ def test_gprof_0d_dataset_multi_target():
 
     xs = torch.cat(xs, dim=0)
     ys = {k: torch.cat(ys[k], dim=0) for k in ys}
-    ys = {k: torch.where(torch.isnan(ys[k]), torch.zeros_like(ys[k]), ys[k])
-          for k in ys}
 
-    x_mean = xs.sum(dim=0).detach().numpy()
-    y_mean = {k: ys[k].sum(dim=0).detach().numpy() for k in ys}
+    x_mean = np.sum(xs.detach().numpy(), axis=0)
+    y_mean = {k: np.sum(ys[k].detach().numpy(), axis=0) for k in ys}
 
     assert np.all(np.isclose(x_mean, x_mean_ref, atol=1e-3))
     for k in y_mean_ref:
         assert np.all(np.isclose(y_mean[k], y_mean_ref[k], rtol=1e-3))
 
+
+def test_gprof_0d_dataset_mhs():
+    """
+    Ensure that iterating over single-pixel dataset conserves
+    statistics.
+    """
+    path = Path(__file__).parent
+    input_file = path / "data" / "gprof_nn_mhs_era5.nc"
+    dataset = GPROF0DDataset(input_file,
+                             batch_size=1,
+                             augment=False,
+                             targets=["surface_precip"],
+                             sensor=sensors.MHS)
+
+    xs = []
+    ys = []
+
+    x_mean_ref = dataset.x.sum(axis=0)
+    y_mean_ref = dataset.y["surface_precip"].sum(axis=0)
+
+    for x, y in dataset:
+        xs.append(x)
+        ys.append(y["surface_precip"])
+
+    xs = torch.cat(xs, dim=0)
+    ys = torch.cat(ys, dim=0)
+
+    x_mean = xs.sum(dim=0).detach().numpy()
+    y_mean = ys.sum(dim=0).detach().numpy()
+
+    assert np.all(np.isclose(x_mean, x_mean_ref, rtol=1e-3))
+    assert np.all(np.isclose(y_mean, y_mean_ref, rtol=1e-3))
+
+
+def test_gprof_0d_dataset_multi_target_mhs():
+    """
+    Ensure that iterating over single-pixel dataset conserves
+    statistics.
+    """
+    path = Path(__file__).parent
+    input_file = path / "data" / "gprof_nn_mhs_era5.nc"
+    dataset = GPROF0DDataset(
+        input_file,
+        targets=["surface_precip",
+                 "latent_heat",
+                 "rain_water_content"],
+        batch_size=1,
+        transform_zeros=False,
+        sensor=sensors.MHS
+    )
+
+    xs = []
+    ys = {}
+
+    x_mean_ref = np.sum(dataset.x, axis=0)
+    y_mean_ref = {k: np.sum(dataset.y[k], axis=0) for k in dataset.y}
+
+    for x, y in dataset:
+        xs.append(x)
+        for k in y:
+            ys.setdefault(k, []).append(y[k])
+
+    xs = torch.cat(xs, dim=0)
+    ys = {k: torch.cat(ys[k], dim=0) for k in ys}
+
+    x_mean = np.sum(xs.detach().numpy(), axis=0)
+    y_mean = {k: np.sum(ys[k].detach().numpy(), axis=0) for k in ys}
+
+    assert np.all(np.isclose(x_mean, x_mean_ref, atol=1e-3))
+    for k in y_mean_ref:
+        assert np.all(np.isclose(y_mean[k], y_mean_ref[k], rtol=1e-3))
 
 def test_profile_variables():
     """
@@ -95,7 +174,7 @@ def test_profile_variables():
         "latent_heat"
     ]
     dataset = GPROF0DDataset(
-        input_file, target=PROFILE_TARGETS, batch_size=1
+        input_file, targets=PROFILE_TARGETS, batch_size=1
     )
 
     for t in PROFILE_TARGETS:

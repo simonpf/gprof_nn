@@ -95,13 +95,13 @@ def write_orbit_header(output,
         data: xarray Dataset containing the data to write to
              the file handle.
     """
-    new_header = np.recarray(1, dtype=sensor.PREPROCESSOR_ORBIT_HEADER)
+    new_header = np.recarray(1, dtype=sensor.preprocessor_orbit_header)
 
     if template is not None:
-        for k in sensor.PREPROCESSOR_ORBIT_HEADER.fields:
+        for k in sensor.preprocessor_orbit_header.fields:
             new_header[k] = template.orbit_header[k]
     else:
-        new_header = np.recarray(1, dtype=sensor.PREPROCESSOR_ORBIT_HEADER)
+        new_header = np.recarray(1, dtype=sensor.preprocessor_orbit_header)
         new_header["satellite"] = "GPM CO"
         new_header["sensor"] = "GMI"
         new_header["preprocessor"] = "NONE"
@@ -151,8 +151,8 @@ def write_scan(output,
             given scan.
     """
     n_pixels = data.pixels.size
-    scan = np.recarray(n_pixels, dtype=sensor.PREPROCESSOR_RECORD)
-    for k in sensor.PREPROCESSOR_RECORD.fields:
+    scan = np.recarray(n_pixels, dtype=sensor.preprocessor_file_record)
+    for k in sensor.preprocessor_file_record.fields:
         if k not in data:
             continue
         scan[k] = data[k]
@@ -212,7 +212,7 @@ class PreprocessorFile:
         # Reread full header.
         self.orbit_header = np.frombuffer(
             self.data,
-            self.sensor.PREPROCESSOR_ORBIT_HEADER,
+            self.sensor.preprocessor_orbit_header,
             count=1
         )
         self.n_scans = self.orbit_header["number_of_scans"][0]
@@ -241,7 +241,7 @@ class PreprocessorFile:
         """
         Iterates over the scans in the file. Each scan is returned as Numpy
         structured array of size 'n_pixels' and dtype corresponding to the
-        'PREPROCESSOR_RECORD' type of the sensor.
+        'preprocessor_file_record' type of the sensor.
         """
         for i in range(self.n_scans):
             yield self.get_scan(i)
@@ -253,14 +253,14 @@ class PreprocessorFile:
 
         Returns:
             The ith scan in the file as numpy structured array of size n_pixels
-            and and dtype corresponding to the 'PREPROCESSOR_RECORD' type of
+            and and dtype corresponding to the 'preprocessor_file_record' type of
             the sensor.
         """
         if i < 0:
             i = self.n_scans + i
 
-        offset = self.sensor.PREPROCESSOR_ORBIT_HEADER.itemsize
-        record_type = self.sensor.PREPROCESSOR_RECORD
+        offset = self.sensor.preprocessor_orbit_header.itemsize
+        record_type = self.sensor.preprocessor_file_record
         offset += i * (
             SCAN_HEADER_TYPES.itemsize + self.n_pixels * record_type.itemsize
         )
@@ -281,8 +281,8 @@ class PreprocessorFile:
         if i < 0:
             i = self.n_scans + i
 
-        offset = self.sensor.PREPROCESSOR_ORBIT_HEADER.itemsize
-        record_type = self.sensor.PREPROCESSOR_RECORD
+        offset = self.sensor.preprocessor_orbit_header.itemsize
+        record_type = self.sensor.preprocessor_file_record
         offset += i * (
             SCAN_HEADER_TYPES.itemsize + self.n_pixels * record_type.itemsize
         )
@@ -292,7 +292,7 @@ class PreprocessorFile:
         """
         Return data in file as xarray dataset.
         """
-        record_type = self.sensor.PREPROCESSOR_RECORD
+        record_type = self.sensor.preprocessor_file_record
         data = {
             k: np.zeros((self.n_scans, self.n_pixels), dtype=d[0])
             for k, d in record_type.fields.items()
@@ -659,7 +659,7 @@ def run_preprocessor(l1c_file,
         args = [jobid] + get_preprocessor_settings()
         args.insert(2, str(l1c_file))
         args.append(output_file)
-        subprocess.run([sensor.PREPROCESSOR] + args,
+        subprocess.run([sensor.preprocessor] + args,
                        check=True,
                        capture_output=True)
         if file is not None:

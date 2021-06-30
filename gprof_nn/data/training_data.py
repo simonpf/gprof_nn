@@ -24,6 +24,7 @@ from quantnn.utils import apply
 import quantnn.quantiles as qq
 import quantnn.density as qd
 
+from gprof_nn import sensors
 from gprof_nn.definitions import ALL_TARGETS
 from gprof_nn.data.preprocessor import PreprocessorFile
 from gprof_nn.definitions import PROFILE_NAMES
@@ -115,7 +116,8 @@ def write_preprocessor_file(
         new_dataset["earth_incidence_angle"] = (
             ("scans", "pixels", "channels"),
             np.broadcast_to(
-                data.attrs["nominal_eia"].reshape(1, 1, -1), (n_scans_r, n_pixels_r, 15)
+                data.attrs["nominal_eia"].reshape(1, 1, -1),
+                (n_scans_r, n_pixels_r, 15)
             ),
         )
 
@@ -138,7 +140,7 @@ class GPROF0DDataset:
            samples along first dimension.
         y: The target values
         filename: The filename from which the data is loaded.
-        target: The name of the variable used as target variable.
+        targets: List of names of target variables.
         batch_size: The size of data batches returned by __getitem__ method.
         normalizer: The normalizer used to normalize the data.
         shuffle: Whether or not the ordering of the data is shuffled.
@@ -149,20 +151,21 @@ class GPROF0DDataset:
     def __init__(
         self,
         filename,
-        target="surface_precip",
+        targets=None,
         normalize=True,
         transform_zeros=True,
         batch_size=512,
         normalizer=None,
         shuffle=True,
         augment=True,
+        sensor=None
     ):
         """
         Create GPROF 0D dataset.
 
         Args:
             filename: Path to the NetCDF file containing the training data to load.
-            target: String or list of strings specifying the names of the
+            targets: String or list of strings specifying the names of the
                 variables to use as retrieval targets.
             normalize: Whether or not to normalize the input data.
             transform_zeros: Whether or not to replace very small
@@ -173,15 +176,31 @@ class GPROF0DDataset:
                 and to randomly permute ancillary data.
         """
         self.filename = Path(filename)
-        self.target = target
+
+        if targets is None:
+            targets = ["surface_precip"]
+        self.targets = targets
         self.transform_zeros = transform_zeros
         self.batch_size = batch_size
         self.shuffle = shuffle
         self.augment = augment
 
+        if sensor is None:
+            self.sensor = sensors.GMI
+        else:
+            self.sensor = sensor
+
         seed = int.from_bytes(os.urandom(4), "big") + os.getpid()
         self._rng = np.random.default_rng(seed)
-        self._load_data()
+        x, y = self.sensor.load_training_data_0d(filename,
+                                                 self.targets,
+                                                 self.augment,
+                                                 self._rng)
+        self.x = x
+        self.y = y
+        LOGGER.info(
+            "Loaded %s samples from %s", self.x.shape[0], self.filename.name
+        )
 
         indices_1h = list(range(17, 39))
         if normalizer is None:
@@ -221,7 +240,7 @@ class GPROF0DDataset:
         if isinstance(self.y, dict):
             y = self.y
         else:
-            y = {self.target: self.y}
+            y = {self.targets: self.y}
         for k, y_k in y.items():
             threshold = _THRESHOLDS[k]
             indices = (y_k <= threshold) * (y_k >= -threshold)
@@ -235,79 +254,6 @@ class GPROF0DDataset:
         """
         Loads the data from the file into the ``x`` and ``y`` attributes.
         """
-        with Dataset(self.filename, "r") as dataset:
-
-            variables = dataset.variables
-
-            #
-            # Input data
-            #
-
-            # Brightness temperatures
-            sp = dataset["surface_precip"][:]
-            valid = (sp >= 0)
-            n = valid.sum()
-
-            bts = dataset["brightness_temperatures"][:][valid]
-
-            invalid = (bts > 500.0) + (bts < 0.0)
-            bts[invalid] = np.nan
-
-            # Simulate missing high-frequency channels
-            if self.augment:
-                r = self._rng.random(bts.shape[0])
-                bts[r > 0.9, 10:15] = np.nan
-
-            # 2m temperature, values less than 0 must be missing.
-            t2m = variables["two_meter_temperature"][:][valid].reshape(-1, 1)
-            t2m[t2m < 0] = np.nan
-
-            # Total precitable water, values less than 0 are missing.
-            tcwv = variables["total_column_water_vapor"][:][valid].reshape(-1, 1)
-            # Surface type
-            st = variables["surface_type"][:][valid]
-
-            n_types = 18
-            st_1h = np.zeros((n, n_types), dtype=np.float32)
-            st_1h[np.arange(n), st.ravel() - 1] = 1.0
-            # Airmass type
-            # Airmass type is defined slightly different from surface type in
-            # that there is a 0 type.
-            am = variables["airmass_type"][:][valid]
-            n_types = 4
-            am_1h = np.zeros((n, n_types), dtype=np.float32)
-            am_1h[np.arange(n), np.maximum(am.ravel(), 0)] = 1.0
-
-            self.x = np.concatenate([bts, t2m, tcwv, st_1h, am_1h], axis=1)
-
-            #
-            # Output data
-            #
-
-            n = dataset.dimensions["samples"].size
-            if isinstance(self.target, list):
-                self.y = {}
-                for l in self.target:
-                    y = variables[l][:].filled(np.nan)
-                    y = _expand_pixels(y)[valid]
-                    np.nan_to_num(y, copy=False, nan=-9999)
-                    if l == "latent_heat":
-                        y[y < -400] = -9999
-                    else:
-                        y[y < 0] = -9999
-                    self.y[l] = y
-            else:
-                y = variables[self.target][:].filled(np.nan)
-                y = _expand_pixels(y)[valid]
-                np.nan_to_num(y, copy=False, nan=-9999)
-                if self.target == "latent_heat":
-                    y[y < -400] = -9999
-                else:
-                    y[y < 0] = -9999
-                self.y = y
-            LOGGER.info(
-                "Loaded %s samples from %s", self.x.shape[0], self.filename.name
-            )
 
     def save(self, filename):
         """

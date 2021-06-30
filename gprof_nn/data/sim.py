@@ -47,17 +47,11 @@ LOGGER = logging.getLogger(__name__)
 # Data types
 ###############################################################################
 
-N_FREQS = 15
-HEADER_TYPES = np.dtype(
+N_FREQS_MAX = 15
+GENERIC_HEADER = np.dtype(
     [
         ("satellite_code", "a5"),
         ("sensor", "a5"),
-        ("frequencies", f"{N_FREQS}f4"),
-        ("nominal_eia", f"{N_FREQS}f4"),
-        ("start_pixel", "i4"),
-        ("end_pixel", "i4"),
-        ("start_scan", "i4"),
-        ("end_scan", "i4"),
     ]
 )
 
@@ -80,9 +74,9 @@ class SimFile:
         sim files.
         """
         if day is None:
-            pattern = sensor.SIM_FILE_PATTERN.format(day="??")
+            pattern = sensor.sim_file_pattern.format(day="??")
         else:
-            pattern = sensor.SIM_FILE_PATTERN.format(day=f"{day:02}")
+            pattern = sensor.sim_file_pattern.format(day=f"{day:02}")
         path = Path(path)
         files = list(path.glob("**/????/" + pattern))
         if not files:
@@ -103,9 +97,8 @@ class SimFile:
         self.month = int(parts[-3][4:6])
         self.day = int(parts[-3][6:])
 
-        self.header = np.fromfile(self.path, HEADER_TYPES, count=1)
-        offset = HEADER_TYPES.itemsize
-        sensor = self.header["sensor"][0].decode().strip()
+        header = np.fromfile(self.path, GENERIC_HEADER, count=1)
+        sensor = header["sensor"][0].decode().strip()
         try:
             sensor = getattr(sensors, sensor.upper())
         except AttributeError:
@@ -113,8 +106,12 @@ class SimFile:
                 f"The sensor {sensor} isn't currently supported."
             )
         self.sensor = sensor
+        self.header = np.fromfile(self.path,
+                                  self.sensor.sim_file_header,
+                                  count=1)
+        offset = self.sensor.sim_file_header.itemsize
         self.data = np.fromfile(self.path,
-                                sensor.SIM_FILE_RECORD,
+                                sensor.sim_file_record,
                                 offset=offset)
 
     def match_targets(self, input_data, targets=None):
@@ -164,8 +161,8 @@ class SimFile:
 
         n_angles = 0
         if hasattr(self.sensor, "N_ANGLES"):
-            n_angles = self.sensor.N_ANGLES
-        n_freqs = self.sensor.N_FREQS
+            n_angles = self.sensor.n_angles
+        n_freqs = self.sensor.n_freqs
 
         if "tbs_simulated" in self.data.dtype.fields:
             if n_angles > 0:
@@ -553,7 +550,7 @@ def process_mrms_file(mrms_filename,
         return None
     date = mrms_file.scan_time[indices[len(indices) // 2]]
     l1c_files = list(L1CFile.find_files(date,
-                                        sensor.L1C_FILE_PATH,
+                                        sensor.l1c_file_path,
                                         roi=CONUS,
                                         sensor=sensor))
 
@@ -720,10 +717,10 @@ def add_targets(data,
         data["brightness_temperatures_gmi"] = (
                 ("scans", "pixels", "channels_gmi"), d
         )
-        if hasattr(sensor, "N_ANGLES"):
-            n_angles = sensor.N_ANGLES
+        if hasattr(sensor, "n_angles"):
+            n_angles = sensor.n_angles
 
-            shape = (n_scans, n_pixels_center, n_angles, sensor.N_FREQS)
+            shape = (n_scans, n_pixels_center, n_angles, sensor.n_freqs)
             d = np.zeros(shape, dtype=np.float32)
             d[:] = np.nan
             data["simulated_brightness_temperatures"] = (
@@ -737,14 +734,14 @@ def add_targets(data,
                 data[v] = (("scans", "pixels", "angles"), values.copy())
 
         else:
-            shape = (n_scans, n_pixels_center, sensor.N_FREQS)
+            shape = (n_scans, n_pixels_center, sensor.n_freqs)
             d = np.zeros(shape, dtype=np.float32)
             d[:] = np.nan
             data["simulated_brightness_temperatures"] = (
                     ("scans", "pixels_center", "channels"), d
             )
 
-        shape = (n_scans, n_pixels_center, sensor.N_FREQS)
+        shape = (n_scans, n_pixels_center, sensor.n_freqs)
         d = np.zeros(shape, dtype=np.float32)
         d[:] = np.nan
         data["brightness_temperature_biases"] = (
@@ -759,26 +756,14 @@ def add_brightness_temperatures(data, sensor):
     n_scans = data.scans.size
     n_pixels = data.pixels.size
 
-    if hasattr(sensor, "N_ANGLES"):
-        n_angles = sensor.N_ANGLES
-        n_channels = sensor.N_FREQS
-
-        shape = (n_samples, n_scans, n_pixels, n_angles, n_channels)
-        bts = np.zeros(shape, dtype=np.float32)
-        bts[:] = np.nan
-        data["brightness_temperatures"] = (
-                ("samples", "scans", "pixels", "angles", "channels"),
-                bts
-        )
-    else:
-        n_channels = sensor.N_FREQS
-        shape = (n_samples, n_scans, n_pixels, n_channels)
-        bts = np.zeros(shape, dtype=np.float32)
-        bts[:] = np.nan
-        data["brightness_temperatures"] = (
-                ("samples", "scans", "pixels", "channels"),
-                bts
-        )
+    n_channels = sensor.n_freqs
+    shape = (n_samples, n_scans, n_pixels, n_channels)
+    bts = np.zeros(shape, dtype=np.float32)
+    bts[:] = np.nan
+    data["brightness_temperatures"] = (
+            ("samples", "scans", "pixels", "channels"),
+            bts
+    )
     return data
 
 ###############################################################################
@@ -832,18 +817,18 @@ class SimFileProcessor:
         stores the names of the produced result files in the ``processed`` attribute
         of the driver.
         """
-        sim_file_path = self.sensor.SIM_FILE_PATH
+        sim_file_path = self.sensor.sim_file_path
         sim_files = SimFile.find_files(sim_file_path,
                                        sensor=self.sensor,
                                        day=self.day)
         sim_files = np.random.permutation(sim_files)
 
-        mrms_file_path = self.sensor.MRMS_FILE_PATH
+        mrms_file_path = self.sensor.mrms_file_path
         mrms_files = MRMSMatchFile.find_files(mrms_file_path,
                                               sensor=self.sensor)
         mrms_files = np.random.permutation(mrms_files)
 
-        l1c_file_path = self.sensor.L1C_FILE_PATH
+        l1c_file_path = self.sensor.l1c_file_path
         l1c_files = []
         for year, month in DATABASE_MONTHS:
             date = datetime(year, month, self.day)
