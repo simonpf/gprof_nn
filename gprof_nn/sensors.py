@@ -73,6 +73,12 @@ class Sensor(ABC):
         """
 
     @abstractproperty
+    def n_inputs(self):
+        """
+        The number of input features for the GPORF-NN retrieval.
+        """
+
+    @abstractproperty
     def n_freqs(self):
         """
         The number of frequencies or channels of the sensor.
@@ -157,10 +163,7 @@ class Sensor(ABC):
 
     @abstractmethod
     def load_data_0d(self,
-                     filename,
-                     targets,
-                     augment,
-                     rng):
+                     filename):
         """
         Load input data for GPROF-NN 0D algorithm from NetCDF file.
 
@@ -352,6 +355,13 @@ class ConicalScanner(Sensor):
     def name(self):
         return _name
 
+    @abstractproperty
+    def n_inputs(self):
+        """
+        The number of input features for the GPORF-NN retrieval.
+        """
+        return self.n_freqs + 2 + 18 + 4
+
     @property
     def n_freqs(self):
         return self.n_freqs
@@ -405,6 +415,7 @@ class ConicalScanner(Sensor):
                      targets,
                      augment,
                      rng):
+
         pass
 
     def load_training_data_0d(self,
@@ -602,6 +613,13 @@ class CrossTrackScanner(Sensor):
     def name(self):
         return self._name
 
+    @abstractproperty
+    def n_inputs(self):
+        """
+        The number of input features for the GPORF-NN retrieval.
+        """
+        return self.n_freqs + 3 + 18 + 4
+
     @property
     def angles(self):
         return self._angles
@@ -658,8 +676,119 @@ class CrossTrackScanner(Sensor):
     def preprocessor_file_record(self):
         return self._preprocessor_file_record
 
-    def load_data_0d(self):
-        pass
+    def load_data_0d(self,
+                     filename):
+
+        with xr.open_dataset(filename) as dataset:
+
+            #
+            # Input data
+            #
+
+            n_samples = dataset.samples.size
+
+            x = []
+            y = {}
+
+            n_angles = self.n_angles
+
+            for i in range(n_samples):
+
+                scene = dataset[{"samples": i}]
+                source = dataset.source[i]
+
+                n_scans = scene.scans.size
+                n_pixels = scene.pixels.size
+
+                if source == 0:
+
+                    sp = scene["surface_precip"].data
+                    np.nan_to_num(sp, nan=-9999, copy=False)
+
+                    angles = np.arange(n_scans * n_pixels)
+                    angles = angles.reshape(n_scans, n_pixels)
+                    angles = angles % self.n_angles
+
+                    inds_l = np.trunc(angles).astype(np.int32)
+                    inds_r = np.ceil(angles).astype(np.int32)
+                    f = angles - inds_r
+
+                    # Interpolate brightness temperatures.
+                    bts = scene["simulated_brightness_temperatures"]
+                    bts = _expand_pixels(bts.data[np.newaxis])[0]
+                    np.nan_to_num(bts, nan=-9999, copy=False)
+
+                    bts_i = np.zeros((n_scans, n_pixels, self.n_freqs),
+                                     dtype=np.float32)
+                    for i in range(self.n_angles):
+                        mask = inds_l == i
+                        bts_i[mask] += f[mask, np.newaxis] * bts[mask, :, i]
+                        mask = inds_r == i
+                        bts_i[mask] += (1 - f[mask, np.newaxis]) * bts[mask, :, i]
+                    bts = bts_i
+
+                    invalid = (bts > 500.0) + (bts < 0.0)
+                    bts[invalid] = np.nan
+                    bts = bts.reshape(-1, self.n_freqs)
+
+                    vas = self.angles[angles]
+                    vas = vas.reshape(-1, 1)
+
+                else:
+
+                    sp = scene["surface_precip"].data
+                    np.nan_to_num(sp, nan=-9999, copy=False)
+
+                    # Interpolate brightness temperatures.
+                    bts = scene["brightness_temperatures"].data[:, :]
+                    np.nan_to_num(bts, nan=-9999, copy=False)
+
+                    invalid = (bts > 500.0) + (bts < 0.0)
+                    bts[invalid] = np.nan
+                    bts = bts.reshape(-1, self.n_freqs)
+
+                    vas = scene["earth_incidence_angle"].data[:, :, 0]
+                    vas = vas.reshape(-1, 1)
+                    np.nan_to_num(vas, nan=-9999, copy=False)
+
+                # 2m temperature, values less than 0 must be missing.
+                t2m = scene["two_meter_temperature"].data
+                t2m = t2m.reshape(-1, 1)
+                t2m[t2m < 0] = np.nan
+
+                # Total precitable water, values less than 0 are missing.
+                tcwv = scene["total_column_water_vapor"].data
+                tcwv = tcwv.reshape(-1, 1)
+
+                # Surface type
+                st = scene["surface_type"].data
+                n_types = 18
+                st_1h = np.zeros((n_scans, n_pixels, n_types),
+                                 dtype=np.float32)
+                for i in range(n_types):
+                    mask = st == i + 1
+                    st_1h[mask] = 1.0
+                st_1h = st_1h.reshape(-1, n_types)
+
+                # Airmass type
+                # Airmass type is defined slightly different from surface
+                # type in that there is a 0 type.
+                am = scene["airmass_type"].data
+                n_types = 4
+                am_1h = np.zeros((n_scans, n_pixels, n_types),
+                                 dtype=np.float32)
+                for i in range(n_types):
+                    mask = np.maximum(am, 0) == i
+                    am_1h[mask] = 1.0
+                am_1h = am_1h.reshape(-1, n_types)
+
+                x += [np.concatenate(
+                    [bts, vas, t2m, tcwv, st_1h, am_1h],
+                    axis=1
+                )]
+
+        x = np.concatenate(x, axis=0)
+        return x
 
     def load_training_data_0d(self,
                               filename,
@@ -668,8 +797,6 @@ class CrossTrackScanner(Sensor):
                               rng):
 
         with xr.open_dataset(filename) as dataset:
-
-            variables = dataset.variables
 
             #
             # Input data
@@ -690,6 +817,7 @@ class CrossTrackScanner(Sensor):
                 if source == 0:
 
                     sp = scene["surface_precip"].data
+                    np.nan_to_num(sp, nan=-9999, copy=False)
                     valid = np.all(sp >= 0, axis=-1)
                     n = valid.sum()
 
@@ -697,17 +825,20 @@ class CrossTrackScanner(Sensor):
                     inds_l = np.trunc(angles).astype(np.int32)
                     inds_r = np.ceil(angles).astype(np.int32)
                     f = angles - inds_r
+                    inds = rng.random(angles.size) < 0.5
+                    angles[inds] *= -1
 
                     # Interpolate brightness temperatures.
                     bts = scene["simulated_brightness_temperatures"]
+                    np.nan_to_num(bts, nan=-9999, copy=False)
                     bts = _expand_pixels(bts.data[np.newaxis])[0][valid]
 
                     bts_i = np.zeros((n, self.n_freqs), dtype=np.float32)
                     for i in range(self.n_angles):
                         mask = inds_l == i
-                        bts_i[mask] += f[mask, np.newaxis] * bts[mask, i]
+                        bts_i[mask] += f[mask, np.newaxis] * bts[mask, :, i]
                         mask = inds_r == i
-                        bts_i[mask] += (1 - f[mask, np.newaxis]) * bts[mask, i]
+                        bts_i[mask] += (1 - f[mask, np.newaxis]) * bts[mask, :, i]
                     bts = bts_i
                     vas = (f * self.angles[inds_l] + (1.0 - f)
                            * self.angles[inds_r])
@@ -729,14 +860,20 @@ class CrossTrackScanner(Sensor):
 
                     n_types = 18
                     st_1h = np.zeros((n, n_types), dtype=np.float32)
-                    st_1h[np.arange(n), st.ravel() - 1] = 1.0
+                    for i in range(n_types):
+                        mask = st == i + 1
+                        st_1h[mask] = 1.0
+                    st_1h = st_1h.reshape(-1, n_types)
                     # Airmass type
                     # Airmass type is defined slightly different from surface
                     # type in that there is a 0 type.
                     am = scene["airmass_type"].data[valid]
                     n_types = 4
                     am_1h = np.zeros((n, n_types), dtype=np.float32)
-                    am_1h[np.arange(n), np.maximum(am.ravel(), 0)] = 1.0
+                    for i in range(n_types):
+                        mask = np.maximum(am, 0) == i
+                        am_1h[mask] = 1.0
+                    am_1h = am_1h.reshape(-1, n_types)
 
                     x += [np.concatenate(
                         [bts, vas, t2m, tcwv, st_1h, am_1h],
@@ -767,11 +904,12 @@ class CrossTrackScanner(Sensor):
                 else:
 
                     sp = scene["surface_precip"].data
+                    np.nan_to_num(sp, nan=-9999, copy=False)
                     valid = np.all(sp >= 0, axis=-1)
                     n = valid.sum()
 
                     # Interpolate brightness temperatures.
-                    bts = scene["brightness_temperatures"].data[valid, 0]
+                    bts = scene["brightness_temperatures"].data[valid, :]
                     vas = scene["earth_incidence_angle"].data[valid, ..., :1]
 
                     invalid = (bts > 500.0) + (bts < 0.0)
@@ -790,14 +928,21 @@ class CrossTrackScanner(Sensor):
 
                     n_types = 18
                     st_1h = np.zeros((n, n_types), dtype=np.float32)
-                    st_1h[np.arange(n), st.ravel() - 1] = 1.0
+                    for i in range(n_types):
+                        mask = st == i + 1
+                        st_1h[mask] = 1.0
+                    st_1h = st_1h.reshape(-1, n_types)
+
                     # Airmass type
                     # Airmass type is defined slightly different from surface
                     # type in that there is a 0 type.
                     am = scene["airmass_type"].data[valid]
                     n_types = 4
                     am_1h = np.zeros((n, n_types), dtype=np.float32)
-                    am_1h[np.arange(n), np.maximum(am.ravel(), 0)] = 1.0
+                    for i in range(n_types):
+                        mask = np.maximum(am, 0) == i
+                        am_1h[mask] = 1.0
+                    am_1h = am_1h.reshape(-1, n_types)
 
                     x += [np.concatenate(
                         [bts, vas, t2m, tcwv, st_1h, am_1h],
@@ -843,7 +988,7 @@ GMI = ConicalScanner(
 
 MHS_ANGLES = np.array([
     59.498, 53.311, 46.095, 39.222, 32.562, 26.043,
-    19.619, 13.257,  6.934,  0.63
+    19.619, 13.257,  6.934,  0.0
 ])
 MHS = CrossTrackScanner(
     "MHS",
