@@ -676,6 +676,10 @@ class CrossTrackScanner(Sensor):
     def load_data_0d(self,
                      filename):
 
+        bias_scales_ref = 1.0 / np.cos(np.deg2rad(
+            [52.8, 49.19, 49.19, 49.19, 49.19]
+        ))
+
         with xr.open_dataset(filename) as dataset:
 
             #
@@ -688,6 +692,9 @@ class CrossTrackScanner(Sensor):
             y = {}
 
             n_angles = self.n_angles
+            angles_sim = self.angles
+            angles_sim[0] = 60.0
+            angles_sim[-1] = 0.0
 
             for i in range(n_samples):
 
@@ -708,7 +715,7 @@ class CrossTrackScanner(Sensor):
 
                     inds_l = np.trunc(angles).astype(np.int32)
                     inds_r = np.ceil(angles).astype(np.int32)
-                    f = angles - inds_r
+                    f = inds_r - angles
 
                     # Interpolate brightness temperatures.
                     bts = scene["simulated_brightness_temperatures"]
@@ -728,7 +735,15 @@ class CrossTrackScanner(Sensor):
                     bts[invalid] = np.nan
                     bts = bts.reshape(-1, self.n_freqs)
 
-                    vas = self.angles[angles]
+                    vas = angles_sim[angles]
+
+                    bias_scales = (1.0 / np.cos(np.deg2rad(vas))[..., np.newaxis]
+                                   / bias_scales_ref.reshape(1, 1, -1))
+                    bias = scene["brightness_temperature_biases"]
+                    bias = _expand_pixels(bias.data[np.newaxis])[0]
+                    bias = bias_scales * bias
+
+                    bts = bts - bias.reshape(-1, self.n_freqs)
                     vas = vas.reshape(-1, 1)
 
                 else:
@@ -793,6 +808,14 @@ class CrossTrackScanner(Sensor):
                               augment,
                               rng):
 
+        angles_sim = self.angles
+        angles_sim[0] = 60.0
+        angles_sim[-1] = 0.0
+
+        bias_scales_ref = 1.0 / np.cos(np.deg2rad(
+                [52.8, 49.19, 49.19, 49.19, 49.19]
+        ))
+
         with xr.open_dataset(filename) as dataset:
 
             #
@@ -825,9 +848,7 @@ class CrossTrackScanner(Sensor):
                     angles = rng.uniform(0.0, n_angles - 1, n)
                     inds_l = np.trunc(angles).astype(np.int32)
                     inds_r = np.ceil(angles).astype(np.int32)
-                    f = angles - inds_r
-                    inds = rng.random(angles.size) < 0.5
-                    angles[inds] *= -1
+                    f = inds_r - angles
 
                     # Interpolate brightness temperatures.
                     bts = bts[valid]
@@ -838,9 +859,23 @@ class CrossTrackScanner(Sensor):
                         mask = inds_r == i
                         bts_i[mask] += (1 - f[mask, np.newaxis]) * bts[mask, i]
                     bts = bts_i
-                    vas = (f * self.angles[inds_l] + (1.0 - f)
-                           * self.angles[inds_r])
+                    vas = (f * angles_sim[inds_l] + (1.0 - f)
+                           * angles_sim[inds_r])
                     vas = vas.reshape(-1, 1)
+
+                    # Also sample negative viewing angles
+                    inds = rng.random(vas.size) < 0.5
+                    #vas[inds] *= -1
+
+                    # Calculate corrected biases.
+                    bias_scales = (1.0 / np.cos(np.deg2rad(vas).reshape(-1, 1))
+                                   / bias_scales_ref.reshape(1, -1))
+                    bias = scene["brightness_temperature_biases"]
+                    bias = _expand_pixels(bias.data[np.newaxis])[0][valid]
+                    bias = bias_scales * bias
+                    bias = bias.reshape(-1, self.n_freqs)
+
+                    bts = bts - bias
 
                     invalid = (bts > 500.0) + (bts < 0.0)
                     bts[invalid] = np.nan
@@ -879,13 +914,14 @@ class CrossTrackScanner(Sensor):
                     )]
 
                     for t in targets:
+                        # Interpolate surface and convective precip.
                         if t in ["surface_precip", "convective_precip"]:
                             y_t = scene[t].data[valid]
                             y_i = np.zeros((n,), dtype=np.float32)
                             for j in range(self.n_angles):
-                                mask = inds_l == i
+                                mask = inds_l == j
                                 y_i[mask] += f[mask] * y_t[mask, j]
-                                mask = inds_r == i
+                                mask = inds_r == j
                                 y_i[mask] += (1 - f[mask]) * y_t[mask, j]
                             y_t = y_i
                         else:
@@ -985,7 +1021,7 @@ GMI = ConicalScanner(
 )
 
 MHS_ANGLES = np.array([
-    59.498, 53.311, 46.095, 39.222, 32.562, 26.043,
+    59.798, 53.311, 46.095, 39.222, 32.562, 26.043,
     19.619, 13.257,  6.934,  0.0
 ])
 MHS = CrossTrackScanner(
