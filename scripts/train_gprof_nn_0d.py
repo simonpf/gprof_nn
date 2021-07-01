@@ -145,7 +145,7 @@ network_name = (f"gprof_nn_0d_{sensor.name.lower()}_{network_type}_"
 #
 
 dataset_factory = GPROF0DDataset
-normalizer = Normalizer.load("../data/normalizer_gprof_0d_gmi.pckl")
+normalizer = Normalizer.load(f"../data/normalizer_{sensor.name.lower()}.pckl")
 kwargs = {
     "sensor": sensor,
     "batch_size": batch_size,

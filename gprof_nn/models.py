@@ -345,7 +345,7 @@ class MultiHeadMLP(nn.Module):
         if n_layers_body > 0:
             n_in = n_neurons_body
         else:
-            n_in = 39
+            n_in = n_inputs
 
         self.heads = nn.ModuleDict()
         for t in targets:
@@ -428,7 +428,7 @@ class GPROF_NN_0D_QRNN(QRNN):
             if "latent_heat" in targets:
                 transformation["latent_heat"] = None
 
-        model = MultiHeadMLP(39,
+        model = MultiHeadMLP(sensor.n_inputs,
                              n_layers_body,
                              n_neurons_body,
                              n_layers_head,
@@ -482,7 +482,7 @@ class GPROF_NN_0D_DRNN(DRNN):
                              residuals=residuals,
                              activation=activation)
 
-        super().__init__(n_inputs=39,
+        super().__init__(n_inputs=sensor.n_inputs,
                          bins=BINS,
                          model=model)
 
