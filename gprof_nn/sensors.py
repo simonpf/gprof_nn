@@ -494,7 +494,7 @@ class ConicalScanner(Sensor):
 
 class CrossTrackScanner(Sensor):
     """
-    Base class for conically-scanning sensors.
+    Base class for cross-track-scanning sensors.
     """
     def __init__(self,
                  name,
@@ -559,22 +559,19 @@ class CrossTrackScanner(Sensor):
         self._sim_file_record = np.dtype([
             ("pixel_index", "i4"),
             ("scan_index", "i4"),
-            ("data_source", "f4"),
             ("latitude", "f4"),
             ("longitude", "f4"),
             ("elevation", "f4"),
             ("scan_time", DATE_TYPE),
             ("surface_type", "i4"),
-            ("surface_precip", "f4"),
-            ("convective_precip", "f4"),
-            ("emissivity", f"{n_freqs}f4"),
+            ("surface_precip", f"{n_angles}f4"),
+            ("convective_precip", f"{n_angles}f4"),
+            ("emissivity", f"{n_angles * n_freqs}f4"),
             ("rain_water_content", f"{N_LAYERS}f4"),
             ("snow_water_content", f"{N_LAYERS}f4"),
             ("cloud_water_content", f"{N_LAYERS}f4"),
             ("latent_heat", f"{N_LAYERS}f4"),
-            ("tbs_observed", f"{n_freqs}f4"),
-            ("tbs_simulated", f"{n_freqs}f4"),
-            ("d_tbs", f"{n_freqs}f4"),
+            ("tbs_simulated", f"{n_angles * n_freqs}f4"),
             ("tbs_bias", f"{n_freqs}f4"),
         ])
         self._preprocessor = preprocessor
@@ -722,9 +719,9 @@ class CrossTrackScanner(Sensor):
                                      dtype=np.float32)
                     for i in range(self.n_angles):
                         mask = inds_l == i
-                        bts_i[mask] += f[mask, np.newaxis] * bts[mask, :, i]
+                        bts_i[mask] += f[mask, np.newaxis] * bts[mask, i]
                         mask = inds_r == i
-                        bts_i[mask] += (1 - f[mask, np.newaxis]) * bts[mask, :, i]
+                        bts_i[mask] += (1 - f[mask, np.newaxis]) * bts[mask, i]
                     bts = bts_i
 
                     invalid = (bts > 500.0) + (bts < 0.0)
@@ -816,6 +813,10 @@ class CrossTrackScanner(Sensor):
 
                 if source == 0:
 
+                    bts = scene["simulated_brightness_temperatures"]
+                    np.nan_to_num(bts, nan=-9999, copy=False)
+                    bts = _expand_pixels(bts.data[np.newaxis])[0]
+
                     sp = scene["surface_precip"].data
                     np.nan_to_num(sp, nan=-9999, copy=False)
                     valid = np.all(sp >= 0, axis=-1)
@@ -829,16 +830,13 @@ class CrossTrackScanner(Sensor):
                     angles[inds] *= -1
 
                     # Interpolate brightness temperatures.
-                    bts = scene["simulated_brightness_temperatures"]
-                    np.nan_to_num(bts, nan=-9999, copy=False)
-                    bts = _expand_pixels(bts.data[np.newaxis])[0][valid]
-
+                    bts = bts[valid]
                     bts_i = np.zeros((n, self.n_freqs), dtype=np.float32)
                     for i in range(self.n_angles):
                         mask = inds_l == i
-                        bts_i[mask] += f[mask, np.newaxis] * bts[mask, :, i]
+                        bts_i[mask] += f[mask, np.newaxis] * bts[mask, i]
                         mask = inds_r == i
-                        bts_i[mask] += (1 - f[mask, np.newaxis]) * bts[mask, :, i]
+                        bts_i[mask] += (1 - f[mask, np.newaxis]) * bts[mask, i]
                     bts = bts_i
                     vas = (f * self.angles[inds_l] + (1.0 - f)
                            * self.angles[inds_r])

@@ -159,7 +159,7 @@ class SimFile:
         dists, indices = kdtree.query(coords_sim)
 
         n_angles = 0
-        if hasattr(self.sensor, "N_ANGLES"):
+        if hasattr(self.sensor, "n_angles"):
             n_angles = self.sensor.n_angles
         n_freqs = self.sensor.n_freqs
 
@@ -167,7 +167,7 @@ class SimFile:
             if n_angles > 0:
                 shape = (n_scans, dx + 1, n_angles, n_freqs)
                 full_shape = (n_scans, n_pixels, n_angles, n_freqs)
-                matched = np.zeros((n_scans * (dx + 1), n_angles * n_freqs))
+                matched = np.zeros((n_scans * (dx + 1), n_angles, n_freqs))
                 dims = ("scans", "pixels_center", "angles", "channels")
             else:
                 shape = (n_scans, dx + 1, n_freqs)
@@ -178,7 +178,8 @@ class SimFile:
             ind = np.argmax(indices)
             assert np.all(indices[dists < 10e3] < matched.shape[0])
             indices = np.clip(indices, 0, matched.shape[0] - 1)
-            matched[indices, ...] = self.data["tbs_simulated"]
+            tbs = self.data["tbs_simulated"].reshape((-1,) + shape[2:])
+            matched[indices, ...] = tbs
             matched[indices, ...][dists > 10e3] = np.nan
             matched = matched.reshape(shape)
 
@@ -515,7 +516,7 @@ def process_sim_file(sim_filename,
             longitude=data_pp.longitude,
             method="nearest"
         )
-        data_pp["surface_type"].data = surface_types.data
+        data_pp["surface_type"].data = surface_types.data.astype(np.int8)
 
     # Orographic enhancement for types 17 and 18.
     apply_orographic_enhancement(data_pp)

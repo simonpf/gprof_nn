@@ -201,7 +201,7 @@ class GPROF0DDataset:
             "Loaded %s samples from %s", self.x.shape[0], self.filename.name
         )
 
-        indices_1h = list(range(17, 39))
+        indices_1h = list(range(sensor.n_inputs - 22, sensor.n_inputs))
         if normalizer is None:
             self.normalizer = MinMaxNormalizer(self.x, exclude_indices=indices_1h)
         elif isinstance(normalizer, type):
