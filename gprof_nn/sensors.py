@@ -258,7 +258,7 @@ class ConicalScanner(Sensor):
 
         self._name = name
         self._n_freqs = n_freqs
-        self._l1c_prefix = l1c_prefix
+        self._l1c_file_prefix = l1c_prefix
         self._l1c_file_path = l1c_file_path
 
         self._mrms_file_path = mrms_file_path
@@ -370,7 +370,7 @@ class ConicalScanner(Sensor):
 
     @property
     def mrms_file_record(self):
-        return self._mrms_record
+        return self._mrms_file_record
 
     @property
     def sim_file_pattern(self):
@@ -398,7 +398,7 @@ class ConicalScanner(Sensor):
 
     @property
     def preprocessor_file_record(self):
-        return self._preprocessor_record
+        return self._preprocessor_file_record
 
     def load_data_0d(self,
                      filename,
@@ -499,29 +499,40 @@ class CrossTrackScanner(Sensor):
         self._angles = angles
         n_angles = angles.size
         self._n_freqs = n_freqs
-        self._l1c_prefix = l1c_prefix
+        self._l1c_file_prefix = l1c_prefix
         self._l1c_file_path = l1c_file_path
 
         self._mrms_file_path = mrms_file_path
-        self._mrms_file_record = np.dtype([
-            ("pixel_index", "i4"),
-            ("scan_index", "i4"),
+        self._mrms_file_record =  np.dtype([
+            ("datasetnum", "i4"),
             ("latitude", "f4"),
             ("longitude", "f4"),
-            ("elevation", "f4"),
-            ("scan_time", DATE_TYPE),
-            ("surface_type", "i4"),
-            ("surface_precip", f"{n_angles}f4"),
-            ("convective_precip", f"{n_angles}f4"),
-            ("emissivity", f"{n_freqs * n_angles}f4"),
-            ("rain_water_content", f"{N_LAYERS}f4"),
-            ("snow_water_content", f"{N_LAYERS}f4"),
-            ("cloud_water_content", f"{N_LAYERS}f4"),
-            ("latent_heat", f"{N_LAYERS}f4"),
-            ("tbs_simulated", f"{n_freqs * n_angles}f4"),
-            ("tbs_bias", f"{n_freqs}f4")
+            ("orbitnum", "i4"),
+            ("n_pixels", "i4"),
+            ("n_scans", "i4"),
+            ("scan_time", f"5i4"),
+            ("skin_temperature", f"i4"),
+            ("total_column_water_vapor", f"i4"),
+            ("surface_type", f"i4"),
+            ("quality_flag", f"f4"),
+            ("two_meter_temperature", "f4"),
+            ("wet_bulb_temperature", "f4"),
+            ("lapse_rate", "f4"),
+            ("surface_precip", "f4"),
+            ("surface_rain", "f4"),
+            ("convective_rain", "f4"),
+            ("stratiform_rain", "f4"),
+            ("snow", "f4"),
+            ("quality_index", "f4"),
+            ("gauge_fraction", "f4"),
+            ("standard_deviation", "f4"),
+            ("n_stratiform", "i4"),
+            ("n_convective", "i4"),
+            ("n_rain", "i4"),
+            ("n_snow", "i4"),
+            ("fraction_missing", "f4"),
+            ("brightness_temperatures", f"{n_freqs}f4"),
         ])
-
         self._sim_file_pattern = sim_file_pattern
         self._sim_file_path = sim_file_path
         self._sim_file_header = np.dtype([
@@ -575,7 +586,7 @@ class CrossTrackScanner(Sensor):
             ("latitude", "f4"),
             ("longitude", "f4"),
             ("brightness_temperatures", f"{n_freqs}f4"),
-            ("earth_incidence_angle", f"{n_freqs}f4"),
+            ("earth_incidence_angle", f"f4"),
             ("wet_bulb_temperature", "f4"),
             ("lapse_rate", "f4"),
             ("total_column_water_vapor", "f4"),
@@ -617,7 +628,7 @@ class CrossTrackScanner(Sensor):
 
     @property
     def mrms_file_record(self):
-        return self._mrms_record
+        return self._mrms_file_record
 
     @property
     def sim_file_pattern(self):
@@ -645,7 +656,7 @@ class CrossTrackScanner(Sensor):
 
     @property
     def preprocessor_file_record(self):
-        return self._preprocessor_record
+        return self._preprocessor_file_record
 
     def load_data_0d(self):
         pass
@@ -827,7 +838,7 @@ GMI = ConicalScanner(
     "/pdata4/veljko/GMI2MRMS_match2019/db_mrms4GMI/",
     "GMI.dbsatTb.??????{day}.??????.sim",
     "/qdata1/pbrown/dbaseV7/simV7",
-    "gprof2020pp_MHS_L1C"
+    "gprof2020pp_GMI_L1C"
 )
 
 MHS_ANGLES = np.array([

@@ -46,7 +46,7 @@ class MRMSMatchFile:
             files in the given directory.
         """
         path = Path(path)
-        return list(path.glob(cls.file_pattern.format(sensor=sensor.__name__)))
+        return list(path.glob(cls.file_pattern.format(sensor=sensor.name)))
 
     def __init__(self,
                  filename,
@@ -72,7 +72,7 @@ class MRMSMatchFile:
 
         with open(filename, "rb") as source:
             buffer = gzip.decompress(source.read())
-        self.data = np.frombuffer(buffer, sensor.MRMS_RECORD)
+        self.data = np.frombuffer(buffer, sensor.mrms_file_record)
         self.n_obs = self.data.size
 
         self.scan_time = np.zeros(self.n_obs, dtype="datetime64[ns]")
@@ -112,7 +112,7 @@ class MRMSMatchFile:
         data = self.data[indices]
         dims = ("samples",)
         dataset = {}
-        for k in self.sensor.MRMS_RECORD.names:
+        for k in self.sensor.mrms_file_record.names:
             if k == "brightness_temperatures":
                 ds = dims + ("channel",)
             elif k == "scan_time":
@@ -254,98 +254,3 @@ def get_mrms_ratios():
                 }
             ).fillna(1.0)
     return _MRMS_RATIOS
-
-
-def get_surface_type_map(time,
-                         sensor="GMI"):
-    """
-    Return dataset contining global surface types for a given
-    data.
-
-    Args:
-        time: datetime object specifying the date for which
-            to load the surface type.
-        sensor: Name of the sensor for which to load the surface type.
-
-    Rerturn:
-        xarray.DataArray containing the global surface types.
-    """
-    time = pd.to_datetime(time)
-    year = time.year - 2000
-    month = time.month
-    day = time.day
-
-    filename = (f"/xdata/drandel/gpm/surfdat/{sensor}_surfmap_{year:02}"
-                f"{month:02}_V7.dat")
-
-    N_LON = 32 * 360
-    N_LAT = 32 * 180
-
-    LATS = np.arange(-90, 90, 1.0 / 32)
-    LONS = np.arange(-180, 180, 1.0 / 32)
-
-    offset = (day - 1) * (20 + N_LON * N_LAT) + 20
-    count = N_LON * N_LAT
-    data = np.fromfile(filename, count=count, offset=offset, dtype="u1")
-    data = data.reshape((N_LAT, N_LON))
-    data = data[::-1]
-
-    attrs = np.fromfile(filename, count=5, offset=offset - 20, dtype="i4")
-
-    arr = xr.DataArray(
-        data=data,
-        dims=["latitude", "longitude"],
-        coords={
-            "latitude": LATS,
-            "longitude": LONS
-        }
-    )
-    arr.attrs["header"] = attrs
-    return arr
-
-
-def get_surface_type_map_legacy(time,
-                                sensor="GMI"):
-    """
-    Return dataset contining pre GPROF V6 global surface types for given
-    data.
-
-    Args:
-        time: datetime object specifying the date for which
-            to load the surface type.
-        sensor: Name of the sensor for which to load the surface type.
-
-    Rerturn:
-        xarray.DataArray containing the global surface types.
-    """
-    time = pd.to_datetime(time)
-    year = time.year - 2000
-    month = time.month
-    day = time.day
-
-    filename = (f"/xdata/drandel/gpm/surfdat/{sensor}_surfmap_{year:02}"
-                f"{month:02}_V3.dat")
-
-    N_LON = 16 * 360
-    N_LAT = 16 * 180
-
-    LATS = np.arange(-90, 90, 1.0 / 16)
-    LONS = np.arange(-180, 180, 1.0 / 16)
-
-    offset = (day - 1) * (20 + N_LON * N_LAT) + 20
-    count = N_LON * N_LAT
-    data = np.fromfile(filename, count=count, offset=offset, dtype="u1")
-    data = data.reshape((N_LAT, N_LON))
-    data = data[::-1]
-    attrs = np.fromfile(filename, count=5, offset=offset - 20, dtype="i4")
-
-    arr = xr.DataArray(
-        data=data,
-        dims=["latitude", "longitude"],
-        coords={
-            "latitude": LATS,
-            "longitude": LONS
-        }
-    )
-    arr.attrs["header"] = attrs
-    return arr
