@@ -399,6 +399,7 @@ class GPROF_NN_0D_QRNN(QRNN):
     DRNN-based version of the GPROF-NN 0D algorithm.
     """
     def __init__(self,
+                 sensor,
                  n_layers_body,
                  n_neurons_body,
                  n_layers_head,
@@ -408,6 +409,7 @@ class GPROF_NN_0D_QRNN(QRNN):
                  targets=None,
                  transformation=None
     ):
+        self.sensor = sensor
         residuals = residuals.lower()
         if residuals not in RESIDUALS:
             raise ValueError(
@@ -436,7 +438,7 @@ class GPROF_NN_0D_QRNN(QRNN):
                              residuals=residuals,
                              activation=activation)
 
-        super().__init__(n_inputs=39,
+        super().__init__(n_inputs=sensor.n_inputs,
                          quantiles=QUANTILES,
                          model=model,
                          transformation=transformation)
@@ -450,6 +452,7 @@ class GPROF_NN_0D_DRNN(DRNN):
     DRNN-based version of the GPROF-NN 0D algorithm.
     """
     def __init__(self,
+                 sensor,
                  n_layers_body,
                  n_neurons_body,
                  n_layers_head,
@@ -458,6 +461,7 @@ class GPROF_NN_0D_DRNN(DRNN):
                  residuals="simple",
                  targets=None
     ):
+        self.sensor = sensor
         residuals = residuals.lower()
         if residuals not in RESIDUALS:
             raise ValueError(
@@ -468,7 +472,7 @@ class GPROF_NN_0D_DRNN(DRNN):
             targets = ALL_TARGETS
         self.targets = targets
 
-        model = MultiHeadMLP(39,
+        model = MultiHeadMLP(sensor.n_inputs,
                              n_layers_body,
                              n_neurons_body,
                              n_layers_head,

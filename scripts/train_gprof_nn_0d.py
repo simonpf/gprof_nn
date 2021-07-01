@@ -15,6 +15,7 @@ from quantnn.models.pytorch.logging import TensorBoardLogger
 from quantnn.metrics import ScatterPlot
 from quantnn.transformations import LogLinear
 
+from gprof_nn import sensors
 from gprof_nn.data.training_data import GPROF0DDataset
 from gprof_nn.models import GPROF_NN_0D_QRNN, GPROF_NN_0D_DRNN
 
@@ -27,6 +28,10 @@ parser = argparse.ArgumentParser(
 
 
 # Input and output data
+parser.add_argument('sensor',
+                    metavar='sensor',
+                    type=str,
+                    help='The sensor for which to run the training.')
 parser.add_argument('training_data',
                     metavar='training_data',
                     type=str,
@@ -96,6 +101,8 @@ parser.add_argument('--batch_size', metavar="n", type=int, nargs=1,
 
 args = parser.parse_args()
 
+sensor = args.sensor
+print("SENSOR ", sensor)
 training_data = args.training_data[0]
 validation_data = args.validation_data[0]
 
@@ -104,7 +111,6 @@ n_neurons_body = args.n_neurons_body[0]
 n_layers_head = args.n_layers_head[0]
 n_neurons_head = args.n_neurons_head[0]
 
-print(n_layers_body, n_neurons_body, n_layers_head, n_neurons_head)
 activation = args.activation[0]
 residuals = args.residuals[0]
 
@@ -114,14 +120,25 @@ network_type = args.type[0]
 batch_size = args.batch_size[0]
 
 #
+# Determine sensor
+#
+
+sensor = sensor.strip().upper()
+sensor = getattr(sensors, sensor, None)
+if sensor is None:
+    raise Exception(
+        f"Could not find requested sensor '{args.sensor}'"
+    )
+
+#
 # Prepare output
 #
 
 model_path = Path(args.model_path[0])
 model_path.mkdir(parents=False, exist_ok=True)
-network_name = (f"gprof_nn_0d_gmi_{network_type}_{n_layers_body}_"
-                f"{n_neurons_body}_{n_layers_head}_{n_neurons_head}"
-                f"_{activation}_{residuals}.pckl")
+network_name = (f"gprof_nn_0d_{sensor.name.lower()}_{network_type}_"
+                "{n_layers_body}_{n_neurons_body}_{n_layers_head}_"
+                "{n_neurons_head}_{activation}_{residuals}.pckl")
 
 #
 # Load the data.
@@ -130,11 +147,13 @@ network_name = (f"gprof_nn_0d_gmi_{network_type}_{n_layers_body}_"
 dataset_factory = GPROF0DDataset
 normalizer = Normalizer.load("../data/normalizer_gprof_0d_gmi.pckl")
 kwargs = {
+    "sensor": sensor,
     "batch_size": batch_size,
     "normalizer": normalizer,
-    "target": targets,
+    "targets": targets,
     "augment": True
 }
+
 training_data = DataFolder(
     training_data,
     dataset_factory,
@@ -144,9 +163,10 @@ training_data = DataFolder(
     n_workers=4)
 
 kwargs = {
+    "sensor": sensor,
     "batch_size": 4 * batch_size,
     "normalizer": normalizer,
-    "target": targets,
+    "targets": targets,
     "augment": False
 }
 validation_data = DataFolder(
@@ -161,7 +181,8 @@ validation_data = DataFolder(
 #
 
 if network_type == "drnn":
-    xrnn = GPROF_NN_0D_DRNN(n_layers_body,
+    xrnn = GPROF_NN_0D_DRNN(sensor,
+                            n_layers_body,
                             n_neurons_body,
                             n_layers_head,
                             n_neurons_head,
@@ -171,7 +192,8 @@ if network_type == "drnn":
 elif network_type == "qrnn_exp":
     transformation = {t: LogLinear() for t in targets}
     transformation["latent_heat"] = None
-    xrnn = GPROF_NN_0D_QRNN(n_layers_body,
+    xrnn = GPROF_NN_0D_QRNN(sensor,
+                            n_layers_body,
                             n_neurons_body,
                             n_layers_head,
                             n_neurons_head,
@@ -180,7 +202,8 @@ elif network_type == "qrnn_exp":
                             transformation=transformation,
                             targets=targets)
 else:
-    xrnn = GPROF_NN_0D_QRNN(n_layers_body,
+    xrnn = GPROF_NN_0D_QRNN(sensor,
+                            n_layers_body,
                             n_neurons_body,
                             n_layers_head,
                             n_neurons_head,

@@ -355,7 +355,7 @@ class ConicalScanner(Sensor):
     def name(self):
         return _name
 
-    @abstractproperty
+    @property
     def n_inputs(self):
         """
         The number of input features for the GPORF-NN retrieval.
@@ -613,7 +613,7 @@ class CrossTrackScanner(Sensor):
     def name(self):
         return self._name
 
-    @abstractproperty
+    @property
     def n_inputs(self):
         """
         The number of input features for the GPORF-NN retrieval.
