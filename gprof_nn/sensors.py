@@ -380,7 +380,7 @@ class ConicalScanner(Sensor):
 
     @property
     def n_freqs(self):
-        return self.n_freqs
+        return self._n_freqs
 
     @property
     def l1c_file_prefix(self):

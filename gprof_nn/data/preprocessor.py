@@ -636,7 +636,8 @@ def get_preprocessor_settings():
 
 def run_preprocessor(l1c_file,
                      sensor=sensors.GMI,
-                     output_file=None):
+                     output_file=None,
+                     robust=True):
     """
     Run preprocessor on L1C GMI file.
 
@@ -666,13 +667,16 @@ def run_preprocessor(l1c_file,
             data = PreprocessorFile(output_file).to_xarray_dataset()
 
     except subprocess.CalledProcessError as error:
-        LOGGER.warning(
-            "Running the preprocessor for file %s failed with the following"
-            " error: %s",
-            l1c_file,
-            error.stdout + error.stderr,
-        )
-        return None
+        if robust:
+            LOGGER.warning(
+                "Running the preprocessor for file %s failed with the following"
+                " error: %s",
+                l1c_file,
+                error.stdout + error.stderr,
+            )
+            return None
+        else:
+            raise error
     finally:
         if file is not None:
             file.close()

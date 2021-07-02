@@ -6,7 +6,10 @@ gprof_nn.retrieval
 This module contains classes and functionality that drive the execution
 of the retrieval.
 """
+import logging
 import math
+import subprocess
+import tempfile
 from pathlib import Path
 
 import numpy as np
@@ -16,10 +19,15 @@ import torch
 from torch import nn
 import pandas as pd
 
+from gprof_nn import sensors
+import gprof_nn.logging
 from gprof_nn.definitions import PROFILE_NAMES
 from gprof_nn.data.training_data import (GPROF0DDataset,
                                          GPROF0DDataset)
-from gprof_nn.data.preprocessor import PreprocessorFile
+from gprof_nn.data.preprocessor import PreprocessorFile, run_preprocessor
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 ###############################################################################
@@ -107,7 +115,9 @@ def combine_input_data_2d(dataset):
 
 
 GPROF_BINARY = "GPROF_BINARY"
+L1C = "L1C"
 NETCDF = "NETCDF"
+
 
 class RetrievalDriver:
     """
@@ -144,18 +154,10 @@ class RetrievalDriver:
         suffix = input_file.suffix
         if suffix.endswith("pp"):
             self.input_format = GPROF_BINARY
+        elif suffix.endswith("HDF5"):
+            self.input_format = L1C
         else:
             self.input_format = NETCDF
-
-        # Load input data.
-        if self.input_format == GPROF_BINARY:
-            self.input_data = model.preprocessor_class(input_file,
-                                                       self.normalizer)
-        else:
-            self.input_data = model.netcdf_class(
-                input_file,
-                normalizer=normalizer
-            )
 
         # Determine output format.
         if output_file is None:
@@ -187,12 +189,59 @@ class RetrievalDriver:
         else:
             self.output_file = output_file
 
-    def _run(self, xrnn):
+    def _load_input_data(self):
+        """
+        Load retrieval input data.
+
+        Return:
+            If the input data was successfully loaded the input data
+            object is returned. ``None`` otherwise.
+        """
+        # Load input data.
+        if self.input_format == GPROF_BINARY:
+            LOGGER.info(
+                "Loading preprocessor input data from %s.", self.input_file
+            )
+            input_data = self.model.preprocessor_class(self.input_file,
+                                                       self.normalizer)
+        elif self.input_format == L1C:
+            sensor = getattr(self.model, "sensor", None)
+            if sensor is None:
+                sensor = sensors.GMI
+            _, file = tempfile.mkstemp()
+            try:
+                LOGGER.info(
+                "Running preprocessor for input file %s.", self.input_file
+                )
+                run_preprocessor(self.input_file,
+                                 sensor,
+                                 output_file=file,
+                                 robust=False)
+                input_data = self.model.preprocessor_class(file,
+                                                           self.normalizer)
+            except subprocess.CalledProcessError:
+                LOGGER.warning(
+                    "Running the preprocessor failed. Skipping file %s.",
+                    self.input_file
+                )
+                return None
+            finally:
+                file.unlink()
+        else:
+            input_data = self.model.netcdf_class(
+                self.input_file,
+                normalizer=self.normalizer
+            )
+        return input_data
+
+    def _run(self, xrnn, input_data):
         """
         Batch-wise processing of retrieval input.
 
         Args:
             xrnn: A quantnn neural-network model.
+            input_data: Iterable ``input_data`` object providing access to
+                batched input data.
 
         Return:
             A dataset containing the concatenated retrieval results for all
@@ -205,8 +254,8 @@ class RetrievalDriver:
 
         with torch.no_grad():
             device = next(iter(xrnn.model.parameters())).device
-            for i in range(len(self.input_data)):
-                x = self.input_data[i]
+            for i in range(len(input_data)):
+                x = input_data[i]
                 x = x.float().to(device)
                 y_pred = xrnn.predict(x)
                 if not isinstance(y_pred, dict):
@@ -226,8 +275,8 @@ class RetrievalDriver:
                                                          key=k)
                         pop.append(p.cpu())
 
-        dims = self.input_data.scalar_dimensions
-        dims_p = self.input_data.profile_dimensions
+        dims = input_data.scalar_dimensions
+        dims_p = input_data.profile_dimensions
 
         data = {}
         for k in means:
@@ -252,7 +301,7 @@ class RetrievalDriver:
         data["precip_flag"] = (dims, pop > 0.5)
         data = xr.Dataset(data)
 
-        return self.input_data.finalize(data)
+        return input_data.finalize(data)
 
     def run(self):
         """
@@ -262,7 +311,15 @@ class RetrievalDriver:
             Name of the output file that the results have been written
             to.
         """
-        results = self._run(self.model)
+        input_data = self._load_input_data()
+        if input_data is None:
+            return None
+        results = self._run(self.model, input_data)
+
+        # Make sure output folder exists.
+        folder = Path(self.output_file).parent
+        folder.mkdir(parents=True, exist_ok=True)
+
         if self.output_format == GPROF_BINARY:
             return self.input_data.write_retrieval_results(
                 self.output_file.parent,
@@ -490,11 +547,12 @@ class PreprocessorLoader0D:
         """
         self.filename = filename
         preprocessor_file = PreprocessorFile(filename)
+        self.sensor = preprocessor_file.sensor
         self.data = preprocessor_file.to_xarray_dataset()
         self.normalizer = normalizer
         self.n_scans = self.data.scans.size
         self.n_pixels = self.data.pixels.size
-        self.scans_per_batch = batch_size // 221
+        self.scans_per_batch = batch_size // self.n_pixels
 
         self.scalar_dimensions = ("samples")
         self.profile_dimensions = ("samples", "layers")
@@ -515,15 +573,18 @@ class PreprocessorLoader0D:
         Return:
             PyTorch Tensor ``x`` containing the normalized inputs.
         """
+        n_freqs = self.sensor.n_freqs
+        n_inputs = self.sensor.n_inputs
+
         i_start = i * self.scans_per_batch
         i_end = min(i_start + self.scans_per_batch,
                     self.n_scans)
 
         n = (i_end - i_start) * self.data.pixels.size
-        x = np.zeros((n, 39), dtype=np.float32)
+        x = np.zeros((n, n_inputs), dtype=np.float32)
 
         tbs = self.data["brightness_temperatures"].data[i_start:i_end]
-        tbs = tbs.reshape(-1, 15)
+        tbs = tbs.reshape(-1, n_freqs)
         t2m = self.data["two_meter_temperature"].data[i_start:i_end]
         t2m = t2m.reshape(-1)
         tcwv = self.data["total_column_water_vapor"].data[i_start:i_end]
@@ -533,20 +594,26 @@ class PreprocessorLoader0D:
         at = np.maximum(self.data["airmass_type"].data[i_start:i_end], 0.0)
         at = at.reshape(-1)
 
-        x[:, :15] = tbs
-        x[:, :15][x[:, :15] < 0] = np.nan
+        x[:, :n_freqs] = tbs
+        x[:, :n_freqs][x[:, :n_freqs] < 0] = np.nan
 
-        x[:, 15] = t2m
-        x[:, 15][x[:, 15] < 0] = np.nan
+        i_anc = n_freqs
+        if isinstance(self.sensor, sensors.CrossTrackScanner):
+            va = self.data["earth_incidence_angle"].data[i_start:i_end]
+            x[:, n_freqs] = va.ravel()
+            i_anc = n_freqs + 1
 
-        x[:, 16] = tcwv
-        x[:, 16][x[:, 16] < 0] = np.nan
+        x[:, i_anc] = t2m
+        x[:, i_anc][t2m < 0] = np.nan
 
-        for i in range(18):
-            x[:, 17 + i][st == i + 1] = 1.0
+        x[:, i_anc + 1] = tcwv
+        x[:, i_anc + 1][tcwv < 0] = np.nan
 
-        for i in range(4):
-            x[:, 35 + i][at == i] = 1.0
+        for j in range(18):
+            x[:, i_anc + 2 + j][st == j + 1] = 1.0
+
+        for j in range(4):
+            x[:, i_anc + 2 + 18 + j][at == j] = 1.0
 
         x = self.normalizer(x)
         return torch.tensor(x)
@@ -566,8 +633,8 @@ class PreprocessorLoader0D:
             The data in 'data' modified to match the format of the input
             data.
         """
-        scans = np.arange(data.samples.size // 221)
-        pixels = np.arange(221)
+        scans = np.arange(data.samples.size // self.n_pixels)
+        pixels = np.arange(self.n_pixels)
         names = ("scans", "pixels")
         index = pd.MultiIndex.from_product((scans, pixels),
                                            names=names)

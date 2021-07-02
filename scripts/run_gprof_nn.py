@@ -2,11 +2,18 @@
 Run GPROF-NN retrieval algorithm.
 """
 import argparse
+import logging
 from pathlib import Path
 
 from quantnn.qrnn import QRNN
 from quantnn.normalizer import Normalizer
+from rich.progress import track
+
+import gprof_nn.logging
 from gprof_nn.retrieval import RetrievalDriver
+
+
+LOGGER = logging.getLogger(__name__)
 
 #
 # Parse arguments
@@ -51,7 +58,10 @@ if input_file.is_dir():
             " point to a directory as well."
         )
     input_files = list(input_file.glob("*.nc"))
-    output_files = [output_file / f.name for f in input_files]
+    input_files += list(input_file.glob("*.pp"))
+    input_files += list(input_file.glob("*.HDF5"))
+    output_files = [output_file / f.relative_to(input_file)
+                    for f in input_files]
 else:
     input_files = [input_file]
     output_files = [output_file]
@@ -63,10 +73,12 @@ normalizer = Normalizer.load(normalizer)
 # Run retrieval.
 #
 
-for input_file, output_file in zip(input_files,
-                                   output_files):
+for input_file, output_file in track(list(zip(input_files, output_files)),
+                                     description="Running GPROF-NN:"):
     retrieval = RetrievalDriver(input_file,
                                 normalizer,
                                 xrnn,
                                 output_file=output_file)
-    retrieval.run()
+    result = retrieval.run()
+    if result is not None:
+        LOGGER.info("Finished processing of file %s.", input_file)
