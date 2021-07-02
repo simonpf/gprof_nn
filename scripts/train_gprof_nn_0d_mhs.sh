@@ -1,8 +1,7 @@
-TRAINING_DATA=/home/simonpf/src/gprof_nn/data/training_data/mhs/era5
-#TRAINING_DATA=/home/simonpf/src/gprof_nn/data/validation_data/gmi/era5
-#VALIDATION_DATA=/gdata/simon/gprof_nn/validation_data_small/gmi/era5
+#TRAINING_DATA=/home/simonpf/src/gprof_nn/data/training_data/mhs/era5
+TRAINING_DATA=/gdata/simon/gprof_nn/training_data/mhs/era5
 #VALIDATION_DATA=/home/simonpf/src/gprof_nn/data/validation_data/gmi/era5
-VALIDATION_DATA=/home/simonpf/src/gprof_nn/data/validation_data/mhs/era5
+VALIDATION_DATA=/gdata/simon/gprof_nn/validation_data/mhs/era5
 
 MODEL_PATH=${HOME}/src/gprof_nn/models/
 TARGETS="surface_precip convective_precip rain_water_path ice_water_path cloud_water_path cloud_water_content snow_water_content rain_water_content latent_heat"

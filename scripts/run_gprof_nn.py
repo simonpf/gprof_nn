@@ -57,11 +57,19 @@ if input_file.is_dir():
             "If the input file is a directory, the 'output_file' argument must"
             " point to a directory as well."
         )
-    input_files = list(input_file.glob("*.nc"))
-    input_files += list(input_file.glob("*.pp"))
-    input_files += list(input_file.glob("*.HDF5"))
-    output_files = [output_file / f.relative_to(input_file)
-                    for f in input_files]
+    input_files = list(input_file.glob("**/*.nc"))
+    input_files += list(input_file.glob("**/*.pp"))
+    input_files += list(input_file.glob("**/*.HDF5"))
+
+    output_files = []
+    for f in input_files:
+        of = f.relative_to(input_file)
+        if of.suffix in [".nc", ".HDF5"]:
+            of = of.with_suffix(".nc")
+        else:
+            of = of.with_suffix(".bin")
+        output_files.append(output_file / of)
+    print(output_files)
 else:
     input_files = [input_file]
     output_files = [output_file]

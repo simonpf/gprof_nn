@@ -102,7 +102,6 @@ parser.add_argument('--batch_size', metavar="n", type=int, nargs=1,
 args = parser.parse_args()
 
 sensor = args.sensor
-print("SENSOR ", sensor)
 training_data = args.training_data[0]
 validation_data = args.validation_data[0]
 
@@ -136,9 +135,9 @@ if sensor is None:
 
 model_path = Path(args.model_path[0])
 model_path.mkdir(parents=False, exist_ok=True)
-network_name = (f"gprof_nn_0d_{sensor.name.lower()}_{network_type}_"
-                "{n_layers_body}_{n_neurons_body}_{n_layers_head}_"
-                "{n_neurons_head}_{activation}_{residuals}.pckl")
+network_name = (f"gprof_nn_0d_{sensor.name.lower()}_nb_{network_type}_"
+                f"{n_layers_body}_{n_neurons_body}_{n_layers_head}_"
+                f"{n_neurons_head}_{activation}_{residuals}.pckl")
 
 #
 # Load the data.
@@ -158,7 +157,6 @@ training_data = DataFolder(
     training_data,
     dataset_factory,
     kwargs=kwargs,
-    aggregate=2,
     queue_size=16,
     n_workers=4)
 
@@ -211,6 +209,7 @@ else:
                             residuals=residuals,
                             targets=targets)
 model = xrnn.model
+xrnn.normalizer = normalizer
 
 #
 # Run training
