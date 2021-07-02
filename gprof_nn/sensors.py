@@ -56,6 +56,29 @@ def _expand_pixels(data):
     return data_new
 
 
+_BIAS_SCALES_GMI = 1.0 / np.cos(np.deg2rad(
+    [52.8, 49.19, 49.19, 49.19, 49.19]
+))
+
+
+def calculate_bias_scaling_mhs(angles):
+    """
+    Calculate the scaling factor of the simulation biases for MHS.
+
+    Args:
+        angles: Numpy array containing the viewing angles for which
+            to calculate the bias correction.
+
+    Return:
+        The scaling factors for the bias correction for the given viewing
+        angles.
+    """
+    if angles.shape[angles.ndim - 1] > 1:
+        angles = angles[..., np.newaxis]
+    scales = 1.0 / np.cos(np.deg2rad(angles))
+    return scales / _BIAS_SCALES_GMI
+
+
 ###############################################################################
 # Sensor classes
 ###############################################################################
@@ -142,12 +165,6 @@ class Sensor(ABC):
         """
 
     @abstractproperty
-    def preprocessor(self):
-        """
-        The name of the preprocessor executable for this sensor.
-        """
-
-    @abstractproperty
     def preprocessor_orbit_header(self):
         """
         Numpy dtype defining the binary structure of the header of
@@ -205,7 +222,6 @@ class Sensor(ABC):
             inputs in ``x``.
         """
         pass
-
 
     def load_data_2d(self, filename, targets):
         """
@@ -265,7 +281,7 @@ class ConicalScanner(Sensor):
         self._l1c_file_path = l1c_file_path
 
         self._mrms_file_path = mrms_file_path
-        self._mrms_file_record =  np.dtype([
+        self._mrms_file_record = np.dtype([
             ("latitude", "f4"),
             ("longitude", "f4"),
             ("scan_time", f"5i4"),
@@ -353,7 +369,7 @@ class ConicalScanner(Sensor):
 
     @property
     def name(self):
-        return _name
+        return self._name
 
     @property
     def n_inputs(self):
@@ -451,7 +467,8 @@ class ConicalScanner(Sensor):
             t2m[t2m < 0] = np.nan
 
             # Total precitable water, values less than 0 are missing.
-            tcwv = variables["total_column_water_vapor"][:][valid].reshape(-1, 1)
+            tcwv = variables["total_column_water_vapor"][:][valid]
+            tcwv = tcwv.reshape(-1, 1)
             # Surface type
             st = variables["surface_type"][:][valid]
 
@@ -676,10 +693,6 @@ class CrossTrackScanner(Sensor):
     def load_data_0d(self,
                      filename):
 
-        bias_scales_ref = 1.0 / np.cos(np.deg2rad(
-            [52.8, 49.19, 49.19, 49.19, 49.19]
-        ))
-
         with xr.open_dataset(filename) as dataset:
 
             #
@@ -737,13 +750,13 @@ class CrossTrackScanner(Sensor):
 
                     vas = angles_sim[angles]
 
-                    bias_scales = (1.0 / np.cos(np.deg2rad(vas))[..., np.newaxis]
-                                   / bias_scales_ref.reshape(1, 1, -1))
+                    bias_scales = calculate_bias_scaling_mhs(vas)
                     bias = scene["brightness_temperature_biases"]
                     bias = _expand_pixels(bias.data[np.newaxis])[0]
-                    bias = bias_scales * bias
 
+                    bias = bias_scales * bias
                     bts = bts - bias.reshape(-1, self.n_freqs)
+                    np.nan_to_num(bts, nan=-9999, copy=False)
                     vas = vas.reshape(-1, 1)
 
                 else:
@@ -766,6 +779,7 @@ class CrossTrackScanner(Sensor):
                 # 2m temperature, values less than 0 must be missing.
                 t2m = scene["two_meter_temperature"].data
                 t2m = t2m.reshape(-1, 1)
+                np.nan_to_num(t2m, nan=-9999, copy=False)
                 t2m[t2m < 0] = np.nan
 
                 # Total precitable water, values less than 0 are missing.
@@ -812,9 +826,6 @@ class CrossTrackScanner(Sensor):
         angles_sim[0] = 60.0
         angles_sim[-1] = 0.0
 
-        bias_scales_ref = 1.0 / np.cos(np.deg2rad(
-                [52.8, 49.19, 49.19, 49.19, 49.19]
-        ))
 
         with xr.open_dataset(filename) as dataset:
 
@@ -865,17 +876,17 @@ class CrossTrackScanner(Sensor):
 
                     # Also sample negative viewing angles
                     inds = rng.random(vas.size) < 0.5
-                    #vas[inds] *= -1
+                    vas[inds] *= -1
 
                     # Calculate corrected biases.
-                    bias_scales = (1.0 / np.cos(np.deg2rad(vas).reshape(-1, 1))
-                                   / bias_scales_ref.reshape(1, -1))
+                    bias_scales = calculate_bias_scaling_mhs(vas)
                     bias = scene["brightness_temperature_biases"]
                     bias = _expand_pixels(bias.data[np.newaxis])[0][valid]
                     bias = bias_scales * bias
                     bias = bias.reshape(-1, self.n_freqs)
 
                     bts = bts - bias
+                    np.nan_to_num(bts, nan=-9999, copy=False)
 
                     invalid = (bts > 500.0) + (bts < 0.0)
                     bts[invalid] = np.nan
@@ -1009,6 +1020,7 @@ class CrossTrackScanner(Sensor):
     def load_training_data_2d(self, filename, targets):
         pass
 
+
 GMI = ConicalScanner(
     "GMI",
     15,
@@ -1033,5 +1045,5 @@ MHS = CrossTrackScanner(
     "/pdata4/veljko/MHS2MRMS_match2019/monthly_2021/",
     "MHS.dbsatTb.??????{day}.??????.sim",
     "/qdata1/pbrown/dbaseV7/simV7x",
-    "gprof2020pp_MHS_L1C" 
+    "gprof2020pp_MHS_L1C"
 )

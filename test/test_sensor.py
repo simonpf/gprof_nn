@@ -11,6 +11,16 @@ from gprof_nn import sensors
 TEST_FILE_MHS = "gprof_nn_mhs_era5_5.nc"
 
 
+def test_bias_scaling_mhs():
+    """
+    Ensure that bias scaling for GMI angles is 1.0.
+    """
+    angles = np.array([52.8, 49.19])
+    scales = sensors.calculate_bias_scaling_mhs(angles)
+    assert np.all(np.isclose(scales[0, 0], 1.0))
+    assert np.all(np.isclose(scales[1, 1:], 1.0))
+
+
 def test_load_data_mhs():
 
     path = Path(__file__).parent
