@@ -787,13 +787,13 @@ class CrossTrackScanner(Sensor):
                 tcwv = tcwv.reshape(-1, 1)
 
                 # Surface type
-                st = scene["surface_type"].data
+                st = np.maximum(scene["surface_type"].data, 1)
                 n_types = 18
                 st_1h = np.zeros((n_scans, n_pixels, n_types),
                                  dtype=np.float32)
-                for i in range(n_types):
-                    mask = st == i + 1
-                    st_1h[mask] = 1.0
+                for j in range(n_types):
+                    mask = st == j + 1
+                    st_1h[mask, j] = 1.0
                 st_1h = st_1h.reshape(-1, n_types)
 
                 # Airmass type
@@ -803,9 +803,9 @@ class CrossTrackScanner(Sensor):
                 n_types = 4
                 am_1h = np.zeros((n_scans, n_pixels, n_types),
                                  dtype=np.float32)
-                for i in range(n_types):
-                    mask = np.maximum(am, 0) == i
-                    am_1h[mask] = 1.0
+                for j in range(n_types):
+                    mask = np.maximum(am, 0) == j
+                    am_1h[mask, j] = 1.0
                 am_1h = am_1h.reshape(-1, n_types)
 
                 x += [np.concatenate(
@@ -906,7 +906,7 @@ class CrossTrackScanner(Sensor):
                     st_1h = np.zeros((n, n_types), dtype=np.float32)
                     for i in range(n_types):
                         mask = st == i + 1
-                        st_1h[mask] = 1.0
+                        st_1h[mask, i] = 1.0
                     st_1h = st_1h.reshape(-1, n_types)
                     # Airmass type
                     # Airmass type is defined slightly different from surface
@@ -916,7 +916,7 @@ class CrossTrackScanner(Sensor):
                     am_1h = np.zeros((n, n_types), dtype=np.float32)
                     for i in range(n_types):
                         mask = np.maximum(am, 0) == i
-                        am_1h[mask] = 1.0
+                        am_1h[mask, i] = 1.0
                     am_1h = am_1h.reshape(-1, n_types)
 
                     x += [np.concatenate(
@@ -970,12 +970,11 @@ class CrossTrackScanner(Sensor):
                     tcwv = tcwv[..., np.newaxis]
                     # Surface type
                     st = scene["surface_type"].data[valid]
-
                     n_types = 18
                     st_1h = np.zeros((n, n_types), dtype=np.float32)
-                    for i in range(n_types):
-                        mask = st == i + 1
-                        st_1h[mask] = 1.0
+                    for j in range(n_types):
+                        mask = st == j + 1
+                        st_1h[mask, j] = 1.0
                     st_1h = st_1h.reshape(-1, n_types)
 
                     # Airmass type
@@ -984,9 +983,9 @@ class CrossTrackScanner(Sensor):
                     am = scene["airmass_type"].data[valid]
                     n_types = 4
                     am_1h = np.zeros((n, n_types), dtype=np.float32)
-                    for i in range(n_types):
-                        mask = np.maximum(am, 0) == i
-                        am_1h[mask] = 1.0
+                    for j in range(n_types):
+                        mask = np.maximum(am, 0) == j
+                        am_1h[mask, j] = 1.0
                     am_1h = am_1h.reshape(-1, n_types)
 
                     x += [np.concatenate(

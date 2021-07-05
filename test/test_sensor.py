@@ -38,11 +38,13 @@ def test_load_data_mhs():
     assert np.all(np.abs(x[valid, 5]) <= sensor.angles[0] + 1.0)
     assert np.all(np.abs(x[valid, 5]) >= sensor.angles[-1])
 
-    st = x[:, 8:26] > 0
-    np.all(np.isclose(st.sum(axis=1), 1.0))
+    st = x[:,  8:26]
+    st = st[np.all(np.isfinite(st), axis=-1)]
+    assert np.all(np.isclose((st > 0).sum(axis=1), 1.0))
 
-    at = x[:, 26:30] > 0
-    np.all(np.isclose(at.sum(axis=1), 1.0))
+    at = x[:, 26:30]
+    at = at[np.all(np.isfinite(at), axis=-1)]
+    assert np.all(np.isclose((at > 0).sum(axis=1), 1.0))
 
 
 def test_load_training_data_mhs(tmp_path):
@@ -85,10 +87,10 @@ def test_load_training_data_mhs(tmp_path):
     assert np.all(np.abs(x[:, 5]) >= sensor.angles[-1])
 
     st = x[:, 8:26] > 0
-    np.all(np.isclose(st.sum(axis=1), 1.0))
+    assert np.all(np.isclose(st.sum(axis=1), 1.0))
 
     at = x[:, 26:30] > 0
-    np.all(np.isclose(at.sum(axis=1), 1.0))
+    assert np.all(np.isclose(at.sum(axis=1), 1.0))
 
 def test_load_training_data_mhs():
 
