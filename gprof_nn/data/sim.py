@@ -199,7 +199,7 @@ class SimFile:
 
             matched[:] = np.nan
             matched[indices, ...] = self.data["tbs_bias"]
-            matched[indices, ...][dists > 5e3] = np.nan
+            matched[indices, ...][dists > 10e3] = np.nan
             matched = matched.reshape(shape)
 
             matched_full = np.zeros(full_shape, dtype=np.float32)
@@ -856,10 +856,13 @@ class SimFileProcessor:
         l1c_file_path = self.sensor.l1c_file_path
         l1c_files = []
         for year, month in DATABASE_MONTHS:
-            date = datetime(year, month, self.day)
-            l1c_files += L1CFile.find_files(date,
-                                            l1c_file_path,
-                                            sensor=self.sensor)
+            try:
+                date = datetime(year, month, self.day)
+                l1c_files += L1CFile.find_files(date,
+                                                l1c_file_path,
+                                                sensor=self.sensor)
+            except ValueError:
+                pass
         l1c_files = [f.filename for f in l1c_files]
         l1c_files = np.random.permutation(l1c_files)
 

@@ -21,7 +21,7 @@ import pandas as pd
 
 from gprof_nn import sensors
 import gprof_nn.logging
-from gprof_nn.definitions import PROFILE_NAMES
+from gprof_nn.definitions import PROFILE_NAMES, ALL_TARGETS
 from gprof_nn.data.training_data import (GPROF0DDataset,
                                          GPROF0DDataset)
 from gprof_nn.data.preprocessor import PreprocessorFile, run_preprocessor
@@ -163,7 +163,7 @@ class RetrievalDriver:
         if output_file is None:
             self.output_format = self.input_format
         else:
-            if self.input_format == NETCDF:
+            if self.input_format in [NETCDF, L1C]:
                 self.output_format = NETCDF
             else:
                 output_file = Path(output_file)
@@ -226,7 +226,7 @@ class RetrievalDriver:
                 )
                 return None
             finally:
-                file.unlink()
+                Path(file).unlink()
         else:
             input_data = self.model.netcdf_class(
                 self.input_file,
@@ -327,6 +327,12 @@ class RetrievalDriver:
                 ancillary_data=self.ancillary_data
             )
         else:
+            # Include some inputs in result.
+            if hasattr(input_data, "data"):
+                results["latitude"] = input_data.data.latitude
+                results["longitude"] = input_data.data.longitude
+                results["surface_type"] = input_data.data.surface_type
+                results["airmass_type"] = input_data.data.airmass_type
             results.to_netcdf(self.output_file)
         return self.output_file
 
@@ -395,7 +401,17 @@ class NetcdfLoader0D(NetcdfLoader):
         self.normalizer = normalizer
         self.batch_size = batch_size
 
-        self._load_data()
+        input_data = xr.open_dataset(self.filename)
+        sensor = input_data.attrs["sensor"]
+        sensor = getattr(sensors, sensor)
+        self.sensor = sensor
+
+        if "scans" in input_data.dims:
+            self.kind = "standard"
+        else:
+            self.kind = "bin"
+
+        self.input_data = sensor.load_data_0d(self.filename)
         self.n_samples = self.input_data.shape[0]
 
         self.scalar_dimensions = ("samples")
@@ -455,6 +471,12 @@ class NetcdfLoader0D(NetcdfLoader):
         Reshape retrieval results into shape of input data.
         """
         if self.kind == "standard":
+
+            invalid = np.all(self.input_data[:, :self.sensor.n_freqs] <= -1.5,
+                             axis=-1)
+            for v in ALL_TARGETS:
+                data[v].data[invalid] = np.nan
+
             samples = np.arange(data.samples.size // (221 * 221))
             scans = np.arange(221)
             pixels = np.arange(221)
@@ -463,6 +485,12 @@ class NetcdfLoader0D(NetcdfLoader):
                                                names=names)
             data = data.assign(samples=index).unstack('samples')
             data = data.rename_dims({"samples_t": "samples"})
+
+            input_data = xr.open_dataset(self.filename)
+            data["latitude"] = input_data["latitude"]
+            data["longitude"] = input_data["longitude"]
+
+
         return data
 
 
@@ -639,7 +667,14 @@ class PreprocessorLoader0D:
         index = pd.MultiIndex.from_product((scans, pixels),
                                            names=names)
         data = data.assign(samples=index).unstack('samples')
-        return data.transpose("scans", "pixels", "layers")
+        data =  data.transpose("scans", "pixels", "layers")
+
+        tbs = self.data["brightness_temperatures"].data
+        invalid =  np.all(tbs < 0, axis=-1)
+        for v in ALL_TARGETS:
+            data[v].data[invalid] = np.nan
+
+        return data
 
     def write_retrieval_results(self,
                                 output_path,
