@@ -33,6 +33,10 @@ def test_load_data_mhs():
 
     x = sensor.load_data_0d(input_file)
 
+    mask = np.isfinite(x)
+    assert np.all(x[mask] > -100)
+    assert np.all(x[mask] < 500)
+
     # Make sure all observation angles are withing expected limits.
     valid = np.abs(x[:, 5] > -1000)
     assert np.all(np.abs(x[valid, 5]) <= sensor.angles[0] + 1.0)
@@ -81,6 +85,9 @@ def test_load_training_data_mhs(tmp_path):
     assert np.all(sp_ref.max(axis=-1) >= sp)
     assert np.all(sp_ref.min(axis=-1) <= sp)
 
+    mask = np.isfinite(x)
+    assert np.all(x[mask] > -2)
+    assert np.all(x[mask] < 2)
 
     # Make sure all observation angles are withing expected limits.
     assert np.all(np.abs(x[:, 5]) <= sensor.angles[0] + 1.0)

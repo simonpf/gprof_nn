@@ -516,6 +516,7 @@ class CrossTrackScanner(Sensor):
     def __init__(self,
                  name,
                  angles,
+                 nedt,
                  n_freqs,
                  l1c_prefix,
                  l1c_file_path,
@@ -525,6 +526,7 @@ class CrossTrackScanner(Sensor):
                  preprocessor):
         self._name = name
         self._angles = angles
+        self.nedt = nedt
         n_angles = angles.size
         self._n_freqs = n_freqs
         self._l1c_file_prefix = l1c_prefix
@@ -737,11 +739,11 @@ class CrossTrackScanner(Sensor):
 
                     bts_i = np.zeros((n_scans, n_pixels, self.n_freqs),
                                      dtype=np.float32)
-                    for i in range(self.n_angles):
-                        mask = inds_l == i
-                        bts_i[mask] += f[mask, np.newaxis] * bts[mask, i]
-                        mask = inds_r == i
-                        bts_i[mask] += (1 - f[mask, np.newaxis]) * bts[mask, i]
+                    for j in range(self.n_angles):
+                        mask = inds_l == j
+                        bts_i[mask] += f[mask, np.newaxis] * bts[mask, j]
+                        mask = inds_r == j
+                        bts_i[mask] += (1 - f[mask, np.newaxis]) * bts[mask, j]
                     bts = bts_i
 
                     invalid = (bts > 500.0) + (bts < 0.0)
@@ -749,15 +751,18 @@ class CrossTrackScanner(Sensor):
                     bts = bts.reshape(-1, self.n_freqs)
 
                     vas = angles_sim[angles]
+                    vas = vas.reshape(-1, 1)
 
                     bias_scales = calculate_bias_scaling_mhs(vas)
                     bias = scene["brightness_temperature_biases"]
                     bias = _expand_pixels(bias.data[np.newaxis])[0]
+                    bias = bias.reshape(-1, self.n_freqs)
 
+                    mask = bias > -1000
                     bias = bias_scales * bias
-                    bts = bts - bias.reshape(-1, self.n_freqs)
-                    np.nan_to_num(bts, nan=-9999, copy=False)
-                    vas = vas.reshape(-1, 1)
+                    bts[mask] = bts[mask] - bias[mask]
+
+                    bts += np.random.normal(size=bts.shape) * self.nedt[np.newaxis, ...]
 
                 else:
 
@@ -774,7 +779,7 @@ class CrossTrackScanner(Sensor):
 
                     vas = scene["earth_incidence_angle"].data[:, :, 0]
                     vas = vas.reshape(-1, 1)
-                    np.nan_to_num(vas, nan=-9999, copy=False)
+
 
                 # 2m temperature, values less than 0 must be missing.
                 t2m = scene["two_meter_temperature"].data
@@ -848,8 +853,8 @@ class CrossTrackScanner(Sensor):
                 if source == 0:
 
                     bts = scene["simulated_brightness_temperatures"]
-                    np.nan_to_num(bts, nan=-9999, copy=False)
                     bts = _expand_pixels(bts.data[np.newaxis])[0]
+                    np.nan_to_num(bts, nan=-9999, copy=False)
 
                     sp = scene["surface_precip"].data
                     np.nan_to_num(sp, nan=-9999, copy=False)
@@ -864,12 +869,13 @@ class CrossTrackScanner(Sensor):
                     # Interpolate brightness temperatures.
                     bts = bts[valid]
                     bts_i = np.zeros((n, self.n_freqs), dtype=np.float32)
-                    for i in range(self.n_angles):
-                        mask = inds_l == i
-                        bts_i[mask] += f[mask, np.newaxis] * bts[mask, i]
-                        mask = inds_r == i
-                        bts_i[mask] += (1 - f[mask, np.newaxis]) * bts[mask, i]
+                    for j in range(self.n_angles):
+                        mask = inds_l == j
+                        bts_i[mask] += f[mask, np.newaxis] * bts[mask, j]
+                        mask = inds_r == j
+                        bts_i[mask] += (1 - f[mask, np.newaxis]) * bts[mask, j]
                     bts = bts_i
+
                     vas = (f * angles_sim[inds_l] + (1.0 - f)
                            * angles_sim[inds_r])
                     vas = vas.reshape(-1, 1)
@@ -882,11 +888,13 @@ class CrossTrackScanner(Sensor):
                     bias_scales = calculate_bias_scaling_mhs(vas)
                     bias = scene["brightness_temperature_biases"]
                     bias = _expand_pixels(bias.data[np.newaxis])[0][valid]
-                    bias = bias_scales * bias
-                    bias = bias.reshape(-1, self.n_freqs)
 
-                    bts = bts - bias
-                    np.nan_to_num(bts, nan=-9999, copy=False)
+                    mask = bias > -1000
+                    bias = bias_scales * bias
+                    bts[mask] = bts[mask] - bias[mask]
+
+                    bts += (rng.standard_normal(size=bts.shape)
+                            * self.nedt[np.newaxis, ...])
 
                     invalid = (bts > 500.0) + (bts < 0.0)
                     bts[invalid] = np.nan
@@ -899,6 +907,8 @@ class CrossTrackScanner(Sensor):
                     # Total precitable water, values less than 0 are missing.
                     tcwv = scene["total_column_water_vapor"].data[valid]
                     tcwv = tcwv[..., np.newaxis]
+                    tcwv[tcwv < 0] = np.nan
+
                     # Surface type
                     st = scene["surface_type"].data[valid]
 
@@ -956,6 +966,7 @@ class CrossTrackScanner(Sensor):
                     # Interpolate brightness temperatures.
                     bts = scene["brightness_temperatures"].data[valid, :]
                     vas = scene["earth_incidence_angle"].data[valid, ..., :1]
+                    vas[vas < -100] = np.nan
 
                     invalid = (bts > 500.0) + (bts < 0.0)
                     bts[invalid] = np.nan
@@ -968,6 +979,8 @@ class CrossTrackScanner(Sensor):
                     # Total precitable water, values less than 0 are missing.
                     tcwv = scene["total_column_water_vapor"].data[valid]
                     tcwv = tcwv[..., np.newaxis]
+                    tcwv[tcwv < 0] = np.nan
+
                     # Surface type
                     st = scene["surface_type"].data[valid]
                     n_types = 18
@@ -1035,9 +1048,16 @@ MHS_ANGLES = np.array([
     59.798, 53.311, 46.095, 39.222, 32.562, 26.043,
     19.619, 13.257,  6.934,  0.0
 ])
+
+MHS_NEDT = np.array([
+    2.0, 2.0, 4.0, 2.0, 2.0
+])
+
+
 MHS = CrossTrackScanner(
     "MHS",
     MHS_ANGLES,
+    MHS_NEDT,
     5,
     "1C.*.MHS.",
     "/pdata4/archive/GPM/1C_NOAA19",
