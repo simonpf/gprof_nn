@@ -344,7 +344,7 @@ def _extract_scenes(data):
     while i_start + n < i_end:
         subscene = data[{"scans": slice(i_start, i_start + n)}]
         sp = subscene["surface_precip"].data
-        if np.isfinite(sp).sum() > 5:
+        if np.isfinite(sp).sum() > 100:
             scenes.append(subscene)
             i_start += n
         else:
