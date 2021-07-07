@@ -5,6 +5,7 @@ gprof_nn.data.l1c
 
 Functionality to read and manipulate GPROF L1C-R files.
 """
+from concurrent.futures import ProcessPoolExecutor
 from datetime import datetime
 from pathlib import Path
 import re
@@ -15,9 +16,13 @@ import pandas as pd
 import xarray as xr
 
 from gprof_nn import sensors
-
+from gprof_nn.data.preprocessor import PreprocessorFile, run_preprocessor
+from gprof_nn.definitions import DATABASE_MONTHS
+from gprof_nn.logging import console
 
 _RE_META_INFO = re.compile(r"NumberScansGranule=(\d*);")
+
+LOGGER = logging.getLogger(__name__)
 
 
 class L1CFile:
@@ -530,3 +535,145 @@ class L1CFile:
                 )
 
         return xr.Dataset(data)
+
+
+def extract_scenes(data, sensor):
+    """
+    Organizes the data in 'data' into quadratic scenes with a side
+    length matching the number of pixels of the sensor.
+
+    Args:
+        data: 'xarray.Dataset' containing swath data.
+        sensor: Sensor object representing the sensor from which the
+            observations stem.
+
+    Return:
+        data: A new 'xarray.Dataset' containing as much as possible
+            of the data in 'data' organised into scenes.
+    """
+    n = sensor.n_pixels
+
+    i_start = 0
+    i_end = data.scans.size
+
+    scenes = []
+    i_start
+    while i_start + n < i_end:
+        subscene = data[{"scans": slice(i_start, i_start + n)}]
+        scenes.append(subscene)
+        i_start += n
+
+    if scenes:
+        return xr.concat(scenes, "samples")
+    return None
+
+def process_l1c_file(l1c_filename,
+                     sensor,
+                     era5_path):
+    """
+    Run preprocessor for L1C file and extract resulting data.
+
+    Args:
+        l1c_filename: Path to the L1C file to process.
+        sensor: Sensor object representing the sensor from which
+            the data originates.
+    """
+    import gprof_nn.logging
+    data_pp = run_preprocessor(l1c_filename, sensor=sensor)
+    return extract_scenes(data_pp)
+
+
+class ObservationProcessor:
+    """
+    Processor class to extract observations from L1C files.
+    """
+    def __init__(
+        self,
+        output_file,
+        sensor,
+        n_workers=4,
+        day=None,
+    ):
+        """
+        Create observation processor..
+
+        Args:
+            path: The folder containing the input files.
+            pattern: glob pattern to use to subselect input files.
+            output_path: The path to which to write the retrieval
+                 results
+            input_class: The class to use to read and process the input files.
+            n_workers: The number of worker processes to use.
+            days: The days of each month to process.
+        """
+
+        self.output_file = output_file
+        self.sensor = sensor
+        self.pool = ProcessPoolExecutor(max_workers=n_workers)
+
+        if day is None:
+            self.day = 1
+        else:
+            self.day = day
+
+    def run(self):
+        """
+        Start the processing.
+
+        This will start processing all suitable input files that have been found and
+        stores the names of the produced result files in the ``processed`` attribute
+        of the driver.
+        """
+        l1c_file_path = self.sensor.l1c_file_path
+        l1c_files = []
+        for year, month in DATABASE_MONTHS:
+            try:
+                date = datetime(year, month, self.day)
+                l1c_files += L1CFile.find_files(date,
+                                                l1c_file_path,
+                                                sensor=self.sensor)
+            except ValueError:
+                pass
+        l1c_files = [f.filename for f in l1c_files]
+        l1c_files = np.random.permutation(l1c_files)
+
+        n_l1c_files = len(l1c_files)
+        print(f"Found {n_l1c_files} L1C files.")
+        i = 0
+
+        # Submit tasks interleaving .sim and MRMS files.
+        tasks = []
+        for l1c_file in l1c_files:
+            tasks.append(self.pool.submit(process_l1c_file,
+                                          l1c_file,
+                                          self.sensor,
+                                          self.era5_path))
+            i += 1
+
+        n_datasets = len(tasks)
+        datasets = []
+        output_path = Path(self.output_file).parent
+        output_file = Path(self.output_file).stem
+
+        # Retrieve extracted observations and concatenate into
+        # single dataset.
+        for t in track(tasks, description="Extracting data ..."):
+            try:
+                dataset = t.result()
+            except Exception as e:
+                LOGGER.warning(
+                    "The follow error was encountered while collecting "
+                    " results: %s", e
+                )
+                console.print_exception()
+                dataset = None
+
+            if dataset is not None:
+                datasets.append(dataset)
+        dataset = xr.concat(datasets, "samples")
+
+        # Store dataset with sensor name as attribute.
+        filename = output_path / (output_file + ".nc")
+        print(f"Writing file: {filename}")
+        dataset.attrs["sensor"] = self.sensor.name
+        dataset.to_netcdf(filename)

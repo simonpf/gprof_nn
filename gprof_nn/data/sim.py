@@ -809,13 +809,13 @@ class SimFileProcessor:
         Create retrieval driver.
 
         Args:
-            path: The folder containing the input files.
-            pattern: glob pattern to use to subselect input files.
-            output_path: The path to which to write the retrieval
-                 results
-            input_class: The class to use to read and process the input files.
+            output_file: The file in which to store the extracted data.
+            sensor: Sensor object defining the sensor for which to extract
+                training data.
+            era_5_path: Path to the root of the directory tree containing
+                ERA5 data.
             n_workers: The number of worker processes to use.
-            days: The days of each month to process.
+            day: Day of the month for which to extract the data.
         """
 
         self.output_file = output_file
