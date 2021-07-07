@@ -12,7 +12,6 @@ from pathlib import Path
 from concurrent.futures import ProcessPoolExecutor
 import re
 
-from netCDF4 import Dataset
 import numpy as np
 import xarray as xr
 import tqdm.asyncio
@@ -48,8 +47,12 @@ GMI_BIN_RECORD_TYPES = np.dtype(
         ("ice_water_path", np.float32),
         ("total_column_water_vapor", np.float32),
         ("two_meter_temperature", np.float32),
-        ("rain_water_content", [(f"l_{i:02}", np.float32) for i in range(N_LAYERS)]),
-        ("cloud_water_content", [(f"l_{i:02}", np.float32) for i in range(N_LAYERS)]),
+        (
+            "rain_water_content",
+            [(f"l_{i:02}", np.float32) for i in range(N_LAYERS)]),
+        (
+            "cloud_water_content",
+            [(f"l_{i:02}", np.float32) for i in range(N_LAYERS)]),
         ("snow_water_content", [(f"l_{i:02}", np.float32) for i in range(N_LAYERS)]),
         ("latent_heat", [(f"l_{i:02}", np.float32) for i in range(N_LAYERS)]),
     ]
@@ -159,7 +162,7 @@ class GPROFGMIBinFile:
 
             if (not self.include_profiles) and k in PROFILE_NAMES:
                 continue
-            if type(t) is str:
+            if isinstance(t, str):
                 view = self.handle[k].view(t)
                 results[k] = ("samples",), view[indices]
             else:
