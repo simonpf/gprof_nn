@@ -360,11 +360,11 @@ def evaluate(iteration,
 
         for surface_type in range(18):
 
-            inds = x_t[:, surface_type] > 0
+            inds = x_t[:, 1 + surface_type] > 0
             y_target = y_t[inds]
 
             x = 0.5 * (bins[1:] + bins[:-1])
-            inds = x_s[:, surface_type] > 0
+            inds = x_s[:, 1 + surface_type] > 0
             y_source = y_s[inds]
             y_corrected = y_c[inds]
             y_delta = y_d[inds]
