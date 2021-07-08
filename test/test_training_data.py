@@ -14,6 +14,7 @@ from quantnn.models.pytorch.xception import XceptionFpn
 
 from gprof_nn import sensors
 from gprof_nn.data.training_data import (GPROF0DDataset,
+                                         TrainingObsDataset0D,
                                          GPROF2DDataset)
 
 
@@ -120,6 +121,9 @@ def test_gprof_0d_dataset_mhs():
     assert np.all(np.isclose(x_mean, x_mean_ref, rtol=1e-3))
     assert np.all(np.isclose(y_mean, y_mean_ref, rtol=1e-3))
 
+    assert(np.all(np.isclose(x[:, 8:26].sum(-1),
+                             1.0)))
+
 
 def test_gprof_0d_dataset_multi_target_mhs():
     """
@@ -158,6 +162,37 @@ def test_gprof_0d_dataset_multi_target_mhs():
     assert np.all(np.isclose(x_mean, x_mean_ref, atol=1e-3))
     for k in y_mean_ref:
         assert np.all(np.isclose(y_mean[k], y_mean_ref[k], rtol=1e-3))
+
+
+def test_observation_dataset_0d():
+    """
+    Test loading of observations data from MHS training data.
+    """
+    path = Path(__file__).parent
+    input_file = path / "data" / "gprof_nn_mhs_era5.nc"
+    input_data = xr.load_dataset(input_file)
+    dataset = TrainingObsDataset0D(
+        input_file,
+        batch_size=1,
+        transform_zeros=False,
+        sensor=sensors.MHS,
+        normalize=False,
+        shuffle=False
+    )
+
+    x, y = dataset[0]
+    x = x.detach().numpy()
+    y = y.detach().numpy()
+
+    assert x.shape[1] == 19
+    assert y.shape[1] == 5
+
+    sp = input_data["surface_precip"].data
+    valid = np.all(sp >= 0, axis=-1)
+    st = input_data["surface_type"].data[valid]
+    st_x = np.where(x[0, 1:])[0][0] + 1
+    assert st[0] == st_x
+
 
 def test_profile_variables():
     """

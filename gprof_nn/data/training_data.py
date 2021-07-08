@@ -11,6 +11,7 @@ import logging
 import os
 from pathlib import Path
 
+from netCDF4 import Dataset
 import numpy as np
 import torch
 from torch import nn
@@ -128,8 +129,76 @@ def write_preprocessor_file(
 # GPROF-NN 0D
 ###############################################################################
 
+class Dataset0DBase:
+    """
+    Base class for batched datasets providing generic implementations of batch
+    access and shuffling.
+    """
+    def __init__(self):
+        seed = int.from_bytes(os.urandom(4), "big") + os.getpid()
+        self._rng = np.random.default_rng(seed)
 
-class GPROF0DDataset:
+    def _shuffle(self):
+        if not self._shuffled:
+            LOGGER.info("Shuffling dataset %s.", self.filename.name)
+            indices = self._rng.permutation(self.x.shape[0])
+            self.x = self.x[indices, :]
+            if isinstance(self.y, dict):
+                self.y = {k: self.y[k][indices] for k in self.y}
+            else:
+                self.y = self.y[indices]
+            self._shuffled = True
+
+    def __getitem__(self, i):
+        """
+        Return element from the dataset. This is part of the
+        pytorch interface for datasets.
+
+        Args:
+            i(int): The index of the sample to return
+        """
+        if i >= len(self):
+            LOGGER.info("Finished iterating through dataset %s.", self.filename.name)
+            raise IndexError()
+        if i == 0:
+            if self.shuffle:
+                self._shuffle()
+            if self.transform_zeros:
+                self._transform_zeros()
+
+        self._shuffled = False
+        if self.batch_size is None:
+            if isinstance(self.y, dict):
+                return (
+                    torch.tensor(self.x[[i], :]),
+                    {k: torch.tensor(self.y[k][[i]]) for k in self.y},
+                )
+
+        i_start = self.batch_size * i
+        i_end = self.batch_size * (i + 1)
+
+        x = torch.tensor(self.x[i_start:i_end, :])
+        if isinstance(self.y, dict):
+            y = {k: torch.tensor(self.y[k][i_start:i_end]) for k in self.y}
+        else:
+            y = torch.tensor(self.y[i_start:i_end])
+
+        return x, y
+
+    def __len__(self):
+        """
+        The number of samples in the dataset.
+        """
+        if self.batch_size:
+            n = self.x.shape[0] // self.batch_size
+            if (self.x.shape[0] % self.batch_size) > 0:
+                n = n + 1
+            return n
+        else:
+            return self.x.shape[0]
+
+
+class GPROF0DDataset(Dataset0DBase):
     """
     Dataset class providing an interface for the single-pixel GPROF-NN 0D
     retrieval algorithm.
@@ -174,6 +243,7 @@ class GPROF0DDataset:
             augment: Whether or not to randomly mask high-frequency channels
                 and to randomly permute ancillary data.
         """
+        super().__init__()
         self.filename = Path(filename)
 
         if targets is None:
@@ -189,8 +259,6 @@ class GPROF0DDataset:
         else:
             self.sensor = sensor
 
-        seed = int.from_bytes(os.urandom(4), "big") + os.getpid()
-        self._rng = np.random.default_rng(seed)
         x, y = self.sensor.load_training_data_0d(filename,
                                                  self.targets,
                                                  self.augment,
@@ -201,7 +269,8 @@ class GPROF0DDataset:
             "Loaded %s samples from %s", self.x.shape[0], self.filename.name
         )
 
-        indices_1h = list(range(sensor.n_inputs - 22, sensor.n_inputs))
+        indices_1h = list(range(self.sensor.n_inputs - 22,
+                                self.sensor.n_inputs))
         if normalizer is None:
             self.normalizer = MinMaxNormalizer(self.x, exclude_indices=indices_1h)
         elif isinstance(normalizer, type):
@@ -318,65 +387,6 @@ class GPROF0DDataset:
         new_dataset.attrs = dataset.attrs
         new_dataset.to_netcdf(filename)
 
-    def _shuffle(self):
-        if not self._shuffled:
-            LOGGER.info("Shuffling dataset %s.", self.filename.name)
-            indices = self._rng.permutation(self.x.shape[0])
-            self.x = self.x[indices, :]
-            if isinstance(self.y, dict):
-                self.y = {k: self.y[k][indices] for k in self.y}
-            else:
-                self.y = self.y[indices]
-            self._shuffled = True
-
-    def __getitem__(self, i):
-        """
-        Return element from the dataset. This is part of the
-        pytorch interface for datasets.
-
-        Args:
-            i(int): The index of the sample to return
-        """
-        if i >= len(self):
-            LOGGER.info("Finished iterating through dataset %s.", self.filename.name)
-            raise IndexError()
-        if i == 0:
-            if self.shuffle:
-                self._shuffle()
-            if self.transform_zeros:
-                self._transform_zeros()
-
-        self._shuffled = False
-        if self.batch_size is None:
-            if isinstance(self.y, dict):
-                return (
-                    torch.tensor(self.x[[i], :]),
-                    {k: torch.tensor(self.y[k][[i]]) for k in self.y},
-                )
-
-        i_start = self.batch_size * i
-        i_end = self.batch_size * (i + 1)
-
-        x = torch.tensor(self.x[i_start:i_end, :])
-        if isinstance(self.y, dict):
-            y = {k: torch.tensor(self.y[k][i_start:i_end]) for k in self.y}
-        else:
-            y = torch.tensor(self.y[i_start:i_end])
-
-        return x, y
-
-    def __len__(self):
-        """
-        The number of samples in the dataset.
-        """
-        if self.batch_size:
-            n = self.x.shape[0] // self.batch_size
-            if (self.x.shape[0] % self.batch_size) > 0:
-                n = n + 1
-            return n
-        else:
-            return self.x.shape[0]
-
     def evaluate_sensitivity(self, model, batch_size=512, device=_DEVICE):
         """
         Run retrieval on dataset.
@@ -455,6 +465,87 @@ class GPROF0DDataset:
             "dydxs": (dims, dydxs),
         }
         return xr.Dataset(data)
+
+
+class TrainingObsDataset0D(GPROF0DDataset):
+    """
+    Special training dataset that serves only the simulated brightness
+    temperatures and ancillary data in order to train an observation
+    noise model.
+    """
+    def __init__(
+        self,
+        filename,
+        normalize=True,
+        transform_zeros=True,
+        batch_size=512,
+        normalizer_x=None,
+        normalizer_y=None,
+        shuffle=True,
+        augment=True,
+        sensor=None
+    ):
+        """
+        Args:
+            filename: Path to the NetCDF file containing the training data to load.
+            normalize: Whether or not to normalize the input data.
+            transform_zeros: Whether or not to replace very small
+                values with random values.
+            batch_size: Number of samples in each training batch.
+            shuffle: Whether or not to shuffle the training data.
+            augment: Whether or not to randomly mask high-frequency channels
+                and to randomly permute ancillary data.
+            sensor: Sensor object defining the sensor from which the training
+                data stems.
+        """
+        super().__init__(
+            filename,
+            normalize=False,
+            transform_zeros=False,
+            targets=[],
+            batch_size=batch_size,
+            shuffle=shuffle,
+            augment=augment,
+            sensor=sensor
+        )
+        self.normalize = normalize
+        self.normalizer_x = normalizer_x
+        self.normalizer_y = normalizer_y
+
+        # Extract observations and ancillary data.
+        self.y = self.x[:, :sensor.n_freqs]
+        features = []
+        if isinstance(sensor, sensors.CrossTrackScanner):
+            features += [self.x[:, [sensor.n_freqs]]]
+        features += [self.x[:, -22: -4]]
+        self.x = np.concatenate(features, axis=1)
+
+        valid = np.all(np.isfinite(self.y), axis=-1)
+        valid *= np.sum(self.x[:, 1:], axis=-1) > 0
+        valid *= (self.x[:, 5] >= -1.0) * (self.x[:, 5] <= 1.0)
+        self.y = self.y[valid]
+        self.x = self.x[valid]
+
+        # Normalize ancillary data and observations
+        # independently.
+        if self.normalize:
+            if self.normalizer_x is None:
+                indices_1h = list(range(1, 19))
+                self.normalizer_x = MinMaxNormalizer(
+                    self.x,
+                    exclude_indices=indices_1h
+                )
+            self.x = self.normalizer_x(self.x)
+            if self.normalizer_y is None:
+                self.normalizer_y = MinMaxNormalizer(self.y)
+            self.y = self.normalizer_y(self.y)
+
+
+    def __repr__(self):
+        return f"TrainingObsDataset0D({self.filename.name}, n_batches={len(self)})"
+
+    def __str__(self):
+        return f"TrainingObsDataset0D({self.filename.name}, n_batches={len(self)})"
 
 
 def _replace_randomly(x, p, rng=None):
