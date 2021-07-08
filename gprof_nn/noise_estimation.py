@@ -369,12 +369,13 @@ def evaluate(iteration,
 
             f, ax = plt.subplots(1, 1, figsize=(8, 6))
             for j in range(5):
-                y, _ = np.histogram(y_source[:, j], bins=bins, density=True)
-                ax.plot(x, y, c=f"C{j}", ls=".-")
-                y, _ = np.histogram(y_corrected[:, j], bins=bins, density=True)
-                ax.plot(x, y, c=f"C{j}", ls="--")
                 y, _ = np.histogram(y_target[:, j], bins=bins, density=True)
-                ax.plot(x, y, label=f"Feature {j + 1}", c=f"C{j}")
+                ax.fill_between(x, y, 0, label=f"Feature {j + 1}", facecolor=f"C{j}",
+                                edgecolor=None, alpha=0.5)
+                y, _ = np.histogram(y_source[:, j], bins=bins, density=True)
+                ax.plot(x, y, c=f"C{j}", ls="--")
+                y, _ = np.histogram(y_corrected[:, j], bins=bins, density=True)
+                ax.plot(x, y, c=f"C{j}", ls="-")
             ax.set_xlabel("Feature value")
             ax.set_ylabel("Frequency")
             ax.legend()
@@ -464,8 +465,8 @@ def train(input_data,
                 writer.add_scalars(
                     'GAN losses',
                     {
-                        "Generator": sum_gen / j,
-                        "Discriminator": 0.5 * sum_disc / j,
+                        "Generator": l_g,
+                        "Discriminator": 0.5 * l_d,
                     },
                     global_step=step
                 )

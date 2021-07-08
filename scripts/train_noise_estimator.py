@@ -167,7 +167,7 @@ loss_gen, loss_disc = train(training_data_source,
                             optimizer_disc,
                             100,
                             device="cuda:0",
-                            iter_gen=10,
+                            iter_gen=1,
                             validation_data_source=validation_data_source,
                             validation_data_target=validation_data_target)
 torch.save(generator, model_path / network_name)
