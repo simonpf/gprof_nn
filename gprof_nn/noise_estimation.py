@@ -183,7 +183,7 @@ class ConditionalGaussianNoiseGenerator(nn.Module):
         x = torch.cat([x, y], 1)
         z = self.model(x)
         means = z[:, :self.n_features]
-        sigmas = torch.exp(z[:, self.n_features:])
+        sigmas = z[:, self.n_features:]
         z = torch.randn(y.shape[0], self.n_features, device=y.device)
         z = z * torch.exp(sigmas) + means
         return y + z
@@ -323,6 +323,8 @@ def evaluate(iteration,
         y_c = []
         x_t = []
         y_t = []
+        y_d = []
+
         for j, (batch_s, batch_t) in enumerate(zip(input_data, target_data)):
 
             x_source, y_source = batch_s
@@ -334,35 +336,40 @@ def evaluate(iteration,
             y_target = y_target.to(device)
 
             y_corrected = generator(x_source, y_source)
+            y_delta = y_corrected - y_source
 
             x_s += [x_source.cpu().numpy()]
             y_s += [y_source.cpu().numpy()]
             y_c += [y_corrected.cpu().numpy()]
             x_t += [x_target.cpu().numpy()]
             y_t += [y_target.cpu().numpy()]
+            y_d += [y_delta.cpu().numpy()]
 
         x_s = np.concatenate(x_s)
         y_s = np.concatenate(y_s)
         y_c = np.concatenate(y_c)
         x_t = np.concatenate(x_t)
         y_t = np.concatenate(y_t)
+        y_d = np.concatenate(y_d)
 
         #
         # Generate plots
         #
 
         bins = np.linspace(-1.2, 1.2, 101)
-        x = 0.5 * (bins[1:] + bins[:-1])
 
         for surface_type in range(18):
 
             inds = x_t[:, surface_type] > 0
             y_target = y_t[inds]
 
+            x = 0.5 * (bins[1:] + bins[:-1])
             inds = x_s[:, surface_type] > 0
             y_source = y_s[inds]
             y_corrected = y_c[inds]
+            y_delta = y_d[inds]
 
+            # Distribution
             f, ax = plt.subplots(1, 1, figsize=(8, 6))
             for j in range(5):
                 y, _ = np.histogram(y_target[:, j], bins=bins, density=True)
@@ -381,6 +388,28 @@ def evaluate(iteration,
                 f,
                 global_step=iteration
             )
+            plt.close(f)
+
+            f, ax = plt.subplots(1, 1, figsize=(8, 6))
+            means = y_delta.mean(axis=0)
+            sigmas = y_delta.std(axis=0)
+            n = means.size
+
+            x = np.arange(n)
+            width = 0.3
+
+            ax.bar(x - 0.5 * width, means, width=width, label="Bias")
+            ax.bar(x + 0.5 * width, sigmas, width=width, label="Std. dev.")
+
+            ax.set_xlabel("Feature")
+            ax.legend()
+
+            writer.add_figure(
+                f"Bias and std. dev. (surface type {surface_type + 1})",
+                f,
+                global_step=iteration
+            )
+            plt.close(f)
 
 
 def train(input_data,
