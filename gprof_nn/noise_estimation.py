@@ -179,10 +179,6 @@ class ConditionalGaussianNoiseGenerator(nn.Module):
             nn.Linear(64, 2 * n_features)
         ])
 
-        l = list(self.model.children())[-1]
-        l.bias.data[:] = -5
-        l.weight.data[:] = 0.0
-
     def forward(self, x, y):
         x = torch.cat([x, y], 1)
         z = self.model(x)
@@ -192,10 +188,10 @@ class ConditionalGaussianNoiseGenerator(nn.Module):
         z = z * torch.exp(sigmas) + means
         return y + z
 
+
 class Generator(nn.Module):
     """
-    Discriminator for 0D input data normalized using spectral
-    norm.
+    CGAN-type parameter-free generator.
     """
     def __init__(self,
                  n_features):

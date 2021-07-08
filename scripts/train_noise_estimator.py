@@ -13,7 +13,9 @@ from gprof_nn import sensors
 from gprof_nn.data.training_data import TrainingObsDataset0D
 from gprof_nn.noise_estimation import (ConditionalDiscriminator,
                                        CategoricalGaussianNoiseGenerator,
+                                       ConditionalGaussianNoiseGenerator,
                                        ObservationDataset0D,
+                                       Generator,
                                        train)
 
 ###############################################################################
@@ -56,6 +58,11 @@ parser.add_argument('model_path',
                     nargs=1,
                     help='Where to store the model.')
 
+parser.add_argument('--kind',
+                    metavar="generator_type",
+                    type=str,
+                    default="GN-CAT",
+                    help="The kind of generator: GN, GN-CAT, GN-COND, GAN")
 # Other
 parser.add_argument('--device', metavar="device", type=str, nargs=1,
                     help="The name of the device on which to run the training")
@@ -71,6 +78,7 @@ validation_data_target = args.validation_data_target[0]
 
 model_path = Path(args.model_path[0])
 
+kind = args.kind
 device = args.device[0]
 batch_size = args.batch_size[0]
 
@@ -154,8 +162,16 @@ validation_data_target = DataFolder(
 # Create neural network models
 #
 
+if kind.upper() == "GN":
+    generator = GaussianNoiseGenerator(5)
+elif kind.upper() == "GN-CAT":
+    generator = CategoricalGaussianNoiseGenerator(5, 18)
+elif kind.upper() == "GN-COND":
+    generator = ConditionalGaussianNoiseGenerator(5)
+else:
+    generator = Generator(5)
+
 discriminator = ConditionalDiscriminator(19, 5, 6, 256)
-generator = CategoricalGaussianNoiseGenerator(5, 18)
 optimizer_gen = Adam(generator.parameters(), lr=0.0002, betas=(0.5, 0.999))
 optimizer_disc = Adam(discriminator.parameters(), lr=0.0002, betas=(0.5, 0.999))
 

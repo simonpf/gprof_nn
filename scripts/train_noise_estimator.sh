@@ -7,4 +7,4 @@ MODEL_PATH=${HOME}/src/gprof_nn/models/
 
 export OMP_NUM_THREADS=4
 
-python train_noise_estimator.py MHS  ${TRAINING_DATA_SOURCE} ${TRAINING_DATA_TARGET} ${VALIDATION_DATA_SOURCE} ${VALIDATION_DATA_TARGET} ${MODEL_PATH} --device cuda:0 --batch_size 1024
+python train_noise_estimator.py MHS  ${TRAINING_DATA_SOURCE} ${TRAINING_DATA_TARGET} ${VALIDATION_DATA_SOURCE} ${VALIDATION_DATA_TARGET} ${MODEL_PATH} --device cuda:0 --batch_size 1024 --kind GAN
