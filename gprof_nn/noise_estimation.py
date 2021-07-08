@@ -327,13 +327,13 @@ def evaluate(iteration,
         y_c = []
         x_t = []
         y_t = []
-        for j, (in_gen, x_real) in enumerate(zip(input_data, target_data)):
+        for j, (batch_s, batch_t) in enumerate(zip(input_data, target_data)):
 
-            x_source, y_source = in_gen
+            x_source, y_source = batch_s
             x_source = x_source.to(device)
             y_source = y_source.to(device)
 
-            x_target, y_target = in_gen
+            x_target, y_target = batch_t
             x_target = x_target.to(device)
             y_target = y_target.to(device)
 
@@ -429,13 +429,13 @@ def train(input_data,
 
         l_g_p = 0.0
 
-        for j, (in_gen, x_real) in enumerate(zip(input_data, target_data)):
+        for j, (batch_s, batch_t) in enumerate(zip(input_data, target_data)):
 
-            x_source, y_source = in_gen
+            x_source, y_source = batch_s
             x_source = x_source.to(device)
             y_source = y_source.to(device)
 
-            x_target, y_target = in_gen
+            x_target, y_target = batch_t
             x_target = x_target.to(device)
             y_target = y_target.to(device)
 
