@@ -7,6 +7,7 @@ Functionality to read and manipulate GPROF L1C-R files.
 """
 from concurrent.futures import ProcessPoolExecutor
 from datetime import datetime
+import logging
 from pathlib import Path
 import re
 

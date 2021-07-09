@@ -108,6 +108,20 @@ class Sensor(ABC):
         """
 
     @abstractproperty
+    def bin_file_header(self):
+        """
+        Numpy dtype defining the binary structure of the header
+        of binned, non-clustered database files.
+        """
+
+    @abstractproperty
+    def bin_file_record(self):
+        """
+        Numpy dtype defining the binary record structure of binned,
+        non-clustered database files.
+        """
+
+    @abstractproperty
     def l1c_file_prefix(self):
         """
         The prefix used for L1C files of this sensor.
@@ -147,8 +161,8 @@ class Sensor(ABC):
     @abstractproperty
     def sim_file_header(self):
         """
-        Numpy dtype defining the binary record structure of simulator
-        files.
+        Numpy dtype defining the binary structure of the header
+        of simulator files.
         """
 
     @abstractproperty
@@ -277,6 +291,33 @@ class ConicalScanner(Sensor):
 
         self._name = name
         self._n_freqs = n_freqs
+
+        self._bin_file_header = np.dtype(
+            [
+                ("satellite_code", "a5"),
+                ("sensor", "a5"),
+                ("frequencies", f"{n_freqs}f4"),
+                ("nominal_eia", f"{n_freqs}f4")
+            ]
+        )
+        self._bin_file_record = np.dtype(
+            [
+                ("dataset_number", "i4"),
+                ("surface_precip", np.float32),
+                ("convective_precip", np.float32),
+                ("brightness_temperatures", "f4", (n_freqs,)),
+                ("delta_tb", "f4", (n_freqs,)),
+                ("rain_water_path", np.float32),
+                ("cloud_water_path", np.float32),
+                ("ice_water_path", np.float32),
+                ("total_column_water_vapor", np.float32),
+                ("two_meter_temperature", np.float32),
+                ("rain_water_content", "f4", (N_LAYERS,)),
+                ("cloud_water_content", "f4", (N_LAYERS,)),
+                ("snow_water_content", "f4", (N_LAYERS,)),
+                ("latent_heat", "f4", (N_LAYERS,))
+            ]
+        )
         self._l1c_file_prefix = l1c_prefix
         self._l1c_file_path = l1c_file_path
 
@@ -381,6 +422,22 @@ class ConicalScanner(Sensor):
     @property
     def n_freqs(self):
         return self._n_freqs
+
+    @property
+    def bin_file_header(self):
+        return self._bin_file_header
+
+    @property
+    def bin_file_record(self):
+        return self._bin_file_record
+
+    @property
+    def sim_file_header(self):
+        return self._sim_file_record
+
+    @property
+    def sim_file_record(self):
+        return self._sim_file_header
 
     @property
     def l1c_file_prefix(self):
@@ -529,6 +586,35 @@ class CrossTrackScanner(Sensor):
         self.nedt = nedt
         n_angles = angles.size
         self._n_freqs = n_freqs
+
+        self._bin_file_header = np.dtype(
+            [
+                ("satellite_code", "a5"),
+                ("sensor", "a5"),
+                ("frequencies", "f4", (n_freqs,)),
+                ("nominal_eia", "f4", (n_angles,))
+            ]
+        )
+        self._bin_file_record = np.dtype(
+            [
+                ("dataset_number", "i4"),
+                ("latitude", "f4"),
+                ("longitude", "f4"),
+                ("surface_precip", "f4", (n_angles,)),
+                ("convective_precip", "f4", (n_angles,)),
+                ("brightness_temperatures", "f4", (n_angles, n_freqs)),
+                ("rain_water_path", np.float32),
+                ("cloud_water_path", np.float32),
+                ("ice_water_path", np.float32),
+                ("total_column_water_vapor", np.float32),
+                ("two_meter_temperature", np.float32),
+                ("rain_water_content", "f4", (N_LAYERS,)),
+                ("cloud_water_content", "f4", (N_LAYERS,)),
+                ("snow_water_content", "f4", (N_LAYERS,)),
+                ("latent_heat", "f4", (N_LAYERS,))
+            ]
+        )
+
         self._l1c_file_prefix = l1c_prefix
         self._l1c_file_path = l1c_file_path
 
@@ -647,6 +733,14 @@ class CrossTrackScanner(Sensor):
     @property
     def n_freqs(self):
         return self._n_freqs
+
+    @property
+    def bin_file_header(self):
+        return self._bin_file_header
+
+    @property
+    def bin_file_record(self):
+        return self._bin_file_record
 
     @property
     def l1c_file_prefix(self):
