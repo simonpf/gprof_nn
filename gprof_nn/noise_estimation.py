@@ -15,7 +15,7 @@ import torch
 from torch import nn
 from torch.nn.utils import spectral_norm
 from torch.utils.tensorboard import SummaryWriter
-from quantnn.normalizer import MinMaxNormalizer
+from quantnn.normalizer import MinMaxNormalizer, Normalizer
 import xarray as xr
 
 from gprof_nn.data.training_data import Dataset0DBase
@@ -205,20 +205,24 @@ class Generator(nn.Module):
         self.n_features = n_features
 
         self.model = nn.Sequential(*[
-            nn.Linear(24 + n_features, 64),
+            nn.Linear(24 + n_features, 128),
             nn.GELU(),
-            nn.Linear(64, 64),
+            nn.Linear(128, 128),
             nn.GELU(),
-            nn.Linear(64, 64),
+            nn.Linear(128, 128),
             nn.GELU(),
-            nn.Linear(64, n_features)
+            nn.Linear(128, 128),
+            nn.GELU(),
+            nn.Linear(128, 128),
+            nn.GELU(),
+            nn.Linear(128, n_features)
         ])
 
     def forward(self, x, y):
         z = torch.randn(y.shape[0], self.n_features, device=y.device)
         x = torch.cat([x, y, z], 1)
         d_y = self.model(x)
-        return y + d_y
+        return d_y #y + d_y
 
 FAKE = 0
 REAL = 1
@@ -281,7 +285,7 @@ def train_on_batch(x_source,
     #
 
     if iter % iter_gen == 0:
-        optimizer_disc.zero_grad()
+        optimizer_gen.zero_grad()
         loss_gen = loss(discriminator(x_source, y_corr), REAL)
 
         d_y = y_corr - y_source
@@ -549,13 +553,13 @@ class ObservationDataset0D(Dataset0DBase):
         if self.normalize:
             if self.normalizer_x is None:
                 indices_1h = list(range(1, 19))
-                self.normalizer_x = MinMaxNormalizer(
+                self.normalizer_x = Normalizer(
                     self.x,
                     exclude_indices=indices_1h
                 )
             self.x = self.normalizer_x(self.x)
             if self.normalizer_y is None:
-                self.normalizer_y = MinMaxNormalizer(self.y)
+                self.normalizer_y = Normalizer(self.y)
             self.y = self.normalizer_y(self.y)
 
         self._shuffled = False
@@ -586,6 +590,7 @@ class ObservationDataset0D(Dataset0DBase):
                 st_1h[mask, i] = 1.0
 
             self.x = np.concatenate([vas[:, np.newaxis], st_1h], axis=1)
+            self.x[:, 0] += self._rng.uniform(-0.5, 0.5, size=self.x.shape[0])
 
             # Observations
             tbs = tbs[valid]
