@@ -11,25 +11,16 @@ import logging
 import os
 from pathlib import Path
 
-from netCDF4 import Dataset
 import numpy as np
 import torch
-from torch import nn
 import xarray as xr
+from netCDF4 import Dataset
 
-import quantnn
-from quantnn.normalizer import MinMaxNormalizer, Normalizer
-from quantnn.drnn import _to_categorical
-from quantnn.utils import apply
-import quantnn.quantiles as qq
-import quantnn.density as qd
+from quantnn.normalizer import MinMaxNormalizer
 
 from gprof_nn import sensors
-from gprof_nn.definitions import ALL_TARGETS
 from gprof_nn.data.preprocessor import PreprocessorFile
-from gprof_nn.definitions import PROFILE_NAMES
-from gprof_nn.augmentation import (M, N, extract_domain,
-                                   get_transformation_coordinates)
+from gprof_nn.augmentation import M, N, extract_domain, get_transformation_coordinates
 
 LOGGER = logging.getLogger(__name__)
 _DEVICE = torch.device("cpu")
@@ -50,11 +41,7 @@ _THRESHOLDS = {
 }
 
 
-def write_preprocessor_file(
-    input_data,
-    output_file,
-    template=None
-):
+def write_preprocessor_file(input_data, output_file, template=None):
     """
     Extract sample from training data file and write to preprocessor format.
 
@@ -71,7 +58,6 @@ def write_preprocessor_file(
         data = xr.open_dataset(input_data)
     else:
         data = input_data
-    new_names = {"brightness_temps": "brightness_temperatures"}
     n_pixels = data.pixels.size
     n_scans = data.scans.size
     if hasattr(data, "samples"):
@@ -90,23 +76,20 @@ def write_preprocessor_file(
     n_scans_r = n_scans * n_scenes
     n_pixels_r = n_pixels
 
-
-    new_dims = ["scans", "pixels", "channels"]
     new_dataset = {
         "scans": np.arange(n_scans_r),
         "pixels": np.arange(n_pixels_r),
         "channels": np.arange(15),
     }
     dims = ("scans", "pixels", "channels")
-    shape = (n_scans, n_pixels, 15)
     for k in data:
         if k == "scan_time":
             da = data[k]
             new_dataset[k] = (("scans",), da.data.ravel()[:n_scans_r])
         else:
             da = data[k]
-            new_shape = (n_scans_r, n_pixels_r) + da.shape[(2 + dim_offset):]
-            new_shape = new_shape[:len(da.data.shape) - dim_offset]
+            new_shape = (n_scans_r, n_pixels_r) + da.shape[(2 + dim_offset) :]
+            new_shape = new_shape[: len(da.data.shape) - dim_offset]
             dims = da.dims[dim_offset:]
             if "pixels_center" in dims:
                 continue
@@ -116,8 +99,7 @@ def write_preprocessor_file(
         new_dataset["earth_incidence_angle"] = (
             ("scans", "pixels", "channels"),
             np.broadcast_to(
-                data.attrs["nominal_eia"].reshape(1, 1, -1),
-                (n_scans_r, n_pixels_r, 15)
+                data.attrs["nominal_eia"].reshape(1, 1, -1), (n_scans_r, n_pixels_r, 15)
             ),
         )
 
@@ -129,11 +111,13 @@ def write_preprocessor_file(
 # GPROF-NN 0D
 ###############################################################################
 
+
 class Dataset0DBase:
     """
     Base class for batched datasets providing generic implementations of batch
     access and shuffling.
     """
+
     def __init__(self):
         seed = int.from_bytes(os.urandom(4), "big") + os.getpid()
         self._rng = np.random.default_rng(seed)
@@ -221,27 +205,40 @@ class GPROF0DDataset(Dataset0DBase):
         filename,
         targets=None,
         normalize=True,
+        normalizer=None,
         transform_zeros=True,
         batch_size=512,
-        normalizer=None,
         shuffle=True,
         augment=True,
-        sensor=None
+        sensor=None,
+        permute=None
     ):
         """
         Create GPROF 0D dataset.
 
         Args:
-            filename: Path to the NetCDF file containing the training data to load.
+            filename: Path to the NetCDF file containing the training data to
+                load.
             targets: String or list of strings specifying the names of the
                 variables to use as retrieval targets.
             normalize: Whether or not to normalize the input data.
-            transform_zeros: Whether or not to replace very small
-                values with random values.
+            normalizer: Normalizer object  or class to use to normalize the
+                 input data. If normalizer is a class object this object will
+                 be initialized with the training input data. If 'None' a
+                 ``quantnn.normalizer.MinMaxNormalizer`` will be used and
+                 initialized with the loaded data.
+            transform_zeros: Whether or not to replace very small values with
+                random values.
             batch_size: Number of samples in each training batch.
             shuffle: Whether or not to shuffle the training data.
             augment: Whether or not to randomly mask high-frequency channels
                 and to randomly permute ancillary data.
+            sensor: Sensor object corresponding to the training data. Only
+                necessary if the sensor cannot be inferred from the
+                corresponding sensor attribute of the dataset file.
+            permute: If not ``None`` the input feature corresponding to the
+                given index will be permuted in order to break correlation
+                between input and output.
         """
         super().__init__()
         self.filename = Path(filename)
@@ -259,18 +256,14 @@ class GPROF0DDataset(Dataset0DBase):
         else:
             self.sensor = sensor
 
-        x, y = self.sensor.load_training_data_0d(filename,
-                                                 self.targets,
-                                                 self.augment,
-                                                 self._rng)
+        x, y = self.sensor.load_training_data_0d(
+            filename, self.targets, self.augment, self._rng
+        )
         self.x = x
         self.y = y
-        LOGGER.info(
-            "Loaded %s samples from %s", self.x.shape[0], self.filename.name
-        )
+        LOGGER.info("Loaded %s samples from %s", self.x.shape[0], self.filename.name)
 
-        indices_1h = list(range(self.sensor.n_inputs - 22,
-                                self.sensor.n_inputs))
+        indices_1h = list(range(self.sensor.n_inputs - 22, self.sensor.n_inputs))
         if normalizer is None:
             self.normalizer = MinMaxNormalizer(self.x, exclude_indices=indices_1h)
         elif isinstance(normalizer, type):
@@ -284,6 +277,17 @@ class GPROF0DDataset(Dataset0DBase):
 
         if transform_zeros:
             self._transform_zeros()
+
+        if permute is not None:
+            n_features = self.sensor.n_freqs + 2
+            if isinstance(self.sensor, sensors.ConicalScanner):
+                n_features += 1
+            if permute < n_features:
+                self.x[:, permute] = self._rng.permutation(self.x[:, permute])
+            elif permute == n_features:
+                self.x[:, -24:-4] = self._rng.permutation(self.x[:, -24:-4])
+            else:
+                self.x[:, -4:] = self._rng.permutation(self.x[:, -4:])
 
         self.x = self.x.astype(np.float32)
         if isinstance(self.y, dict):
@@ -314,9 +318,7 @@ class GPROF0DDataset(Dataset0DBase):
             indices = (y_k <= threshold) * (y_k >= -threshold)
             if indices.sum() > 0:
                 t_l = np.log10(threshold)
-                y_k[indices] = 10 ** self._rng.uniform(
-                    t_l - 4, t_l, indices.sum()
-                )
+                y_k[indices] = 10 ** self._rng.uniform(t_l - 4, t_l, indices.sum())
 
     def _load_data(self):
         """
@@ -334,7 +336,6 @@ class GPROF0DDataset(Dataset0DBase):
             x = self.normalizer.invert(self.x)
         else:
             x = self.x
-        y = self.y
 
         n_samples = x.shape[0]
         n_pixels = 221
@@ -352,8 +353,8 @@ class GPROF0DDataset(Dataset0DBase):
         bts.reshape((-1, 15))[:n_samples] = x[:, :15]
         t2m.ravel()[:n_samples] = x[:, 15]
         tcwv.ravel()[:n_samples] = x[:, 16]
-        st.ravel()[:n_samples] = np.where(x[:, 17: 17 + 18])[1]
-        at.ravel()[:n_samples] = np.where(x[:, 17 + 18: 17 + 22])[1]
+        st.ravel()[:n_samples] = np.where(x[:, 17 : 17 + 18])[1]
+        at.ravel()[:n_samples] = np.where(x[:, 17 + 18 : 17 + 22])[1]
 
         dataset = xr.open_dataset(self.filename)
 
@@ -370,101 +371,28 @@ class GPROF0DDataset(Dataset0DBase):
             for k, v in self.y.items():
                 shape = (1, n_scans, n_pixels, n_levels)
                 n_dims = v.ndim
-                data = np.zeros(shape[:2 + n_dims], dtype=np.float32)
+                data = np.zeros(shape[: 2 + n_dims], dtype=np.float32)
                 if n_dims == 2:
                     data.reshape(-1, 28)[:n_samples] = v
                 else:
                     data.ravel()[:n_samples] = v
-                new_dataset[k] = (dims[:2 + n_dims], data)
+                new_dataset[k] = (dims[: 2 + n_dims], data)
         else:
             shape = (1, n_scans, n_pixels)
             data = np.zeros(shape)
             data.reshape(-1)[:n_samples] = self.y
             new_dataset[k] = (dims[:-1], data)
-            new_dataset["surface_precip"] = (("samples", "scans", "pixels",),
-                                             self.y[np.newaxis, :])
+            new_dataset["surface_precip"] = (
+                (
+                    "samples",
+                    "scans",
+                    "pixels",
+                ),
+                self.y[np.newaxis, :],
+            )
         new_dataset = xr.Dataset(new_dataset)
         new_dataset.attrs = dataset.attrs
         new_dataset.to_netcdf(filename)
-
-    def evaluate_sensitivity(self, model, batch_size=512, device=_DEVICE):
-        """
-        Run retrieval on dataset.
-        """
-        n_samples = self.x.shape[0]
-        y_means = []
-        y_trues = []
-        grads = []
-        surfaces = []
-        airmasses = []
-        dydxs = []
-
-        st_indices = torch.arange(19).reshape(1, -1).to(device)
-        am_indices = torch.arange(4).reshape(1, -1).to(device)
-        i_start = 0
-        model.model.to(device)
-
-        loss = torch.nn.MSELoss()
-
-        model.model.eval()
-
-        for i in tqdm(range(n_samples // batch_size + 1)):
-            i_start = i * batch_size
-            i_end = i_start + batch_size
-            if i_start >= n_samples:
-                break
-
-            model.model.zero_grad()
-
-            x = torch.tensor(self.x[i_start:i_end]).float().to(device)
-            x_l = x.clone()
-            x_l[:, 0] -= 0.01
-            x_r = x.clone()
-            x_r[:, 0] += 0.01
-            y = torch.tensor(self.y[i_start:i_end]).float().to(device)
-
-            x.requires_grad = True
-            y.requires_grad = True
-            i_start += batch_size
-
-            y_pred = model.predict(x)
-            y_mean = model.posterior_mean(y_pred=y_pred).reshape(-1)
-            y_mean_l = model.posterior_mean(x_l).reshape(-1)
-            y_mean_r = model.posterior_mean(x_r).reshape(-1)
-            dydx = (y_mean_r - y_mean_l) / 0.02
-            torch.sum(y_mean).backward()
-
-            y_means.append(y_mean.detach().cpu())
-            y_trues.append(y.detach().cpu())
-            grads.append(x.grad[:, :15].cpu())
-            surfaces += [(x[:, 17:36] * st_indices).sum(1).cpu()]
-            airmasses += [(x[:, 36:] * am_indices).sum(1).cpu()]
-            dydxs += [dydx.cpu()]
-
-        y_means = torch.cat(y_means, 0).detach().numpy()
-        y_trues = torch.cat(y_trues, 0).detach().numpy()
-        grads = torch.cat(grads, 0).detach().numpy()
-        surfaces = torch.cat(surfaces, 0).detach().numpy()
-        airmasses = torch.cat(airmasses, 0).detach().numpy()
-        dydxs = torch.cat(dydxs, 0).detach().numpy()
-
-        dims = ["samples"]
-
-        data = {
-            "gradients": (
-                dims
-                + [
-                    "channels",
-                ],
-                grads,
-            ),
-            "surface_type": (dims, surfaces),
-            "airmass_type": (dims, airmasses),
-            "y_mean": (dims, y_means),
-            "y_true": (dims, y_trues),
-            "dydxs": (dims, dydxs),
-        }
-        return xr.Dataset(data)
 
 
 class TrainingObsDataset0D(GPROF0DDataset):
@@ -473,25 +401,26 @@ class TrainingObsDataset0D(GPROF0DDataset):
     temperatures and ancillary data in order to train an observation
     noise model.
     """
+
     def __init__(
         self,
         filename,
-        normalize=True,
-        transform_zeros=True,
         batch_size=512,
+        normalize=True,
         normalizer_x=None,
         normalizer_y=None,
         shuffle=True,
         augment=True,
-        sensor=None
+        sensor=None,
     ):
         """
         Args:
-            filename: Path to the NetCDF file containing the training data to load.
-            normalize: Whether or not to normalize the input data.
-            transform_zeros: Whether or not to replace very small
-                values with random values.
+            filename: Path to the NetCDF file containing the training data to
+                load.
             batch_size: Number of samples in each training batch.
+            normalize: Whether or not to normalize the input data.
+            normalizer_x: Normalizer to use to normalize the input data.
+            normalizer_y: Normalizer to use to normalizer the target data.
             shuffle: Whether or not to shuffle the training data.
             augment: Whether or not to randomly mask high-frequency channels
                 and to randomly permute ancillary data.
@@ -506,18 +435,18 @@ class TrainingObsDataset0D(GPROF0DDataset):
             batch_size=batch_size,
             shuffle=shuffle,
             augment=augment,
-            sensor=sensor
+            sensor=sensor,
         )
         self.normalize = normalize
         self.normalizer_x = normalizer_x
         self.normalizer_y = normalizer_y
 
         # Extract observations and ancillary data.
-        self.y = self.x[:, :sensor.n_freqs]
+        self.y = self.x[:, : sensor.n_freqs]
         features = []
         if isinstance(sensor, sensors.CrossTrackScanner):
             features += [self.x[:, [sensor.n_freqs]]]
-        features += [self.x[:, -22: -4]]
+        features += [self.x[:, -22:-4]]
         self.x = np.concatenate(features, axis=1)
 
         valid = np.all(np.isfinite(self.y), axis=-1)
@@ -531,21 +460,19 @@ class TrainingObsDataset0D(GPROF0DDataset):
         if self.normalize:
             if self.normalizer_x is None:
                 indices_1h = list(range(1, 19))
-                self.normalizer_x = MinMaxNormalizer(
-                    self.x,
-                    exclude_indices=indices_1h
-                )
+                self.normalizer_x = MinMaxNormalizer(self.x, exclude_indices=indices_1h)
             self.x = self.normalizer_x(self.x)
             if self.normalizer_y is None:
                 self.normalizer_y = MinMaxNormalizer(self.y)
             self.y = self.normalizer_y(self.y)
 
-
     def __repr__(self):
-        return f"TrainingObsDataset0D({self.filename.name}, n_batches={len(self)})"
+        s = f"TrainingObsDataset0D({self.filename.name}, " f"n_batches={len(self)})"
+        return s
 
     def __str__(self):
-        return f"TrainingObsDataset0D({self.filename.name}, n_batches={len(self)})"
+        s = f"TrainingObsDataset0D({self.filename.name}, " f"n_batches={len(self)})"
+        return s
 
 
 def _replace_randomly(x, p, rng=None):
@@ -555,19 +482,19 @@ def _replace_randomly(x, p, rng=None):
 
     Args:
         x: The input tensor in which to replace some values by random
-             permutations.
-        p: The probability with which to replace any value along the first dimension
-             in x.
+            permutations.
+        p: The probability with which to replace any value along the first
+            dimension in x.
 
     Returns:
          None, augmentation is performed in place.
     """
     if rng is None:
         indices = np.random.rand(x.shape[0]) > (1.0 - p)
-        indices_r = np.random.permutation(x.shape[0])[:indices.sum()]
+        indices_r = np.random.permutation(x.shape[0])[: indices.sum()]
     else:
         indices = rng.random(x.shape[0]) > (1.0 - p)
-        indices_r = rng.permutation(x.shape[0])[:indices.sum()]
+        indices_r = rng.permutation(x.shape[0])[: indices.sum()]
     replacements = x[indices_r, ...]
     x[indices] = replacements
 
@@ -594,7 +521,6 @@ def _expand_pixels(data):
     data_new[:] = np.nan
     data_new[:, :, i_start:-i_start] = data
     return data_new
-
 
 
 ###############################################################################
@@ -634,7 +560,8 @@ class GPROF2DDataset:
         Load GPROF 2D data.
 
         Args:
-            filename: Path to the NetCDF file containing the training data to load.
+            filename: Path to the NetCDF file containing the training data to
+                load.
             target: String or list of strings specifying the names of the
                 variables to use as retrieval targets.
             normalize: Whether or not to normalize the input data.
@@ -700,9 +627,7 @@ class GPROF2DDataset:
             indices = (y_k <= threshold) * (y_k >= -threshold)
             if indices.sum() > 0:
                 t_l = np.log10(threshold)
-                y_k[indices] = 10 ** self._rng.uniform(
-                    t_l - 4, t_l, indices.sum()
-                )
+                y_k[indices] = 10 ** self._rng.uniform(t_l - 4, t_l, indices.sum())
 
     def _load_data(self):
         """
@@ -724,8 +649,13 @@ class GPROF2DDataset:
                 y = {}
             else:
                 y = np.zeros(
-                    (n, M, N,) + dataset[self.target][0].shape[3:],
-                    dtype=np.float32
+                    (
+                        n,
+                        M,
+                        N,
+                    )
+                    + dataset[self.target][0].shape[3:],
+                    dtype=np.float32,
                 )
             for i in range(n):
                 if self.augment:
@@ -783,11 +713,11 @@ class GPROF2DDataset:
                         y_k_r = _expand_pixels(dataset[k][i][:][np.newaxis, ...])
                         y_k = y.setdefault(
                             k,
-                            np.zeros(dims[:y_k_r.ndim - 2] + (M, N),
-                                     dtype=np.float32)
+                            np.zeros(dims[: y_k_r.ndim - 2] + (M, N), dtype=np.float32),
                         )
-                        y_k_i = extract_domain(y_k_r[0], p_x_i, p_x_o, p_y,
-                                               coords=coords)
+                        y_k_i = extract_domain(
+                            y_k_r[0], p_x_i, p_x_o, p_y, coords=coords
+                        )
                         np.nan_to_num(y_k_i, copy=False, nan=-9999)
                         if k == "latent_heat":
                             y_k_i[y_k_i < -400] = -9999
@@ -800,8 +730,7 @@ class GPROF2DDataset:
 
                 else:
                     y_r = _expand_pixels(dataset[self.target][i][:][np.newaxis, ...])
-                    y_i = extract_domain(y_r[0], p_x_i, p_x_o, p_y,
-                                         coords=coords)
+                    y_i = extract_domain(y_r[0], p_x_i, p_x_o, p_y, coords=coords)
                     np.nan_to_num(y_i, copy=False, nan=-9999)
                     if self.target == "latent_heat":
                         y_i[y_i < -400] = -9999
@@ -891,4 +820,3 @@ class GPROF2DDataset:
             return n
         else:
             return self.x.shape[0]
-

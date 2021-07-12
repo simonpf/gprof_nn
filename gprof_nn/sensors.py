@@ -303,6 +303,8 @@ class ConicalScanner(Sensor):
         self._bin_file_record = np.dtype(
             [
                 ("dataset_number", "i4"),
+                ("latitude", "f4"),
+                ("longitude", "f4"),
                 ("surface_precip", np.float32),
                 ("convective_precip", np.float32),
                 ("brightness_temperatures", "f4", (n_freqs,)),

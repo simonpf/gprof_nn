@@ -18,7 +18,7 @@ def test_bin_file_gmi():
     Test reading of GMI bin files and ensure all values are physical.
     """
     path = Path(__file__).parent
-    input_file = BinFile(path / "data" / "gpm_300_40_00_18.bin").to_xarray_dataset()
+    input_file = BinFile(path / "data" / "gmi" / "gpm_291_55_04.bin").to_xarray_dataset()
 
     assert np.all(input_file["surface_precip"] >= 0)
     assert np.all(input_file["convective_precip"] >= 0)
@@ -54,11 +54,12 @@ def test_file_processor_gmi(tmp_path):
     the extracted dataset matches the original data.
     """
     path = Path(__file__).parent
-    processor = FileProcessor(path / "data", include_profiles=True)
+    processor = FileProcessor(path / "data" / "gmi", include_profiles=True)
     output_file = tmp_path / "test_file.nc"
     processor.run_async(output_file, 0.0, 1.0, 1)
 
-    input_file = BinFile(path / "data" / "gpm_300_40_00_18.bin")
+    input_file = BinFile(path / "data" / "gmi" / "gpm_291_55_04.bin")
+    input_data = input_file.to_xarray_dataset()
 
     dataset = GPROF0DDataset(output_file,
                              normalize=False,
@@ -66,22 +67,22 @@ def test_file_processor_gmi(tmp_path):
                              augment=False)
     normalizer = dataset.normalizer
 
-    bts_input = input_file.handle["brightness_temperatures"]
+    bts_input = input_data["brightness_temperatures"]
     bts = dataset.x[:, :input_file.sensor.n_freqs]
     bts = np.nan_to_num(bts, nan=-9999.9)
     valid = bts[:, -1] > 0
 
     assert np.all(np.isclose(bts_input[valid], bts[valid]))
-    assert np.all(np.isclose(input_file.handle["two_meter_temperature"].mean(),
+    assert np.all(np.isclose(input_data["two_meter_temperature"].mean(),
                              dataset.x[:, 15].mean()))
-    assert np.all(np.isclose(input_file.handle["total_column_water_vapor"].mean(),
+    assert np.all(np.isclose(input_data["total_column_water_vapor"].mean(),
                              dataset.x[:, 16].mean()))
 
     surface_types = np.where(dataset.x[:, 17:35])[1]
-    assert np.all(np.isclose(input_file.surface_type,
+    assert np.all(np.isclose(input_data.surface_type,
                              surface_types + 1))
     airmass_types = np.where(dataset.x[:, 35:])[1]
-    assert np.all(np.isclose(np.maximum(input_file.airmass_type, 1),
+    assert np.all(np.isclose(np.maximum(input_data.airmass_type, 1),
                              airmass_types + 1))
 
 def test_file_processor_mhs(tmp_path):
