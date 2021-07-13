@@ -98,6 +98,9 @@ parser.add_argument('--targets', metavar="target_1 target_2", type=str, nargs="+
                     help="The target on which to train the network")
 parser.add_argument('--batch_size', metavar="n", type=int, nargs=1,
                     help="The batch size to use for training.")
+parser.add_argument('--permute', metavar="feature_index", type=int, nargs="*",
+                    help="If provided, the input feature with the given index"
+                    "will be permuted.")
 
 args = parser.parse_args()
 
@@ -117,6 +120,7 @@ device = args.device[0]
 targets = args.targets
 network_type = args.type[0]
 batch_size = args.batch_size[0]
+permute = args.permute[0]
 
 #
 # Determine sensor
@@ -150,7 +154,8 @@ kwargs = {
     "batch_size": batch_size,
     "normalizer": normalizer,
     "targets": targets,
-    "augment": True
+    "augment": True,
+    "permute": permute
 }
 
 training_data = DataFolder(
@@ -165,7 +170,8 @@ kwargs = {
     "batch_size": 4 * batch_size,
     "normalizer": normalizer,
     "targets": targets,
-    "augment": False
+    "augment": False,
+    "permute": permute
 }
 validation_data = DataFolder(
     validation_data,

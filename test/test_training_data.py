@@ -18,6 +18,63 @@ from gprof_nn.data.training_data import (GPROF0DDataset,
                                          GPROF2DDataset)
 
 
+def test_permutation_gmi():
+    """
+    Ensure that permutation permutes the right input features.
+    """
+    # Permute continuous input
+    path = Path(__file__).parent
+    input_file = path / "data" / "training_data.nc"
+    dataset_1 = GPROF0DDataset(input_file,
+                               batch_size=16,
+                               shuffle=False,
+                               augment=False,
+                               targets=["surface_precip"])
+    dataset_2 = GPROF0DDataset(input_file,
+                               batch_size=16,
+                               shuffle=False,
+                               augment=False,
+                               targets=["surface_precip"],
+                               permute=0)
+    x_1, y_1 = dataset_1[0]
+    y_1 = y_1["surface_precip"]
+    x_2, y_2 = dataset_2[0]
+    y_2 = y_2["surface_precip"]
+
+    assert np.all(np.isclose(y_1, y_2))
+    assert ~np.all(np.isclose(x_1[:, :1], x_2[:, :1]))
+    assert np.all(np.isclose(x_1[:, 1:], x_2[:, 1:]))
+
+    # Permute surface type
+    dataset_2 = GPROF0DDataset(input_file,
+                               batch_size=16,
+                               shuffle=False,
+                               augment=False,
+                               targets=["surface_precip"],
+                               permute=18)
+    x_2, y_2 = dataset_2[0]
+    y_2 = y_2["surface_precip"]
+
+    assert np.all(np.isclose(y_1, y_2))
+    assert np.all(np.isclose(x_1[:, :-24], x_2[:, :-24]))
+    assert ~np.all(np.isclose(x_1[:, -24:-4], x_2[:, -24:-4]))
+    assert np.all(np.isclose(x_1[:, -4:], x_2[:, -4:]))
+
+    # Permute airmass type
+    dataset_2 = GPROF0DDataset(input_file,
+                               batch_size=16,
+                               shuffle=False,
+                               augment=False,
+                               targets=["surface_precip"],
+                               permute=19)
+    x_2, y_2 = dataset_2[0]
+    y_2 = y_2["surface_precip"]
+
+    assert np.all(np.isclose(y_1, y_2))
+    assert np.all(np.isclose(x_1[:, :-4], x_2[:, :-4]))
+    assert ~np.all(np.isclose(x_1[:, -4:], x_2[:, -4:]))
+
+
 def test_gprof_0d_dataset_gmi():
     """
     Ensure that iterating over single-pixel dataset conserves
@@ -174,7 +231,6 @@ def test_observation_dataset_0d():
     dataset = TrainingObsDataset0D(
         input_file,
         batch_size=1,
-        transform_zeros=False,
         sensor=sensors.MHS,
         normalize=False,
         shuffle=False
