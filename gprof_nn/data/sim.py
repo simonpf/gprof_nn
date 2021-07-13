@@ -27,11 +27,11 @@ from gprof_nn.definitions import (ALL_TARGETS,
                                   N_LAYERS,
                                   LEVELS,
                                   DATABASE_MONTHS,
-                                  MISSING)
+                                  MISSING,
+                                  PROFILE_NAMES)
 from gprof_nn.coordinates import latlon_to_ecef
 from gprof_nn.data.preprocessor import PreprocessorFile, run_preprocessor
 from gprof_nn.data.l1c import L1CFile
-from gprof_nn.data.training_data import PROFILE_NAMES
 from gprof_nn.data.mrms import MRMSMatchFile
 from gprof_nn.data.surface import get_surface_type_map
 from gprof_nn import sensors
