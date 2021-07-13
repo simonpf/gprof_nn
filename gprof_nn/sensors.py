@@ -345,7 +345,7 @@ class ConicalScanner(Sensor):
             ("brightness_temperatures", f"{n_freqs}f4"),
         ])
 
-        self._sim_file_patthern = sim_file_pattern
+        self._sim_file_pattern = sim_file_pattern
         self._sim_file_path = sim_file_path
         self._sim_file_header = np.dtype([
             ("satellite_code", "a5"),
