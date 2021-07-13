@@ -98,7 +98,7 @@ parser.add_argument('--targets', metavar="target_1 target_2", type=str, nargs="+
                     help="The target on which to train the network")
 parser.add_argument('--batch_size', metavar="n", type=int, nargs=1,
                     help="The batch size to use for training.")
-parser.add_argument('--permute', metavar="feature_index", type=int, nargs="*",
+parser.add_argument('--permute', metavar="feature_index", type=int,
                     help="If provided, the input feature with the given index"
                     "will be permuted.")
 
@@ -120,7 +120,8 @@ device = args.device[0]
 targets = args.targets
 network_type = args.type[0]
 batch_size = args.batch_size[0]
-permute = args.permute[0]
+permute = args.permute
+
 
 #
 # Determine sensor
