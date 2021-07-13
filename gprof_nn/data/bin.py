@@ -152,7 +152,7 @@ class BinFile:
             dims = ("samples",)
             if shape:
                 dims = dims + tuple([dim_dict[s] for s in shape[0]])
-            results[k] = dims, self.handle[k]
+            results[k] = dims, self.handle[k][indices]
 
         results["surface_type"] = (
             ("samples",),
