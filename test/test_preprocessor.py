@@ -15,7 +15,33 @@ from gprof_nn.data.training_data import (GPROF0DDataset,
 from gprof_nn.data.l1c import L1CFile
 
 
-def test_preprocessor_file(tmp_path):
+def test_read_preprocessor_gmi():
+    """
+    Tests reading a GMI preprocessor file.
+    """
+    path = Path(__file__).parent
+    input_file = PreprocessorFile(path / "data" / "GMIERA5_190101_027510.pp")
+    input_data = input_file.to_xarray_dataset()
+
+    assert input_file.n_pixels == 221
+    assert input_data.pixels.size == 221
+    assert input_data.scans.size == input_file.n_scans
+
+
+def test_read_preprocessor_mhs():
+    """
+    Tests reading a GMI preprocessor file.
+    """
+    path = Path(__file__).parent
+    input_file = PreprocessorFile(path / "data" / "MHS.pp")
+    input_data = input_file.to_xarray_dataset()
+
+    assert input_file.n_pixels == 90
+    assert input_data.pixels.size == 90
+    assert input_data.scans.size == input_file.n_scans
+
+
+def test_write_preprocessor_file(tmp_path):
     """
     Writes dataset to preprocessor file and ensures that the
     data from the preprocessor file matches that in the original
@@ -37,7 +63,7 @@ def test_preprocessor_file(tmp_path):
                              batch_size=1,
                              normalize=False,
                              transform_zeros=False,
-                             target=targets)
+                             targets=targets)
     dataset.save(tmp_path / "training_data.nc")
 
     write_preprocessor_file(tmp_path / "training_data.nc",

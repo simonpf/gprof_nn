@@ -10,7 +10,7 @@ from quantnn.normalizer import Normalizer
 from rich.progress import track
 
 import gprof_nn.logging
-from gprof_nn.retrieval import RetrievalDriver
+from gprof_nn.retrieval import RetrievalDriver, RetrievalGrdientDriver
 
 
 LOGGER = logging.getLogger(__name__)
@@ -37,12 +37,15 @@ parser.add_argument('--output_file',
                     type=str,
                     default=None,
                     help='The file to which to write the retrieval results.')
+parser.add_argument('--gradients', action='store_true')
+
 
 args = parser.parse_args()
 model = args.model
 normalizer = args.normalizer
 input_file = Path(args.input_file)
 output_file = args.output_file
+gradients = args.gradients
 if output_file is not None:
     output_file = Path(args.output_file)
 
@@ -83,10 +86,13 @@ normalizer = Normalizer.load(normalizer)
 
 for input_file, output_file in track(list(zip(input_files, output_files)),
                                      description="Running GPROF-NN:"):
-    retrieval = RetrievalDriver(input_file,
-                                normalizer,
-                                xrnn,
-                                output_file=output_file)
+    driver = RetrievalDriver
+    if gradients:
+        driver = RetrievalGradientDriver
+    retrieval = driver(input_file,
+                       normalizer,
+                       xrnn,
+                       output_file=output_file)
     result = retrieval.run()
     if result is not None:
         LOGGER.info("Finished processing of file %s.", input_file)

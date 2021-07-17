@@ -13,6 +13,7 @@ from concurrent.futures import ProcessPoolExecutor
 import re
 
 import numpy as np
+import pandas as pd
 import xarray as xr
 import tqdm.asyncio
 
@@ -87,7 +88,7 @@ class BinFile:
                                   count=1)
         self.handle = np.fromfile(
             self.filename,
-            self.sensor.bin_file_record,
+            self.sensor.get_bin_file_record(self.surface_type),
             offset=self.sensor.bin_file_header.itemsize
         )
         self.n_profiles = self.handle.shape[0]
@@ -143,16 +144,29 @@ class BinFile:
         results = {}
         dim_dict = {
             self.sensor.n_freqs: "channels",
-            N_LAYERS: "layers"
+            N_LAYERS: "layers",
         }
         if hasattr(self.sensor, "n_angles"):
             dim_dict[self.sensor.n_angles] = "angles"
 
-        for k, t, *shape in self.sensor.bin_file_record.descr:
-            dims = ("samples",)
-            if shape:
-                dims = dims + tuple([dim_dict[s] for s in shape[0]])
-            results[k] = dims, self.handle[k][indices]
+        record_type = self.sensor.get_bin_file_record(self.surface_type)
+        for k, t, *shape in record_type.descr:
+            if k == "scan_time":
+                data = self.handle[k]
+                date = pd.DataFrame({
+                    "year": data[:, 0],
+                    "month": data[:, 1],
+                    "day": data[:, 2],
+                    "hour": data[:, 3],
+                    "minute": data[:, 4],
+                    "second": data[:, 5],
+                })
+                results[k] = (("samples",), pd.to_datetime(date))
+            else:
+                dims = ("samples",)
+                if shape:
+                    dims = dims + tuple([dim_dict[s] for s in shape[0]])
+                results[k] = dims, self.handle[k][indices]
 
         results["surface_type"] = (
             ("samples",),

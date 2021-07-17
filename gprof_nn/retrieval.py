@@ -337,6 +337,95 @@ class RetrievalDriver:
         return self.output_file
 
 
+class RetrievalGradientDriver:
+    """
+    Speccialization of ``RetrievalDriver`` that retrieves only surface precipitation
+    and its gradients with respect to the input variables.
+    """
+    N_CHANNELS = 15
+
+    def __init__(self,
+                 input_file,
+                 normalizer,
+                 model,
+                 ancillary_data=None,
+                 output_file=None):
+        """
+        Create retrieval driver.
+
+        Args:
+            input_file: Path to the preprocessor or NetCDF file containing the
+                input data for the retrieval.
+            normalizer_file: The normalizer object to use to normalize the
+                input data.
+            model: The neural network to use for the retrieval.
+        """
+        super().__init__(input_file,
+                         normalizer,
+                         model,
+                         ancillary_data=ancillary_data,
+                         output_file=output_file)
+
+
+    def _run(self, xrnn, input_data):
+        """
+        Batch-wise processing of retrieval input.
+
+        Args:
+            xrnn: A quantnn neural-network model.
+            input_data: Iterable ``input_data`` object providing access to
+                batched input data.
+
+        Return:
+            A dataset containing the concatenated retrieval results for all
+            batches.
+        """
+        means = {}
+        gradients = {}
+        precip_1st_tercile = []
+        precip_3rd_tercile = []
+        pop = []
+
+        device = next(iter(xrnn.model.parameters())).device
+        for i in range(len(input_data)):
+            x = input_data[i]
+            x = x.float().to(device)
+            x.requires_grad = True
+            y_pred = xrnn.predict(x)
+            if not isinstance(y_pred, dict):
+                y_pred = {"surface_precip": y_pred}
+
+            y_mean = xrnn.posterior_mean(y_pred=y_pred)
+            grads = {}
+            for k in y_pred:
+                xrnn.model.zero_grad()
+                y_mean.backward()
+                grads[k] = x.grad
+
+            for k, y in y_pred.items():
+                means.setdefault(k, []).append(y_mean[k].cpu())
+                gradients.setdefault(k, []).append(grads[k].cpu())
+
+        dims = input_data.scalar_dimensions
+        dims_p = input_data.profile_dimensions
+
+        data = {}
+        for k in means:
+            y = np.concatenate([t.numpy() for t in means[k]])
+            if k in PROFILE_NAMES:
+                data[k] = (dims_p, y)
+            else:
+                data[k] = (dims, y)
+        for k in gradsd:
+            y = np.concatenate([t.numpy() for t in grads[k]])
+            if k in PROFILE_NAMES:
+                data[k] = (dims_p + ("inputs",), y)
+            else:
+                data[k] = (dims + ("inputs",), y)
+        data = xr.Dataset(data)
+        return input_data.finalize(data)
+
+
 ###############################################################################
 # Netcdf Format
 ###############################################################################

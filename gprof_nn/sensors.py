@@ -115,10 +115,15 @@ class Sensor(ABC):
         """
 
     @abstractproperty
-    def bin_file_record(self):
+    def get_bin_file_record(self, surface_type):
         """
-        Numpy dtype defining the binary record structure of binned,
-        non-clustered database files.
+        Args:
+            surface_type: The surface type corresponding to the
+                bin file.
+
+        Return:
+            Numpy dtype defining the binary record structure of binned,
+            non-clustered database files.
         """
 
     @abstractproperty
@@ -305,6 +310,7 @@ class ConicalScanner(Sensor):
                 ("dataset_number", "i4"),
                 ("latitude", "f4"),
                 ("longitude", "f4"),
+                ("scan_time", "i4", (6,)),
                 ("surface_precip", np.float32),
                 ("convective_precip", np.float32),
                 ("brightness_temperatures", "f4", (n_freqs,)),
@@ -429,8 +435,7 @@ class ConicalScanner(Sensor):
     def bin_file_header(self):
         return self._bin_file_header
 
-    @property
-    def bin_file_record(self):
+    def get_bin_file_record(self, surface_type):
         return self._bin_file_record
 
     @property
@@ -597,26 +602,6 @@ class CrossTrackScanner(Sensor):
                 ("nominal_eia", "f4", (n_angles,))
             ]
         )
-        self._bin_file_record = np.dtype(
-            [
-                ("dataset_number", "i4"),
-                ("latitude", "f4"),
-                ("longitude", "f4"),
-                ("surface_precip", "f4", (n_angles,)),
-                ("convective_precip", "f4", (n_angles,)),
-                ("brightness_temperatures", "f4", (n_angles, n_freqs)),
-                ("rain_water_path", np.float32),
-                ("cloud_water_path", np.float32),
-                ("ice_water_path", np.float32),
-                ("total_column_water_vapor", np.float32),
-                ("two_meter_temperature", np.float32),
-                ("rain_water_content", "f4", (N_LAYERS,)),
-                ("cloud_water_content", "f4", (N_LAYERS,)),
-                ("snow_water_content", "f4", (N_LAYERS,)),
-                ("latent_heat", "f4", (N_LAYERS,))
-            ]
-        )
-
         self._l1c_file_prefix = l1c_prefix
         self._l1c_file_path = l1c_file_path
 
@@ -740,9 +725,52 @@ class CrossTrackScanner(Sensor):
     def bin_file_header(self):
         return self._bin_file_header
 
-    @property
-    def bin_file_record(self):
-        return self._bin_file_record
+    def get_bin_file_record(self, surface_type):
+        if surface_type in [2, 8, 9, 10, 11]:
+            return np.dtype(
+                [
+                    ("dataset_number", "i4"),
+                    ("latitude", "f4"),
+                    ("longitude", "f4"),
+                    ("surface_precip", "f4", (self.n_angles,)),
+                    ("convective_precip", "f4", (self.n_angles,)),
+                    ("brightness_temperatures", "f4", (self.n_freqs,)),
+                    ("rain_water_path", np.float32),
+                    ("cloud_water_path", np.float32),
+                    ("ice_water_path", np.float32),
+                    ("total_column_water_vapor", np.float32),
+                    ("two_meter_temperature", np.float32),
+                    ("rain_water_content", "f4", (N_LAYERS,)),
+                    ("cloud_water_content", "f4", (N_LAYERS,)),
+                    ("snow_water_content", "f4", (N_LAYERS,)),
+                    ("latent_heat", "f4", (N_LAYERS,))
+                ]
+            )
+        else:
+            return np.dtype(
+                [
+                    ("dataset_number", "i4"),
+                    ("latitude", "f4"),
+                    ("longitude", "f4"),
+                    ("surface_precip", "f4", (self.n_angles,)),
+                    ("convective_precip", "f4", (self.n_angles,)),
+                    (
+                        "brightness_temperatures",
+                        "f4",
+                        (self.n_angles, self.n_freqs)
+                    ),
+                    ("rain_water_path", np.float32),
+                    ("cloud_water_path", np.float32),
+                    ("ice_water_path", np.float32),
+                    ("total_column_water_vapor", np.float32),
+                    ("two_meter_temperature", np.float32),
+                    ("rain_water_content", "f4", (N_LAYERS,)),
+                    ("cloud_water_content", "f4", (N_LAYERS,)),
+                    ("snow_water_content", "f4", (N_LAYERS,)),
+                    ("latent_heat", "f4", (N_LAYERS,))
+                ]
+            )
+
 
     @property
     def l1c_file_prefix(self):
