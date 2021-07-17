@@ -140,7 +140,7 @@ if sensor is None:
 
 model_path = Path(args.model_path[0])
 model_path.mkdir(parents=False, exist_ok=True)
-network_name = (f"gprof_nn_0d_{sensor.name.lower()}_nb_{network_type}_"
+network_name = (f"gprof_nn_0d_{sensor.name.lower()}_{network_type}_"
                 f"{n_layers_body}_{n_neurons_body}_{n_layers_head}_"
                 f"{n_neurons_head}_{activation}_{residuals}.pckl")
 
@@ -239,7 +239,20 @@ metrics = ["MeanSquaredError", "Bias", "CalibrationPlot", "CRPS"]
 scatter_plot = ScatterPlot(log_scale=True)
 metrics.append(scatter_plot)
 
-n_epochs = 10
+n_epochs = 2
+optimizer = optim.Adam(model.parameters(), lr=0.001)
+scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, n_epochs)
+xrnn.train(training_data=training_data,
+           validation_data=validation_data,
+           n_epochs=n_epochs,
+           optimizer=optimizer,
+           scheduler=scheduler,
+           logger=logger,
+           metrics=metrics,
+           device=device,
+           mask=-9999)
+xrnn.save(model_path / network_name)
+n_epochs = 8
 optimizer = optim.Adam(model.parameters(), lr=0.001)
 scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, n_epochs)
 xrnn.train(training_data=training_data,

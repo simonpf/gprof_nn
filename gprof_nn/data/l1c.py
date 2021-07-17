@@ -14,6 +14,7 @@ import re
 import numpy as np
 import h5py
 import pandas as pd
+from rich.progress import track
 import xarray as xr
 
 from gprof_nn import sensors
@@ -538,7 +539,7 @@ class L1CFile:
         return xr.Dataset(data)
 
 
-def extract_scenes(data, sensor):
+def extract_scenes(data):
     """
     Organizes the data in 'data' into quadratic scenes with a side
     length matching the number of pixels of the sensor.
@@ -552,7 +553,7 @@ def extract_scenes(data, sensor):
         data: A new 'xarray.Dataset' containing as much as possible
             of the data in 'data' organised into scenes.
     """
-    n = sensor.n_pixels
+    n = data.pixels.size
 
     i_start = 0
     i_end = data.scans.size
@@ -569,8 +570,7 @@ def extract_scenes(data, sensor):
     return None
 
 def process_l1c_file(l1c_filename,
-                     sensor,
-                     era5_path):
+                     sensor):
     """
     Run preprocessor for L1C file and extract resulting data.
 
@@ -647,8 +647,7 @@ class ObservationProcessor:
         for l1c_file in l1c_files:
             tasks.append(self.pool.submit(process_l1c_file,
                                           l1c_file,
-                                          self.sensor,
-                                          self.era5_path))
+                                          self.sensor))
             i += 1
 
         n_datasets = len(tasks)
