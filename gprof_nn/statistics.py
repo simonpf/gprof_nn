@@ -42,10 +42,10 @@ def open_file(filename):
         return xr.open_dataset(filename)
     elif re.match("gpm.*\.bin", filename.name):
         file = BinFile(filename, include_profiles=True)
-        return file.to_xarray_datset()
+        return file.to_xarray_dataset()
     elif re.match(".*\.bin{\.gz}+", filename.name.lower()):
         file = RetrievalFile(filename, include_profiles=True)
-        return file.to_xarray_datset()
+        return file.to_xarray_dataset()
     elif suffix == ".pp":
         file = PreprocessorFile(filename)
         return file.to_xarray_dataset()
@@ -212,12 +212,14 @@ class ZonalDistribution(Statistic):
                                             weights=v.ravel())
                         self.counts[k][i] += cs
         else:
+            data.latitude.load()
             lats = data.latitude.data
             for k in ALL_TARGETS:
                 if k in self.counts:
                     v = data[k].data
                     if v.ndim > lats.ndim:
-                        shape = lats.shape  + [1] * (v.ndim - lats.ndim)
+                        shape = (lats.shape  +
+                                 tuple([1] * (v.ndim - lats.ndim)))
                         lats_v = np.broadcast_to(lats, shape)
                     else:
                         lats_v = lats
@@ -346,7 +348,7 @@ class GlobalDistribution(Statistic):
                     v = data[k].data
                     if v.ndim > lats.ndim:
                         shape = (lats.shape  +
-                                    tuple([1] * (v.ndim - lats.ndim)))
+                                 tuple([1] * (v.ndim - lats.ndim)))
                         lats_v = np.broadcast_to(lats, shape)
                         lons_v = np.broadcast_to(lons, shape)
                     else:
