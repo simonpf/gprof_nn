@@ -697,7 +697,7 @@ class BinFileStatistics(Statistic):
                 self.has_angles):
                 if st in [2, 8, 9, 10, 11, 16]:
                     for a in range(sensor.n_angles):
-                        i_a = dataset["pixel_position"] == (a + 1)
+                        i_a = dataset["pixel_position"].data == (a + 1)
                         cs, _ = np.histogram(v[i_a], bins=self.bins[k])
                         self.targets[k][st - 1, a] += cs
                 else:
