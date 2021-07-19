@@ -61,7 +61,7 @@ _BIAS_SCALES_GMI = 1.0 / np.cos(np.deg2rad(
 ))
 
 
-def calculate_bias_scaling_mhs(angles):
+def calculate_bias_scaling(angles):
     """
     Calculate the scaling factor of the simulation biases for MHS.
 
@@ -726,14 +726,15 @@ class CrossTrackScanner(Sensor):
         return self._bin_file_header
 
     def get_bin_file_record(self, surface_type):
-        if surface_type in [2, 8, 9, 10, 11]:
+        if surface_type in [2, 8, 9, 10, 11, 16]:
             return np.dtype(
                 [
                     ("dataset_number", "i4"),
                     ("latitude", "f4"),
                     ("longitude", "f4"),
-                    ("surface_precip", "f4", (self.n_angles,)),
-                    ("convective_precip", "f4", (self.n_angles,)),
+                    ("surface_precip", "f4"),
+                    ("convective_precip", "f4"),
+                    ("pixel_position", "i4"),
                     ("brightness_temperatures", "f4", (self.n_freqs,)),
                     ("rain_water_path", np.float32),
                     ("cloud_water_path", np.float32),
@@ -877,7 +878,7 @@ class CrossTrackScanner(Sensor):
                     vas = angles_sim[angles]
                     vas = vas.reshape(-1, 1)
 
-                    bias_scales = calculate_bias_scaling_mhs(vas)
+                    bias_scales = calculate_bias_scaling(vas)
                     bias = scene["brightness_temperature_biases"]
                     bias = _expand_pixels(bias.data[np.newaxis])[0]
                     bias = bias.reshape(-1, self.n_freqs)
@@ -1009,7 +1010,7 @@ class CrossTrackScanner(Sensor):
                     vas[inds] *= -1
 
                     # Calculate corrected biases.
-                    bias_scales = calculate_bias_scaling_mhs(vas)
+                    bias_scales = calculate_bias_scaling(vas)
                     bias = scene["brightness_temperature_biases"]
                     bias = _expand_pixels(bias.data[np.newaxis])[0][valid]
 

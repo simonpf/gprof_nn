@@ -54,7 +54,7 @@ def test_bin_file_mhs():
     input_file = BinFile(path / "data" / "mhs" / "gpm_291_11_09.bin").to_xarray_dataset()
     assert np.all(input_file["surface_precip"] >= 0)
     assert np.all(input_file["convective_precip"] >= 0)
-    assert np.all(input_file["rain_water_path"] >= 0)
+    assert np.all(input_file["rain_water_path"] < 0)
     assert np.all(input_file["brightness_temperatures"] > 0)
     assert np.all(input_file["brightness_temperatures"] < 400)
     assert np.all(input_file["two_meter_temperature"] > 291 - 0.5)
@@ -68,7 +68,7 @@ def test_bin_file_mhs():
     input_file = BinFile(path / "data" / "mhs" / "gpm_266_21_02.bin").to_xarray_dataset()
     assert np.all(input_file["surface_precip"] >= 0)
     assert np.all(input_file["convective_precip"] >= 0)
-    assert np.all(input_file["rain_water_path"] >= 0)
+    assert np.all(input_file["rain_water_path"] < 0)
     assert np.all(input_file["brightness_temperatures"] > 0)
     assert np.all(input_file["brightness_temperatures"] < 400)
     assert np.all(input_file["two_meter_temperature"] > 266 - 0.5)
@@ -115,16 +115,3 @@ def test_file_processor_gmi(tmp_path):
     airmass_types = np.where(dataset.x[:, 35:])[1]
     assert np.all(np.isclose(np.maximum(input_data.airmass_type, 1),
                              airmass_types + 1))
-
-def test_file_processor_mhs(tmp_path):
-    """
-    This tests the extraction of data from a bin file and ensures that
-    the extracted dataset matches the original data.
-    """
-    path = Path(__file__).parent
-    processor = FileProcessor(path / "data" / "mhs", include_profiles=True)
-    output_file = tmp_path / "test_file.nc"
-    processor.run_async(output_file, 0.0, 0.1, 1)
-    dataset = xr.load_dataset(output_file)
-
-    assert np.all(dataset.surface_precip >= 0.0)
