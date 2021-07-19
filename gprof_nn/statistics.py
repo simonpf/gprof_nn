@@ -858,7 +858,7 @@ class ObservationStatistics(Statistic):
             # Sensor with varying EIA (cross track).
             tbs = (dataset["brightness_temperatures"] .data[i_st.data])
             if self.has_angles:
-                eia = dataset["earth_incidence_angle"].data[i_st, 0]
+                eia = dataset["earth_incidence_angle"].data[i_st]
                 for j in range(sensor.n_angles):
                     lower = self.angle_bins[j + 1]
                     upper = self.angle_bins[j]
