@@ -39,7 +39,7 @@ def open_file(filename):
     filename = Path(filename)
     suffix = filename.suffix
     if suffix == ".nc":
-        return xr.open_datset(filename)
+        return xr.open_dataset(filename)
     elif re.match("gpm.*\.bin", filename.name):
         file = BinFile(filename, include_profiles=True)
         return file.to_xarray_datset()

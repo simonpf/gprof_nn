@@ -34,15 +34,15 @@ parser.add_argument('output_path',
                     help='The folder to which to write the results.')
 parser.add_argument('--n_processes',
                     metavar="n",
-                    type=str,
+                    type=int,
                     default=4,
                     help='The number of processes to use for the processing.')
 
 args = parser.parse_args()
-input_paths = Path(args.input_paths)
+input_path = Path(args.input_path)
 output_path = Path(args.output_path)
 sensor = getattr(sensors, args.sensor, None)
-n_procs = parser.n_processes
+n_procs = args.n_processes
 if sensor is None:
     raise ValueError(f"Sensor {args.sensor} is currently not supported.")
 
