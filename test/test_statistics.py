@@ -90,7 +90,9 @@ def test_training_statistics_mhs(tmpdir):
     files = [data_path / "gprof_nn_mhs_era5_5.nc"] * 2
 
 
-    stats = [TrainingDataStatistics()]
+    stats = [TrainingDataStatistics(),
+             GlobalDistribution(),
+             ZonalDistribution()]
     processor = StatisticsProcessor(sensors.MHS,
                                     files,
                                     stats)
@@ -150,7 +152,9 @@ def test_bin_statistics_gmi(tmpdir):
     files = [data_path / "gmi" / "gpm_291_55_04.bin"] * 2
 
 
-    stats = [BinFileStatistics()]
+    stats = [BinFileStatistics(),
+             ZonalDistribution(),
+             GlobalDistribution()]
     processor = StatisticsProcessor(sensors.GMI,
                                     files,
                                     stats)
@@ -212,7 +216,9 @@ def test_bin_statistics_mhs_sea_ice(tmpdir):
     files = [data_path / "mhs" / "gpm_266_21_02.bin"] * 2
 
 
-    stats = [BinFileStatistics()]
+    stats = [BinFileStatistics(),
+             ZonalDistribution(),
+             GlobalDistribution()]
     processor = StatisticsProcessor(sensors.MHS,
                                     files,
                                     stats)
@@ -274,7 +280,9 @@ def test_bin_statistics_mhs_ocean(tmpdir):
     files = [data_path / "mhs" / "gpm_290_60_01.bin"] * 2
 
 
-    stats = [BinFileStatistics()]
+    stats = [BinFileStatistics(),
+             ZonalDistribution(),
+             GlobalDistribution()]
     processor = StatisticsProcessor(sensors.MHS,
                                     files,
                                     stats)
@@ -334,7 +342,9 @@ def test_observation_statistics_gmi(tmpdir):
     data_path = Path(__file__).parent / "data"
     files = [data_path / "GMIERA5_190101_027510.pp"] * 2
 
-    stats = [ObservationStatistics()]
+    stats = [ObservationStatistics(),
+             ZonalDistribution(),
+             GlobalDistribution()]
     processor = StatisticsProcessor(sensors.GMI,
                                     files,
                                     stats)
@@ -377,9 +387,11 @@ def test_observation_statistics_mhs(tmpdir):
     MHS bin file for an ocean surface.
     """
     data_path = Path(__file__).parent / "data"
-    files = [data_path / "GMIERA5_190101_027510.pp"] * 2
+    files = [data_path / "MHS.pp"] * 2
 
-    stats = [ObservationStatistics()]
+    stats = [ObservationStatistics(),
+             ZonalDistribution(),
+             GlobalDistribution()]
     processor = StatisticsProcessor(sensors.MHS,
                                     files,
                                     stats)
