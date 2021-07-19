@@ -12,7 +12,9 @@ from gprof_nn.data.preprocessor import PreprocessorFile
 from gprof_nn.statistics import (StatisticsProcessor,
                                  TrainingDataStatistics,
                                  BinFileStatistics,
-                                 ObservationStatistics)
+                                 ObservationStatistics,
+                                 GlobalDistribution,
+                                 ZonalDistribution)
 
 
 def test_training_statistics_gmi(tmpdir):
@@ -24,7 +26,9 @@ def test_training_statistics_gmi(tmpdir):
     files = [data_path / "training_data.nc"] * 2
 
 
-    stats = [TrainingDataStatistics()]
+    stats = [TrainingDataStatistics(),
+             ZonalDistribution(),
+             GlobalDistribution()]
     processor = StatisticsProcessor(sensors.GMI,
                                     files,
                                     stats)

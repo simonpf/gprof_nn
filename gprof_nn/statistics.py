@@ -127,7 +127,7 @@ class ScanPositionMean(Statistic):
             self.sum = other.sum
             self.counts = other.counts
         else:
-            if ther.sum is not None:
+            if other.sum is not None:
                 self.sum += other.sum
                 self.counts += other.counts
 
@@ -143,149 +143,253 @@ class ScanPositionMean(Statistic):
             mean.to_netcdf(output_file)
 
 
-class ZonalMean(Statistic):
+class ZonalDistribution(Statistic):
     """
-    Calculates zonal mean on a 1-degree latitude grid.
+    Calculates zonal distributions of retrieval targets on a 1-degree
+    latitude grid.
     """
-    def __init__(self,
-                 variable="surface_precip"):
+    def __init__(self):
         """
-        Instantiate scan position mean statistic for given variable.
-
         Args:
             Name of the retrieval variable for which to compute the
             scan position mean.
         """
-        self.variable = variable
-        self.bins = np.linspace(-90, 90, 181)
-        self.sum = np.zeros(180)
-        self.counts = np.zeros(180)
+        self.latitude_bins = np.linspace(-90, 90, 181)
+        self.has_time = None
+        self.counts = None
+        self.sensor = None
 
-    def process_file(self, filename):
+    def _initialize(self, data):
+        self.counts = {}
+        if "scan_time" in data.variables:
+            self.has_time = True
+            for k in ALL_TARGETS:
+                if k in data.variables:
+                    self.counts[k] = np.zeros(
+                        (12, self.latitude_bins.size - 1)
+                    )
+        else:
+            self.has_time = False
+            for k in ALL_TARGETS:
+                if k in data.variables:
+                    self.counts[k] = np.zeros(self.latitude_bins.size - 1)
+
+
+    def process_file(self, sensor, filename):
         """
         Process data from a single file.
 
         Args:
             filename: Path to the file to process.
         """
+        self.sensor = sensor
         data = open_file(filename)
+        if self.counts is None:
+            self._initialize(data)
 
-        v = data[self.variable].data
-        valid = np.isfinite(v) * (v > -400.0)
-        if v.ndim > data.latitude.data.ndim:
-            valid = np.all(valid, axis=-1)
+        if self.has_time:
+            for i in range(12):
+                indices = data["scan_time"] == (i + 1)
+                if indices.ndim > 1:
+                    indices = indices.all(axis=tuple(np.arange(indices.ndim)[1:]))
+                data.latitude.load()
+                lats = data.latitude[indices].data
 
-        v = v[valid]
-        lats = data.latitude.data[valid]
-        lons = data.longitude.data[valid]
-        shape = lats.shape + tuple([1] * (v.ndim - lats.ndim))
-        lats = np.broadcast_to(lats, shape)
-        lons = np.broadcast_to(lons, shape)
-
-        lats = data.latitude.data[valid]
-
-        for i in range(self.bins.size - 1):
-            lower = self.bins[i]
-            upper = self.bins[i + 1]
-            mask = (lower <= lats) * (lats < upper)
-            self.counts[i] += mask.sum()
-            self.sum[i] += v[mask].sum()
+                for k in ALL_TARGETS:
+                    if k in self.counts:
+                        data[k].load()
+                        v = data[k][indices].data
+                        if v.size == 0:
+                            continue
+                        if v.ndim > lats.ndim:
+                            shape = (lats.shape  +
+                                     tuple([1] * (v.ndim - lats.ndim)))
+                            lats_v = np.broadcast_to(lats, shape)
+                        else:
+                            lats_v = lats
+                        cs, _ = np.histogram(lats_v.ravel(),
+                                            bins=self.latitude_bins,
+                                            weights=v.ravel())
+                        self.counts[k][i] += cs
+        else:
+            lats = data.latitude.data
+            for k in ALL_TARGETS:
+                if k in self.counts:
+                    v = data[k].data
+                    if v.ndim > lats.ndim:
+                        shape = lats.shape  + [1] * (v.ndim - lats.ndim)
+                        lats_v = np.broadcast_to(lats, shape)
+                    else:
+                        lats_v = lats
+                    cs, _ = np.histogram(lats_v.ravel(),
+                                        bins=self.latitude_bins,
+                                        weights=v.ravel())
+                    self.counts[k] += cs
 
     def merge(self, other):
         """
         Merge the data of this statistic with that calculated in a different
         process.
         """
-        self.sum += other.sum
-        self.counts += other.counts
+        if other.counts is not None:
+            for k in self.counts:
+                self.counts[k] += other.counts[k]
+
 
     def save(self, destination):
         """
         Save results to file in NetCDF format.
         """
-        lats = 0.5 * (self.bins[1:] + self.bins[:-1])
+        lats = 0.5 * (self.latitude_bins[1:] + self.latitude_bins[:-1])
         data = xr.Dataset({
-            "latitude": (("latitude",), lats),
-            "mean": (("latitude",), self.sum / self.counts),
-            "counts": (("latitude",),  self.counts)
-            })
+            "latitude": (("latitude",), lats)
+        })
+        if self.has_time:
+            data["months"] = (("months"), np.arange(1, 13))
+            for k in self.counts:
+                data[k] = (("months", "latitude"), self.counts[k])
+        else:
+            for k in self.counts:
+                data[k] = (("latitude"), self.counts[k])
 
         destination = Path(destination)
-        output_file = destination / "zonal_mean.nc"
+        output_file = (destination /
+                       "zonal_distribution_{self.sensor.name.lower()}.nc")
         data.to_netcdf(output_file)
 
 
-class GlobalMean(Statistic):
+class GlobalDistribution(Statistic):
     """
-    Calculates gloab precipitation map.
+    Calculates global distributions of retrieval targets on a 1-degree
+    latitude and longitude grid.
     """
-    def __init__(self,
-                 variable="surface_precip"):
+    def __init__(self):
         """
-        Instantiate scan position mean statistic for given variable.
-
         Args:
             Name of the retrieval variable for which to compute the
             scan position mean.
         """
-        self.variable = variable
-        self.n_lats = 90
-        self.lat_bins = np.linspace(-90, 90, self.n_lats + 1)
-        self.n_lons = 180
-        self.lon_bins = np.linspace(-180, 181, self.n_lons + 1)
-        self.sum = np.zeros((self.n_lats, self.n_lons))
-        self.counts = np.zeros((self.n_lats, self.n_lons))
+        self.latitude_bins = np.linspace(-90, 90, 181)
+        self.longitude_bins = np.linspace(-180, 180, 361)
+        self.has_time = None
+        self.counts = None
+        self.sensor = None
 
-    def process_file(self, filename):
+    def _initialize(self, data):
+        self.counts = {}
+        if "scan_time" in data.variables:
+            self.has_time = True
+            for k in ALL_TARGETS:
+                if k in data.variables:
+                    self.counts[k] = np.zeros(
+                        (12,
+                         self.latitude_bins.size - 1,
+                         self.longitude_bins.size - 1)
+                    )
+        else:
+            self.has_time = False
+            for k in ALL_TARGETS:
+                if k in data.variables:
+                    self.counts[k] = np.zeros((self.latitude_bins.size - 1,
+                                               self.longitude_bins.size - 1))
+
+
+    def process_file(self, sensor, filename):
         """
         Process data from a single file.
 
         Args:
-            data: ``xarray.Dataset`` contaning the data from the given file.
+            filename: Path to the file to process.
         """
-        data = xr.open_dataset(filename)
+        self.sensor = sensor
+        data = open_file(filename)
+        if self.counts is None:
+            self._initialize(data)
 
-        v = data[self.variable].data
-        valid = np.isfinite(v) * (v > -400.0)
-        if v.ndim > data.latitude.data.ndim:
-            valid = np.all(valid, axis=-1)
+        if self.has_time:
+            for i in range(12):
+                indices = data["scan_time"] == (i + 1)
+                if indices.ndim > 1:
+                    indices = indices.all(axis=tuple(np.arange(indices.ndim)[1:]))
+                data.latitude.load()
+                data.longitude.load()
+                lats = data.latitude[indices].data
+                lons = data.longitude[indices].data
 
-        v = v[valid]
-        lats = data.latitude.data[valid]
-        lons = data.longitude.data[valid]
-        shape = lats.shape + tuple([1] * (v.ndim - lats.ndim))
-        lats = np.broadcast_to(lats, shape)
-        lons = np.broadcast_to(lons, shape)
-
-        bins = (self.lat_bins, self.lon_bins)
-        sum, _, _ = np.histogram2d(lats, lons, bins=bins, weights=v)
-        counts, _, _ = np.histogram2d(lats, lons, bins=bins)
-        self.sum += sum
-        self.counts += counts
+                for k in ALL_TARGETS:
+                    if k in self.counts:
+                        data[k].load()
+                        v = data[k][indices].data
+                        if v.size == 0:
+                            continue
+                        if v.ndim > lats.ndim:
+                            shape = (lats.shape  +
+                                     tuple([1] * (v.ndim - lats.ndim)))
+                            lats_v = np.broadcast_to(lats, shape)
+                            lons_v = np.broadcast_to(lons, shape)
+                        else:
+                            lats_v = lats
+                            lons_v = lons
+                        cs, _ = np.histogram(lats_v.ravel(),
+                                             lons_v.ravel(),
+                                             bins=(self.latitude_bins,
+                                                   self.longitude_bins),
+                                            weights=v.ravel())
+                        self.counts[k][i] += cs
+        else:
+            data.latitude.load()
+            data.longitude.load()
+            lats = data.latitude.data
+            lons = data.longitude.data
+            for k in ALL_TARGETS:
+                if k in self.counts:
+                    v = data[k].data
+                    if v.ndim > lats.ndim:
+                        shape = (lats.shape  +
+                                    tuple([1] * (v.ndim - lats.ndim)))
+                        lats_v = np.broadcast_to(lats, shape)
+                        lons_v = np.broadcast_to(lons, shape)
+                    else:
+                        lats_v = lats
+                        lons_v = lons
+                    cs, _ = np.histogram(lats_v.ravel(),
+                                            lons_v.ravel(),
+                                            bins=(self.latitude_bins,
+                                                self.longitude_bins),
+                                        weights=v.ravel())
+                    self.counts[k] += cs
 
     def merge(self, other):
         """
         Merge the data of this statistic with that calculated in a different
         process.
         """
-        self.sum += other.sum
-        self.counts += other.counts
+        if other.counts is not None:
+            for k in self.counts:
+                self.counts[k] += other.counts[k]
+
 
     def save(self, destination):
         """
         Save results to file in NetCDF format.
         """
-        lats = 0.5 * (self.lat_bins[1:] + self.lat_bins[:-1])
-        lons = 0.5 * (self.lon_bins[1:] + self.lon_bins[:-1])
+        lats = 0.5 * (self.latitude_bins[1:] + self.latitude_bins[:-1])
+        lons = 0.5 * (self.longitude_bins[1:] + self.longitude_bins[:-1])
         data = xr.Dataset({
             "latitude": (("latitude",), lats),
-            "longitude": (("longitude",), lons),
-            "mean": (("latitude", "longitude"), self.sum / self.counts),
-            "counts": (("latitude", "longitude"),  self.counts)
-            })
+            "longitude": (("longitude",), lons)
+        })
+        if self.has_time:
+            data["months"] = (("months"), np.arange(1, 13))
+            for k in self.counts:
+                data[k] = (("months", "latitude", "longitude"), self.counts[k])
+        else:
+            for k in self.counts:
+                data[k] = (("latitude", "longitude"), self.counts[k])
 
         destination = Path(destination)
-        output_file = destination / "global_mean.nc"
+        output_file = (destination /
+                       "zonal_distribution_{self.sensor.name.lower()}.nc")
         data.to_netcdf(output_file)
 
 
