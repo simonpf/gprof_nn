@@ -677,7 +677,7 @@ class BinFileStatistics(Statistic):
                 for a in range(sensor.n_angles):
                     tbs = dataset["brightness_temperatures"].data
                     for k in range(sensor.n_freqs):
-                        cs, _ = np.histogram(tbs[:, k, a],
+                        cs, _ = np.histogram(tbs[:, a, k],
                                              bins=self.tb_bins)
                         self.tbs[st - 1, k, a] += cs
         # Sensor with constant EIA.
@@ -702,7 +702,7 @@ class BinFileStatistics(Statistic):
                         self.targets[k][st - 1, a] += cs
                 else:
                     for a in range(sensor.n_angles):
-                        cs, _ = np.histogram(v[:, j], bins=self.bins[k])
+                        cs, _ = np.histogram(v[:, a], bins=self.bins[k])
                         self.targets[k][st - 1, a] += cs
             else:
                 cs, _ = np.histogram(v, bins=self.bins[k])
