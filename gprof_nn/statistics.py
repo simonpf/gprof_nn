@@ -197,14 +197,26 @@ class ZonalDistribution(Statistic):
 
                 for k in ALL_TARGETS:
                     if k in self.counts:
+                        lats = data.latitude[indices].data
                         data[k].load()
                         v = data[k][indices].data
-                        if v.size == 0:
-                            continue
+
+                        selection = []
+                        for i in range(lats.ndim):
+                            n_lats = lats.shape[i]
+                            n_v = v.shape[i]
+                            d_n = (n_lats - n_v) // 2
+                            if d_n > 0:
+                                selection.append(slice(d_n, -d_n))
+                            else:
+                                selection.append(slice(0, None))
+                        lats = lats[tuple(selection)]
+
                         if v.ndim > lats.ndim:
                             shape = (lats.shape  +
                                      tuple([1] * (v.ndim - lats.ndim)))
-                            lats_v = np.broadcast_to(lats, shape)
+                            lats_v = lats.reshape(shape)
+                            lats_v = np.broadcast_to(lats_v, v.shape)
                         else:
                             lats_v = lats
                         cs, _ = np.histogram(lats_v.ravel(),
@@ -213,19 +225,34 @@ class ZonalDistribution(Statistic):
                         self.counts[k][i] += cs
         else:
             data.latitude.load()
-            lats = data.latitude.data
             for k in ALL_TARGETS:
                 if k in self.counts:
                     v = data[k].data
+                    lats = data.latitude.data
+                    data[k].load()
+                    v = data[k].data
+
+                    selection = []
+                    for i in range(lats.ndim):
+                        n_lats = lats.shape[i]
+                        n_v = v.shape[i]
+                        d_n = (n_lats - n_v) // 2
+                        if d_n > 0:
+                            selection.append(slice(d_n, -d_n))
+                        else:
+                            selection.append(slice(0, None))
+                    lats = lats[tuple(selection)]
+
                     if v.ndim > lats.ndim:
                         shape = (lats.shape  +
                                  tuple([1] * (v.ndim - lats.ndim)))
-                        lats_v = np.broadcast_to(lats, shape)
+                        lats_v = lats.reshape(shape)
+                        lats_v = np.broadcast_to(lats_v, v.shape)
                     else:
                         lats_v = lats
                     cs, _ = np.histogram(lats_v.ravel(),
                                         bins=self.latitude_bins,
-                                        weights=v.ravel())
+                                         weights=v.ravel())
                     self.counts[k] += cs
 
     def merge(self, other):
@@ -315,50 +342,79 @@ class GlobalDistribution(Statistic):
                     indices = indices.all(axis=tuple(np.arange(indices.ndim)[1:]))
                 data.latitude.load()
                 data.longitude.load()
-                lats = data.latitude[indices].data
-                lons = data.longitude[indices].data
 
                 for k in ALL_TARGETS:
                     if k in self.counts:
+                        lats = data.latitude[indices].data
+                        lons = data.longitude[indices].data
                         data[k].load()
                         v = data[k][indices].data
-                        if v.size == 0:
-                            continue
+
+                        selection = []
+                        for i in range(lats.ndim):
+                            n_lats = lats.shape[i]
+                            n_v = v.shape[i]
+                            d_n = (n_lats - n_v) // 2
+                            if d_n > 0:
+                                selection.append(slice(d_n, -d_n))
+                            else:
+                                selection.append(slice(0, None))
+                        lats = lats[tuple(selection)]
+                        lons = lons[tuple(selection)]
+
                         if v.ndim > lats.ndim:
                             shape = (lats.shape  +
                                      tuple([1] * (v.ndim - lats.ndim)))
-                            lats_v = np.broadcast_to(lats, shape)
-                            lons_v = np.broadcast_to(lons, shape)
+                            lats_v = lats.reshape(shape)
+                            lats_v = np.broadcast_to(lats_v, v.shape)
+                            lons_v = lons.reshape(shape)
+                            lons_v = np.broadcast_to(lons_v, v.shape)
                         else:
                             lats_v = lats
                             lons_v = lons
-                        cs, _ = np.histogram(lats_v.ravel(),
-                                             lons_v.ravel(),
-                                             bins=(self.latitude_bins,
-                                                   self.longitude_bins),
-                                            weights=v.ravel())
+                        cs, _, _ = np.histogram2d(lats_v.ravel(),
+                                                  lons_v.ravel(),
+                                                  bins=(self.latitude_bins,
+                                                        self.longitude_bins),
+                                                  weights=v.ravel())
                         self.counts[k][i] += cs
         else:
             data.latitude.load()
             data.longitude.load()
-            lats = data.latitude.data
-            lons = data.longitude.data
             for k in ALL_TARGETS:
                 if k in self.counts:
+                    lats = data.latitude.data
+                    lons = data.longitude.data
+                    data[k].load()
                     v = data[k].data
+
+                    selection = []
+                    for i in range(lats.ndim):
+                        n_lats = lats.shape[i]
+                        n_v = v.shape[i]
+                        d_n = (n_lats - n_v) // 2
+                        if d_n > 0:
+                            selection.append(slice(d_n, -dn))
+                        else:
+                            selection.append(slice(0, None))
+                    lats = lats[tuple(selection)]
+                    lons = lons[tuple(selection)]
+
                     if v.ndim > lats.ndim:
                         shape = (lats.shape  +
                                  tuple([1] * (v.ndim - lats.ndim)))
-                        lats_v = np.broadcast_to(lats, shape)
-                        lons_v = np.broadcast_to(lons, shape)
+                        lats_v = lats.reshape(shape)
+                        lats_v = np.broadcast_to(lats_v, v.shape)
+                        lons_v = lons.reshape(shape)
+                        lons_v = np.broadcast_to(lons_v, v.shape)
                     else:
                         lats_v = lats
                         lons_v = lons
-                    cs, _ = np.histogram(lats_v.ravel(),
-                                            lons_v.ravel(),
-                                            bins=(self.latitude_bins,
-                                                self.longitude_bins),
-                                        weights=v.ravel())
+                    cs, _, _ = np.histogram2d(lats_v.ravel(),
+                                              lons_v.ravel(),
+                                              bins=(self.latitude_bins,
+                                                    self.longitude_bins),
+                                              weights=v.ravel())
                     self.counts[k] += cs
 
     def merge(self, other):
@@ -971,7 +1027,7 @@ class ObservationStatistics(Statistic):
                     i_a = (eia >= lower) * (eia < upper)
                     for k in range(sensor.n_freqs):
                         cs, _ = np.histogram(tbs[i_a, k],
-                                                bins=self.tb_bins)
+                                             bins=self.tb_bins)
                         self.tbs[i, k, j] += cs
             # Sensor with constant EIA
             else:
