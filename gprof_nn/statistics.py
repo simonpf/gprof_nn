@@ -14,10 +14,12 @@ import re
 
 import numpy as np
 import xarray as xr
+from rich.progress import track
 
 from gprof_nn.definitions import ALL_TARGETS
 from gprof_nn.data.retrieval import RetrievalFile
 from gprof_nn.data.bin import BinFile
+from gprof_nn.data.preprocessor import PreprocessorFile
 
 ###############################################################################
 # Statistics
@@ -44,6 +46,9 @@ def open_file(filename):
     elif re.match(".*\.bin{\.gz}+", filename.name.lower()):
         file = RetrievalFile(filename, include_profiles=True)
         return file.to_xarray_datset()
+    elif suffix == ".pp":
+        file = PreprocessorFile(filename)
+        return file.to_xarray_dataset()
     raise ValueError(
         "Could not figure out how handle the file f{filename.name}."
     )
@@ -797,6 +802,154 @@ class BinFileStatistics(Statistic):
                         ".nc"))
         data.to_netcdf(output_file)
 
+
+class ObservationStatistics(Statistic):
+    """
+    Class to extract relevant statistics from observation datasets.
+    """
+    def __init__(self):
+        pass
+
+    def _initialize_data(self,
+                         sensor,
+                         data):
+        n_freqs = sensor.n_freqs
+        self.has_angles = hasattr(sensor, "angles")
+        if self.has_angles:
+            n_angles = sensor.n_angles
+            self.angle_bins = np.zeros(sensor.angles.size + 1)
+            self.angle_bins[1:-1] = 0.5 * (sensor.angles[1:] +
+                                           sensor.angles[:-1])
+            self.angle_bins[0] = 2.0 * self.angle_bins[1] - self.angle_bins[2]
+            self.angle_bins[-1] = (2.0 * self.angle_bins[-2] -
+                                   self.angle_bins[-3])
+            self.tbs = np.zeros((18, n_freqs, n_angles, 300),
+                                dtype=np.float32)
+        else:
+            self.tbs = np.zeros((18, n_freqs, 300),
+                                dtype=np.float32)
+        self.tb_bins = np.linspace(100, 400, 301)
+
+        self.t2m = np.zeros((18, 200), dtype=np.float32)
+        self.t2m_bins = np.linspace(240, 330, 201)
+        self.tcwv = np.zeros((18, 200), dtype=np.float32)
+        self.tcwv_bins = np.linspace(0, 100, 201)
+        self.st = np.zeros(18, dtype=np.float32)
+        self.at = np.zeros(4, dtype=np.float32)
+
+    def process_file(self,
+                     sensor,
+                     filename):
+        """
+        Process data from a single file.
+
+        Args:
+            filename: The path of the data to process.
+        """
+        self.sensor = sensor
+        dataset = open_file(filename)
+        if not hasattr(self, "tb_bins"):
+            self._initialize_data(sensor, dataset)
+
+        st = dataset["surface_type"]
+        for i in range(18):
+            i_st = (st == i + 1).data
+
+            # Sensor with varying EIA (cross track).
+            tbs = (dataset["brightness_temperatures"] .data[i_st.data])
+            if self.has_angles:
+                eia = dataset["earth_incidence_angle"].data[i_st, 0]
+                for j in range(sensor.n_angles):
+                    lower = self.angle_bins[j + 1]
+                    upper = self.angle_bins[j]
+                    i_a = (eia >= lower) * (eia < upper)
+                    for k in range(sensor.n_freqs):
+                        cs, _ = np.histogram(tbs[i_a, k],
+                                                bins=self.tb_bins)
+                        self.tbs[i, k, j] += cs
+            # Sensor with constant EIA
+            else:
+                for j in range(sensor.n_freqs):
+                    cs, _ = np.histogram(tbs[:, j], bins=self.tb_bins)
+                    self.tbs[i, j] += cs
+
+            # Ancillary data
+            v = dataset["two_meter_temperature"].data[i_st]
+            cs, _ = np.histogram(v, bins=self.t2m_bins)
+            self.t2m[i] += cs
+            v = dataset["total_column_water_vapor"].data[i_st]
+            cs, _ = np.histogram(v, bins=self.tcwv_bins)
+            self.tcwv[i] += cs
+
+        bins = np.arange(0, 19) + 0.5
+        cs, _ = np.histogram(st, bins=bins)
+        self.st += cs
+        at = dataset["airmass_type"]
+        bins = np.arange(-1, 4) + 0.5
+        cs, _ = np.histogram(at, bins=bins)
+        self.at += cs
+
+    def merge(self, other):
+        """
+        Merge the data of this statistic with that calculated in a different
+        process.
+        """
+        if not hasattr(other, "tbs"):
+            return None
+        self.tbs += other.tbs
+        self.t2m += other.t2m
+        self.tcwv += other.tcwv
+        self.st += other.st
+        self.at += other.at
+
+    def save(self, destination):
+        """
+        Save results to file in NetCDF format.
+        """
+        data = {}
+        tb_bins = 0.5 * (self.tb_bins[1:] + self.tb_bins[:-1])
+        data["brightness_temperature_bins"] = (
+            ("brightness_temperature_bins",),
+            tb_bins
+        )
+
+        if self.has_angles:
+            data["brightness_temperatures"] = (
+                ("surface_type_bins",
+                 "channels",
+                 "angles",
+                 "brightness_temperature_bins"),
+                self.tbs
+            )
+        else:
+            data["brightness_temperatures"] = (
+                ("surface_type_bins",
+                 "channels",
+                 "brightness_temperature_bins"),
+                self.tbs
+            )
+
+        bins = 0.5 * (self.t2m_bins[1:] + self.t2m_bins[:-1])
+        bin_dim = "two_meter_temperature_bins"
+        data[bin_dim] = (bin_dim,), bins
+        data["two_meter_temperature"] = ("surface_type", bin_dim), self.t2m
+
+        bins = 0.5 * (self.tcwv_bins[1:] + self.tcwv_bins[:-1])
+        bin_dim = "total_column_water_vapor_bins"
+        data[bin_dim] = (bin_dim,), bins
+        data["total_column_water_vapor"] = ("surface_type", bin_dim), self.tcwv
+
+        data["surface_type"] = ("surface_type_bins",), self.st
+        data["airmass_type"] = ("airmass_type_bins"), self.st
+
+        data = xr.Dataset(data)
+
+        destination = Path(destination)
+        output_file = (destination /
+                       (f"observation_statistics_{self.sensor.name.lower()}"
+                        ".nc"))
+        data.to_netcdf(output_file)
+
 ###############################################################################
 # Statistics
 ###############################################################################
@@ -870,7 +1023,7 @@ class StatisticsProcessor:
                                      self.statistics))
 
         stats = tasks.pop(0).result()
-        for t in tasks:
+        for t in track(tasks, description="Processing files:"):
             for s_old, s_new in zip(stats, t.result()):
                 s_old.merge(s_new)
 
