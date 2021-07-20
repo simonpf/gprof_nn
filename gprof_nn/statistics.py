@@ -430,7 +430,6 @@ class GlobalDistribution(Statistic):
                     lons = data.longitude.data
                     data[k].load()
                     v = data[k].data
-                    print(lats, lons)
 
                     selection = []
                     for i in range(lats.ndim):
