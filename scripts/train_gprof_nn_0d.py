@@ -148,6 +148,9 @@ network_name = (f"gprof_nn_0d_{sensor.name.lower()}_{network_type}_"
 # Load the data.
 #
 
+from gprof_nn.equalizer import QuantileEqualizer
+equalizer = QuantileEqualizer.load("../data/quantile_equalizer_mhs.pckl")
+
 dataset_factory = GPROF0DDataset
 normalizer = Normalizer.load(f"../data/normalizer_{sensor.name.lower()}.pckl")
 kwargs = {
@@ -156,7 +159,8 @@ kwargs = {
     "normalizer": normalizer,
     "targets": targets,
     "augment": True,
-    "permute": permute
+    "permute": permute,
+    "equalizer": equalizer
 }
 
 training_data = DataFolder(
@@ -172,7 +176,8 @@ kwargs = {
     "normalizer": normalizer,
     "targets": targets,
     "augment": False,
-    "permute": permute
+    "permute": permute,
+    "equalizer": equalizer
 }
 validation_data = DataFolder(
     validation_data,
