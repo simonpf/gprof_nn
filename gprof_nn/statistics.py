@@ -156,15 +156,20 @@ class ZonalDistribution(Statistic):
         """
         self.latitude_bins = np.linspace(-90, 90, 181)
         self.has_time = None
+        self.sums = None
         self.counts = None
         self.sensor = None
 
     def _initialize(self, data):
+        self.sums = {}
         self.counts = {}
         if "scan_time" in data.variables:
             self.has_time = True
             for k in ALL_TARGETS:
                 if k in data.variables:
+                    self.sums[k] = np.zeros(
+                        (12, self.latitude_bins.size - 1)
+                    )
                     self.counts[k] = np.zeros(
                         (12, self.latitude_bins.size - 1)
                     )
@@ -172,6 +177,7 @@ class ZonalDistribution(Statistic):
             self.has_time = False
             for k in ALL_TARGETS:
                 if k in data.variables:
+                    self.sums[k] = np.zeros(self.latitude_bins.size - 1)
                     self.counts[k] = np.zeros(self.latitude_bins.size - 1)
 
 
@@ -220,9 +226,12 @@ class ZonalDistribution(Statistic):
                         else:
                             lats_v = lats
                         cs, _ = np.histogram(lats_v.ravel(),
-                                            bins=self.latitude_bins,
-                                            weights=v.ravel())
+                                             bins=self.latitude_bins)
                         self.counts[k][i] += cs
+                        cs, _ = np.histogram(lats_v.ravel(),
+                                             bins=self.latitude_bins,
+                                             weights=v.ravel())
+                        self.sums[k][i] += cs
         else:
             data.latitude.load()
             for k in ALL_TARGETS:
@@ -251,19 +260,28 @@ class ZonalDistribution(Statistic):
                     else:
                         lats_v = lats
                     cs, _ = np.histogram(lats_v.ravel(),
-                                        bins=self.latitude_bins,
+                                         bins=self.latitude_bins,
                                          weights=v.ravel())
+                    cs, _ = np.histogram(lats_v.ravel(),
+                                         bins=self.latitude_bins)
                     self.counts[k] += cs
+                    cs, _ = np.histogram(lats_v.ravel(),
+                                         bins=self.latitude_bins,
+                                         weights=v.ravel())
+                    self.sums[k] += cs
 
     def merge(self, other):
         """
         Merge the data of this statistic with that calculated in a different
         process.
         """
-        if other.counts is not None:
+        if self.counts is None:
+            self.sums = other.sums
+            self.counts = other.counts
+        elif other.counts is not None:
             for k in self.counts:
+                self.sums[k] += other.sums[k]
                 self.counts[k] += other.counts[k]
-
 
     def save(self, destination):
         """
@@ -276,14 +294,20 @@ class ZonalDistribution(Statistic):
         if self.has_time:
             data["months"] = (("months"), np.arange(1, 13))
             for k in self.counts:
-                data[k] = (("months", "latitude"), self.counts[k])
+                data[k] = (("months", "latitude"),
+                           self.sums[k] / self.counts[k])
+                data[k + "_counts"] = (("months", "latitude"),
+                                       self.counts[k])
         else:
             for k in self.counts:
-                data[k] = (("latitude"), self.counts[k])
+                data[k] = (("latitude",),
+                           self.sums[k] / self.counts[k])
+                data[k + "_counts"] = (("latitude",),
+                                       self.counts[k])
 
         destination = Path(destination)
         output_file = (destination /
-                       "zonal_distribution_{self.sensor.name.lower()}.nc")
+                       f"zonal_distribution_{self.sensor.name.lower()}.nc")
         data.to_netcdf(output_file)
 
 
@@ -302,14 +326,21 @@ class GlobalDistribution(Statistic):
         self.longitude_bins = np.linspace(-180, 180, 361)
         self.has_time = None
         self.counts = None
+        self.sums = None
         self.sensor = None
 
     def _initialize(self, data):
         self.counts = {}
+        self.sums = {}
         if "scan_time" in data.variables:
             self.has_time = True
             for k in ALL_TARGETS:
                 if k in data.variables:
+                    self.sums[k] = np.zeros(
+                        (12,
+                         self.latitude_bins.size - 1,
+                         self.longitude_bins.size - 1)
+                    )
                     self.counts[k] = np.zeros(
                         (12,
                          self.latitude_bins.size - 1,
@@ -321,6 +352,8 @@ class GlobalDistribution(Statistic):
                 if k in data.variables:
                     self.counts[k] = np.zeros((self.latitude_bins.size - 1,
                                                self.longitude_bins.size - 1))
+                    self.sums[k] = np.zeros((self.latitude_bins.size - 1,
+                                             self.longitude_bins.size - 1))
 
 
     def process_file(self, sensor, filename):
@@ -337,7 +370,7 @@ class GlobalDistribution(Statistic):
 
         if self.has_time:
             for i in range(12):
-                indices = data["scan_time"] == (i + 1)
+                indices = data["scan_time"].dt.month == (i + 1)
                 if indices.ndim > 1:
                     indices = indices.all(axis=tuple(np.arange(indices.ndim)[1:]))
                 data.latitude.load()
@@ -375,9 +408,14 @@ class GlobalDistribution(Statistic):
                         cs, _, _ = np.histogram2d(lats_v.ravel(),
                                                   lons_v.ravel(),
                                                   bins=(self.latitude_bins,
+                                                        self.longitude_bins))
+                        self.counts[k][i] += cs
+                        cs, _, _ = np.histogram2d(lats_v.ravel(),
+                                                  lons_v.ravel(),
+                                                  bins=(self.latitude_bins,
                                                         self.longitude_bins),
                                                   weights=v.ravel())
-                        self.counts[k][i] += cs
+                        self.sums[k][i] += cs
         else:
             data.latitude.load()
             data.longitude.load()
@@ -387,6 +425,7 @@ class GlobalDistribution(Statistic):
                     lons = data.longitude.data
                     data[k].load()
                     v = data[k].data
+                    print(lats, lons)
 
                     selection = []
                     for i in range(lats.ndim):
@@ -413,19 +452,27 @@ class GlobalDistribution(Statistic):
                     cs, _, _ = np.histogram2d(lats_v.ravel(),
                                               lons_v.ravel(),
                                               bins=(self.latitude_bins,
+                                                    self.longitude_bins))
+                    self.counts[k] += cs
+                    cs, _, _ = np.histogram2d(lats_v.ravel(),
+                                              lons_v.ravel(),
+                                              bins=(self.latitude_bins,
                                                     self.longitude_bins),
                                               weights=v.ravel())
-                    self.counts[k] += cs
+                    self.sums[k] += cs
 
     def merge(self, other):
         """
         Merge the data of this statistic with that calculated in a different
         process.
         """
-        if other.counts is not None:
+        if self.counts is None:
+            self.sums = other.sums
+            self.counts = other.counts
+        elif other.counts is not None:
             for k in self.counts:
+                self.sums[k] += other.sums[k]
                 self.counts[k] += other.counts[k]
-
 
     def save(self, destination):
         """
@@ -440,14 +487,20 @@ class GlobalDistribution(Statistic):
         if self.has_time:
             data["months"] = (("months"), np.arange(1, 13))
             for k in self.counts:
-                data[k] = (("months", "latitude", "longitude"), self.counts[k])
+                data[k] = (("months", "latitude", "longitude"),
+                           self.sums[k] / self.counts[k])
+                data[k + "_counts"] = (("months", "latitude", "longitude"),
+                                       self.counts[k])
         else:
             for k in self.counts:
-                data[k] = (("latitude", "longitude"), self.counts[k])
+                data[k] = (("latitude", "longitude"),
+                           self.sums[k] / self.counts[k])
+                data[k + "_counts"] = (("latitude", "longitude"),
+                                       self.counts[k])
 
         destination = Path(destination)
         output_file = (destination /
-                       "zonal_distribution_{self.sensor.name.lower()}.nc")
+                       f"global_distribution_{self.sensor.name.lower()}.nc")
         data.to_netcdf(output_file)
 
 
@@ -1175,7 +1228,7 @@ class StatisticsProcessor:
             output_path: The path in which to store the results.
         """
         pool = ProcessPoolExecutor(n_workers)
-        batches = list(_split_files(self.files, n_workers))
+        batches = list(_split_files(self.files, 20 * n_workers))
 
         tasks = []
         for b in batches:
