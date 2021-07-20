@@ -51,7 +51,7 @@ def test_permutation_gmi():
                                shuffle=False,
                                augment=False,
                                targets=["surface_precip"],
-                               permute=18)
+                               permute=17)
     x_2, y_2 = dataset_2[0]
     y_2 = y_2["surface_precip"]
 
@@ -66,13 +66,12 @@ def test_permutation_gmi():
                                shuffle=False,
                                augment=False,
                                targets=["surface_precip"],
-                               permute=19)
+                               permute=18)
     x_2, y_2 = dataset_2[0]
     y_2 = y_2["surface_precip"]
 
     assert np.all(np.isclose(y_1, y_2))
     assert np.all(np.isclose(x_1[:, :-4], x_2[:, :-4]))
-    assert ~np.all(np.isclose(x_1[:, -4:], x_2[:, -4:]))
 
 
 def test_gprof_0d_dataset_gmi():
