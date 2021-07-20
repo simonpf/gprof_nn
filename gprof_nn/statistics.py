@@ -897,6 +897,138 @@ class TrainingDataStatistics(Statistic):
         data.to_netcdf(output_file)
 
 
+class CorrectedObservations(Statistic):
+    """
+    Class to calculate relevant statistics from training data files.
+    Calculates statistics of brightness temperatures, retrieval targets
+    as well as ancillary data.
+    """
+    def __init__(self,
+                 equalizer):
+        """
+        Args:
+            conditional: If provided should identify a channel for which
+                conditional of all other channels will be calculated.
+        """
+        self.tbs = None
+        self.angle_bins = None
+        self.tb_bins = np.linspace(100, 400, 301)
+        self.equalizer = equalizer
+
+    def _initialize_data(self,
+                         sensor,
+                         data):
+        """
+        Initialize internal storage that depends on data.
+
+        Args:
+            sensor: Sensor object identifying the sensor from which the data
+                stems.
+            data: ``xarray.Dataset`` containing the data to process.
+        """
+        n_freqs = sensor.n_freqs
+        self.has_angles = hasattr(sensor, "angles")
+        if self.has_angles:
+            n_angles = sensor.n_angles
+            self.angle_bins = np.zeros(sensor.angles.size + 1)
+            self.angle_bins[1:-1] = 0.5 * (sensor.angles[1:] +
+                                           sensor.angles[:-1])
+            self.angle_bins[0] = 2.0 * self.angle_bins[1] - self.angle_bins[2]
+            self.angle_bins[-1] = (2.0 * self.angle_bins[-2] -
+                                   self.angle_bins[-3])
+            self.tbs = np.zeros((18, n_freqs, n_angles, 300),
+                                dtype=np.float32)
+        else:
+            self.tbs = np.zeros((18, n_freqs, 300),
+                                dtype=np.float32)
+
+    def process_file(self,
+                     sensor,
+                     filename):
+        """
+        Process data from a single file.
+
+        Args:
+            filename: The path of the data to process.
+        """
+        self.sensor = sensor
+        dataset = xr.open_dataset(filename)
+        if self.tbs is None:
+            self._initialize_data(sensor, dataset)
+
+        x, y = sensor.load_training_data_0d(filename,
+                                            [],
+                                            False,
+                                            np.random.default_rng())
+
+        st = np.where(x[:, -22:-4])[1]
+        tbs = x[:, :sensor.n_freqs]
+
+        for i in range(18):
+            # Select only TBs that are actually used for training.
+            i_st = (st == i + 1)
+
+            # Sensor with varying EIA (cross track).
+            if self.has_angles:
+                eia = x[:, -23]
+                for j in range(sensor.n_angles):
+                    lower = self.angle_bins[j + 1]
+                    upper = self.angle_bins[j]
+                    i_a = (eia >= lower) * (eia < upper)
+                    for k in range(sensor.n_freqs):
+                        cs, _ = np.histogram(tbs[i_a, k],
+                                             bins=self.tb_bins)
+                        self.tbs[i, k, j] += cs
+            # Sensor with constant EIA
+            else:
+                for j in range(sensor.n_freqs):
+                    cs, _ = np.histogram(tbs[:, j], bins=self.tb_bins)
+                    self.tbs[i, j] += cs
+
+    def merge(self, other):
+        """
+        Merge the data of this statistic with that calculated in a different
+        process.
+        """
+        if self.tbs is None:
+            self.tbs = other.tbs
+        elif other.tbs is not None:
+            self.tbs += other.tbs
+
+    def save(self, destination):
+        """
+        Save results to file in NetCDF format.
+        """
+        data = {}
+        tb_bins = 0.5 * (self.tb_bins[1:] + self.tb_bins[:-1])
+        data["brightness_temperature_bins"] = (
+            ("brightness_temperature_bins",),
+            tb_bins
+        )
+
+        if self.has_angles:
+            data["brightness_temperatures"] = (
+                ("surface_type_bins",
+                 "channels",
+                 "angles",
+                 "brightness_temperature_bins"),
+                self.tbs
+            )
+        else:
+            data["brightness_temperatures"] = (
+                ("surface_type_bins",
+                 "channels",
+                 "brightness_temperature_bins"),
+                self.tbs
+            )
+
+        data = xr.Dataset(data)
+        destination = Path(destination)
+        output_file = (destination /
+                       (f"corrected_observation_statistics_{self.sensor.name.lower()}"
+                        ".nc"))
+        data.to_netcdf(output_file)
+
 class BinFileStatistics(Statistic):
     """
     Class to calculate relevant statistics from training data files.
