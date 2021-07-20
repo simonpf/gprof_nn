@@ -1,6 +1,7 @@
 import argparse
 from pathlib import Path
 
+from gprof_nn.logging import set_log_level
 from gprof_nn import sensors
 from gprof_nn import statistics
 
@@ -37,6 +38,12 @@ parser.add_argument('output_path', metavar="output_path", type=str,
 args = parser.parse_args()
 input_path = Path(args.input_path)
 output_path = Path(args.output_path)
+
+#
+# Find files and process
+#
+
+set_log_level("INFO")
 
 sensor = getattr(sensors, args.sensor, None)
 if sensor is None:

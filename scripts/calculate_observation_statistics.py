@@ -7,6 +7,7 @@ from pathlib import Path
 
 from gprof_nn import sensors
 from gprof_nn import statistics
+from gprof_nn.logging import set_log_level
 
 #
 # Parse arguments
@@ -37,6 +38,12 @@ parser.add_argument('--n_processes',
                     type=int,
                     default=4,
                     help='The number of processes to use for the processing.')
+
+#
+# Find files and process
+#
+
+set_log_level("INFO")
 
 args = parser.parse_args()
 input_path = Path(args.input_path)

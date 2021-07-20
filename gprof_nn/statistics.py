@@ -9,6 +9,7 @@ datasets split across multiple files.
 
 from abc import ABC, abstractmethod
 from concurrent.futures import ProcessPoolExecutor
+import logging
 from pathlib import Path
 import re
 
@@ -16,10 +17,14 @@ import numpy as np
 import xarray as xr
 from rich.progress import track
 
+import gprof_nn.logging
 from gprof_nn.definitions import ALL_TARGETS
 from gprof_nn.data.retrieval import RetrievalFile
 from gprof_nn.data.bin import BinFile
 from gprof_nn.data.preprocessor import PreprocessorFile
+
+
+LOGGER = logging.getLogger(__name__)
 
 ###############################################################################
 # Statistics
@@ -594,12 +599,40 @@ class TrainingDataStatistics(Statistic):
     Calculates statistics of brightness temperatures, retrieval targets
     as well as ancillary data.
     """
-    def __init__(self):
-        pass
+    def __init__(self,
+                 conditional=None):
+        """
+        Args:
+            conditional: If provided should identify a channel for which
+                conditional of all other channels will be calculated.
+        """
+        self.conditional = conditional
+
+        self.tbs = None
+        self.tbs_cond = None
+        self.angle_bins = None
+        self.tb_bins = np.linspace(100, 400, 301)
+
+        self.targets = {}
+        self.bins = {}
+        self.t2m = np.zeros((18, 200), dtype=np.float32)
+        self.t2m_bins = np.linspace(240, 330, 201)
+        self.tcwv = np.zeros((18, 200), dtype=np.float32)
+        self.tcwv_bins = np.linspace(0, 100, 201)
+        self.st = np.zeros(18, dtype=np.float32)
+        self.at = np.zeros(4, dtype=np.float32)
 
     def _initialize_data(self,
                          sensor,
                          data):
+        """
+        Initialize internal storage that depends on data.
+
+        Args:
+            sensor: Sensor object identifying the sensor from which the data
+                stems.
+            data: ``xarray.Dataset`` containing the data to process.
+        """
         n_freqs = sensor.n_freqs
         self.has_angles = hasattr(sensor, "angles")
         if self.has_angles:
@@ -612,13 +645,17 @@ class TrainingDataStatistics(Statistic):
                                    self.angle_bins[-3])
             self.tbs = np.zeros((18, n_freqs, n_angles, 300),
                                 dtype=np.float32)
+            if self.conditional is not None:
+                self.tbs_cond = np.zeros((18, n_freqs, n_angles, 300, 300),
+                                         dtype=np.float32)
+
         else:
             self.tbs = np.zeros((18, n_freqs, 300),
                                 dtype=np.float32)
-        self.tb_bins = np.linspace(100, 400, 301)
+            if self.conditional is not None:
+                self.tbs_cond = np.zeros((18, n_freqs, 300, 300),
+                                         dtype=np.float32)
 
-        self.targets = {}
-        self.bins = {}
         for k in ALL_TARGETS:
             if k in data.variables:
                 # Surface and convective precip have angle depen
@@ -635,13 +672,6 @@ class TrainingDataStatistics(Statistic):
                 else:
                     self.bins[k] = np.linspace(l, h, 201)
 
-        self.t2m = np.zeros((18, 200), dtype=np.float32)
-        self.t2m_bins = np.linspace(240, 330, 201)
-        self.tcwv = np.zeros((18, 200), dtype=np.float32)
-        self.tcwv_bins = np.linspace(0, 100, 201)
-        self.st = np.zeros(18, dtype=np.float32)
-        self.at = np.zeros(4, dtype=np.float32)
-
     def process_file(self,
                      sensor,
                      filename):
@@ -653,7 +683,7 @@ class TrainingDataStatistics(Statistic):
         """
         self.sensor = sensor
         dataset = xr.open_dataset(filename)
-        if not hasattr(self, "tb_bins"):
+        if self.tbs is None:
             self._initialize_data(sensor, dataset)
 
         st = dataset["surface_type"]
@@ -677,6 +707,15 @@ class TrainingDataStatistics(Statistic):
                             cs, _ = np.histogram(tbs[i_a, k],
                                                  bins=self.tb_bins)
                             self.tbs[i, k, j] += cs
+                            if self.conditional is not None:
+                                cs, _, _ = np.histogram2d(
+                                    tbs[i_a, self.conditional],
+                                    tbs[i_a, k],
+                                    bins=self.tb_bins
+                                )
+                                self.tbs_cond[i, k, j] += cs
+
+
                 # For samples with simulated observations, values are already
                 # binned but bias correction must be applied.
                 else:
@@ -689,11 +728,24 @@ class TrainingDataStatistics(Statistic):
                             x = tbs[:, j, k] - b[:, k]
                             cs, _ = np.histogram(x, bins=self.tb_bins)
                             self.tbs[i, k, j] += cs
+                            if self.conditional is not None:
+                                x_0 = tbs[:, j, self.conditional] - b[:, self.conditional]
+                                cs, _, _ = np.histogram2d(
+                                    x_0,
+                                    x,
+                                    bins=self.tb_bins
+                                )
+                                self.tbs_cond[i, k, j] += cs
             # Sensor with constant EIA
             else:
                 for j in range(sensor.n_freqs):
                     cs, _ = np.histogram(tbs[:, j], bins=self.tb_bins)
                     self.tbs[i, j] += cs
+                    if self.conditional is not None:
+                        cs, _, _ = np.histogram2d(tbs[:, self.conditional],
+                                                  tbs[:, j],
+                                                  bins=self.tb_bins)
+                        self.tbs_cond[i, j] += cs
 
             # Retrieval targets
             for k in self.bins:
@@ -744,15 +796,24 @@ class TrainingDataStatistics(Statistic):
         Merge the data of this statistic with that calculated in a different
         process.
         """
-        if not hasattr(other, "tbs"):
-            return None
-        self.tbs += other.tbs
-        for k in self.targets:
-            self.targets[k] += other.targets[k]
-        self.t2m += other.t2m
-        self.tcwv += other.tcwv
-        self.st += other.st
-        self.at += other.at
+        if self.tbs is None:
+            self.tbs = other.tbs
+            self.tbs_cond = other.tbs_cond
+            self.targets = other.targets
+            self.t2m = other.t2m
+            self.tcwv = other.tcwv
+            self.st = other.st
+            self.at = other.at
+        elif other.tbs is not None:
+            self.tbs += other.tbs
+            if self.conditional is not None and other.conditional is not None:
+                self.tbs_cond += other.tbs_cond
+            for k in self.targets:
+                self.targets[k] += other.targets[k]
+            self.t2m += other.t2m
+            self.tcwv += other.tcwv
+            self.st += other.st
+            self.at += other.at
 
     def save(self, destination):
         """
@@ -773,6 +834,16 @@ class TrainingDataStatistics(Statistic):
                  "brightness_temperature_bins"),
                 self.tbs
             )
+            if self.conditional is not None:
+                data["conditional_brightness_temperatures"] = (
+                    ("surface_type_bins",
+                     "channels",
+                     "angles",
+                     "brightness_temperature_bins",
+                     "brightness_temperature_bins"),
+                    self.tbs_cond
+                )
+
         else:
             data["brightness_temperatures"] = (
                 ("surface_type_bins",
@@ -780,6 +851,14 @@ class TrainingDataStatistics(Statistic):
                  "brightness_temperature_bins"),
                 self.tbs
             )
+            if self.conditional is not None:
+                data["conditional_brightness_temperatures"] = (
+                    ("surface_type_bins",
+                     "channels",
+                     "brightness_temperature_bins",
+                     "brightness_temperature_bins"),
+                    self.tbs_cond
+                )
 
         for k in self.targets:
             bins = 0.5 * (self.bins[k][1:] + self.bins[k][:-1])
@@ -1022,8 +1101,26 @@ class ObservationStatistics(Statistic):
     """
     Class to extract relevant statistics from observation datasets.
     """
-    def __init__(self):
-        pass
+    def __init__(self,
+                 conditional=None):
+        """
+        Args:
+            conditional: If provided should identify a channel for which
+                conditional of all other channels will be calculated.
+        """
+        self.conditional = conditional
+
+        self.angle_bins = None
+        self.has_angles = None
+        self.tbs = None
+        self.tb_bins = np.linspace(100, 400, 301)
+
+        self.t2m = np.zeros((18, 200), dtype=np.float32)
+        self.t2m_bins = np.linspace(240, 330, 201)
+        self.tcwv = np.zeros((18, 200), dtype=np.float32)
+        self.tcwv_bins = np.linspace(0, 100, 201)
+        self.st = np.zeros(18, dtype=np.float32)
+        self.at = np.zeros(4, dtype=np.float32)
 
     def _initialize_data(self,
                          sensor,
@@ -1040,17 +1137,15 @@ class ObservationStatistics(Statistic):
                                    self.angle_bins[-3])
             self.tbs = np.zeros((18, n_freqs, n_angles, 300),
                                 dtype=np.float32)
+            if self.conditional is not None:
+                self.tbs_cond = np.zeros((18, n_freqs, n_angles, 300, 300),
+                                         dtype=np.float32)
         else:
             self.tbs = np.zeros((18, n_freqs, 300),
                                 dtype=np.float32)
-        self.tb_bins = np.linspace(100, 400, 301)
-
-        self.t2m = np.zeros((18, 200), dtype=np.float32)
-        self.t2m_bins = np.linspace(240, 330, 201)
-        self.tcwv = np.zeros((18, 200), dtype=np.float32)
-        self.tcwv_bins = np.linspace(0, 100, 201)
-        self.st = np.zeros(18, dtype=np.float32)
-        self.at = np.zeros(4, dtype=np.float32)
+            if self.conditional is not None:
+                self.tbs_cond = np.zeros((18, n_freqs, 300, 300),
+                                         dtype=np.float32)
 
     def process_file(self,
                      sensor,
@@ -1063,7 +1158,7 @@ class ObservationStatistics(Statistic):
         """
         self.sensor = sensor
         dataset = open_file(filename)
-        if not hasattr(self, "tb_bins"):
+        if self.tbs is None:
             self._initialize_data(sensor, dataset)
 
         st = dataset["surface_type"]
@@ -1082,11 +1177,21 @@ class ObservationStatistics(Statistic):
                         cs, _ = np.histogram(tbs[i_a, k],
                                              bins=self.tb_bins)
                         self.tbs[i, k, j] += cs
+                        if self.conditional is not None:
+                            cs, _, _ = np.histogram2d(tbs[i_a, self.conditional],
+                                                      tbs[i_a, k],
+                                                      bins=self.tb_bins)
+                            self.tbs_cond[i, k, j] += cs
             # Sensor with constant EIA
             else:
                 for j in range(sensor.n_freqs):
                     cs, _ = np.histogram(tbs[:, j], bins=self.tb_bins)
                     self.tbs[i, j] += cs
+                    if self.conditional is not None:
+                        cs, _, _ = np.histogram2d(tbs[:, self.conditional],
+                                                  tbs[:, j],
+                                                  bins=self.tb_bins)
+                        self.tbs_cond[i, j] += cs
 
             # Ancillary data
             v = dataset["two_meter_temperature"].data[i_st]
@@ -1109,13 +1214,22 @@ class ObservationStatistics(Statistic):
         Merge the data of this statistic with that calculated in a different
         process.
         """
-        if not hasattr(other, "tbs"):
-            return None
-        self.tbs += other.tbs
-        self.t2m += other.t2m
-        self.tcwv += other.tcwv
-        self.st += other.st
-        self.at += other.at
+        if self.tbs is None:
+            self.tbs = other.tbs
+            self.tbs_cond = other.tbs_cond
+            self.t2m = other.t2m
+            self.tcwv = other.tcwv
+            self.st = other.st
+            self.at = other.at
+        elif other.tbs is not None:
+            self.tbs += other.tbs
+            if self.conditional is not None and other.conditional is not None:
+                self.tbs_cond += other.tbs_cond
+            self.t2m += other.t2m
+            self.tcwv += other.tcwv
+            self.st += other.st
+            self.at += other.at
+
 
     def save(self, destination):
         """
@@ -1136,6 +1250,15 @@ class ObservationStatistics(Statistic):
                  "brightness_temperature_bins"),
                 self.tbs
             )
+            if self.conditional is not None:
+                data["conditional_brightness_temperatures"] = (
+                    ("surface_type_bins",
+                     "channels",
+                     "angles",
+                     "brightness_temperature_bins",
+                     "brightness_temperature_bins"),
+                    self.tbs_cond
+                )
         else:
             data["brightness_temperatures"] = (
                 ("surface_type_bins",
@@ -1143,6 +1266,14 @@ class ObservationStatistics(Statistic):
                  "brightness_temperature_bins"),
                 self.tbs
             )
+            if self.conditional is not None:
+                data["conditional_brightness_temperatures"] = (
+                    ("surface_type_bins",
+                     "channels",
+                     "brightness_temperature_bins",
+                     "brightness_temperature_bins"),
+                    self.tbs_cond
+                )
 
         bins = 0.5 * (self.t2m_bins[1:] + self.t2m_bins[:-1])
         bin_dim = "two_meter_temperature_bins"
@@ -1227,8 +1358,10 @@ class StatisticsProcessor:
                 statistics.
             output_path: The path in which to store the results.
         """
+        LOGGER.info("Starting processing of {len(self.files)} files.")
+
         pool = ProcessPoolExecutor(n_workers)
-        batches = list(_split_files(self.files, 20 * n_workers))
+        batches = [[f] for f in np.random.permutation(self.files)]
 
         tasks = []
         for b in batches:
@@ -1236,7 +1369,6 @@ class StatisticsProcessor:
                                      self.sensor,
                                      b,
                                      self.statistics))
-
         stats = tasks.pop(0).result()
         for t in track(tasks, description="Processing files:"):
             for s_old, s_new in zip(stats, t.result()):

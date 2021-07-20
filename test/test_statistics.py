@@ -26,7 +26,7 @@ def test_training_statistics_gmi(tmpdir):
     files = [data_path / "training_data.nc"] * 2
 
 
-    stats = [TrainingDataStatistics(),
+    stats = [TrainingDataStatistics(conditional=1),
              ZonalDistribution(),
              GlobalDistribution()]
     processor = StatisticsProcessor(sensors.GMI,
@@ -90,7 +90,7 @@ def test_training_statistics_mhs(tmpdir):
     files = [data_path / "gprof_nn_mhs_era5_5.nc"] * 2
 
 
-    stats = [TrainingDataStatistics(),
+    stats = [TrainingDataStatistics(conditional=1),
              GlobalDistribution(),
              ZonalDistribution()]
     processor = StatisticsProcessor(sensors.MHS,
@@ -342,7 +342,7 @@ def test_observation_statistics_gmi(tmpdir):
     data_path = Path(__file__).parent / "data"
     files = [data_path / "GMIERA5_190101_027510.pp"] * 2
 
-    stats = [ObservationStatistics(),
+    stats = [ObservationStatistics(conditional=1),
              ZonalDistribution(),
              GlobalDistribution()]
     processor = StatisticsProcessor(sensors.GMI,
@@ -389,7 +389,7 @@ def test_observation_statistics_mhs(tmpdir):
     data_path = Path(__file__).parent / "data"
     files = [data_path / "MHS.pp"] * 2
 
-    stats = [ObservationStatistics(),
+    stats = [ObservationStatistics(conditional=1),
              ZonalDistribution(),
              GlobalDistribution()]
     processor = StatisticsProcessor(sensors.MHS,

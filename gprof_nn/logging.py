@@ -24,3 +24,16 @@ _MP_LOGGER = multiprocessing.get_logger()
 _MP_LOGGER.setLevel(_LOG_LEVEL)
 
 console = Console()
+
+def set_log_level(level):
+    """
+    Args:
+        level: String defining the log level.
+    """
+    logging.basicConfig(
+        level=level,
+        format="%(message)s",
+        datefmt="[%X]",
+        handlers=[RichHandler()]
+    )
+
