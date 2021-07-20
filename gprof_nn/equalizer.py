@@ -141,7 +141,7 @@ class QuantileEqualizer():
             if self.has_angles:
                 inds_a = np.digitize(eia, self.angle_bins[1:-1])
                 inds_tb = np.digitize(tbs[..., i], self.tb_bins[1:-1])
-                b = self.biases[inds_st, inds_a, i, inds_tb]
+                b = self.biases[inds_st, i, inds_a, inds_tb]
                 tbs_c[:, i] += b
             else:
                 inds_tb = np.digitize(tbs[..., i], self.tb_bins[1:-1])
