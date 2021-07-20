@@ -321,7 +321,7 @@ class RetrievalDriver:
         folder.mkdir(parents=True, exist_ok=True)
 
         if self.output_format == GPROF_BINARY:
-            return self.input_data.write_retrieval_results(
+            return input_data.write_retrieval_results(
                 self.output_file.parent,
                 results,
                 ancillary_data=self.ancillary_data
