@@ -687,8 +687,14 @@ class TrainingDataStatistics(Statistic):
             self._initialize_data(sensor, dataset)
 
         st = dataset["surface_type"]
+        sp = dataset["surface_precip"]
         for i in range(18):
-            i_st = (st == i + 1).data
+            # Select only TBs that are actually used for training.
+            if self.has_angles:
+                i_st = ((st == i + 1) * (sp[..., 0] >= 0)).data
+            else:
+                i_st = ((st == i + 1) * (sp >= 0)).data
+
 
             # Sensor with varying EIA (cross track).
             tbs = (dataset["brightness_temperatures"] .data[i_st.data])
