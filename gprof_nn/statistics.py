@@ -48,14 +48,14 @@ def open_file(filename):
     elif re.match("gpm.*\.bin", filename.name):
         file = BinFile(filename, include_profiles=True)
         return file.to_xarray_dataset()
-    elif re.match(".*\.bin{\.gz}+", filename.name.lower()):
-        file = RetrievalFile(filename, include_profiles=True)
+    elif re.match(".*\.bin(\.gz)?", filename.name.lower()):
+        file = RetrievalFile(filename)
         return file.to_xarray_dataset()
     elif suffix == ".pp":
         file = PreprocessorFile(filename)
         return file.to_xarray_dataset()
     raise ValueError(
-        "Could not figure out how handle the file f{filename.name}."
+        f"Could not figure out how handle the file f{filename.name}."
     )
 
 
@@ -103,7 +103,7 @@ class ScanPositionMean(Statistic):
         self.sum = None
         self.counts = None
 
-    def process_file(self, filename):
+    def process_file(self, sensor, filename):
         """
         Process data from a single file.
 
@@ -230,12 +230,17 @@ class ZonalDistribution(Statistic):
                             lats_v = np.broadcast_to(lats_v, v.shape)
                         else:
                             lats_v = lats
-                        cs, _ = np.histogram(lats_v.ravel(),
-                                             bins=self.latitude_bins)
-                        self.counts[k][i] += cs
+                        weights = np.isfinite(v).astype(np.float32)
+                        weights[v < -500] = 0.0
                         cs, _ = np.histogram(lats_v.ravel(),
                                              bins=self.latitude_bins,
-                                             weights=v.ravel())
+                                             weights=weights)
+                        self.counts[k][i] += cs
+                        weights = np.nan_to_num(v, nan=0.0)
+                        weights[v < -500] = 0.0
+                        cs, _ = np.histogram(lats_v.ravel(),
+                                             bins=self.latitude_bins,
+                                             weights=weights)
                         self.sums[k][i] += cs
         else:
             data.latitude.load()
@@ -264,15 +269,17 @@ class ZonalDistribution(Statistic):
                         lats_v = np.broadcast_to(lats_v, v.shape)
                     else:
                         lats_v = lats
+                    weights = np.isfinite(v).astype(np.float32)
+                    weights[v < -500] = 0.0
                     cs, _ = np.histogram(lats_v.ravel(),
                                          bins=self.latitude_bins,
-                                         weights=v.ravel())
-                    cs, _ = np.histogram(lats_v.ravel(),
-                                         bins=self.latitude_bins)
+                                         weights=weights.ravel())
                     self.counts[k] += cs
+                    weights = np.nan_to_num(v, nan=0.0)
+                    weights[v < -500] = 0.0
                     cs, _ = np.histogram(lats_v.ravel(),
                                          bins=self.latitude_bins,
-                                         weights=v.ravel())
+                                         weights=weights.ravel())
                     self.sums[k] += cs
 
     def merge(self, other):
@@ -410,16 +417,21 @@ class GlobalDistribution(Statistic):
                         else:
                             lats_v = lats
                             lons_v = lons
-                        cs, _, _ = np.histogram2d(lats_v.ravel(),
-                                                  lons_v.ravel(),
-                                                  bins=(self.latitude_bins,
-                                                        self.longitude_bins))
-                        self.counts[k][i] += cs
+                        weights = np.isfinite(v).astype(np.float32)
+                        weights[v < -500] = 0.0
                         cs, _, _ = np.histogram2d(lats_v.ravel(),
                                                   lons_v.ravel(),
                                                   bins=(self.latitude_bins,
                                                         self.longitude_bins),
-                                                  weights=v.ravel())
+                                                  weights=weights.ravel())
+                        self.counts[k][i] += cs
+                        weights = np.nan_to_num(v, nan=0.0)
+                        weights[v < -500] = 0.0
+                        cs, _, _ = np.histogram2d(lats_v.ravel(),
+                                                  lons_v.ravel(),
+                                                  bins=(self.latitude_bins,
+                                                        self.longitude_bins),
+                                                  weights=weights.ravel())
                         self.sums[k][i] += cs
         else:
             data.latitude.load()
@@ -453,16 +465,21 @@ class GlobalDistribution(Statistic):
                     else:
                         lats_v = lats
                         lons_v = lons
-                    cs, _, _ = np.histogram2d(lats_v.ravel(),
-                                              lons_v.ravel(),
-                                              bins=(self.latitude_bins,
-                                                    self.longitude_bins))
-                    self.counts[k] += cs
+                    weights = np.isfinite(v).astype(np.float32)
+                    weights[v < -500] = 0.0
                     cs, _, _ = np.histogram2d(lats_v.ravel(),
                                               lons_v.ravel(),
                                               bins=(self.latitude_bins,
                                                     self.longitude_bins),
-                                              weights=v.ravel())
+                                              weights=weights.ravel())
+                    self.counts[k] += cs
+                    weights = np.nan_to_num(v, nan=0.0)
+                    weights[v < -500] = 0.0
+                    cs, _, _ = np.histogram2d(lats_v.ravel(),
+                                              lons_v.ravel(),
+                                              bins=(self.latitude_bins,
+                                                    self.longitude_bins),
+                                              weights=weights.ravel())
                     self.sums[k] += cs
 
     def merge(self, other):
@@ -527,7 +544,7 @@ class PositionalZonalMean(Statistic):
         self.sum = None
         self.counts = None
 
-    def process_file(self, filename):
+    def process_file(self, sensor, filename):
         """
         Process data from a single file.
 
