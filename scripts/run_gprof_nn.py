@@ -3,6 +3,7 @@ Run GPROF-NN retrieval algorithm.
 """
 import argparse
 import logging
+from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
 from quantnn.qrnn import QRNN
@@ -10,7 +11,7 @@ from quantnn.normalizer import Normalizer
 from rich.progress import track
 
 import gprof_nn.logging
-from gprof_nn.retrieval import RetrievalDriver, RetrievalGrdientDriver
+from gprof_nn.retrieval import RetrievalDriver, RetrievalGradientDriver
 
 
 LOGGER = logging.getLogger(__name__)
@@ -38,6 +39,11 @@ parser.add_argument('--output_file',
                     default=None,
                     help='The file to which to write the retrieval results.')
 parser.add_argument('--gradients', action='store_true')
+parser.add_argument('--n_processes',
+                    metavar="n",
+                    type=int,
+                    default=4,
+                    help='The number of processes to use for the processing.')
 
 
 args = parser.parse_args()
@@ -46,6 +52,7 @@ normalizer = args.normalizer
 input_file = Path(args.input_file)
 output_file = args.output_file
 gradients = args.gradients
+n_procs = args.n_processes
 if output_file is not None:
     output_file = Path(args.output_file)
 
@@ -84,8 +91,11 @@ normalizer = Normalizer.load(normalizer)
 # Run retrieval.
 #
 
-for input_file, output_file in track(list(zip(input_files, output_files)),
-                                     description="Running GPROF-NN:"):
+
+def process_file(input_file, output_file, gradients):
+    """
+    Helper function for distributed processing.
+    """
     driver = RetrievalDriver
     if gradients:
         driver = RetrievalGradientDriver
@@ -94,5 +104,13 @@ for input_file, output_file in track(list(zip(input_files, output_files)),
                        xrnn,
                        output_file=output_file)
     result = retrieval.run()
-    if result is not None:
-        LOGGER.info("Finished processing of file %s.", input_file)
+
+
+pool = ProcessPoolExecutor(max_workers=n_procs)
+tasks = []
+for input_file, output_file in (zip(input_files, output_files)):
+    tasks += [pool.submit(process_file, input_file, output_file, gradients)]
+
+for t in track(tasks, description="Processing files:"):
+    t.result()
+pool.shutdown()
