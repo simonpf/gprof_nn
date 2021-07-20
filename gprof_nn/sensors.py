@@ -494,7 +494,8 @@ class ConicalScanner(Sensor):
                      filename,
                      targets,
                      augment,
-                     rng):
+                     rng,
+                     equalizer=None):
 
         pass
 
@@ -502,7 +503,8 @@ class ConicalScanner(Sensor):
                               filename,
                               targets,
                               augment,
-                              rng):
+                              rng,
+                              equalizer=None):
         with Dataset(filename, "r") as dataset:
 
             variables = dataset.variables
@@ -950,7 +952,8 @@ class CrossTrackScanner(Sensor):
                               filename,
                               targets,
                               augment,
-                              rng):
+                              rng,
+                              equalizer=None):
 
         angles_sim = self.angles
         angles_sim[0] = 60.0
@@ -1053,6 +1056,11 @@ class CrossTrackScanner(Sensor):
                         mask = np.maximum(am, 0) == i
                         am_1h[mask, i] = 1.0
                     am_1h = am_1h.reshape(-1, n_types)
+
+                    if equalizer is not None:
+                        bts = equalizer(bts, vas[:, 0], st,
+                                        noise_factor=0.5,
+                                        rng=rng)
 
                     x += [np.concatenate(
                         [bts, vas, t2m, tcwv, st_1h, am_1h],

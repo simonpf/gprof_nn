@@ -211,7 +211,8 @@ class GPROF0DDataset(Dataset0DBase):
         shuffle=True,
         augment=True,
         sensor=None,
-        permute=None
+        permute=None,
+        equalizer=None,
     ):
         """
         Create GPROF 0D dataset.
@@ -257,7 +258,8 @@ class GPROF0DDataset(Dataset0DBase):
             self.sensor = sensor
 
         x, y = self.sensor.load_training_data_0d(
-            filename, self.targets, self.augment, self._rng
+            filename, self.targets, self.augment, self._rng,
+            equalizer=equalizer
         )
         self.x = x
         self.y = y
@@ -280,7 +282,7 @@ class GPROF0DDataset(Dataset0DBase):
 
         if permute is not None:
             n_features = self.sensor.n_freqs + 2
-            if isinstance(self.sensor, sensors.ConicalScanner):
+            if isinstance(self.sensor, sensors.CrossTrackScanner):
                 n_features += 1
             if permute < n_features:
                 self.x[:, permute] = self._rng.permutation(self.x[:, permute])

@@ -7,15 +7,45 @@ This module provides equalizer classes that are used to correct simulated
 observations to matched real ones.
 """
 from pathlib import Path
+import pickle
 
 import numpy as np
 import xarray as xr
 
 class QuantileEqualizer():
+    """
+    Equalizer that corrects observations by matching the quantiles of
+    brightness temperature distributions of each channel.
+
+    """
+
+    @staticmethod
+    def load(filename):
+        """
+        Load equalizer from file.
+
+        Args:
+            filename: The path to the file containing the saved equalizer.
+
+        Returns:
+            The loaded Equalizer object
+        """
+        with open(filename, "rb") as file:
+            return pickle.load(file)
+
     def __init__(self,
                  sensor,
                  source_data,
                  target_data):
+        """
+        Args:
+            sensor: Sensor object identifying the sensor from which the
+                observations stem.
+            source_data: Path to the NetCDF file containing the training data
+                statistics.
+            target_data: Path to the NetCDF file containing the observation data
+                statistics.
+        """
 
         self.sensor = sensor
         source_data = xr.load_dataset(source_data)
@@ -78,25 +108,59 @@ class QuantileEqualizer():
                     q_source = np.interp(tb_values, tb_bins, cdf_source)
                     offsets = np.interp(q_source, cdf_target, tb_bins)
                     offsets -= tb_values
-                    self.biases[i, j, k] = offsets
+                    self.biases[i, j] = offsets
 
 
-    def __call__(self, tbs, eia, surface_type):
+    def __call__(self,
+                 tbs,
+                 eia,
+                 surface_type,
+                 noise_factor=0.0,
+                 rng=None):
+        """
+        Apply correction to observations.
+
+        Args:
+            tbs: Array containing the brightness temperature to correct.
+            eia: Array containing the corresponding earth incidence angles.
+            surface_type: Array containing the corresponding surface type.
+            noise_factor: Factor that the correction offset is multiplied
+                with and used as standard deviation to add noise to the
+                observations.
+            rng: Optional random number generator to use to generate
+                the noise.
+        """
+        if rng is None:
+            rng = np.random.default_rng()
 
         tbs_c = tbs.copy()
 
         inds_st = surface_type - 1
 
-        for i in range(self.n_freqs):
+        for i in range(self.sensor.n_freqs):
             if self.has_angles:
-                inds_a = np.digitize(self.angle_bins[1:-1], eia)
-                inds_tb = np.digitize(self.tb_bins[1:-1], tbs[..., i])
-                tbs_c[:, i] += self.biases[inds_st, inds_a, inds_tb]
+                inds_a = np.digitize(eia, self.angle_bins[1:-1])
+                inds_tb = np.digitize(tbs[..., i], self.tb_bins[1:-1])
+                b = self.biases[inds_st, inds_a, i, inds_tb]
+                tbs_c[:, i] += b
             else:
-                inds_tb = np.digitize(self.tb_bins[1:-1], tbs[..., i])
-                tbs_c[:, i] += self.biases[inds_st, inds_tb]
-
+                inds_tb = np.digitize(tbs[..., i], self.tb_bins[1:-1])
+                b = self.biases[inds_st, i, inds_tb]
+                tbs_c[:, i] += b
+            if noise_factor > 0.0:
+                tbs_c[:, i] += (noise_factor * b *
+                                rng.standard_normal(size=tbs_c.shape[0]))
         return tbs_c
+
+    def save(self, filename):
+        """
+        Store equalizer to file.
+
+        Args:
+            filename: The file to which to store the equalizer.
+        """
+        with open(filename, "wb") as file:
+            pickle.dump(self, file)
 
 
 
