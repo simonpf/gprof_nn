@@ -381,8 +381,8 @@ class GlobalDistribution(Statistic):
             self._initialize(data)
 
         if self.has_time:
-            for i in range(12):
-                indices = data["scan_time"].dt.month == (i + 1)
+            for month in range(12):
+                indices = data["scan_time"].dt.month == (month + 1)
                 if indices.ndim > 1:
                     indices = indices.all(axis=tuple(np.arange(indices.ndim)[1:]))
                 data.latitude.load()
@@ -432,7 +432,7 @@ class GlobalDistribution(Statistic):
                                                   bins=(self.latitude_bins,
                                                         self.longitude_bins),
                                                   weights=weights.ravel())
-                        self.sums[k][i] += cs
+                        self.sums[k][month] += cs
         else:
             data.latitude.load()
             data.longitude.load()
@@ -1101,6 +1101,7 @@ class CorrectedObservations(Statistic):
                        (f"corrected_observation_statistics_{self.sensor.name.lower()}"
                         ".nc"))
         data.to_netcdf(output_file)
+
 
 class BinFileStatistics(Statistic):
     """
