@@ -1096,7 +1096,6 @@ class CrossTrackScanner(Sensor):
                     valid = np.all(sp >= 0, axis=-1)
                     n = valid.sum()
 
-                    # Interpolate brightness temperatures.
                     bts = scene["brightness_temperatures"].data[valid, :]
                     vas = scene["earth_incidence_angle"].data[valid, ..., :1]
                     vas[vas < -100] = np.nan

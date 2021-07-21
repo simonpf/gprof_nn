@@ -162,14 +162,17 @@ def extract_domain(data, x_i, x_o, y,
     """
     if coords is None:
         coords = get_transformation_coordinates(x_i, x_o, y)
-    if len(data.shape) == 3:
-        results = np.zeros((M, N, data.shape[2]))
+    if data.ndim > 2:
+        old_shape = data.shape
+        data_c = data.reshape(old_shape[:2] + (-1,))
+        results = np.zeros((M, N, data_c.shape[2]))
         for i in range(data.shape[2]):
             results[:, :, i] = map_coordinates(
-                data[:, :, i],
+                data_c[:, :, i],
                 coords,
                 order=order
             )
+        results = results.reshape(coords.shape[1:] + old_shape[2:])
     else:
         results = map_coordinates(data, coords, order=order)
     return results

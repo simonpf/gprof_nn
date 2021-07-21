@@ -530,6 +530,234 @@ def _expand_pixels(data):
 ###############################################################################
 
 
+class SimulationDataset:
+    """
+    Dataset to train a simulator network to predict simulated brightness
+    temperatures and brightness temperature biases.
+    """
+    def __init__(
+        self,
+        filename,
+        normalize=True,
+        batch_size=32,
+        normalizer=None,
+        shuffle=True,
+        augment=True,
+    ):
+        """
+        Args:
+            filename: Path to the NetCDF file containing the training data.
+            normalize: Whether or not to normalize the input data.
+            transform_zeros: Whether or not to replace very small
+                values with random values.
+            batch_size: Number of samples in each training batch.
+            shuffle: Whether or not to shuffle the training data.
+            augment: Whether or not to randomly mask high-frequency channels
+                and to randomly permute ancillary data.
+        """
+        self.filename = Path(filename)
+        self.batch_size = batch_size
+        self.shuffle = shuffle
+        self.augment = augment
+
+        seed = int.from_bytes(os.urandom(4), "big") + os.getpid()
+        self._rng = np.random.default_rng(seed)
+        self._load_data()
+
+        indices_1h = list(range(17, 39))
+        if normalizer is None:
+            self.normalizer = MinMaxNormalizer(self.x, exclude_indices=indices_1h)
+        elif isinstance(normalizer, type):
+            self.normalizer = normalizer(self.x, exclude_indices=indices_1h)
+        else:
+            self.normalizer = normalizer
+
+        self.normalize = normalize
+        if normalize:
+            self.x = self.normalizer(self.x)
+
+        self.x = self.x.astype(np.float32)
+        self.y = {k: self.y[k].astype(np.float32) for k in self.y}
+
+        self._shuffled = False
+        if self.shuffle:
+            self._shuffle()
+
+    def __repr__(self):
+        return f"SimulationDataset({self.filename.name}, n_batches={len(self)})"
+
+    def __str__(self):
+        return self.__repr__()
+
+    def _load_data(self):
+        """
+        Loads the data from the file into the ``x`` and ``y`` attributes.
+        """
+        with xr.open_dataset(self.filename) as dataset:
+
+            # Load only simulated data.
+            dataset = dataset[{"samples": dataset.source == 0}]
+            variables = dataset.variables
+
+            #
+            # Input data
+            #
+
+            # Brightness temperatures
+            n = dataset.samples.size
+
+            x = np.zeros((n, 39, M, N))
+            y = {}
+
+            for i in range(n):
+                if self.augment:
+                    p_x_o = 2.0 * self._rng.random() - 1.0
+                    p_x_i = 2.0 * self._rng.random() - 1.0
+                    p_y = 2.0 * self._rng.random() - 1.0
+                else:
+                    p_x_o = 0.0
+                    p_x_i = 0.0
+                    p_y = 0.0
+
+                coords = get_transformation_coordinates(p_x_i, p_x_o, p_y)
+
+                tbs = dataset["brightness_temperatures_gmi"][i][:].data
+                tbs = extract_domain(tbs, p_x_i, p_x_o, p_y, coords=coords)
+                tbs = np.transpose(tbs, (2, 0, 1))
+
+                invalid = (tbs > 500.0) + (tbs < 0.0)
+                tbs[invalid] = np.nan
+
+                # Simulate missing high-frequency channels
+                if self.augment:
+                    r = self._rng.random()
+                    n_p = self._rng.integers(10, 30)
+                    if r > 0.95:
+                        tbs[:, 10:15, :n_p] = np.nan
+
+                t2m = dataset["two_meter_temperature"][i][:].data
+                t2m = extract_domain(t2m, p_x_i, p_x_o, p_y, coords=coords)
+                t2m = t2m[np.newaxis, ...]
+                t2m[t2m < 0] = np.nan
+
+                tcwv = dataset["total_column_water_vapor"][i][:].data
+                tcwv = extract_domain(tcwv, p_x_i, p_x_o, p_y, coords=coords)
+                tcwv = tcwv[np.newaxis, ...]
+                tcwv[tcwv < 0] = np.nan
+
+                st = dataset["surface_type"][i][:].data
+                st = extract_domain(st, p_x_i, p_x_o, p_y, coords=coords, order=0)
+                st_1h = np.zeros((18,) + st.shape, dtype=np.float32)
+                for j in range(18):
+                    st_1h[j, st == (j + 1)] = 1.0
+
+                at = dataset["airmass_type"][i][:].data
+                at = extract_domain(at, p_x_i, p_x_o, p_y, coords=coords, order=0)
+                at_1h = np.zeros((4,) + st.shape, dtype=np.float32)
+                for j in range(4):
+                    at_1h[j, np.maximum(at, 0) == j] = 1.0
+
+                x[i] = np.concatenate([tbs, t2m, tcwv, st_1h, at_1h], axis=0)
+
+                dims = (dataset.angles.size, dataset.channels.size)
+
+                targets = [
+                    "simulated_brightness_temperatures",
+                    "brightness_temperature_biases"
+                ]
+
+                for k in targets:
+                    y_k_r = _expand_pixels(dataset[k].data[i][:][np.newaxis, ...])
+                    y_k = y.setdefault(
+                        k,
+                        np.zeros((n, ) + dims[-(y_k_r.ndim - 3):] + (M, N), dtype=np.float32),
+                    )
+                    y_k_i = extract_domain(
+                        y_k_r[0], p_x_i, p_x_o, p_y, coords=coords
+                    )
+                    np.nan_to_num(y_k_i, copy=False, nan=-9999)
+                    if k == "latent_heat":
+                        y_k_i[y_k_i < -400] = -9999
+                    else:
+                        y_k_i[y_k_i < 0] = -9999
+
+                    dims_sp = tuple(range(2))
+                    dims_t = tuple(range(2, y_k_i.ndim))
+                    y_k[i] = np.transpose(y_k_i, dims_t + dims_sp)
+
+                # Also flip data if requested.
+                if self.augment:
+                    r = self._rng.random()
+                    if r > 0.5:
+                        x[i] = np.flip(x[i], -2)
+                        for k in targets:
+                            y[k][i] = np.flip(y[k][i], -2)
+
+                    r = self._rng.random()
+                    if r > 0.5:
+                        x[i] = np.flip(x[i], -1)
+                        for k in targets:
+                            y[k][i] = np.flip(y[k][i], -1)
+        self.x = x
+        self.y = y
+
+    def _shuffle(self):
+        if not self._shuffled:
+            LOGGER.info("Shuffling dataset %s.", self.filename.name)
+            indices = self._rng.permutation(self.x.shape[0])
+            self.x = self.x[indices, :]
+            if isinstance(self.y, dict):
+                self.y = {k: self.y[k][indices] for k in self.y}
+            else:
+                self.y = self.y[indices]
+            self._shuffled = True
+
+    def __getitem__(self, i):
+        """
+        Return element from the dataset. This is part of the
+        pytorch interface for datasets.
+
+        Args:
+            i(int): The index of the sample to return
+        """
+        if i >= len(self):
+            LOGGER.info("Finished iterating through dataset %s.", self.filename.name)
+            raise IndexError()
+        if i == 0:
+            self._shuffle()
+
+        self._shuffled = False
+        if self.batch_size is None:
+            if isinstance(self.y, dict):
+                return (
+                    torch.tensor(self.x[[i], :]),
+                    {k: torch.tensor(self.y[k][[i]]) for k in self.y},
+                )
+
+        i_start = self.batch_size * i
+        i_end = self.batch_size * (i + 1)
+
+        x = torch.tensor(self.x[i_start:i_end, :])
+        if isinstance(self.y, dict):
+            y = {k: torch.tensor(self.y[k][i_start:i_end]) for k in self.y}
+        else:
+            y = torch.tensor(self.y[i_start:i_end])
+
+        return x, y
+
+    def __len__(self):
+        """
+        The number of samples in the dataset.
+        """
+        if self.batch_size:
+            n = self.x.shape[0] // self.batch_size
+            if self.x.shape[0] % self.batch_size > 0:
+                n = n + 1
+            return n
+        else:
+            return self.x.shape[0]
+
+
 class GPROF2DDataset:
     """
     Dataset class providing an interface for the convolutional GPROF-NN 2D
@@ -583,6 +811,7 @@ class GPROF2DDataset:
 
         seed = int.from_bytes(os.urandom(4), "big") + os.getpid()
         self._rng = np.random.default_rng(seed)
+
         self._load_data()
 
         indices_1h = list(range(17, 39))

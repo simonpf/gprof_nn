@@ -15,7 +15,8 @@ from quantnn.models.pytorch.xception import XceptionFpn
 from gprof_nn import sensors
 from gprof_nn.data.training_data import (GPROF0DDataset,
                                          TrainingObsDataset0D,
-                                         GPROF2DDataset)
+                                         GPROF2DDataset,
+                                         SimulationDataset)
 
 
 def test_permutation_gmi():
@@ -355,3 +356,19 @@ def test_gprof_2d_dataset_profiles():
     assert np.all(np.isclose(x_mean, x_mean_ref, atol=1e-3))
     for k in dataset.target:
         assert np.all(np.isclose(y_mean[k], y_mean_ref[k], atol=1e-3))
+
+
+def test_simulation_dataset():
+    """
+    Test loading of simulator training data.
+    """
+    path = Path(__file__).parent
+    input_file = path / "data" / "gprof_nn_mhs_era5_5.nc"
+    dataset = SimulationDataset(input_file,
+                                batch_size=1,
+                                augment=False)
+    x, y = dataset[0]
+    assert "brightness_temperature_biases" in y
+    assert len(y["brightness_temperature_biases"].shape) == 4
+    assert "simulated_brightness_temperatures" in y
+    assert len(y["simulated_brightness_temperatures"].shape) == 5
