@@ -139,7 +139,7 @@ class QuantileEqualizer():
 
         for i in range(self.sensor.n_freqs):
             if self.has_angles:
-                inds_a = np.digitize(eia, self.angle_bins[1:-1])
+                inds_a = np.digitize(np.abs(eia), self.angle_bins[1:-1])
                 inds_tb = np.digitize(tbs[..., i], self.tb_bins[1:-1])
                 b = self.biases[inds_st, i, inds_a, inds_tb]
                 tbs_c[:, i] += b
