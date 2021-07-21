@@ -44,7 +44,7 @@ def test_training_statistics_gmi(tmpdir):
 
     # Ensure TB dists match.
     for st in range(1, 19):
-        bins = np.linspace(100, 400, 301)
+        bins = np.linspace(0, 400, 401)
         i_st = ((input_data.surface_type == st) *
                 (input_data.surface_precip >= 0)).data
 
@@ -107,7 +107,7 @@ def test_training_statistics_mhs(tmpdir):
 
     # Ensure TB dists match.
     st = 1
-    bins = np.linspace(100, 400, 301)
+    bins = np.linspace(0, 400, 401)
 
     i_st_0 = ((input_data.source == 0) *
               (input_data.surface_type == 1) *
@@ -172,7 +172,7 @@ def test_bin_statistics_gmi(tmpdir):
 
     # Ensure TB dists match.
     st = 4
-    bins = np.linspace(100, 400, 301)
+    bins = np.linspace(0, 400, 401)
     i_st = (input_data.surface_type == st).data
     tbs = input_data["brightness_temperatures"].data[i_st]
     counts_ref, _ = np.histogram(tbs[:, 0], bins=bins)
@@ -236,7 +236,7 @@ def test_bin_statistics_mhs_sea_ice(tmpdir):
 
     # Ensure TB dists match.
     st = 2
-    bins = np.linspace(100, 400, 301)
+    bins = np.linspace(0, 400, 401)
     inds = (input_data.surface_type == st).data
     inds = inds * (input_data.pixel_position == 4).data
     tbs = input_data["brightness_temperatures"].data[inds]
@@ -300,7 +300,7 @@ def test_bin_statistics_mhs_ocean(tmpdir):
 
     # Ensure TB dists match.
     st = 1
-    bins = np.linspace(100, 400, 301)
+    bins = np.linspace(0, 400, 401)
     inds = (input_data.surface_type == st).data
     tbs = input_data["brightness_temperatures"].data[inds]
     counts_ref, _ = np.histogram(tbs[:, 0, 0], bins=bins)
@@ -362,7 +362,7 @@ def test_observation_statistics_gmi(tmpdir):
 
     # Ensure TB dists match.
     st = 1
-    bins = np.linspace(100, 400, 301)
+    bins = np.linspace(0, 400, 401)
     inds = (input_data.surface_type == st).data
     tbs = input_data["brightness_temperatures"].data[inds]
     counts_ref, _ = np.histogram(tbs[:, 0], bins=bins)
@@ -408,7 +408,7 @@ def test_observation_statistics_mhs(tmpdir):
     ))
 
     # Ensure TB dists match.
-    bins = np.linspace(100, 400, 301)
+    bins = np.linspace(0, 400, 401)
     st = 1
     sensor = sensors.MHS
     angle_bins = np.zeros(sensor.angles.size + 1)

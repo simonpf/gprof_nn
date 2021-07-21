@@ -45,10 +45,10 @@ def open_file(filename):
     suffix = filename.suffix
     if suffix == ".nc":
         return xr.open_dataset(filename)
-    elif re.match("gpm.*\.bin", filename.name):
+    elif re.match(r"gpm.*\.bin", filename.name):
         file = BinFile(filename, include_profiles=True)
         return file.to_xarray_dataset()
-    elif re.match(".*\.bin(\.gz)?", filename.name.lower()):
+    elif re.match(r".*\.bin(\.gz)?", filename.name.lower()):
         file = RetrievalFile(filename)
         return file.to_xarray_dataset()
     elif suffix == ".pp":
@@ -234,13 +234,13 @@ class ZonalDistribution(Statistic):
                         weights[v < -500] = 0.0
                         cs, _ = np.histogram(lats_v.ravel(),
                                              bins=self.latitude_bins,
-                                             weights=weights)
+                                             weights=weights.ravel())
                         self.counts[k][i] += cs
                         weights = np.nan_to_num(v, nan=0.0)
                         weights[v < -500] = 0.0
                         cs, _ = np.histogram(lats_v.ravel(),
                                              bins=self.latitude_bins,
-                                             weights=weights)
+                                             weights=weights.ravel())
                         self.sums[k][i] += cs
         else:
             data.latitude.load()
@@ -625,9 +625,11 @@ class TrainingDataStatistics(Statistic):
         self.conditional = conditional
 
         self.tbs = None
+        self.tbs_sim = None
+        self.tbs_bias = None
         self.tbs_cond = None
         self.angle_bins = None
-        self.tb_bins = np.linspace(100, 400, 301)
+        self.tb_bins = np.linspace(0, 400, 401)
 
         self.targets = {}
         self.bins = {}
@@ -659,18 +661,27 @@ class TrainingDataStatistics(Statistic):
             self.angle_bins[0] = 2.0 * self.angle_bins[1] - self.angle_bins[2]
             self.angle_bins[-1] = (2.0 * self.angle_bins[-2] -
                                    self.angle_bins[-3])
-            self.tbs = np.zeros((18, n_freqs, n_angles, 300),
+            self.tbs = np.zeros((18, n_freqs, n_angles, self.tb_bins.size - 1),
                                 dtype=np.float32)
+            self.tbs_sim = np.zeros((18, n_freqs, n_angles, self.tb_bins.size - 1),
+                                    dtype=np.float32)
             if self.conditional is not None:
-                self.tbs_cond = np.zeros((18, n_freqs, n_angles, 300, 300),
-                                         dtype=np.float32)
+                self.tbs_cond = np.zeros(
+                    (18, n_freqs, n_angles,) + (self.tb_bins.size - 1,) * 2,
+                    dtype=np.float32
+                )
 
         else:
-            self.tbs = np.zeros((18, n_freqs, 300),
+            self.tbs = np.zeros((18, n_freqs, self.tb_bins.size - 1),
                                 dtype=np.float32)
             if self.conditional is not None:
-                self.tbs_cond = np.zeros((18, n_freqs, 300, 300),
-                                         dtype=np.float32)
+                self.tbs_cond = np.zeros(
+                    (18, n_freqs,) + (self.tb_bins.size - 1,) * 2,
+                    dtype=np.float32
+                )
+        self.bias_bins = np.linspace(-100, 100, 201)
+        self.tbs_bias = np.zeros((18, n_freqs, self.bias_bins.size - 1),
+                                 dtype=np.float32)
 
         for k in ALL_TARGETS:
             if k in data.variables:
@@ -745,13 +756,26 @@ class TrainingDataStatistics(Statistic):
                            .data[i_st[:, :, 90:-90].data])
                     b = (dataset["brightness_temperature_biases"]
                          .data[i_st[:, :, 90:-90]])
+
+                    for k in range(sensor.n_freqs):
+                        cs, _ = np.histogram(b[:, k], bins=self.bias_bins)
+                        self.tbs_bias[i, k] += cs
+
                     for j in range(sensor.n_angles):
                         for k in range(sensor.n_freqs):
+                            # Simulated observations
+                            cs, _ = np.histogram(tbs[:, j, k],
+                                                 bins=self.tb_bins)
+                            self.tbs_sim[i, k, j] += cs
+
+                            # Corrected observations
                             x = tbs[:, j, k] - b[:, k]
                             cs, _ = np.histogram(x, bins=self.tb_bins)
                             self.tbs[i, k, j] += cs
+
                             if self.conditional is not None:
-                                x_0 = tbs[:, j, self.conditional] - b[:, self.conditional]
+                                x_0 = (tbs[:, j, self.conditional] -
+                                       b[:, self.conditional])
                                 cs, _, _ = np.histogram2d(
                                     x_0,
                                     x,
@@ -821,6 +845,8 @@ class TrainingDataStatistics(Statistic):
         if self.tbs is None:
             self.tbs = other.tbs
             self.tbs_cond = other.tbs_cond
+            self.tbs_sim = other.tbs_sim
+            self.tbs_bias = other.tbs_bias
             self.targets = other.targets
             self.t2m = other.t2m
             self.tcwv = other.tcwv
@@ -828,6 +854,9 @@ class TrainingDataStatistics(Statistic):
             self.at = other.at
         elif other.tbs is not None:
             self.tbs += other.tbs
+            if self.tbs_sim is not None:
+                self.tbs_sim += other.tbs_sim
+                self.tbs_bias += other.tbs_bias
             if self.conditional is not None and other.conditional is not None:
                 self.tbs_cond += other.tbs_cond
             for k in self.targets:
@@ -856,6 +885,13 @@ class TrainingDataStatistics(Statistic):
                  "brightness_temperature_bins"),
                 self.tbs
             )
+            data["simulated_brightness_temperatures"] = (
+                ("surface_type_bins",
+                 "channels",
+                 "angles",
+                 "brightness_temperature_bins"),
+                self.tbs_sim
+            )
             if self.conditional is not None:
                 data["conditional_brightness_temperatures"] = (
                     ("surface_type_bins",
@@ -873,6 +909,14 @@ class TrainingDataStatistics(Statistic):
                  "brightness_temperature_bins"),
                 self.tbs
             )
+            if self.tbs_sim is not None:
+                if self.tbs_sim is not None:
+                    data["simulated_brightness_temperatures"] = (
+                        ("surface_type_bins",
+                        "channels",
+                        "brightness_temperature_bins"),
+                        self.tbs_sim
+                    )
             if self.conditional is not None:
                 data["conditional_brightness_temperatures"] = (
                     ("surface_type_bins",
@@ -881,6 +925,18 @@ class TrainingDataStatistics(Statistic):
                      "brightness_temperature_bins"),
                     self.tbs_cond
                 )
+
+        bias_bins = 0.5 * (self.bias_bins[1:] + self.bias_bins[:-1])
+        data["bias_bins"] = (
+            ("bias_bins",),
+            bias_bins
+        )
+        data["brightness_temperatures_biases"] = (
+            ("surface_type_bins",
+             "channels",
+             "bias_bins"),
+            self.tbs_bias
+        )
 
         for k in self.targets:
             bins = 0.5 * (self.bins[k][1:] + self.bins[k][:-1])
@@ -929,7 +985,7 @@ class CorrectedObservations(Statistic):
         """
         self.tbs = None
         self.angle_bins = None
-        self.tb_bins = np.linspace(100, 400, 301)
+        self.tb_bins = np.linspace(0, 400, 401)
         self.equalizer = equalizer
 
     def _initialize_data(self,
@@ -953,10 +1009,10 @@ class CorrectedObservations(Statistic):
             self.angle_bins[0] = 2.0 * self.angle_bins[1] - self.angle_bins[2]
             self.angle_bins[-1] = (2.0 * self.angle_bins[-2] -
                                    self.angle_bins[-3])
-            self.tbs = np.zeros((18, n_freqs, n_angles, 300),
+            self.tbs = np.zeros((18, n_freqs, n_angles, self.tb_bins.size - 1),
                                 dtype=np.float32)
         else:
-            self.tbs = np.zeros((18, n_freqs, 300),
+            self.tbs = np.zeros((18, n_freqs, self.tb_bins.size - 1),
                                 dtype=np.float32)
 
     def process_file(self,
@@ -1058,6 +1114,7 @@ class BinFileStatistics(Statistic):
     def _initialize_data(self,
                          sensor,
                          data):
+        self.tb_bins = np.linspace(0, 400, 401)
         n_freqs = sensor.n_freqs
         self.has_angles = hasattr(sensor, "angles")
         if self.has_angles:
@@ -1068,12 +1125,11 @@ class BinFileStatistics(Statistic):
             self.angle_bins[0] = 2.0 * self.angle_bins[1] - self.angle_bins[2]
             self.angle_bins[-1] = (2.0 * self.angle_bins[-2] -
                                    self.angle_bins[-3])
-            self.tbs = np.zeros((18, n_freqs, n_angles, 300),
+            self.tbs = np.zeros((18, n_freqs, n_angles, self.tb_bins.size - 1),
                                 dtype=np.float32)
         else:
-            self.tbs = np.zeros((18, n_freqs, 300),
+            self.tbs = np.zeros((18, n_freqs, self.tb_bins.size - 1),
                                 dtype=np.float32)
-        self.tb_bins = np.linspace(100, 400, 301)
 
         self.targets = {}
         self.bins = {}
@@ -1267,7 +1323,7 @@ class ObservationStatistics(Statistic):
         self.angle_bins = None
         self.has_angles = None
         self.tbs = None
-        self.tb_bins = np.linspace(100, 400, 301)
+        self.tb_bins = np.linspace(0, 400, 401)
 
         self.t2m = np.zeros((18, 200), dtype=np.float32)
         self.t2m_bins = np.linspace(240, 330, 201)
@@ -1289,17 +1345,21 @@ class ObservationStatistics(Statistic):
             self.angle_bins[0] = 2.0 * self.angle_bins[1] - self.angle_bins[2]
             self.angle_bins[-1] = (2.0 * self.angle_bins[-2] -
                                    self.angle_bins[-3])
-            self.tbs = np.zeros((18, n_freqs, n_angles, 300),
+            self.tbs = np.zeros((18, n_freqs, n_angles, self.tb_bins.size - 1),
                                 dtype=np.float32)
             if self.conditional is not None:
-                self.tbs_cond = np.zeros((18, n_freqs, n_angles, 300, 300),
-                                         dtype=np.float32)
+                self.tbs_cond = np.zeros(
+                    (18, n_freqs, n_angles,) + (self.tb_bins.size - 1,) * 2,
+                    dtype=np.float32
+                )
         else:
-            self.tbs = np.zeros((18, n_freqs, 300),
+            self.tbs = np.zeros((18, n_freqs, self.tb_bins.size - 1),
                                 dtype=np.float32)
             if self.conditional is not None:
-                self.tbs_cond = np.zeros((18, n_freqs, 300, 300),
-                                         dtype=np.float32)
+                self.tbs_cond = np.zeros(
+                    (18, n_freqs,) + (self.tb_bins.size - 1,) * 2,
+                    dtype=np.float32
+                )
 
     def process_file(self,
                      sensor,
@@ -1530,3 +1590,5 @@ class StatisticsProcessor:
 
         for s in stats:
             s.save(output_path)
+
+        pool.shutdown(wait=False)
