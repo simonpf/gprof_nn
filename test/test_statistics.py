@@ -8,13 +8,15 @@ import xarray as xr
 
 from gprof_nn import sensors
 from gprof_nn.data.bin import BinFile
+from gprof_nn.equalizer import QuantileEqualizer
 from gprof_nn.data.preprocessor import PreprocessorFile
 from gprof_nn.statistics import (StatisticsProcessor,
                                  TrainingDataStatistics,
                                  BinFileStatistics,
                                  ObservationStatistics,
                                  GlobalDistribution,
-                                 ZonalDistribution)
+                                 ZonalDistribution,
+                                 CorrectedObservations)
 
 
 def test_training_statistics_gmi(tmpdir):
@@ -42,7 +44,7 @@ def test_training_statistics_gmi(tmpdir):
 
     # Ensure TB dists match.
     for st in range(1, 19):
-        bins = np.linspace(100, 400, 301)
+        bins = np.linspace(0, 400, 401)
         i_st = ((input_data.surface_type == st) *
                 (input_data.surface_precip >= 0)).data
 
@@ -105,7 +107,7 @@ def test_training_statistics_mhs(tmpdir):
 
     # Ensure TB dists match.
     st = 1
-    bins = np.linspace(100, 400, 301)
+    bins = np.linspace(0, 400, 401)
 
     i_st_0 = ((input_data.source == 0) *
               (input_data.surface_type == 1) *
@@ -170,7 +172,7 @@ def test_bin_statistics_gmi(tmpdir):
 
     # Ensure TB dists match.
     st = 4
-    bins = np.linspace(100, 400, 301)
+    bins = np.linspace(0, 400, 401)
     i_st = (input_data.surface_type == st).data
     tbs = input_data["brightness_temperatures"].data[i_st]
     counts_ref, _ = np.histogram(tbs[:, 0], bins=bins)
@@ -234,7 +236,7 @@ def test_bin_statistics_mhs_sea_ice(tmpdir):
 
     # Ensure TB dists match.
     st = 2
-    bins = np.linspace(100, 400, 301)
+    bins = np.linspace(0, 400, 401)
     inds = (input_data.surface_type == st).data
     inds = inds * (input_data.pixel_position == 4).data
     tbs = input_data["brightness_temperatures"].data[inds]
@@ -298,7 +300,7 @@ def test_bin_statistics_mhs_ocean(tmpdir):
 
     # Ensure TB dists match.
     st = 1
-    bins = np.linspace(100, 400, 301)
+    bins = np.linspace(0, 400, 401)
     inds = (input_data.surface_type == st).data
     tbs = input_data["brightness_temperatures"].data[inds]
     counts_ref, _ = np.histogram(tbs[:, 0, 0], bins=bins)
@@ -360,7 +362,7 @@ def test_observation_statistics_gmi(tmpdir):
 
     # Ensure TB dists match.
     st = 1
-    bins = np.linspace(100, 400, 301)
+    bins = np.linspace(0, 400, 401)
     inds = (input_data.surface_type == st).data
     tbs = input_data["brightness_temperatures"].data[inds]
     counts_ref, _ = np.histogram(tbs[:, 0], bins=bins)
@@ -406,7 +408,7 @@ def test_observation_statistics_mhs(tmpdir):
     ))
 
     # Ensure TB dists match.
-    bins = np.linspace(100, 400, 301)
+    bins = np.linspace(0, 400, 401)
     st = 1
     sensor = sensors.MHS
     angle_bins = np.zeros(sensor.angles.size + 1)
@@ -437,3 +439,20 @@ def test_observation_statistics_mhs(tmpdir):
     counts_ref, _ = np.histogram(x, bins=bins)
     counts = results["surface_type"].data
     assert np.all(np.isclose(counts, 2.0 * counts_ref))
+
+
+def test_corrected_observation_statistics(tmpdir):
+    data_path = Path(__file__).parent / "data" / "statistics"
+    source_file = data_path / "training_data_statistics_mhs.nc"
+    target_file = data_path / "observation_statistics_mhs.nc"
+    equalizer = QuantileEqualizer(sensors.MHS,
+                                  source_file,
+                                  target_file)
+
+    data_path = Path(__file__).parent / "data"
+    files = [data_path / "gprof_nn_mhs_era5_5.nc"] * 2
+    stats = [CorrectedObservations(equalizer)]
+    processor = StatisticsProcessor(sensors.MHS,
+                                    files,
+                                    stats)
+    processor.run(2, tmpdir)

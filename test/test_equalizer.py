@@ -16,7 +16,6 @@ def test_quantile_equalizer_save_load(tmpdir):
     data_path = Path(__file__).parent / "data" / "statistics"
     source_file = data_path / "training_data_statistics_mhs.nc"
     target_file = data_path / "observation_statistics_mhs.nc"
-
     equalizer = QuantileEqualizer(sensors.MHS,
                                   source_file,
                                   target_file)
