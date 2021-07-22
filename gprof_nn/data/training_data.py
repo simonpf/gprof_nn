@@ -530,7 +530,7 @@ def _expand_pixels(data):
 ###############################################################################
 
 
-class SimulationDataset:
+class SimulatorDataset:
     """
     Dataset to train a simulator network to predict simulated brightness
     temperatures and brightness temperature biases.
@@ -548,9 +548,8 @@ class SimulationDataset:
         Args:
             filename: Path to the NetCDF file containing the training data.
             normalize: Whether or not to normalize the input data.
-            transform_zeros: Whether or not to replace very small
-                values with random values.
             batch_size: Number of samples in each training batch.
+            normalizer: The normalizer used to normalize the data.
             shuffle: Whether or not to shuffle the training data.
             augment: Whether or not to randomly mask high-frequency channels
                 and to randomly permute ancillary data.
@@ -584,24 +583,20 @@ class SimulationDataset:
             self._shuffle()
 
     def __repr__(self):
-        return f"SimulationDataset({self.filename.name}, n_batches={len(self)})"
+        return f"SimulatorDataset({self.filename.name}, n_batches={len(self)})"
 
     def __str__(self):
         return self.__repr__()
 
     def _load_data(self):
         """
-        Loads the data from the file into the ``x`` and ``y`` attributes.
+        Loads the data from the file into ``x`` and ``y`` attributes.
         """
         with xr.open_dataset(self.filename) as dataset:
 
             # Load only simulated data.
             dataset = dataset[{"samples": dataset.source == 0}]
             variables = dataset.variables
-
-            #
-            # Input data
-            #
 
             # Brightness temperatures
             n = dataset.samples.size
@@ -610,6 +605,7 @@ class SimulationDataset:
             y = {}
 
             for i in range(n):
+
                 if self.augment:
                     p_x_o = 2.0 * self._rng.random() - 1.0
                     p_x_i = 2.0 * self._rng.random() - 1.0
@@ -620,6 +616,10 @@ class SimulationDataset:
                     p_y = 0.0
 
                 coords = get_transformation_coordinates(p_x_i, p_x_o, p_y)
+
+                #
+                # Simulator input
+                #
 
                 tbs = dataset["brightness_temperatures_gmi"][i][:].data
                 tbs = extract_domain(tbs, p_x_i, p_x_o, p_y, coords=coords)
@@ -632,8 +632,8 @@ class SimulationDataset:
                 if self.augment:
                     r = self._rng.random()
                     n_p = self._rng.integers(10, 30)
-                    if r > 0.95:
-                        tbs[:, 10:15, :n_p] = np.nan
+                    if r > 0.9:
+                        tbs[10:15, :, :n_p] = np.nan
 
                 t2m = dataset["two_meter_temperature"][i][:].data
                 t2m = extract_domain(t2m, p_x_i, p_x_o, p_y, coords=coords)
@@ -661,6 +661,10 @@ class SimulationDataset:
 
                 dims = (dataset.angles.size, dataset.channels.size)
 
+                #
+                # Simulator output
+                #
+
                 targets = [
                     "simulated_brightness_temperatures",
                     "brightness_temperature_biases"
@@ -676,10 +680,6 @@ class SimulationDataset:
                         y_k_r[0], p_x_i, p_x_o, p_y, coords=coords
                     )
                     np.nan_to_num(y_k_i, copy=False, nan=-9999)
-                    if k == "latent_heat":
-                        y_k_i[y_k_i < -400] = -9999
-                    else:
-                        y_k_i[y_k_i < 0] = -9999
 
                     dims_sp = tuple(range(2))
                     dims_t = tuple(range(2, y_k_i.ndim))

@@ -31,7 +31,7 @@ def set_log_level(level):
         level: String defining the log level.
     """
     logging.basicConfig(
-        level=level,
+        level=level.upper(),
         format="%(message)s",
         datefmt="[%X]",
         handlers=[RichHandler()]

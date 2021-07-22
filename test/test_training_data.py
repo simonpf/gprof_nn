@@ -16,7 +16,7 @@ from gprof_nn import sensors
 from gprof_nn.data.training_data import (GPROF0DDataset,
                                          TrainingObsDataset0D,
                                          GPROF2DDataset,
-                                         SimulationDataset)
+                                         SimulatorDataset)
 
 
 def test_permutation_gmi():
@@ -364,10 +364,13 @@ def test_simulation_dataset():
     """
     path = Path(__file__).parent
     input_file = path / "data" / "gprof_nn_mhs_era5_5.nc"
-    dataset = SimulationDataset(input_file,
-                                batch_size=1,
+    dataset = SimulatorDataset(input_file,
+                                batch_size=1024,
                                 augment=False)
     x, y = dataset[0]
+    assert np.all(np.isfinite(x.numpy()))
+    assert np.all(np.isfinite(y["brightness_temperature_biases"].numpy()))
+    assert np.all(np.isfinite(y["simulated_brightness_temperatures"].numpy()))
     assert "brightness_temperature_biases" in y
     assert len(y["brightness_temperature_biases"].shape) == 4
     assert "simulated_brightness_temperatures" in y

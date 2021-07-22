@@ -166,7 +166,7 @@ def extract_domain(data, x_i, x_o, y,
         old_shape = data.shape
         data_c = data.reshape(old_shape[:2] + (-1,))
         results = np.zeros((M, N, data_c.shape[2]))
-        for i in range(data.shape[2]):
+        for i in range(data_c.shape[2]):
             results[:, :, i] = map_coordinates(
                 data_c[:, :, i],
                 coords,

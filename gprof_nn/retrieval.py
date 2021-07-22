@@ -63,19 +63,22 @@ def calculate_padding_dimensions(t):
     return (p_l_n, p_r_n, p_l_m, p_r_m)
 
 
-def combine_input_data_2d(dataset):
+def combine_input_data_2d(dataset,
+                          v_tbs="brightness_temperatures"):
     """
     Combine retrieval input data into input tensor format for convolutional
     retrieval.
 
     Args:
-         ``xarray.Dataset`` containing the input variables.
+        dataset: ``xarray.Dataset`` containing the input variables.
+        v_tbs: Name of the variable to load the brightness temperatures
+            from.
 
     Return:
         Rank-4 input tensor containing the input data with features oriented
         along the first axis.
     """
-    bts = dataset["brightness_temperatures"][:].data
+    bts = dataset[v_tbs][:].data
     invalid = (bts > 500.0) + (bts < 0.0)
     bts[invalid] = np.nan
     # 2m temperature
@@ -639,7 +642,7 @@ class NetcdfLoader2D(NetcdfLoader):
 
 
 ###############################################################################
-# Netcdf Format
+# Preprocessor format
 ###############################################################################
 
 
@@ -870,3 +873,63 @@ class PreprocessorLoader2D:
             results,
             ancillary_data=ancillary_data
         )
+
+###############################################################################
+# Simulator format
+###############################################################################
+
+
+class SimulatorLoader(NetcdfLoader):
+    """
+    Interface class to augment training data with simulated Tbs.
+    """
+    def __init__(self,
+                 filename,
+                 normalizer,
+                 batch_size=8):
+        super().__init__()
+        self.filename = filename
+        self.normalizer = normalizer
+        self.batch_size = batch_size
+
+        self._load_data()
+        self.n_samples = self.input_data.shape[0]
+
+        self.scalar_dimensions = ("samples", "scans", "pixels")
+        self.profile_dimensions = ("samples", "layers", "scans", "pixels")
+
+    def _load_data(self):
+        """
+        Load data from training data NetCDF format into 'input' data
+        attribute.
+        """
+        dataset = xr.open_dataset(self.filename)
+        dataset = dataset[{"samples": dataset.source == 0}]
+        input_data = combine_input_data_2d(dataset,
+                                           v_tbs="brightness_temperatures_gmi")
+        self.input_data = self.normalizer(input_data)
+        self.padding = calculate_padding_dimensions(input_data)
+
+    def __getitem__(self, i):
+        """
+        Return batch of input data.
+
+        Args:
+            The batch index.
+
+        Return:
+            PyTorch tensor containing the batch of input data.
+        """
+        x = super().__getitem__(i)
+        return torch.nn.functional.pad(x, self.padding, mode="replicate")
+
+
+    def finalize(self, data):
+        """
+        Reshape retrieval results into shape of input data.
+        """
+        data = data[{
+            "scans": slice(self.padding[0], -self.padding[1]),
+            "pixels": slice(self.padding[2], -self.padding[3])
+        }]
+        return data.transpose("samples", "scans", "pixels", "layers")
