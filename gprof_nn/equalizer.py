@@ -68,7 +68,7 @@ class QuantileEqualizer(Equalizer):
         source_data = xr.load_dataset(source_data)
         target_data = xr.load_dataset(target_data)
 
-        tb_bins = np.linspace(0, 400, 81)
+        tb_bins = np.linspace(100, 310, 211)
         self.tb_bins = tb_bins
 
         angles = sensor.angles
@@ -195,7 +195,7 @@ class ConditionalEqualizer(Equalizer):
         source_data = xr.load_dataset(source_data)
         target_data = xr.load_dataset(target_data)
 
-        tb_bins = np.linspace(0, 400, 81)
+        tb_bins = np.linspace(100, 310, 211)
         self.tb_bins = tb_bins
 
         angles = sensor.angles

@@ -39,7 +39,7 @@ def test_quantile_equalizer_mhs():
                                   source_file,
                                   target_file)
 
-    tb_bins = np.linspace(0, 400, 81)
+    tb_bins = np.linspace(100, 310, 211)
     tb_values = 0.5 * (tb_bins[1:] + tb_bins[:-1])
 
     source_data = xr.load_dataset(source_file)
@@ -86,7 +86,7 @@ def test_conditional_equalizer_mhs():
                                      source_file,
                                      target_file)
 
-    tb_bins = np.linspace(0, 400, 81)
+    tb_bins = np.linspace(100, 310, 211)
     tb_values = 0.5 * (tb_bins[1:] + tb_bins[:-1])
 
     source_data = xr.load_dataset(source_file)
