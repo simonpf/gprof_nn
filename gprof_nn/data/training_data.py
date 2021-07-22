@@ -911,7 +911,7 @@ class GPROF2DDataset:
                 if self.augment:
                     r = self._rng.random()
                     n_p = self._rng.integers(10, 30)
-                    if r > 0.95:
+                    if r > 0.80:
                         tbs[:, 10:15, :n_p] = np.nan
 
                 t2m = variables["two_meter_temperature"][i][:]
