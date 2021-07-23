@@ -13,6 +13,106 @@ from scipy.ndimage import map_coordinates
 M = 128
 N = 96
 
+SCANS_PER_SAMPLE = 221
+
+class ViewingGeometry:
+    pass
+
+class Conical(ViewingGeometry):
+    """
+    Coordination transforms for a conical viewing geometry.
+
+    Args:
+        altitude: The altitude of the sensor in m.
+        scan_range: The active scan range of the sensor.
+        pixels_per_scan: The number of pixels contained in each scan.
+        scan_offset: The distance between consecutive scans.
+    """
+    def __init__(self,
+                 altitude,
+                 scan_range,
+                 pixels_per_scan,
+                 scan_offset
+    ):
+        self.altitude = altitude
+        self.scan_range = scan_range
+        self.pixels_per_scan = pixels_per_scan
+        self.scan_offset = scan_offset
+
+
+    def pixel_coordinates_to_euclidean(self, c_p):
+        """
+        Transform pixel coordinates to euclidean distances.
+
+        Args:
+            c_p: Array with shape ``(2, ...)`` containing the pixel coordinates with
+                row indices contained in ``c_p[0]`` and column indices in ``c_p[1]``.
+
+        Returns:
+            Array of same shape as ``c_p`` with the along track coordinates in
+            ``c_p[0]`` and the across track coordinates in ``c_p[1]``.
+        """
+        R = self.altitude
+        a_0 = - self.scan_range / 2
+        a = c_p[1] / self.pixels_per_scan * self.scan_range
+        x = R * np.sin(np.deg2rad(a))
+
+        y = c_p[0] * self.scan_offset
+        dy = R * (1.0 - np.cos(np.deg2rad(a)))
+        y = y - dy
+
+        return np.stack([y, x])
+
+
+    def euclidean_to_pixel_coordinates(self, c_x):
+        """
+        Transform euclidean distances to pixel coordinates.
+
+        Args:
+            c_p: Array with shape ``(2, ...)`` containing the along-track
+                coordinates in ``c_p[0]`` and across-track coordinates in
+                in ``c_p[1]``.
+
+        Returns:
+            Array of same shape as ``c_x`` with the row pixel coordinates in
+            ``c_p[0]`` and the column pixel coordinates in ``c_p[1]``.
+        """
+
+        R = self.altitude
+        a = np.rad2deg(np.arcsin(c_x[1] / R))
+        j = a / self.scan_range * self.pixels_per_scan
+
+        y_offset = R * (1.0 - np.cos(np.deg2rad(a)))
+        i = (c_x[0] + y_offset) / self.scan_offset
+
+        return np.stack([i, j])
+
+    def get_window_center(p_x,
+                          width,
+                          height):
+        """
+        Calculate pixel positions of the center of a window with given width
+        and height.
+        """
+        i = SCANS_PER_SAMPLE // 2
+
+        l = - self.pixels_per_scan // 2
+        j = l + (self.pixels_per_scan - width) * p_x
+
+        return np.array([i, j]).reshape(2, 1, 1)
+
+
+GMI_GEOMETRY = Conical(
+    450543.0,
+    150.0,
+    221,
+    13e3
+)
+
+
+
+
+
 def pixel_to_x(j):
     """
     Calculate across-track coordinates of pixel indices.
