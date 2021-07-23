@@ -278,30 +278,25 @@ class RetrievalDriver:
                                                          key=k)
                         pop.append(p.cpu())
 
-        dims = input_data.scalar_dimensions
-        dims_p = input_data.profile_dimensions
-
         data = {}
         for k in means:
             y = np.concatenate([t.numpy() for t in means[k]])
-            if k in PROFILE_NAMES:
-                data[k] = (dims_p, y)
-            else:
-                data[k] = (dims, y)
+            data[k] = (input_data.dimensions[k], y)
 
-
-        data["precip_1st_tercile"] = (
-            dims,
-            np.concatenate([t.numpy() for t in precip_1st_tercile])
-        )
-        data["precip_3rd_tercile"] = (
-            dims,
-            np.concatenate([t.numpy() for t in precip_3rd_tercile])
-        )
-        pop = np.concatenate([t.numpy() for t in pop])
-        data["pop"] = (dims, pop)
-        data["most_likely_precip"] = data["surface_precip"]
-        data["precip_flag"] = (dims, pop > 0.5)
+        if len(precip_1st_tercile) > 0:
+            dims = input_data.dimensions["surface_precip"]
+            data["precip_1st_tercile"] = (
+                dims,
+                np.concatenate([t.numpy() for t in precip_1st_tercile])
+            )
+            data["precip_3rd_tercile"] = (
+                dims,
+                np.concatenate([t.numpy() for t in precip_3rd_tercile])
+            )
+            pop = np.concatenate([t.numpy() for t in pop])
+            data["pop"] = (dims, pop)
+            data["most_likely_precip"] = data["surface_precip"]
+            data["precip_flag"] = (dims, pop > 0.5)
         data = xr.Dataset(data)
 
         return input_data.finalize(data)
@@ -508,6 +503,10 @@ class NetcdfLoader0D(NetcdfLoader):
 
         self.scalar_dimensions = ("samples")
         self.profile_dimensions = ("samples", "layers")
+        self.dimensions = {
+            t: ("samples", "layers") if t in PROFILE_NAMES else
+            ("samples") for t in ALL_TARGETS
+        }
 
     def _load_data(self):
         """
@@ -605,6 +604,10 @@ class NetcdfLoader2D(NetcdfLoader):
 
         self.scalar_dimensions = ("samples", "scans", "pixels")
         self.profile_dimensions = ("samples", "layers", "scans", "pixels")
+        self.dimensions = {
+            t: ("samples", "layers", "scans", "pixels") if t in PROFILE_NAMES else
+            ("samples", "scans", "pixels") for t in ALL_TARGETS
+        }
 
     def _load_data(self):
         """
@@ -676,6 +679,10 @@ class PreprocessorLoader0D:
 
         self.scalar_dimensions = ("samples")
         self.profile_dimensions = ("samples", "layers")
+        self.dimensions = {
+            t: ("samples", "layers") if t in PROFILE_NAMES else
+            ("samples",) for t in ALL_TARGETS
+        }
 
     def __len__(self):
         """
@@ -821,6 +828,10 @@ class PreprocessorLoader2D:
 
         self.scalar_dimensions = ("samples", "scans", "pixels")
         self.profile_dimensions = ("samples", "layers", "scans", "pixels")
+        self.dimensions = {
+            t: ("samples", "layers", "scans", "pixels") if t in PROFILE_NAMES else
+            ("samples", "scans", "pixels") for t in ALL_TARGETS
+        }
 
     def __len__(self):
         """
@@ -898,6 +909,11 @@ class SimulatorLoader(NetcdfLoader):
         self.scalar_dimensions = ("samples", "scans", "pixels")
         self.profile_dimensions = ("samples", "layers", "scans", "pixels")
 
+        self.dimensions = {
+            "simulated_brightness_temperatures": ("samples", "angles", "channels", "scans", "pixels"),
+            "brightness_temperature_biases": ("samples", "channels", "scans", "pixels")
+        }
+
     def _load_data(self):
         """
         Load data from training data NetCDF format into 'input' data
@@ -926,10 +942,38 @@ class SimulatorLoader(NetcdfLoader):
 
     def finalize(self, data):
         """
-        Reshape retrieval results into shape of input data.
+        Copy predicted Tbs and biases into input file and return.
         """
         data = data[{
             "scans": slice(self.padding[0], -self.padding[1]),
             "pixels": slice(self.padding[2], -self.padding[3])
         }]
-        return data.transpose("samples", "scans", "pixels", "layers")
+        data = data.transpose("samples", "scans", "pixels", "angles", "channels")
+        input_data = xr.load_dataset(self.filename)
+
+        n_samples = input_data.samples.size
+        n_scans = data.scans.size
+        n_pixels = data.pixels.size
+        n_angles = data.angles.size
+        n_channels = data.channels.size
+        input_data["simulated_brightness_temperatures"] = (
+            ("samples", "scans", "pixels", "angles", "channels"),
+            np.nan * np.zeros(
+                (n_samples, n_scans, n_pixels, n_angles, n_channels)
+            )
+        )
+        input_data["brightness_temperature_biases"] = (
+            ("samples", "scans", "pixels", "channels"),
+            np.nan * np.zeros(
+                (n_samples, n_scans, n_pixels, n_channels)
+            )
+        )
+        index = 0
+        for i in range(n_samples):
+            if input_data.source[i] == 0:
+                input_data["simulated_brightness_temperatures"][i] = \
+                    data["simulated_brightness_temperatures"][index]
+                input_data["brightness_temperature_biases"][i] = \
+                    data["brightness_temperature_biases"][index]
+                index += 1
+        return input_data
