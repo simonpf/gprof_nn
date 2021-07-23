@@ -109,10 +109,6 @@ GMI_GEOMETRY = Conical(
     13e3
 )
 
-
-
-
-
 def pixel_to_x(j):
     """
     Calculate across-track coordinates of pixel indices.

@@ -536,6 +536,12 @@ class L1CFile:
                     input["S1/incidenceAngle"][indices, :, 0]
                 )
 
+            if "SCorientation" in input["S1/SCstatus"]:
+                data["sensor_orientation"] = (
+                    ("scans",),
+                    input["S1/SCstatus/SCorientation"][indices]
+                )
+
         return xr.Dataset(data)
 
 
