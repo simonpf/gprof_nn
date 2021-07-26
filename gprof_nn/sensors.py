@@ -440,11 +440,11 @@ class ConicalScanner(Sensor):
 
     @property
     def sim_file_header(self):
-        return self._sim_file_record
+        return self._sim_file_header
 
     @property
     def sim_file_record(self):
-        return self._sim_file_header
+        return self._sim_file_record
 
     @property
     def l1c_file_prefix(self):
@@ -469,14 +469,6 @@ class ConicalScanner(Sensor):
     @property
     def sim_file_path(self):
         return self._sim_file_path
-
-    @property
-    def sim_file_header(self):
-        return self._sim_file_record
-
-    @property
-    def sim_file_record(self):
-        return self._sim_file_record
 
     @property
     def preprocessor(self):
