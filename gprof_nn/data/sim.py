@@ -742,36 +742,36 @@ def add_targets(data,
         data["brightness_temperatures_gmi"] = (
                 ("scans", "pixels", "channels_gmi"), d
         )
-        if hasattr(sensor, "n_angles"):
-            n_angles = sensor.n_angles
+    if hasattr(sensor, "n_angles"):
+        n_angles = sensor.n_angles
 
-            shape = (n_scans, n_pixels_center, n_angles, sensor.n_freqs)
-            d = np.zeros(shape, dtype=np.float32)
-            d[:] = np.nan
-            data["simulated_brightness_temperatures"] = (
-                    ("scans", "pixels_center", "angles", "channels"), d
-            )
+        shape = (n_scans, n_pixels_center, n_angles, sensor.n_freqs)
+        d = np.zeros(shape, dtype=np.float32)
+        d[:] = np.nan
+        data["simulated_brightness_temperatures"] = (
+                ("scans", "pixels_center", "angles", "channels"), d
+        )
 
-            for v in ["surface_precip", "convective_precip"]:
-                values = data[v].data
-                new_shape = (n_scans, n_pixels, n_angles)
-                values = np.broadcast_to(values[..., np.newaxis], new_shape)
-                data[v] = (("scans", "pixels", "angles"), values.copy())
+        for v in ["surface_precip", "convective_precip"]:
+            values = data[v].data
+            new_shape = (n_scans, n_pixels, n_angles)
+            values = np.broadcast_to(values[..., np.newaxis], new_shape)
+            data[v] = (("scans", "pixels", "angles"), values.copy())
 
-        else:
-            shape = (n_scans, n_pixels_center, sensor.n_freqs)
-            d = np.zeros(shape, dtype=np.float32)
-            d[:] = np.nan
-            data["simulated_brightness_temperatures"] = (
-                    ("scans", "pixels_center", "channels"), d
-            )
-
+    else:
         shape = (n_scans, n_pixels_center, sensor.n_freqs)
         d = np.zeros(shape, dtype=np.float32)
         d[:] = np.nan
-        data["brightness_temperature_biases"] = (
+        data["simulated_brightness_temperatures"] = (
                 ("scans", "pixels_center", "channels"), d
         )
+
+    shape = (n_scans, n_pixels_center, sensor.n_freqs)
+    d = np.zeros(shape, dtype=np.float32)
+    d[:] = np.nan
+    data["brightness_temperature_biases"] = (
+            ("scans", "pixels_center", "channels"), d
+    )
     return data
 
 def add_brightness_temperatures(data, sensor):
