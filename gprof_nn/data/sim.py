@@ -29,6 +29,8 @@ from gprof_nn.definitions import (ALL_TARGETS,
                                   DATABASE_MONTHS,
                                   MISSING,
                                   PROFILE_NAMES)
+from gprof_nn.data.utils import (compressed_pixel_range,
+                                 N_PIXELS_CENTER)
 from gprof_nn.coordinates import latlon_to_ecef
 from gprof_nn.data.preprocessor import PreprocessorFile, run_preprocessor
 from gprof_nn.data.l1c import L1CFile
@@ -38,9 +40,9 @@ from gprof_nn import sensors
 from gprof_nn.utils import CONUS
 from gprof_nn.logging import console
 
-N_PIXELS_CENTER = 41
 
 LOGGER = logging.getLogger(__name__)
+
 
 ###############################################################################
 # Data types
@@ -141,8 +143,7 @@ class SimFile:
         i_c = 110
         ix_start = i_c - dx // 2
         ix_end = i_c + 1 + dx // 2
-        i_left = i_c - (N_PIXELS_CENTER // 2 + 1)
-        i_right = i_c + (N_PIXELS_CENTER // 2)
+        i_left, i_right = compressed_pixel_range()
 
         lats_1c = input_data["latitude"][:, ix_start:ix_end].data.reshape(-1, 1)
         lons_1c = input_data["longitude"][:, ix_start:ix_end].data.reshape(-1, 1)

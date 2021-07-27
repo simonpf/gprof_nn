@@ -19,6 +19,7 @@ from netCDF4 import Dataset
 from quantnn.normalizer import MinMaxNormalizer
 
 from gprof_nn import sensors
+from gprof_nn.data.utils import expand_pixels
 from gprof_nn.data.preprocessor import PreprocessorFile
 from gprof_nn.augmentation import (extract_domain,
                                    get_transformation_coordinates,
@@ -504,30 +505,6 @@ def _replace_randomly(x, p, rng=None):
     x[indices] = replacements
 
 
-def _expand_pixels(data):
-    """
-    Expand target data array that only contain data for central pixels.
-
-    Args:
-        data: Array containing data of a retrieval target variable.
-
-    Return:
-        The input data expanded to the full GMI swath along the third
-        dimension.
-    """
-    if len(data.shape) <= 2 or data.shape[2] == 221:
-        return data
-    new_shape = list(data.shape)
-    new_shape[2] = 221
-
-    i_start = (221 - data.shape[2]) // 2
-
-    data_new = np.zeros(new_shape, dtype=data.dtype)
-    data_new[:] = np.nan
-    data_new[:, :, i_start:-i_start] = data
-    return data_new
-
-
 ###############################################################################
 # GPROF-NN 2D
 ###############################################################################
@@ -839,7 +816,7 @@ class SimulatorDataset(GPROF2DDataset):
 
             for k in targets:
                 # Expand and reproject data.
-                y_k_r = _expand_pixels(dataset[k][i].data[np.newaxis, ...])
+                y_k_r = expand_pixels(dataset[k][i].data[np.newaxis, ...])
                 y_k_r = extract_domain(
                     y_k_r[0], coords,
                 )

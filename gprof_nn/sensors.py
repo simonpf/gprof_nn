@@ -14,6 +14,7 @@ import numpy as np
 import xarray as xr
 
 from gprof_nn.definitions import N_LAYERS
+from gprof_nn.data.utils import expand_pixels
 from gprof_nn.augmentation import (GMI_GEOMETRY,
                                    MHS_GEOMETRY,
                                    get_transformation_coordinates,
@@ -35,30 +36,6 @@ DATE_TYPE = np.dtype(
 ###############################################################################
 # Helper functions
 ###############################################################################
-
-
-def _expand_pixels(data):
-    """
-    Expand target data array that only contain data for central pixels.
-
-    Args:
-        data: Array containing data of a retrieval target variable.
-
-    Return:
-        The input data expanded to the full GMI swath along the third
-        dimension.
-    """
-    if len(data.shape) <= 2 or data.shape[2] == 221:
-        return data
-    new_shape = list(data.shape)
-    new_shape[2] = 221
-
-    i_start = (221 - data.shape[2]) // 2
-
-    data_new = np.zeros(new_shape, dtype=data.dtype)
-    data_new[:] = np.nan
-    data_new[:, :, i_start:-i_start] = data
-    return data_new
 
 
 _BIAS_SCALES_GMI = 1.0 / np.cos(np.deg2rad(
@@ -556,7 +533,7 @@ class ConicalScanner(Sensor):
             y = {}
             for t in targets:
                 y_t = variables[t][:].filled(np.nan)
-                y_t = _expand_pixels(y_t)[valid]
+                y_t = expand_pixels(y_t)[valid]
                 np.nan_to_num(y_t, copy=False, nan=-9999)
                 if t == "latent_heat":
                     y_t[y_t < -400] = -9999
@@ -639,7 +616,7 @@ class ConicalScanner(Sensor):
 
                 for k in targets:
                     # Expand and reproject data.
-                    y_k_r = _expand_pixels(dataset[k][i][:][np.newaxis, ...])
+                    y_k_r = expand_pixels(dataset[k][i][:][np.newaxis, ...])
                     y_k_r = extract_domain(
                         y_k_r[0], coords,
                     )
@@ -751,7 +728,7 @@ class ConicalScanner(Sensor):
 
             for k in targets:
                 # Expand and reproject data.
-                y_k_r = _expand_pixels(dataset[k][i].data[np.newaxis, ...])
+                y_k_r = expand_pixels(dataset[k][i].data[np.newaxis, ...])
                 y_k_r = extract_domain(
                     y_k_r[0], coords,
                 )
@@ -1074,7 +1051,7 @@ class CrossTrackScanner(Sensor):
 
                     # Interpolate brightness temperatures.
                     bts = scene["simulated_brightness_temperatures"]
-                    bts = _expand_pixels(bts.data[np.newaxis])[0]
+                    bts = expand_pixels(bts.data[np.newaxis])[0]
                     np.nan_to_num(bts, nan=-9999, copy=False)
 
                     bts_i = np.zeros((n_scans, n_pixels, self.n_freqs),
@@ -1095,7 +1072,7 @@ class CrossTrackScanner(Sensor):
 
                     bias_scales = calculate_bias_scaling(vas)
                     bias = scene["brightness_temperature_biases"]
-                    bias = _expand_pixels(bias.data[np.newaxis])[0]
+                    bias = expand_pixels(bias.data[np.newaxis])[0]
                     bias = bias.reshape(-1, self.n_freqs)
 
                     mask = bias > -1000
@@ -1194,7 +1171,7 @@ class CrossTrackScanner(Sensor):
                 if source == 0:
 
                     bts = scene["simulated_brightness_temperatures"]
-                    bts = _expand_pixels(bts.data[np.newaxis])[0]
+                    bts = expand_pixels(bts.data[np.newaxis])[0]
                     np.nan_to_num(bts, nan=-9999, copy=False)
 
                     sp = scene["surface_precip"].data
@@ -1228,7 +1205,7 @@ class CrossTrackScanner(Sensor):
                     # Calculate corrected biases.
                     bias_scales = calculate_bias_scaling(vas)
                     bias = scene["brightness_temperature_biases"]
-                    bias = _expand_pixels(bias.data[np.newaxis])[0][valid]
+                    bias = expand_pixels(bias.data[np.newaxis])[0][valid]
 
                     mask = bias > -1000
                     bias = bias_scales * bias
@@ -1293,7 +1270,7 @@ class CrossTrackScanner(Sensor):
                             y_t = y_i
                         else:
                             y_t = scene[t].data
-                            y_t = _expand_pixels(y_t[np.newaxis])[0][valid]
+                            y_t = expand_pixels(y_t[np.newaxis])[0][valid]
 
                         np.nan_to_num(y_t, copy=False, nan=-9999)
                         if t == "latent_heat":
@@ -1356,7 +1333,7 @@ class CrossTrackScanner(Sensor):
                             y_t = scene[t].data[valid, 0]
                         else:
                             y_t = scene[t].data
-                            y_t = _expand_pixels(y_t[np.newaxis])[0][valid]
+                            y_t = expand_pixels(y_t[np.newaxis])[0][valid]
 
                         np.nan_to_num(y_t, copy=False, nan=-9999)
                         if t == "latent_heat":
@@ -1462,7 +1439,7 @@ class CrossTrackScanner(Sensor):
 
         for k in targets:
             # Expand and reproject data.
-            y_k_r = _expand_pixels(data[k].data[np.newaxis, ...])
+            y_k_r = expand_pixels(data[k].data[np.newaxis, ...])
             y_k_r = extract_domain(
                 y_k_r[0], coords,
             )
@@ -1547,7 +1524,7 @@ class CrossTrackScanner(Sensor):
 
         for k in targets:
             # Expand and reproject data.
-            y_k_r = _expand_pixels(data[k].data[np.newaxis, ...])
+            y_k_r = expand_pixels(data[k].data[np.newaxis, ...])
             y_k_r = y_k_r[0, i_start:i_end, j_start:j_end]
             np.nan_to_num(y_k_r, copy=False, nan=-9999)
             if k == "latent_heat":
