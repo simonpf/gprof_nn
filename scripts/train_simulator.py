@@ -8,13 +8,10 @@ from pathlib import Path
 from torch import nn
 from torch import optim
 import numpy as np
-from quantnn import QRNN
-from quantnn.drnn import DRNN
 from quantnn.data import DataFolder
 from quantnn.normalizer import Normalizer
 from quantnn.models.pytorch.logging import TensorBoardLogger
 from quantnn.metrics import ScatterPlot
-from quantnn.transformations import LogLinear
 
 from gprof_nn import sensors
 from gprof_nn.data.training_data import SimulatorDataset
@@ -141,14 +138,10 @@ validation_data = DataFolder(
 # Create neural network model
 #
 
-simulator = Simulator(n_features_body,
+simulator = Simulator(sensor,
+                      n_features_body,
                       n_layers_head,
-                      n_features_head,
-                      32)
-quantiles = np.linspace(0, 1, 34)[1:-1]
-qrnn = QRNN(quantiles=quantiles,
-            model=simulator)
-model = qrnn.model
+                      n_features_head)
 simulator.normalizer = normalizer
 
 #
@@ -171,7 +164,7 @@ metrics.append(scatter_plot)
 n_epochs = 10
 optimizer = optim.Adam(model.parameters(), lr=0.0005)
 scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, n_epochs)
-qrnn.train(training_data=training_data,
+simulator.train(training_data=training_data,
            validation_data=validation_data,
            n_epochs=n_epochs,
            optimizer=optimizer,
@@ -179,11 +172,11 @@ qrnn.train(training_data=training_data,
            metrics=metrics,
            device=device,
            mask=-9999)
-qrnn.save(model_path / network_name)
+simulator.save(model_path / network_name)
 n_epochs = 20
 optimizer = optim.Adam(model.parameters(), lr=0.0005)
 scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, n_epochs)
-qrnn.train(training_data=training_data,
+simulator.train(training_data=training_data,
            validation_data=validation_data,
            n_epochs=n_epochs,
            optimizer=optimizer,
@@ -192,11 +185,11 @@ qrnn.train(training_data=training_data,
            metrics=metrics,
            device=device,
            mask=-9999)
-qrnn.save(model_path / network_name)
+simulator.save(model_path / network_name)
 n_epochs = 30
 optimizer = optim.Adam(model.parameters(), lr=0.0005)
 scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, n_epochs)
-qrnn.train(training_data=training_data,
+simulator.train(training_data=training_data,
            validation_data=validation_data,
            n_epochs=n_epochs,
            optimizer=optimizer,
@@ -205,4 +198,4 @@ qrnn.train(training_data=training_data,
            metrics=metrics,
            device=device,
            mask=-9999)
-qrnn.save(model_path / network_name)
+simulator.save(model_path / network_name)

@@ -20,7 +20,10 @@ from quantnn.normalizer import MinMaxNormalizer
 
 from gprof_nn import sensors
 from gprof_nn.data.preprocessor import PreprocessorFile
-from gprof_nn.augmentation import M, N, extract_domain, get_transformation_coordinates
+from gprof_nn.augmentation import (extract_domain,
+                                   get_transformation_coordinates,
+                                   GMI_GEOMETRY,
+                                   MHS_GEOMETRY)
 
 LOGGER = logging.getLogger(__name__)
 _DEVICE = torch.device("cpu")
@@ -696,8 +699,6 @@ class GPROF2DDataset:
             return self.x.shape[0]
 
 
-
-
 class SimulatorDataset(GPROF2DDataset):
     """
     Dataset to train a simulator network to predict simulated brightness
@@ -735,9 +736,8 @@ class SimulatorDataset(GPROF2DDataset):
 
         dataset = xr.open_dataset(filename)
         dataset = dataset[{"samples": dataset.source == 0}]
-        x, y = sensors.GMI.load_training_data_2d(dataset, targets,
-                                                 augment, self._rng)
-
+        x, y = self.load_training_data_2d(dataset, targets,
+                                          augment, self._rng)
         indices_1h = list(range(17, 39))
         if normalizer is None:
             self.normalizer = MinMaxNormalizer(x, exclude_indices=indices_1h)
@@ -762,3 +762,115 @@ class SimulatorDataset(GPROF2DDataset):
         self._shuffled = False
         if self.shuffle:
             self._shuffle()
+
+    def load_training_data_2d(self,
+                              dataset,
+                              targets,
+                              augment,
+                              rng):
+        if isinstance(dataset, (str, Path)):
+            dataset = xr.open_dataset(dataset)
+
+        #
+        # Input data
+        #
+
+        # Brightness temperatures
+        n = dataset.samples.size
+
+        x = []
+        y = {}
+
+        for i in range(n):
+            if augment:
+                p_x_o = rng.random()
+                p_x_i = rng.random()
+                p_y = rng.random()
+            else:
+                p_x_o = 0.0
+                p_x_i = 0.0
+                p_y = 0.0
+
+            coords = get_transformation_coordinates(GMI_GEOMETRY,
+                                                    96, 128,
+                                                    p_x_i, p_x_o, p_y)
+
+            tbs = dataset["brightness_temperatures_gmi"][i].data
+            tbs = extract_domain(tbs, coords)
+            tbs = np.transpose(tbs, (2, 0, 1))
+
+            invalid = (tbs > 500.0) + (tbs < 0.0)
+            tbs[invalid] = np.nan
+
+            # Simulate missing high-frequency channels
+            if augment:
+                r = rng.random()
+                n_p = rng.integers(10, 30)
+                if r > 0.80:
+                    tbs[:, 10:15, :n_p] = np.nan
+
+            t2m = dataset["two_meter_temperature"][i].data
+            t2m = extract_domain(t2m, coords)
+            t2m = t2m[np.newaxis, ...]
+            t2m[t2m < 0] = np.nan
+
+            tcwv = dataset["total_column_water_vapor"][i].data
+            tcwv = extract_domain(tcwv, coords)
+            tcwv = tcwv[np.newaxis, ...]
+            tcwv[tcwv < 0] = np.nan
+
+            st = dataset["surface_type"][i].data
+            st = extract_domain(st, coords, order=0)
+            st_1h = np.zeros((18,) + st.shape, dtype=np.float32)
+            for j in range(18):
+                st_1h[j, st == (j + 1)] = 1.0
+
+            at = dataset["airmass_type"][i].data
+            at = extract_domain(at, coords, order=0)
+            at_1h = np.zeros((4,) + st.shape, dtype=np.float32)
+            for j in range(4):
+                at_1h[j, np.maximum(at, 0) == j] = 1.0
+
+            x += [np.concatenate([tbs, t2m, tcwv, st_1h, at_1h], axis=0)]
+
+            #
+            # Output data
+            #
+
+            for k in targets:
+                # Expand and reproject data.
+                y_k_r = _expand_pixels(dataset[k][i].data[np.newaxis, ...])
+                y_k_r = extract_domain(
+                    y_k_r[0], coords,
+                )
+
+                y_k = y.setdefault(k, [])
+                np.nan_to_num(y_k_r, copy=False, nan=-9999)
+                if k == "latent_heat":
+                    y_k_r[y_k_r < -400] = -9999
+                else:
+                    y_k_r[y_k_r < 0] = -9999
+
+                dims_sp = tuple(range(2))
+                dims_t = tuple(range(2, y_k_r.ndim))
+                y_k += [np.transpose(y_k_r, dims_t + dims_sp)]
+
+            # Also flip data if requested.
+            if augment:
+                r = rng.random()
+                if r > 0.5:
+                    x[i] = np.flip(x[i], -2)
+                    for k in targets:
+                        y[k][i] = np.flip(y[k][i], -2)
+
+                r = rng.random()
+                if r > 0.5:
+                    x[i] = np.flip(x[i], -1)
+                    for k in targets:
+                        y[k][i] = np.flip(y[k][i], -1)
+
+        x = np.stack(x)
+        for k in targets:
+            y[k] = np.stack(y[k])
+
+        return x, y

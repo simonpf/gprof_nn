@@ -15,7 +15,7 @@ from gprof_nn.models import (
     GPROF_NN_0D_QRNN,
     GPROF_NN_0D_DRNN,
     GPROF_NN_2D_QRNN,
-    Simulator
+    SimulatorNet
 )
 
 
@@ -117,8 +117,9 @@ def test_simulator():
     file = path / "data" / "gprof_nn_mhs_era5_5.nc"
     data = SimulatorDataset(file, batch_size=1)
 
-    simulator = Simulator(64, 2, 32, 128)
+    simulator = SimulatorNet(sensors.MHS, 64, 2, 32, 128)
     x, y = data[0]
+    print(x.shape)
     y_pred = simulator(x)
     for k in y_pred:
         assert k in y

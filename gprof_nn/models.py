@@ -18,7 +18,8 @@ from gprof_nn.definitions import ALL_TARGETS, PROFILE_NAMES
 from gprof_nn.retrieval import (NetcdfLoader0D,
                                 NetcdfLoader2D,
                                 PreprocessorLoader0D,
-                                PreprocessorLoader2D)
+                                PreprocessorLoader2D,
+                                SimulatorLoader)
 from gprof_nn.data.training_data import (GPROF0DDataset,
                                          GPROF2DDataset)
 
@@ -535,7 +536,6 @@ class XceptionFPN(nn.Module):
     Feature pyramid network (FPN) with 5 stages based on xception
     architecture.
     """
-
     def __init__(self,
                  n_outputs,
                  n_blocks,
@@ -733,13 +733,13 @@ class GPROF_NN_2D_DRNN(DRNN):
         self.netcdf_class = NetcdfLoader2D
 
 
-class Simulator(nn.Module):
+class SimulatorNet(nn.Module):
     """
-    Feature pyramid network (FPN) with 5 stages based on xception
-    architecture.
+    Special version of the Xception FPN network for simulating brightness
+    temperatures and biases.
     """
-
     def __init__(self,
+                 sensor,
                  n_features_body,
                  n_layers_head,
                  n_features_head,
@@ -752,8 +752,15 @@ class Simulator(nn.Module):
             n_features_head: The number of features in each layer of each head.
         """
         super().__init__()
-        self.n_outputs = n_outputs
+        self.sensor = sensor
 
+        if hasattr(sensor, "angles"):
+            n_freqs_sim = sensor.n_freqs * sensor.n_angles
+        else:
+            n_freqs_sim = sensor.n_freqs
+        n_biases = sensor.n_freqs
+
+        self.n_outputs = n_outputs
         self.in_block = nn.Conv2d(15, n_features_body, 1)
 
         self.down_block_2 = DownsamplingBlock(n_features_body, 2)
@@ -771,11 +778,11 @@ class Simulator(nn.Module):
         n_inputs = 2 * n_features_body + 24
         self.bias_head = MLPHead(n_inputs,
                                  n_features_head,
-                                 5 * n_outputs,
+                                 n_biases * n_outputs,
                                  n_layers_head)
         self.sim_head = MLPHead(n_inputs,
                                 n_features_head,
-                                50 * n_outputs,
+                                n_freqs_sim * n_outputs,
                                 n_layers_head)
 
     def forward(self, x):
@@ -799,9 +806,19 @@ class Simulator(nn.Module):
 
         x = torch.cat([x_in, x_u, x[:, 15:]], 1)
 
-        shape = x.shape[:1] + (self.n_outputs, 5,) + x.shape[2:4]
+        n_freqs = self.sensor.n_freqs
+        shape = x.shape[:1] + (self.n_outputs, n_freqs) + x.shape[2:4]
         bias = self.bias_head(x).reshape(shape)
-        shape = x.shape[:1] + (self.n_outputs, 10, 5,) + x.shape[2:4]
+
+        if hasattr(self.sensor, "angles"):
+            n_angles = self.sensor.n_angles
+            shape = (x.shape[:1] +
+                     (self.n_outputs, n_angles, n_freqs) +
+                     x.shape[2:4])
+        else:
+            shape = (x.shape[:1] +
+                     (self.n_outputs, n_freqs) +
+                     x.shape[2:4])
         sim = self.sim_head(x).reshape(shape)
 
         results = {
@@ -809,3 +826,34 @@ class Simulator(nn.Module):
             "simulated_brightness_temperatures": sim
         }
         return results
+
+
+class Simulator(QRNN):
+    """
+    Simulator QRNN to learn to predict simulated brightness temperatures
+    from GMI observations.
+    """
+    def __init__(self,
+                 sensor,
+                 n_features_body,
+                 n_layers_head,
+                 n_features_head):
+        """
+        Args:
+            sensor: Sensor object defining the object for which the simulations
+                should be performed.
+            n_features_body: The number of features in the body of the Exception FPN.
+            n_layers_head: The number of layers in each head of the FPN.
+            n_features_header: The number of features in each head.
+        """
+        model = SimulatorNet(sensor,
+                             n_features_body,
+                             n_layers_head,
+                             n_features_head,
+                             128)
+        quantiles = np.linspace(0, 1, 130)[1:-1]
+        super().__init__(n_inputs=39,
+                         quantiles=quantiles,
+                         model=model)
+        self.preprocessor_class = None
+        self.netcdf_class = SimulatorLoader
