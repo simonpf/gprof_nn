@@ -199,12 +199,11 @@ class ZonalDistribution(Statistic):
             self._initialize(data)
 
         if self.has_time:
-            for i in range(12):
-                indices = data["scan_time"] == (i + 1)
+            for month in range(12):
+                indices = data["scan_time"].dt.month == (i + 1)
                 if indices.ndim > 1:
                     indices = indices.all(axis=tuple(np.arange(indices.ndim)[1:]))
                 data.latitude.load()
-                lats = data.latitude[indices].data
 
                 for k in ALL_TARGETS:
                     if k in self.counts:
@@ -235,13 +234,13 @@ class ZonalDistribution(Statistic):
                         cs, _ = np.histogram(lats_v.ravel(),
                                              bins=self.latitude_bins,
                                              weights=weights.ravel())
-                        self.counts[k][i] += cs
+                        self.counts[k][month] += cs
                         weights = np.nan_to_num(v, nan=0.0)
                         weights[v < -500] = 0.0
                         cs, _ = np.histogram(lats_v.ravel(),
                                              bins=self.latitude_bins,
                                              weights=weights.ravel())
-                        self.sums[k][i] += cs
+                        self.sums[k][month] += cs
         else:
             data.latitude.load()
             for k in ALL_TARGETS:
@@ -381,7 +380,7 @@ class GlobalDistribution(Statistic):
             self._initialize(data)
 
         if self.has_time:
-            for i in range(12):
+            for month in range(12):
                 indices = data["scan_time"].dt.month == (i + 1)
                 if indices.ndim > 1:
                     indices = indices.all(axis=tuple(np.arange(indices.ndim)[1:]))
@@ -424,7 +423,7 @@ class GlobalDistribution(Statistic):
                                                   bins=(self.latitude_bins,
                                                         self.longitude_bins),
                                                   weights=weights.ravel())
-                        self.counts[k][i] += cs
+                        self.counts[k][month] += cs
                         weights = np.nan_to_num(v, nan=0.0)
                         weights[v < -500] = 0.0
                         cs, _, _ = np.histogram2d(lats_v.ravel(),
@@ -432,7 +431,7 @@ class GlobalDistribution(Statistic):
                                                   bins=(self.latitude_bins,
                                                         self.longitude_bins),
                                                   weights=weights.ravel())
-                        self.sums[k][i] += cs
+                        self.sums[k][month] += cs
         else:
             data.latitude.load()
             data.longitude.load()
@@ -1032,30 +1031,31 @@ class CorrectedObservations(Statistic):
         x, y = sensor.load_training_data_0d(filename,
                                             [],
                                             False,
-                                            np.random.default_rng())
+                                            np.random.default_rng(),
+                                            equalizer=self.equalizer)
 
         st = np.where(x[:, -22:-4])[1]
         tbs = x[:, :sensor.n_freqs]
 
         for i in range(18):
             # Select only TBs that are actually used for training.
-            i_st = (st == i + 1)
+            i_st = (st == i)
 
             # Sensor with varying EIA (cross track).
             if self.has_angles:
-                eia = x[:, -23]
+                eia = np.abs(x[:, sensor.n_freqs])
                 for j in range(sensor.n_angles):
                     lower = self.angle_bins[j + 1]
                     upper = self.angle_bins[j]
-                    i_a = (eia >= lower) * (eia < upper)
+                    inds = i_st * (eia >= lower) * (eia < upper)
                     for k in range(sensor.n_freqs):
-                        cs, _ = np.histogram(tbs[i_a, k],
+                        cs, _ = np.histogram(tbs[inds, k],
                                              bins=self.tb_bins)
                         self.tbs[i, k, j] += cs
             # Sensor with constant EIA
             else:
                 for j in range(sensor.n_freqs):
-                    cs, _ = np.histogram(tbs[:, j], bins=self.tb_bins)
+                    cs, _ = np.histogram(tbs[i_st, j], bins=self.tb_bins)
                     self.tbs[i, j] += cs
 
     def merge(self, other):
