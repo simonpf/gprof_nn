@@ -42,7 +42,7 @@ sensor = getattr(sensors, args.sensor, None)
 if sensor is None:
     raise ValueError(f"Sensor {args.sensor} is currently not supported.")
 
-stats = [statistics.TrainingDataStatistics(),
+stats = [statistics.TrainingDataStatistics(conditional=1),
          statistics.ZonalDistribution(),
          statistics.GlobalDistribution()]
 input_files = list(Path(input_path).glob("**/*.nc"))
