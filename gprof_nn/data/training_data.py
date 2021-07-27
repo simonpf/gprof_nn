@@ -532,50 +532,49 @@ def _expand_pixels(data):
 
 class GPROF2DDataset:
     """
-    Dataset class providing an interface for the convolutional GPROF-NN 2D
-    retrieval algorithm.
+    Base class for GPROF-NN 2D-retrieval training data in which training
+    samples consist of 2D scenes of input data and corresponding target
+    fields.
 
-    Attributes:
-        x: Rank-4 tensor containing the input data with
-           samples along first dimension and channels along second.
-        y: The target values
-        filename: The filename from which the data is loaded.
-        target: The name of the variable(s) used as retrieval target(s).
-        batch_size: The size of data batches returned by __getitem__ method.
-        normalizer: The normalizer used to normalize the data.
-        shuffle: Whether or not the ordering of the data is shuffled.
-        augment: Whether or not data augmentation is applied.
+    Object of this class act as an iterator over batches in the training
+    data set.
+
+
     """
-
     def __init__(
         self,
         filename,
-        target="surface_precip",
-        normalize=True,
-        transform_zeros=True,
+        targets=None,
         batch_size=32,
+        normalize=True,
         normalizer=None,
+        transform_zeros=True,
         shuffle=True,
         augment=True,
     ):
         """
-        Load GPROF 2D data.
-
         Args:
-            filename: Path to the NetCDF file containing the training data to
-                load.
-            target: String or list of strings specifying the names of the
-                variables to use as retrieval targets.
-            normalize: Whether or not to normalize the input data.
-            transform_zeros: Whether or not to replace very small
-                values with random values.
-            batch_size: Number of samples in each training batch.
-            shuffle: Whether or not to shuffle the training data.
-            augment: Whether or not to randomly mask high-frequency channels
-                and to randomly permute ancillary data.
+            filename: Path of the NetCDF file containing the training data.
+            sensor: The sensor object to use to load the data.
+            targets: List of the targets to load from the data.
+            batch_size: The size of batches in the training data.
+            normalize: Whether or not to noramlize the input data.
+            normalizer: Normalizer object to use to normalize the input
+                data. May alternatively be a normalizer class that will
+                be used to instantiate a new normalizer object with the loaded
+                input data. If 'None', a new ``quantnn.normalizer.MinMaxNormalizer``
+                will be created with the loaded input data.
+            transform_zeros: Whether or not to transform target values that are
+                zero to small random values.
+            shuffle: Whether or not to shuffle the data.
+            augment: Whether or not to augment the training data.
         """
         self.filename = Path(filename)
-        self.target = target
+        if targets is None:
+            self.targets = ["surface_precip"]
+        else:
+            self.targets = targets
+
         self.transform_zeros = transform_zeros
         self.batch_size = batch_size
         self.shuffle = shuffle
@@ -583,19 +582,26 @@ class GPROF2DDataset:
 
         seed = int.from_bytes(os.urandom(4), "big") + os.getpid()
         self._rng = np.random.default_rng(seed)
-        self._load_data()
+
+        sensor = xr.open_dataset(filename).attrs["sensor"]
+        sensor = getattr(sensors, sensor)
+        x, y = sensor.load_training_data_2d(filename, self.targets,
+                                            augment, self._rng)
 
         indices_1h = list(range(17, 39))
         if normalizer is None:
-            self.normalizer = MinMaxNormalizer(self.x, exclude_indices=indices_1h)
+            self.normalizer = MinMaxNormalizer(x, exclude_indices=indices_1h)
         elif isinstance(normalizer, type):
-            self.normalizer = normalizer(self.x, exclude_indices=indices_1h)
+            self.normalizer = normalizer(x, exclude_indices=indices_1h)
         else:
             self.normalizer = normalizer
 
         self.normalize = normalize
         if normalize:
-            self.x = self.normalizer(self.x)
+            x = self.normalizer(x)
+
+        self.x = x
+        self.y = y
 
         if transform_zeros:
             self._transform_zeros()
@@ -630,140 +636,6 @@ class GPROF2DDataset:
             if indices.sum() > 0:
                 t_l = np.log10(threshold)
                 y_k[indices] = 10 ** self._rng.uniform(t_l - 4, t_l, indices.sum())
-
-    def _load_data(self):
-        """
-        Loads the data from the file into the ``x`` and ``y`` attributes.
-        """
-        with Dataset(self.filename, "r") as dataset:
-
-            variables = dataset.variables
-
-            #
-            # Input data
-            #
-
-            # Brightness temperatures
-            n = dataset.dimensions["samples"].size
-
-            x = np.zeros((n, 39, M, N))
-            if isinstance(self.target, list):
-                y = {}
-            else:
-                y = np.zeros(
-                    (
-                        n,
-                        M,
-                        N,
-                    )
-                    + dataset[self.target][0].shape[3:],
-                    dtype=np.float32,
-                )
-            for i in range(n):
-                if self.augment:
-                    p_x_o = 2.0 * self._rng.random() - 1.0
-                    p_x_i = 2.0 * self._rng.random() - 1.0
-                    p_y = 2.0 * self._rng.random() - 1.0
-                else:
-                    p_x_o = 0.0
-                    p_x_i = 0.0
-                    p_y = 0.0
-
-                coords = get_transformation_coordinates(p_x_i, p_x_o, p_y)
-
-                tbs = dataset["brightness_temperatures"][i][:]
-                tbs = extract_domain(tbs, p_x_i, p_x_o, p_y, coords=coords)
-                tbs = np.transpose(tbs, (2, 0, 1))
-
-                invalid = (tbs > 500.0) + (tbs < 0.0)
-                tbs[invalid] = np.nan
-
-                # Simulate missing high-frequency channels
-                if self.augment:
-                    r = self._rng.random()
-                    n_p = self._rng.integers(10, 30)
-                    if r > 0.95:
-                        tbs[:, 10:15, :n_p] = np.nan
-
-                t2m = variables["two_meter_temperature"][i][:]
-                t2m = extract_domain(t2m, p_x_i, p_x_o, p_y, coords=coords)
-                t2m = t2m[np.newaxis, ...]
-                t2m[t2m < 0] = np.nan
-
-                tcwv = variables["total_column_water_vapor"][i][:]
-                tcwv = extract_domain(tcwv, p_x_i, p_x_o, p_y, coords=coords)
-                tcwv = tcwv[np.newaxis, ...]
-                tcwv[tcwv < 0] = np.nan
-
-                st = dataset["surface_type"][i][:]
-                st = extract_domain(st, p_x_i, p_x_o, p_y, coords=coords, order=0)
-                st_1h = np.zeros((18,) + st.shape, dtype=np.float32)
-                for j in range(18):
-                    st_1h[j, st == (j + 1)] = 1.0
-
-                at = dataset["airmass_type"][i][:]
-                at = extract_domain(at, p_x_i, p_x_o, p_y, coords=coords, order=0)
-                at_1h = np.zeros((4,) + st.shape, dtype=np.float32)
-                for j in range(4):
-                    at_1h[j, np.maximum(at, 0) == j] = 1.0
-
-                x[i] = np.concatenate([tbs, t2m, tcwv, st_1h, at_1h], axis=0)
-
-                dims = (n, 28)
-                if isinstance(self.target, list):
-                    for k in self.target:
-                        y_k_r = _expand_pixels(dataset[k][i][:][np.newaxis, ...])
-                        y_k = y.setdefault(
-                            k,
-                            np.zeros(dims[: y_k_r.ndim - 2] + (M, N), dtype=np.float32),
-                        )
-                        y_k_i = extract_domain(
-                            y_k_r[0], p_x_i, p_x_o, p_y, coords=coords
-                        )
-                        np.nan_to_num(y_k_i, copy=False, nan=-9999)
-                        if k == "latent_heat":
-                            y_k_i[y_k_i < -400] = -9999
-                        else:
-                            y_k_i[y_k_i < 0] = -9999
-                        if y_k_i.ndim > 2:
-                            y_k[i] = np.transpose(y_k_i, (2, 0, 1))
-                        else:
-                            y_k[i] = y_k_i
-
-                else:
-                    y_r = _expand_pixels(dataset[self.target][i][:][np.newaxis, ...])
-                    y_i = extract_domain(y_r[0], p_x_i, p_x_o, p_y, coords=coords)
-                    np.nan_to_num(y_i, copy=False, nan=-9999)
-                    if self.target == "latent_heat":
-                        y_i[y_i < -400] = -9999
-                    else:
-                        y_i[y_i < 0] = -9999
-                    if y_i.ndim > 2:
-                        y[i] = np.transpose(y_i, (2, 0, 1))
-                    else:
-                        y[i] = y_i
-
-                # Also flip data if requested.
-                if self.augment:
-                    r = self._rng.random()
-                    if r > 0.5:
-                        x[i] = np.flip(x[i], -2)
-                        if isinstance(self.target, list):
-                            for k in self.target:
-                                y[k][i] = np.flip(y[k][i], -2)
-                        else:
-                            y[i] = np.flip(y[i], -2)
-
-                    r = self._rng.random()
-                    if r > 0.5:
-                        x[i] = np.flip(x[i], -1)
-                        if isinstance(self.target, list):
-                            for k in self.target:
-                                y[k][i] = np.flip(y[k][i], -1)
-                        else:
-                            y[i] = np.flip(y[i], -1)
-        self.x = x
-        self.y = y
 
     def _shuffle(self):
         if not self._shuffled:
@@ -822,3 +694,71 @@ class GPROF2DDataset:
             return n
         else:
             return self.x.shape[0]
+
+
+
+
+class SimulatorDataset(GPROF2DDataset):
+    """
+    Dataset to train a simulator network to predict simulated brightness
+    temperatures and brightness temperature biases.
+    """
+    def __init__(
+        self,
+        filename,
+        batch_size=32,
+        normalize=True,
+        normalizer=None,
+        shuffle=True,
+        augment=True,
+    ):
+        """
+        Args:
+            filename: Path to the NetCDF file containing the training data.
+            normalize: Whether or not to normalize the input data.
+            batch_size: Number of samples in each training batch.
+            normalizer: The normalizer used to normalize the data.
+            shuffle: Whether or not to shuffle the training data.
+            augment: Whether or not to randomly mask high-frequency channels
+                and to randomly permute ancillary data.
+        """
+        self.filename = Path(filename)
+        targets = ["simulated_brightness_temperatures",
+                   "brightness_temperature_biases"]
+        self.transform_zeros = False
+        self.batch_size = batch_size
+        self.shuffle = shuffle
+        self.augment = augment
+
+        seed = int.from_bytes(os.urandom(4), "big") + os.getpid()
+        self._rng = np.random.default_rng(seed)
+
+        dataset = xr.open_dataset(filename)
+        dataset = dataset[{"samples": dataset.source == 0}]
+        x, y = sensors.GMI.load_training_data_2d(dataset, targets,
+                                                 augment, self._rng)
+
+        indices_1h = list(range(17, 39))
+        if normalizer is None:
+            self.normalizer = MinMaxNormalizer(x, exclude_indices=indices_1h)
+        elif isinstance(normalizer, type):
+            self.normalizer = normalizer(x, exclude_indices=indices_1h)
+        else:
+            self.normalizer = normalizer
+
+        self.normalize = normalize
+        if normalize:
+            x = self.normalizer(x)
+
+        self.x = x
+        self.y = y
+
+        self.x = self.x.astype(np.float32)
+        if isinstance(self.y, dict):
+            self.y = {k: self.y[k].astype(np.float32) for k in self.y}
+        else:
+            self.y = self.y.astype(np.float32)
+
+        self._shuffled = False
+        if self.shuffle:
+            self._shuffle()

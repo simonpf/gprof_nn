@@ -63,19 +63,22 @@ def calculate_padding_dimensions(t):
     return (p_l_n, p_r_n, p_l_m, p_r_m)
 
 
-def combine_input_data_2d(dataset):
+def combine_input_data_2d(dataset,
+                          v_tbs="brightness_temperatures"):
     """
     Combine retrieval input data into input tensor format for convolutional
     retrieval.
 
     Args:
-         ``xarray.Dataset`` containing the input variables.
+        dataset: ``xarray.Dataset`` containing the input variables.
+        v_tbs: Name of the variable to load the brightness temperatures
+            from.
 
     Return:
         Rank-4 input tensor containing the input data with features oriented
         along the first axis.
     """
-    bts = dataset["brightness_temperatures"][:].data
+    bts = dataset[v_tbs][:].data
     invalid = (bts > 500.0) + (bts < 0.0)
     bts[invalid] = np.nan
     # 2m temperature
@@ -275,30 +278,25 @@ class RetrievalDriver:
                                                          key=k)
                         pop.append(p.cpu())
 
-        dims = input_data.scalar_dimensions
-        dims_p = input_data.profile_dimensions
-
         data = {}
         for k in means:
             y = np.concatenate([t.numpy() for t in means[k]])
-            if k in PROFILE_NAMES:
-                data[k] = (dims_p, y)
-            else:
-                data[k] = (dims, y)
+            data[k] = (input_data.dimensions[k], y)
 
-
-        data["precip_1st_tercile"] = (
-            dims,
-            np.concatenate([t.numpy() for t in precip_1st_tercile])
-        )
-        data["precip_3rd_tercile"] = (
-            dims,
-            np.concatenate([t.numpy() for t in precip_3rd_tercile])
-        )
-        pop = np.concatenate([t.numpy() for t in pop])
-        data["pop"] = (dims, pop)
-        data["most_likely_precip"] = data["surface_precip"]
-        data["precip_flag"] = (dims, pop > 0.5)
+        if len(precip_1st_tercile) > 0:
+            dims = input_data.dimensions["surface_precip"]
+            data["precip_1st_tercile"] = (
+                dims,
+                np.concatenate([t.numpy() for t in precip_1st_tercile])
+            )
+            data["precip_3rd_tercile"] = (
+                dims,
+                np.concatenate([t.numpy() for t in precip_3rd_tercile])
+            )
+            pop = np.concatenate([t.numpy() for t in pop])
+            data["pop"] = (dims, pop)
+            data["most_likely_precip"] = data["surface_precip"]
+            data["precip_flag"] = (dims, pop > 0.5)
         data = xr.Dataset(data)
 
         return input_data.finalize(data)
@@ -505,6 +503,10 @@ class NetcdfLoader0D(NetcdfLoader):
 
         self.scalar_dimensions = ("samples")
         self.profile_dimensions = ("samples", "layers")
+        self.dimensions = {
+            t: ("samples", "layers") if t in PROFILE_NAMES else
+            ("samples") for t in ALL_TARGETS
+        }
 
     def _load_data(self):
         """
@@ -602,6 +604,10 @@ class NetcdfLoader2D(NetcdfLoader):
 
         self.scalar_dimensions = ("samples", "scans", "pixels")
         self.profile_dimensions = ("samples", "layers", "scans", "pixels")
+        self.dimensions = {
+            t: ("samples", "layers", "scans", "pixels") if t in PROFILE_NAMES else
+            ("samples", "scans", "pixels") for t in ALL_TARGETS
+        }
 
     def _load_data(self):
         """
@@ -639,7 +645,7 @@ class NetcdfLoader2D(NetcdfLoader):
 
 
 ###############################################################################
-# Netcdf Format
+# Preprocessor format
 ###############################################################################
 
 
@@ -673,6 +679,10 @@ class PreprocessorLoader0D:
 
         self.scalar_dimensions = ("samples")
         self.profile_dimensions = ("samples", "layers")
+        self.dimensions = {
+            t: ("samples", "layers") if t in PROFILE_NAMES else
+            ("samples",) for t in ALL_TARGETS
+        }
 
     def __len__(self):
         """
@@ -818,6 +828,10 @@ class PreprocessorLoader2D:
 
         self.scalar_dimensions = ("samples", "scans", "pixels")
         self.profile_dimensions = ("samples", "layers", "scans", "pixels")
+        self.dimensions = {
+            t: ("samples", "layers", "scans", "pixels") if t in PROFILE_NAMES else
+            ("samples", "scans", "pixels") for t in ALL_TARGETS
+        }
 
     def __len__(self):
         """
@@ -870,3 +884,96 @@ class PreprocessorLoader2D:
             results,
             ancillary_data=ancillary_data
         )
+
+###############################################################################
+# Simulator format
+###############################################################################
+
+
+class SimulatorLoader(NetcdfLoader):
+    """
+    Interface class to augment training data with simulated Tbs.
+    """
+    def __init__(self,
+                 filename,
+                 normalizer,
+                 batch_size=8):
+        super().__init__()
+        self.filename = filename
+        self.normalizer = normalizer
+        self.batch_size = batch_size
+
+        self._load_data()
+        self.n_samples = self.input_data.shape[0]
+
+        self.scalar_dimensions = ("samples", "scans", "pixels")
+        self.profile_dimensions = ("samples", "layers", "scans", "pixels")
+
+        self.dimensions = {
+            "simulated_brightness_temperatures": ("samples", "angles", "channels", "scans", "pixels"),
+            "brightness_temperature_biases": ("samples", "channels", "scans", "pixels")
+        }
+
+    def _load_data(self):
+        """
+        Load data from training data NetCDF format into 'input' data
+        attribute.
+        """
+        dataset = xr.open_dataset(self.filename)
+        dataset = dataset[{"samples": dataset.source == 0}]
+        input_data = combine_input_data_2d(dataset,
+                                           v_tbs="brightness_temperatures_gmi")
+        self.input_data = self.normalizer(input_data)
+        self.padding = calculate_padding_dimensions(input_data)
+
+    def __getitem__(self, i):
+        """
+        Return batch of input data.
+
+        Args:
+            The batch index.
+
+        Return:
+            PyTorch tensor containing the batch of input data.
+        """
+        x = super().__getitem__(i)
+        return torch.nn.functional.pad(x, self.padding, mode="replicate")
+
+
+    def finalize(self, data):
+        """
+        Copy predicted Tbs and biases into input file and return.
+        """
+        data = data[{
+            "scans": slice(self.padding[0], -self.padding[1]),
+            "pixels": slice(self.padding[2], -self.padding[3])
+        }]
+        data = data.transpose("samples", "scans", "pixels", "angles", "channels")
+        input_data = xr.load_dataset(self.filename)
+
+        n_samples = input_data.samples.size
+        n_scans = data.scans.size
+        n_pixels = data.pixels.size
+        n_angles = data.angles.size
+        n_channels = data.channels.size
+        input_data["simulated_brightness_temperatures"] = (
+            ("samples", "scans", "pixels", "angles", "channels"),
+            np.nan * np.zeros(
+                (n_samples, n_scans, n_pixels, n_angles, n_channels)
+            )
+        )
+        input_data["brightness_temperature_biases"] = (
+            ("samples", "scans", "pixels", "channels"),
+            np.nan * np.zeros(
+                (n_samples, n_scans, n_pixels, n_channels)
+            )
+        )
+        index = 0
+        for i in range(n_samples):
+            if input_data.source[i] == 0:
+                input_data["simulated_brightness_temperatures"][i] = \
+                    data["simulated_brightness_temperatures"][index]
+                input_data["brightness_temperature_biases"][i] = \
+                    data["brightness_temperature_biases"][index]
+                index += 1
+        return input_data

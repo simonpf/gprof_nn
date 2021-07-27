@@ -731,3 +731,81 @@ class GPROF_NN_2D_DRNN(DRNN):
 
         self.preprocessor_class = PreprocessorLoader2D
         self.netcdf_class = NetcdfLoader2D
+
+
+class Simulator(nn.Module):
+    """
+    Feature pyramid network (FPN) with 5 stages based on xception
+    architecture.
+    """
+
+    def __init__(self,
+                 n_features_body,
+                 n_layers_head,
+                 n_features_head,
+                 n_outputs):
+        """
+        Args:
+            n_features_body: The number of features/channels in the network
+                body.
+            n_layers_head: The number of layers in each network head.
+            n_features_head: The number of features in each layer of each head.
+        """
+        super().__init__()
+        self.n_outputs = n_outputs
+
+        self.in_block = nn.Conv2d(15, n_features_body, 1)
+
+        self.down_block_2 = DownsamplingBlock(n_features_body, 2)
+        self.down_block_4 = DownsamplingBlock(n_features_body, 2)
+        self.down_block_8 = DownsamplingBlock(n_features_body, 2)
+        self.down_block_16 = DownsamplingBlock(n_features_body, 2)
+        self.down_block_32 = DownsamplingBlock(n_features_body, 2)
+
+        self.up_block_16 = UpsamplingBlock(n_features_body)
+        self.up_block_8 = UpsamplingBlock(n_features_body)
+        self.up_block_4 = UpsamplingBlock(n_features_body)
+        self.up_block_2 = UpsamplingBlock(n_features_body)
+        self.up_block = UpsamplingBlock(n_features_body)
+
+        n_inputs = 2 * n_features_body + 24
+        self.bias_head = MLPHead(n_inputs,
+                                 n_features_head,
+                                 5 * n_outputs,
+                                 n_layers_head)
+        self.sim_head = MLPHead(n_inputs,
+                                n_features_head,
+                                50 * n_outputs,
+                                n_layers_head)
+
+    def forward(self, x):
+        """
+        Propagate input through block.
+        """
+        x_in = self.in_block(x[:, :15])
+        x_in[:, :15] += x[:, :15]
+
+        x_2 = self.down_block_2(x_in)
+        x_4 = self.down_block_4(x_2)
+        x_8 = self.down_block_8(x_4)
+        x_16 = self.down_block_16(x_8)
+        x_32 = self.down_block_32(x_16)
+
+        x_16_u = self.up_block_16(x_32, x_16)
+        x_8_u = self.up_block_8(x_16_u, x_8)
+        x_4_u = self.up_block_4(x_8_u, x_4)
+        x_2_u = self.up_block_2(x_4_u, x_2)
+        x_u = self.up_block(x_2_u, x_in)
+
+        x = torch.cat([x_in, x_u, x[:, 15:]], 1)
+
+        shape = x.shape[:1] + (self.n_outputs, 5,) + x.shape[2:4]
+        bias = self.bias_head(x).reshape(shape)
+        shape = x.shape[:1] + (self.n_outputs, 10, 5,) + x.shape[2:4]
+        sim = self.sim_head(x).reshape(shape)
+
+        results = {
+            "brightness_temperature_biases": bias,
+            "simulated_brightness_temperatures": sim
+        }
+        return results
