@@ -53,7 +53,7 @@ n_procs = args.n_processes
 if sensor is None:
     raise ValueError(f"Sensor {args.sensor} is currently not supported.")
 
-stats = [statistics.ObservationStatistics()]
+stats = [statistics.ObservationStatistics(conditional=1)]
 input_files = list(Path(input_path).glob("**/*.nc"))
 processor = statistics.StatisticsProcessor(sensor, input_files, stats)
 processor.run(n_procs, output_path)

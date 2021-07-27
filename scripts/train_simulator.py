@@ -143,6 +143,7 @@ simulator = Simulator(sensor,
                       n_layers_head,
                       n_features_head)
 simulator.normalizer = normalizer
+model = simulator.model
 
 #
 # Run training

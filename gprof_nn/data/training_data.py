@@ -795,7 +795,10 @@ class SimulatorDataset(GPROF2DDataset):
                                                     96, 128,
                                                     p_x_i, p_x_o, p_y)
 
-            tbs = dataset["brightness_temperatures_gmi"][i].data
+            if "brightness_temperatures_gmi" in dataset.variables:
+                tbs = dataset["brightness_temperatures_gmi"][i].data
+            else:
+                tbs = dataset["brightness_temperatures"][i].data
             tbs = extract_domain(tbs, coords)
             tbs = np.transpose(tbs, (2, 0, 1))
 
