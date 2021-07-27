@@ -7,12 +7,17 @@ This module defines different sensor classes and objects to represent the
  various sensors of the GPM constellation.
 """
 from abc import ABC, abstractmethod, abstractproperty
+from pathlib import Path
 
 from netCDF4 import Dataset
 import numpy as np
 import xarray as xr
 
 from gprof_nn.definitions import N_LAYERS
+from gprof_nn.augmentation import (GMI_GEOMETRY,
+                                   MHS_GEOMETRY,
+                                   get_transformation_coordinates,
+                                   extract_domain)
 
 
 DATE_TYPE = np.dtype(
@@ -560,11 +565,227 @@ class ConicalScanner(Sensor):
                 y[t] = y_t
         return x, y
 
-    def load_data_2d(self, filename, targets):
-        pass
+    def load_data_2d(self,
+                     filename,
+                     targets,
+                     augment,
+                     rng):
+        with xr.open_dataset(self.filename) as dataset:
+            #
+            # Input data
+            #
 
-    def load_training_data_2d(self, filename, targets):
-        pass
+            # Brightness temperatures
+            n = dataset.samples.size
+
+            x = []
+            y = {}
+
+            for i in range(n):
+                if self.augment:
+                    p_x_o = rng.random()
+                    p_x_i = rng.random()
+                    p_y = rng.random()
+                else:
+                    p_x_o = 0.0
+                    p_x_i = 0.0
+                    p_y = 0.0
+
+                coords = get_transformation_coordinates(GMI_GEOMETRY,
+                                                        96, 128,
+                                                        p_x_i, p_x_o, p_y)
+
+                tbs = dataset["brightness_temperatures"][i][:]
+                tbs = extract_domain(tbs, coords)
+                tbs = np.transpose(tbs, (2, 0, 1))
+
+                invalid = (tbs > 500.0) + (tbs < 0.0)
+                tbs[invalid] = np.nan
+
+                # Simulate missing high-frequency channels
+                if self.augment:
+                    r = rng.random()
+                    n_p = rng.integers(10, 30)
+                    if r > 0.80:
+                        tbs[:, 10:15, :n_p] = np.nan
+
+                t2m = dataset["two_meter_temperature"][i][:]
+                t2m = extract_domain(t2m, coords)
+                t2m = t2m[np.newaxis, ...]
+                t2m[t2m < 0] = np.nan
+
+                tcwv = dataset["total_column_water_vapor"][i][:]
+                tcwv = extract_domain(tcwv, coords)
+                tcwv = tcwv[np.newaxis, ...]
+                tcwv[tcwv < 0] = np.nan
+
+                st = dataset["surface_type"][i][:]
+                st = extract_domain(st, coords, order=0)
+                st_1h = np.zeros((18,) + st.shape, dtype=np.float32)
+                for j in range(18):
+                    st_1h[j, st == (j + 1)] = 1.0
+
+                at = dataset["airmass_type"][i][:]
+                at = extract_domain(at, coords=coords, order=0)
+                at_1h = np.zeros((4,) + st.shape, dtype=np.float32)
+                for j in range(4):
+                    at_1h[j, np.maximum(at, 0) == j] = 1.0
+
+                x += [np.concatenate([tbs, t2m, tcwv, st_1h, at_1h], axis=0)]
+
+                #
+                # Output data
+                #
+
+                for k in targets:
+                    # Expand and reproject data.
+                    y_k_r = _expand_pixels(dataset[k][i][:][np.newaxis, ...])
+                    y_k_r = extract_domain(
+                        y_k_r[0], coords,
+                    )
+
+                    y_k = y.setdefault(k, [])
+                    np.nan_to_num(y_k_r, copy=False, nan=-9999)
+                    if k == "latent_heat":
+                        y_k_r[y_k_r < -400] = -9999
+                    else:
+                        y_k_r[y_k_r < 0] = -9999
+                    if y_k_r.ndim > 2:
+                        y_k[i] = np.transpose(y_k_r, (2, 0, 1))
+                    else:
+                        y_k[i] = y_k_r
+
+                # Also flip data if requested.
+                if self.augment:
+                    r = rng.random()
+                    if r > 0.5:
+                        x[i] = np.flip(x[i], -2)
+                        for k in targets:
+                            y[k][i] = np.flip(y[k][i], -2)
+
+                    r = rng.random()
+                    if r > 0.5:
+                        x[i] = np.flip(x[i], -1)
+                        for k in targets:
+                            y[k][i] = np.flip(y[k][i], -1)
+
+        x = np.stack(x)
+        for k in targets:
+            y[k] = np.stack(y[k])
+
+        return x, y
+
+    def load_training_data_2d(self,
+                              dataset,
+                              targets,
+                              augment,
+                              rng):
+        if isinstance(dataset, (str, Path)):
+            dataset = xr.open_dataset(dataset)
+
+        #
+        # Input data
+        #
+
+        # Brightness temperatures
+        n = dataset.samples.size
+
+        x = []
+        y = {}
+
+        for i in range(n):
+            if augment:
+                p_x_o = rng.random()
+                p_x_i = rng.random()
+                p_y = rng.random()
+            else:
+                p_x_o = 0.0
+                p_x_i = 0.0
+                p_y = 0.0
+
+            coords = get_transformation_coordinates(GMI_GEOMETRY,
+                                                    96, 128,
+                                                    p_x_i, p_x_o, p_y)
+
+            tbs = dataset["brightness_temperatures"][i].data
+            tbs = extract_domain(tbs, coords)
+            tbs = np.transpose(tbs, (2, 0, 1))
+
+            invalid = (tbs > 500.0) + (tbs < 0.0)
+            tbs[invalid] = np.nan
+
+            # Simulate missing high-frequency channels
+            if augment:
+                r = rng.random()
+                n_p = rng.integers(10, 30)
+                if r > 0.80:
+                    tbs[:, 10:15, :n_p] = np.nan
+
+            t2m = dataset["two_meter_temperature"][i].data
+            t2m = extract_domain(t2m, coords)
+            t2m = t2m[np.newaxis, ...]
+            t2m[t2m < 0] = np.nan
+
+            tcwv = dataset["total_column_water_vapor"][i].data
+            tcwv = extract_domain(tcwv, coords)
+            tcwv = tcwv[np.newaxis, ...]
+            tcwv[tcwv < 0] = np.nan
+
+            st = dataset["surface_type"][i].data
+            st = extract_domain(st, coords, order=0)
+            st_1h = np.zeros((18,) + st.shape, dtype=np.float32)
+            for j in range(18):
+                st_1h[j, st == (j + 1)] = 1.0
+
+            at = dataset["airmass_type"][i].data
+            at = extract_domain(at, coords, order=0)
+            at_1h = np.zeros((4,) + st.shape, dtype=np.float32)
+            for j in range(4):
+                at_1h[j, np.maximum(at, 0) == j] = 1.0
+
+            x += [np.concatenate([tbs, t2m, tcwv, st_1h, at_1h], axis=0)]
+
+            #
+            # Output data
+            #
+
+            for k in targets:
+                # Expand and reproject data.
+                y_k_r = _expand_pixels(dataset[k][i].data[np.newaxis, ...])
+                y_k_r = extract_domain(
+                    y_k_r[0], coords,
+                )
+
+                y_k = y.setdefault(k, [])
+                np.nan_to_num(y_k_r, copy=False, nan=-9999)
+                if k == "latent_heat":
+                    y_k_r[y_k_r < -400] = -9999
+                else:
+                    y_k_r[y_k_r < 0] = -9999
+
+                dims_sp = tuple(range(2))
+                dims_t = tuple(range(2, y_k_r.ndim))
+                y_k += [np.transpose(y_k_r, dims_t + dims_sp)]
+
+            # Also flip data if requested.
+            if augment:
+                r = rng.random()
+                if r > 0.5:
+                    x[i] = np.flip(x[i], -2)
+                    for k in targets:
+                        y[k][i] = np.flip(y[k][i], -2)
+
+                r = rng.random()
+                if r > 0.5:
+                    x[i] = np.flip(x[i], -1)
+                    for k in targets:
+                        y[k][i] = np.flip(y[k][i], -1)
+
+        x = np.stack(x)
+        for k in targets:
+            y[k] = np.stack(y[k])
+
+        return x, y
 
 
 class CrossTrackScanner(Sensor):
@@ -1150,11 +1371,245 @@ class CrossTrackScanner(Sensor):
 
         return x, y
 
-    def load_data_2d(self, filename, targets):
+    def load_data_2d(self,
+                     filename,
+                     targets,
+                     augment,
+                     rng):
         pass
 
-    def load_training_data_2d(self, filename, targets):
-        pass
+
+
+    def _load_training_data_2d_sim(self,
+                                   data,
+                                   targets,
+                                   augment,
+                                   rng):
+        # Brightness temperatures
+        if augment:
+            p_x_o = rng.random()
+            p_x_i = rng.random()
+            p_y = rng.random()
+        else:
+            p_x_o = 0.5
+            p_x_i = 0.5
+            p_y = 0.5
+
+        height = 128
+        width = 32
+
+        coords = get_transformation_coordinates(MHS_GEOMETRY,
+                                                width, height,
+                                                p_x_i, p_x_o, p_y)
+
+        weights = MHS_GEOMETRY.get_interpolation_weights(self.angles)
+        weights = np.repeat(weights[np.newaxis, ...], height, axis=0)
+        center = MHS_GEOMETRY.get_window_center(p_x_o, width, height)
+        j_start = int(center[1, 0, 0] - width // 2)
+        j_end = int(center[1, 0, 0] + width // 2)
+        weights = weights[:, j_start:j_end, :, np.newaxis]
+
+        tbs = data["simulated_brightness_temperatures"].data
+        tbs = extract_domain(tbs, coords)
+
+        biases = data["brightness_temperature_biases"].data
+        biases = extract_domain(biases, coords)
+        biases = np.expand_dims(biases, axis=-2)
+
+        tbs = tbs - biases
+        tbs = np.sum(tbs * weights, axis=-2)
+        tbs = np.transpose(tbs, (2, 0, 1))
+
+        invalid = (tbs > 500.0) + (tbs < 0.0)
+        tbs[invalid] = np.nan
+
+        # Simulate missing high-frequency channels
+        if augment:
+            r = rng.random()
+            n_p = rng.integers(10, 30)
+            if r > 0.80:
+                tbs[:, 10:15, :n_p] = np.nan
+
+        t2m = data["two_meter_temperature"].data
+        t2m = extract_domain(t2m, coords)
+        t2m = t2m[np.newaxis, ...]
+        t2m[t2m < 0] = np.nan
+
+        tcwv = data["total_column_water_vapor"].data
+        tcwv = extract_domain(tcwv, coords)
+        tcwv = tcwv[np.newaxis, ...]
+        tcwv[tcwv < 0] = np.nan
+
+        st = data["surface_type"].data
+        st = extract_domain(st, coords, order=0)
+        st_1h = np.zeros((18,) + st.shape, dtype=np.float32)
+        for j in range(18):
+            st_1h[j, st == (j + 1)] = 1.0
+
+        at = data["airmass_type"].data
+        at = extract_domain(at, coords, order=0)
+        at_1h = np.zeros((4,) + st.shape, dtype=np.float32)
+        for j in range(4):
+            at_1h[j, np.maximum(at, 0) == j] = 1.0
+
+        x = np.concatenate([tbs, t2m, tcwv, st_1h, at_1h], axis=0)
+
+        #
+        # Output data
+        #
+
+        y = {}
+
+        for k in targets:
+            # Expand and reproject data.
+            y_k_r = _expand_pixels(data[k].data[np.newaxis, ...])
+            y_k_r = extract_domain(
+                y_k_r[0], coords,
+            )
+            np.nan_to_num(y_k_r, copy=False, nan=-9999)
+            if k == "latent_heat":
+                y_k_r[y_k_r < -400] = -9999
+            else:
+                y_k_r[y_k_r < 0] = -9999
+
+            dims_sp = tuple(range(2))
+            dims_t = tuple(range(2, y_k_r.ndim))
+            y[k] = np.transpose(y_k_r, dims_t + dims_sp)
+
+        # Also flip data if requested.
+        if augment:
+            r = rng.random()
+            if r > 0.5:
+                x = np.flip(x, -2)
+                for k in targets:
+                    y[k] = np.flip(y[k], -2)
+
+            r = rng.random()
+            if r > 0.5:
+                x = np.flip(x, -1)
+                for k in targets:
+                    y[k] = np.flip(y[k], -1)
+
+        return x, y
+
+    def _load_training_data_2d_other(self,
+                                     data,
+                                     targets,
+                                     augment,
+                                     rng):
+        # Brightness temperatures
+        if augment:
+            p_x = rng.random()
+        else:
+            p_x = 0.5
+
+        c = MHS_GEOMETRY.get_window_center(p_x, 32, 128)
+        i = c[0, 0, 0]
+        j = c[0, 0, 0]
+
+        width = 32
+        height = 128
+
+        i_start = int(i - height // 2)
+        i_end = int(i + height // 2)
+        j_start = int(j - width // 2)
+        j_end = int(j + width // 2)
+
+        tbs = data["brightness_temperatures"].data[i_start:i_end, j_start:j_end]
+        tbs = np.transpose(tbs, (2, 0, 1))
+        invalid = (tbs > 500.0) + (tbs < 0.0)
+        tbs[invalid] = np.nan
+
+        t2m = data["two_meter_temperature"].data[i_start:i_end, j_start:j_end]
+        t2m = t2m[np.newaxis, ...]
+        t2m[t2m < 0] = np.nan
+
+        tcwv = data["total_column_water_vapor"].data[i_start:i_end, j_start:j_end]
+        tcwv = tcwv[np.newaxis, ...]
+        tcwv[tcwv < 0] = np.nan
+
+        st = data["surface_type"].data[i_start:i_end, j_start:j_end]
+        st_1h = np.zeros((18,) + st.shape, dtype=np.float32)
+        for j in range(18):
+            st_1h[j, st == (j + 1)] = 1.0
+
+        at = data["airmass_type"].data[i_start:i_end, j_start:j_end]
+        at_1h = np.zeros((4,) + st.shape, dtype=np.float32)
+        for j in range(4):
+            at_1h[j, np.maximum(at, 0) == j] = 1.0
+
+        x = np.concatenate([tbs, t2m, tcwv, st_1h, at_1h], axis=0)
+
+        #
+        # Output data
+        #
+        y = {}
+
+        for k in targets:
+            # Expand and reproject data.
+            y_k_r = _expand_pixels(data[k].data[np.newaxis, ...])
+            y_k_r = y_k_r[0, i_start:i_end, j_start:j_end]
+            np.nan_to_num(y_k_r, copy=False, nan=-9999)
+            if k == "latent_heat":
+                y_k_r[y_k_r < -400] = -9999
+            else:
+                y_k_r[y_k_r < 0] = -9999
+
+            dims_sp = tuple(range(2))
+            dims_t = tuple(range(2, y_k_r.ndim))
+            y[k] = np.transpose(y_k_r, dims_t + dims_sp)
+
+        # Also flip data if requested.
+        if augment:
+            r = rng.random()
+            if r > 0.5:
+                x = np.flip(x, -2)
+                for k in targets:
+                    y[k] = np.flip(y[k], -2)
+
+            r = rng.random()
+            if r > 0.5:
+                x = np.flip(x, -1)
+                for k in targets:
+                    y[k] = np.flip(y[k], -1)
+
+        return x, y
+
+    def load_training_data_2d(self,
+                              dataset,
+                              targets,
+                              augment,
+                              rng):
+
+        if isinstance(dataset, (str, Path)):
+            dataset = xr.open_dataset(dataset)
+
+        # Brightness temperatures
+        n = dataset.samples.size
+        sources = dataset.source
+
+        x = []
+        y = []
+
+        for i in range(n):
+            if sources[i] == 0:
+                x_i, y_i = self._load_training_data_2d_sim(dataset[{"samples": i}],
+                                                           targets,
+                                                           augment,
+                                                           rng)
+            else:
+                x_i, y_i = self._load_training_data_2d_other(dataset[{"samples": i}],
+                                                             targets,
+                                                             augment,
+                                                             rng)
+            x.append(x_i)
+            y.append(y_i)
+
+        x = np.stack(x)
+        y = {k: np.stack([y_i[k] for y_i in y]) for k in y[0]}
+
+        return x, y
+
 
 
 GMI = ConicalScanner(

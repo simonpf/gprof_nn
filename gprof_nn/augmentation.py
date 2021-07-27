@@ -184,7 +184,8 @@ class CrossTrack(ViewingGeometry):
         i = SCANS_PER_SAMPLE - (c_x[0] / self.scan_offset)
         return np.stack([i, j])
 
-    def get_window_center(p_x,
+    def get_window_center(self,
+                          p_x,
                           width,
                           height):
         """
@@ -192,9 +193,35 @@ class CrossTrack(ViewingGeometry):
         and height.
         """
         i = SCANS_PER_SAMPLE // 2
-        l = - self.pixels_per_scan // 2
-        j = l + (self.pixels_per_scan - width) * p_x
+        j = np.round((self.pixels_per_scan - width) * p_x + width / 2)
         return np.array([i, j]).reshape(2, 1, 1)
+
+    def get_interpolation_weights(self, angles):
+
+        # Reverse angle so they are in ascending order.
+        angles = angles[::-1]
+
+        weights = np.zeros((self.pixels_per_scan, angles.size),
+                           np.float32)
+        scan_angles = np.abs(np.linspace(-self.scan_range / 2,
+                                         self.scan_range / 2,
+                                         self.pixels_per_scan))
+        bins = 0.5 * (angles[1:] + angles[:-1])
+        indices = np.digitize(scan_angles, bins)
+
+        for i in range(angles.size - 1):
+            mask = indices == i
+            weights[mask, i] = ((angles[i + 1] - scan_angles[mask]) /
+                                (angles[i + 1] - angles[i]))
+            weights[mask, i + 1] = ((scan_angles[mask] - angles[i]) /
+                                    (angles[i + 1] - angles[i]))
+
+        weights[scan_angles < angles[0]] = 0.0
+        weights[scan_angles < angles[0], 0] = 1.0
+        weights[scan_angles > angles[-1]] = 0.0
+        weights[scan_angles > angles[-1], -1] = 1.0
+
+        return weights[:, ::-1]
 
 
 GMI_GEOMETRY = Conical(
@@ -395,13 +422,14 @@ def extract_domain(data,
     if data.ndim > 2:
         old_shape = data.shape
         data_c = data.reshape(old_shape[:2] + (-1,))
-        results = np.zeros((M, N, data_c.shape[2]))
+        results = []
         for i in range(data_c.shape[2]):
-            results[:, :, i] = map_coordinates(
+            results.append(map_coordinates(
                 data_c[:, :, i],
                 coordinates,
                 order=order
-            )
+            ))
+        results = np.stack(results, axis=-1)
         results = results.reshape(coordinates.shape[1:] + old_shape[2:])
     else:
         results = map_coordinates(data, coordinates, order=order)

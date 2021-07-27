@@ -25,16 +25,18 @@ def test_permutation_gmi():
     """
     # Permute continuous input
     path = Path(__file__).parent
-    input_file = path / "data" / "training_data.nc"
+    input_file = path / "data" / "gmi" / "gprof_nn_gmi_era5.nc"
     dataset_1 = GPROF0DDataset(input_file,
                                batch_size=16,
                                shuffle=False,
                                augment=False,
+                               transform_zeros=False,
                                targets=["surface_precip"])
     dataset_2 = GPROF0DDataset(input_file,
                                batch_size=16,
                                shuffle=False,
                                augment=False,
+                               transform_zeros=False,
                                targets=["surface_precip"],
                                permute=0)
     x_1, y_1 = dataset_1[0]
@@ -51,6 +53,7 @@ def test_permutation_gmi():
                                batch_size=16,
                                shuffle=False,
                                augment=False,
+                               transform_zeros=False,
                                targets=["surface_precip"],
                                permute=17)
     x_2, y_2 = dataset_2[0]
@@ -66,6 +69,7 @@ def test_permutation_gmi():
                                batch_size=16,
                                shuffle=False,
                                augment=False,
+                               transform_zeros=False,
                                targets=["surface_precip"],
                                permute=18)
     x_2, y_2 = dataset_2[0]
@@ -81,7 +85,7 @@ def test_gprof_0d_dataset_gmi():
     statistics.
     """
     path = Path(__file__).parent
-    input_file = path / "data" / "training_data.nc"
+    input_file = path / "data" / "gmi" / "gprof_nn_gmi_era5.nc"
     dataset = GPROF0DDataset(input_file,
                              batch_size=1,
                              augment=False,
@@ -113,7 +117,7 @@ def test_gprof_0d_dataset_multi_target_gmi():
     statistics.
     """
     path = Path(__file__).parent
-    input_file = path / "data" / "training_data.nc"
+    input_file = path / "data" / "gmi" / "gprof_nn_gmi_era5.nc"
     dataset = GPROF0DDataset(
         input_file,
         targets=["surface_precip",
@@ -256,7 +260,7 @@ def test_profile_variables():
     or snow.
     """
     path = Path(__file__).parent
-    input_file = path / "data" / "training_data.nc"
+    input_file = path / "data" / "gmi" / "gprof_nn_gmi_era5.nc"
 
     PROFILE_TARGETS = [
         "rain_water_content",
@@ -276,13 +280,13 @@ def test_profile_variables():
         indices = (st >= 8) * (st <= 11)
 
 
-def test_gprof_2d_dataset():
+def test_gprof_2d_dataset_gmi():
     """
     Ensure that iterating over 2D dataset conserves
     statistics.
     """
     path = Path(__file__).parent
-    input_file = path / "data" / "training_data.nc"
+    input_file = path / "data" / "gmi" / "gprof_nn_gmi_era5.nc"
     dataset = GPROF2DDataset(input_file,
                              batch_size=1,
                              augment=False,
@@ -292,11 +296,11 @@ def test_gprof_2d_dataset():
     ys = []
 
     x_mean_ref = dataset.x.sum(axis=0)
-    y_mean_ref = dataset.y.sum(axis=0)
+    y_mean_ref = dataset.y["surface_precip"].sum(axis=0)
 
     for x, y in dataset:
         xs.append(x)
-        ys.append(y)
+        ys.append(y["surface_precip"])
 
     xs = torch.cat(xs, dim=0)
     ys = torch.cat(ys, dim=0)
@@ -316,12 +320,12 @@ def test_gprof_2d_dataset_profiles():
     Ensure that loading of profile variables works.
     """
     path = Path(__file__).parent
-    input_file = path / "data" / "training_data.nc"
+    input_file = path / "data" / "gmi" / "gprof_nn_gmi_era5.nc"
     dataset = GPROF2DDataset(input_file,
                              batch_size=1,
                              augment=False,
                              transform_zeros=True,
-                             target=[
+                             targets=[
                                  "rain_water_content",
                                  "snow_water_content",
                                  "cloud_water_content"
@@ -332,7 +336,7 @@ def test_gprof_2d_dataset_profiles():
 
     x_mean_ref = dataset.x.sum(axis=0)
     y_mean_ref = {}
-    for k in dataset.target:
+    for k in dataset.targets:
         y_mean_ref[k] = dataset.y[k].sum(axis=0)
 
     for x, y in dataset:
@@ -341,21 +345,55 @@ def test_gprof_2d_dataset_profiles():
             ys.setdefault(k, []).append(y[k])
 
     xs = torch.cat(xs, dim=0)
-    for k in dataset.target:
+    for k in dataset.targets:
         ys[k] = torch.cat(ys[k], dim=0)
 
     x_mean = xs.sum(dim=0).detach().numpy()
     y_mean = {}
-    for k in dataset.target:
+    for k in dataset.targets:
         y_mean[k] = ys[k].sum(dim=0).detach().numpy()
 
-    for k in dataset.target:
+    for k in dataset.targets:
         y_mean[k] = y_mean[k][np.isfinite(y_mean[k])]
         y_mean_ref[k] = y_mean_ref[k][np.isfinite(y_mean_ref[k])]
 
     assert np.all(np.isclose(x_mean, x_mean_ref, atol=1e-3))
-    for k in dataset.target:
+    for k in dataset.targets:
         assert np.all(np.isclose(y_mean[k], y_mean_ref[k], atol=1e-3))
+
+
+def test_gprof_2d_dataset_mhs():
+    """
+    Test loading of 2D training data for MHS sensor.
+    """
+    path = Path(__file__).parent
+    input_file = path / "data" / "gprof_nn_mhs_era5_sim.nc"
+    dataset = GPROF2DDataset(input_file,
+                             batch_size=1,
+                             augment=False,
+                             transform_zeros=True)
+
+    xs = []
+    ys = []
+
+    x_mean_ref = dataset.x.sum(axis=0)
+    y_mean_ref = dataset.y["surface_precip"].sum(axis=0)
+
+    for x, y in dataset:
+        xs.append(x)
+        ys.append(y["surface_precip"])
+
+    xs = torch.cat(xs, dim=0)
+    ys = torch.cat(ys, dim=0)
+
+    x_mean = xs.sum(dim=0).detach().numpy()
+    y_mean = ys.sum(dim=0).detach().numpy()
+
+    y_mean = y_mean[np.isfinite(y_mean)]
+    y_mean_ref = y_mean_ref[np.isfinite(y_mean_ref)]
+
+    assert np.all(np.isclose(x_mean, x_mean_ref, atol=1e-3))
+    assert np.all(np.isclose(y_mean, y_mean_ref, atol=1e-3))
 
 
 def test_simulation_dataset():
