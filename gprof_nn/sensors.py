@@ -1076,9 +1076,8 @@ class CrossTrackScanner(Sensor):
                     bias = bias.reshape(-1, self.n_freqs)
 
                     mask = bias > -1000
-                    bias = bias_scales * bias
+                    #bias = bias_scales * bias
                     bts[mask] = bts[mask] - bias[mask]
-
                     bts += np.random.normal(size=bts.shape) * self.nedt[np.newaxis, ...]
 
                 else:
@@ -1175,8 +1174,9 @@ class CrossTrackScanner(Sensor):
                     np.nan_to_num(bts, nan=-9999, copy=False)
 
                     sp = scene["surface_precip"].data
+                    st = scene["surface_type"].data
                     np.nan_to_num(sp, nan=-9999, copy=False)
-                    valid = np.all(sp >= 0, axis=-1)
+                    valid = np.all(sp >= 0, axis=-1) * (st > 0)
                     n = valid.sum()
 
                     angles = rng.uniform(0.0, n_angles - 1, n)
@@ -1208,11 +1208,11 @@ class CrossTrackScanner(Sensor):
                     bias = expand_pixels(bias.data[np.newaxis])[0][valid]
 
                     mask = bias > -1000
-                    bias = bias_scales * bias
-                    bts[mask] = bts[mask] - bias[mask]
+                    #bias = bias_scales * bias
+                    #bts[mask] = bts[mask] - bias[mask]
 
-                    bts += (rng.standard_normal(size=bts.shape)
-                            * self.nedt[np.newaxis, ...])
+                    #bts += (rng.standard_normal(size=bts.shape)
+                    #        * self.nedt[np.newaxis, ...])
 
                     invalid = (bts > 500.0) + (bts < 0.0)
                     bts[invalid] = np.nan
@@ -1249,7 +1249,7 @@ class CrossTrackScanner(Sensor):
 
                     if equalizer is not None:
                         bts = equalizer(bts, vas[:, 0], st,
-                                        noise_factor=0.5,
+                                        noise_factor=1.0,
                                         rng=rng)
 
                     x += [np.concatenate(
@@ -1606,7 +1606,7 @@ MHS_ANGLES = np.array([
 ])
 
 MHS_NEDT = np.array([
-    2.0, 2.0, 4.0, 2.0, 2.0
+    5.0, 5.0, 5.0, 5.0, 5.0
 ])
 
 

@@ -44,7 +44,11 @@ if sensor is None:
 
 stats = [statistics.TrainingDataStatistics(conditional=1),
          statistics.ZonalDistribution(),
-         statistics.GlobalDistribution()]
+         statistics.GlobalDistribution(),
+         #statistics.CorrectedObservations(
+         #    QuantileEqualizer.load("../data/quantile_equalizer_mhs.pckl")
+         #)
+         ]
 input_files = list(Path(input_path).glob("**/*.nc"))
 processor = statistics.StatisticsProcessor(sensor, input_files, stats)
 processor.run(n_procs, output_path)

@@ -828,7 +828,7 @@ class SimFileProcessor:
                 " any sim files."
             )
         self.era5_path = Path(era5_path)
-        self.pool = ThreadPoolExecutor(max_workers=n_workers)
+        self.pool = ProcessPoolExecutor(max_workers=n_workers)
 
         if day is None:
             self.day = 1
