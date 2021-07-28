@@ -396,16 +396,47 @@ def test_gprof_2d_dataset_mhs():
     assert np.all(np.isclose(y_mean, y_mean_ref, atol=1e-3))
 
 
-def test_simulation_dataset():
+def test_simulator_dataset_gmi():
+    """
+    Test loading of simulator training data.
+    """
+    path = Path(__file__).parent
+    input_file = path / "data" / "gmi" / "gprof_nn_gmi_era5.nc"
+    dataset = SimulatorDataset(input_file,
+                               normalize=False,
+                               batch_size=1024)
+    x, y = dataset[0]
+    x = x.numpy()
+    y = {k: y[k].numpy() for k in y}
+
+    # Input Tbs must match simulated plus biases.
+    for i in range(x.shape[0]):
+        tbs_in = x[i, :15, :, :]
+        tbs_sim = y["simulated_brightness_temperatures"][i, :, :, :]
+        tbs_bias = y["brightness_temperature_biases"][i, :, :, :]
+        tbs_sim[tbs_sim <= -9000] = np.nan
+        tbs_bias[tbs_bias <= -9000] = np.nan
+        tbs_out = tbs_sim - tbs_bias
+
+        tbs_in = tbs_in[np.isfinite(tbs_out)]
+        tbs_out = tbs_out[np.isfinite(tbs_out)]
+
+        if tbs_in.size == 0:
+            continue
+        assert np.all(np.isclose(tbs_in, tbs_out, atol=1e-3))
+
+
+def test_simulator_dataset_mhs():
     """
     Test loading of simulator training data.
     """
     path = Path(__file__).parent
     input_file = path / "data" / "gprof_nn_mhs_era5_5.nc"
     dataset = SimulatorDataset(input_file,
-                                batch_size=1024,
-                                augment=False)
+                               batch_size=1024,
+                               augment=True)
     x, y = dataset[0]
+
     assert np.all(np.isfinite(x.numpy()))
     assert np.all(np.isfinite(y["brightness_temperature_biases"].numpy()))
     assert np.all(np.isfinite(y["simulated_brightness_temperatures"].numpy()))

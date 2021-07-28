@@ -2,6 +2,7 @@
 Tests for the data augmentation methods in gprof_nn.augmentation.
 """
 import numpy as np
+from gprof_nn import sensors
 from gprof_nn.augmentation import (GMI_GEOMETRY,
                                    MHS_GEOMETRY,
                                    get_center_pixels,
@@ -36,6 +37,12 @@ def test_mhs_geometry():
     xy = MHS_GEOMETRY.pixel_coordinates_to_euclidean(ij)
     ij_r = MHS_GEOMETRY.euclidean_to_pixel_coordinates(xy)
     assert np.all(np.isclose(ij, ij_r))
+
+
+def test_interpolation_weights():
+    weights = MHS_GEOMETRY.get_interpolation_weights(sensors.MHS.angles)
+    print(weights[0])
+    assert weights[0, 0] == 1.0
 
 
 def test_inputer_center():

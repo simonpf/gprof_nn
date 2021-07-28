@@ -196,9 +196,11 @@ class CrossTrack(ViewingGeometry):
         j = np.round((self.pixels_per_scan - width) * p_x + width / 2)
         return np.array([i, j]).reshape(2, 1, 1)
 
-    def get_interpolation_weights(self, angles):
-
+    def get_interpolation_weights(self, earth_incidence_angles):
         # Reverse angle so they are in ascending order.
+        sin_ang = (R_EARTH / (R_EARTH + self.altitude) *
+                   np.sin(np.pi - np.deg2rad(earth_incidence_angles)))
+        angles = np.rad2deg(np.arcsin(sin_ang))
         angles = angles[::-1]
 
         weights = np.zeros((self.pixels_per_scan, angles.size),
@@ -207,9 +209,10 @@ class CrossTrack(ViewingGeometry):
                                          self.scan_range / 2,
                                          self.pixels_per_scan))
         bins = 0.5 * (angles[1:] + angles[:-1])
+        print(scan_angles, angles)
         indices = np.digitize(scan_angles, bins)
 
-        for i in range(angles.size - 1):
+        for i in range(bins.size):
             mask = indices == i
             weights[mask, i] = ((angles[i + 1] - scan_angles[mask]) /
                                 (angles[i + 1] - angles[i]))
@@ -221,6 +224,7 @@ class CrossTrack(ViewingGeometry):
         weights[scan_angles > angles[-1]] = 0.0
         weights[scan_angles > angles[-1], -1] = 1.0
 
+        # Undo reversal
         return weights[:, ::-1]
 
 

@@ -764,9 +764,9 @@ class SimulatorDataset(GPROF2DDataset):
                 p_x_i = rng.random()
                 p_y = rng.random()
             else:
-                p_x_o = 0.0
-                p_x_i = 0.0
-                p_y = 0.0
+                p_x_o = 0.5
+                p_x_i = 0.5
+                p_y = 0.5
 
             coords = get_transformation_coordinates(GMI_GEOMETRY,
                                                     96, 128,
@@ -790,14 +790,14 @@ class SimulatorDataset(GPROF2DDataset):
                     tbs[:, 10:15, :n_p] = np.nan
 
             t2m = dataset["two_meter_temperature"][i].data
+            t2m[t2m < 0] = np.nan
             t2m = extract_domain(t2m, coords)
             t2m = t2m[np.newaxis, ...]
-            t2m[t2m < 0] = np.nan
 
             tcwv = dataset["total_column_water_vapor"][i].data
+            tcwv[tcwv < 0] = np.nan
             tcwv = extract_domain(tcwv, coords)
             tcwv = tcwv[np.newaxis, ...]
-            tcwv[tcwv < 0] = np.nan
 
             st = dataset["surface_type"][i].data
             st = extract_domain(st, coords, order=0)
@@ -820,16 +820,13 @@ class SimulatorDataset(GPROF2DDataset):
             for k in targets:
                 # Expand and reproject data.
                 y_k_r = expand_pixels(dataset[k][i].data[np.newaxis, ...])
+                y_k_r[y_k_r <= -999] = np.nan
                 y_k_r = extract_domain(
                     y_k_r[0], coords,
                 )
 
                 y_k = y.setdefault(k, [])
                 np.nan_to_num(y_k_r, copy=False, nan=-9999)
-                if k == "latent_heat":
-                    y_k_r[y_k_r < -400] = -9999
-                else:
-                    y_k_r[y_k_r < 0] = -9999
 
                 dims_sp = tuple(range(2))
                 dims_t = tuple(range(2, y_k_r.ndim))

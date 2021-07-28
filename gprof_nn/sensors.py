@@ -559,7 +559,7 @@ class ConicalScanner(Sensor):
             y = {}
 
             for i in range(n):
-                if self.augment:
+                if augment:
                     p_x_o = rng.random()
                     p_x_i = rng.random()
                     p_y = rng.random()
@@ -573,28 +573,28 @@ class ConicalScanner(Sensor):
                                                         p_x_i, p_x_o, p_y)
 
                 tbs = dataset["brightness_temperatures"][i][:]
-                tbs = extract_domain(tbs, coords)
-                tbs = np.transpose(tbs, (2, 0, 1))
-
                 invalid = (tbs > 500.0) + (tbs < 0.0)
                 tbs[invalid] = np.nan
 
+                tbs = extract_domain(tbs, coords)
+                tbs = np.transpose(tbs, (2, 0, 1))
+
                 # Simulate missing high-frequency channels
-                if self.augment:
+                if augment:
                     r = rng.random()
                     n_p = rng.integers(10, 30)
                     if r > 0.80:
                         tbs[:, 10:15, :n_p] = np.nan
 
                 t2m = dataset["two_meter_temperature"][i][:]
+                t2m[t2m < 0] = np.nan
                 t2m = extract_domain(t2m, coords)
                 t2m = t2m[np.newaxis, ...]
-                t2m[t2m < 0] = np.nan
 
                 tcwv = dataset["total_column_water_vapor"][i][:]
+                tcwv[tcwv < 0] = np.nan
                 tcwv = extract_domain(tcwv, coords)
                 tcwv = tcwv[np.newaxis, ...]
-                tcwv[tcwv < 0] = np.nan
 
                 st = dataset["surface_type"][i][:]
                 st = extract_domain(st, coords, order=0)
@@ -617,20 +617,17 @@ class ConicalScanner(Sensor):
                 for k in targets:
                     # Expand and reproject data.
                     y_k_r = expand_pixels(dataset[k][i][:][np.newaxis, ...])
+                    y_k_r[y_k_r <= -999] = np.nan
                     y_k_r = extract_domain(
                         y_k_r[0], coords,
                     )
 
                     y_k = y.setdefault(k, [])
                     np.nan_to_num(y_k_r, copy=False, nan=-9999)
-                    if k == "latent_heat":
-                        y_k_r[y_k_r < -400] = -9999
-                    else:
-                        y_k_r[y_k_r < 0] = -9999
-                    if y_k_r.ndim > 2:
-                        y_k[i] = np.transpose(y_k_r, (2, 0, 1))
-                    else:
-                        y_k[i] = y_k_r
+
+                    dims_sp = tuple(range(2))
+                    dims_t = tuple(range(2, y_k_r.ndim))
+                    y_k += [np.transpose(y_k_r, dims_t + dims_sp)]
 
                 # Also flip data if requested.
                 if self.augment:
@@ -685,11 +682,11 @@ class ConicalScanner(Sensor):
                                                     p_x_i, p_x_o, p_y)
 
             tbs = dataset["brightness_temperatures"][i].data
+            invalid = (tbs > 500.0) + (tbs < 0.0)
+            tbs[invalid] = np.nan
             tbs = extract_domain(tbs, coords)
             tbs = np.transpose(tbs, (2, 0, 1))
 
-            invalid = (tbs > 500.0) + (tbs < 0.0)
-            tbs[invalid] = np.nan
 
             # Simulate missing high-frequency channels
             if augment:
@@ -699,14 +696,14 @@ class ConicalScanner(Sensor):
                     tbs[:, 10:15, :n_p] = np.nan
 
             t2m = dataset["two_meter_temperature"][i].data
+            t2m[t2m < 0] = np.nan
             t2m = extract_domain(t2m, coords)
             t2m = t2m[np.newaxis, ...]
-            t2m[t2m < 0] = np.nan
 
             tcwv = dataset["total_column_water_vapor"][i].data
+            tcwv[tcwv < 0] = np.nan
             tcwv = extract_domain(tcwv, coords)
             tcwv = tcwv[np.newaxis, ...]
-            tcwv[tcwv < 0] = np.nan
 
             st = dataset["surface_type"][i].data
             st = extract_domain(st, coords, order=0)
@@ -729,16 +726,13 @@ class ConicalScanner(Sensor):
             for k in targets:
                 # Expand and reproject data.
                 y_k_r = expand_pixels(dataset[k][i].data[np.newaxis, ...])
+                y_k_r[y_k_r <= -999] = np.nan
                 y_k_r = extract_domain(
                     y_k_r[0], coords,
                 )
 
                 y_k = y.setdefault(k, [])
                 np.nan_to_num(y_k_r, copy=False, nan=-9999)
-                if k == "latent_heat":
-                    y_k_r[y_k_r < -400] = -9999
-                else:
-                    y_k_r[y_k_r < 0] = -9999
 
                 dims_sp = tuple(range(2))
                 dims_t = tuple(range(2, y_k_r.ndim))
@@ -1387,18 +1381,19 @@ class CrossTrackScanner(Sensor):
         weights = weights[:, j_start:j_end, :, np.newaxis]
 
         tbs = data["simulated_brightness_temperatures"].data
+        invalid = (tbs > 500.0) + (tbs < 0.0)
+        tbs[invalid] = np.nan
         tbs = extract_domain(tbs, coords)
 
         biases = data["brightness_temperature_biases"].data
+        invalid = (biases < -999)
+        biases[invalid] = np.nan
         biases = extract_domain(biases, coords)
         biases = np.expand_dims(biases, axis=-2)
 
         tbs = tbs - biases
         tbs = np.sum(tbs * weights, axis=-2)
         tbs = np.transpose(tbs, (2, 0, 1))
-
-        invalid = (tbs > 500.0) + (tbs < 0.0)
-        tbs[invalid] = np.nan
 
         # Simulate missing high-frequency channels
         if augment:
@@ -1408,14 +1403,14 @@ class CrossTrackScanner(Sensor):
                 tbs[:, 10:15, :n_p] = np.nan
 
         t2m = data["two_meter_temperature"].data
+        t2m[t2m < 0] = np.nan
         t2m = extract_domain(t2m, coords)
         t2m = t2m[np.newaxis, ...]
-        t2m[t2m < 0] = np.nan
 
         tcwv = data["total_column_water_vapor"].data
+        tcwv[tcwv < 0] = np.nan
         tcwv = extract_domain(tcwv, coords)
         tcwv = tcwv[np.newaxis, ...]
-        tcwv[tcwv < 0] = np.nan
 
         st = data["surface_type"].data
         st = extract_domain(st, coords, order=0)
@@ -1440,14 +1435,11 @@ class CrossTrackScanner(Sensor):
         for k in targets:
             # Expand and reproject data.
             y_k_r = expand_pixels(data[k].data[np.newaxis, ...])
+            y_k_r[y_k_r < -999] = np.nan
             y_k_r = extract_domain(
                 y_k_r[0], coords,
             )
             np.nan_to_num(y_k_r, copy=False, nan=-9999)
-            if k == "latent_heat":
-                y_k_r[y_k_r < -400] = -9999
-            else:
-                y_k_r[y_k_r < 0] = -9999
 
             dims_sp = tuple(range(2))
             dims_t = tuple(range(2, y_k_r.ndim))
@@ -1526,11 +1518,8 @@ class CrossTrackScanner(Sensor):
             # Expand and reproject data.
             y_k_r = expand_pixels(data[k].data[np.newaxis, ...])
             y_k_r = y_k_r[0, i_start:i_end, j_start:j_end]
+            y_k_r[y_k_r < -999] = np.nan
             np.nan_to_num(y_k_r, copy=False, nan=-9999)
-            if k == "latent_heat":
-                y_k_r[y_k_r < -400] = -9999
-            else:
-                y_k_r[y_k_r < 0] = -9999
 
             dims_sp = tuple(range(2))
             dims_t = tuple(range(2, y_k_r.ndim))
