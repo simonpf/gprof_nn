@@ -228,8 +228,8 @@ class CrossTrack(ViewingGeometry):
 
 GMI_GEOMETRY = Conical(
     altitude=407e3,
-    earth_incidence_angle=52.8,
-    scan_range=140.0,
+    earth_incidence_angle=52.9,
+    scan_range=145.0,
     pixels_per_scan=221,
     scan_offset=13e3
 )
@@ -388,23 +388,32 @@ def get_transformation_coordinates(viewing_geometry,
         define the reprojection of the input data with respect to the scene
         coordinates.
     """
-    c_i = get_center_pixel_input(x_i, width)
-    c_o = viewing_geometry.get_window_center(x_o, width, height)
 
+    center_out = viewing_geometry.get_window_center(x_o, width, height)
     d_i = (np.arange(height) - np.floor(height / 2.0))
     d_j = (np.arange(width) - np.floor(width / 2.0))
+    coords_pixel_out = center_out + np.meshgrid(d_i, d_j, indexing="ij")
+    coords_eucl_out = viewing_geometry.pixel_coordinates_to_euclidean(coords_pixel_out)
+    offset = coords_eucl_out[:, height // 2, width // 2]
+    coords_rel_out = coords_eucl_out - offset[:, np.newaxis, np.newaxis]
 
-    c_o = c_o + np.meshgrid(d_i, d_j, indexing="ij")
+    center_in = center_out.copy()
+    center_in[1, 0, 0] = get_center_pixel_input(x_i, 48)
 
-    c_e = viewing_geometry.pixel_coordinates_to_euclidean(c_o)
-    c_i = GMI_GEOMETRY.euclidean_to_pixel_coordinates(c_e)
+    coords_center_in = GMI_GEOMETRY.pixel_coordinates_to_euclidean(center_in)
+    coords_pixel_in = GMI_GEOMETRY.euclidean_to_pixel_coordinates(
+        coords_rel_out + coords_center_in
+    )
+    coords_pixel_in = np.nan_to_num(coords_pixel_in, nan=-1)
+    c = coords_rel_out + coords_center_in
+    print(c[1].min(), c[1].max())
 
-    y_min = c_i[0].min()
-    y_max = SCANS_PER_SAMPLE - c_i[0].max()
+    y_min = coords_pixel_in[0].min()
+    y_max = SCANS_PER_SAMPLE - coords_pixel_in[0].max()
     y = -y_min + 0.5 * (y + 1.0) * (y_max + y_min)
-    c_i[0] += y
+    coords_pixel_in[0] += y
 
-    return c_i
+    return coords_pixel_in
 
 
 def extract_domain(data,
