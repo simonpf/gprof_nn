@@ -40,9 +40,12 @@ def test_mhs_geometry():
 
 
 def test_interpolation_weights():
+    """
+    Ensure that all interpolation weights are positive and sum to 1.
+    """
     weights = MHS_GEOMETRY.get_interpolation_weights(sensors.MHS.angles)
-    print(weights[0])
-    assert weights[0, 0] == 1.0
+    assert np.all(weights.sum(-1) == 1.0)
+    assert np.all(weights >= 0)
 
 
 def test_inputer_center():

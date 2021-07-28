@@ -208,21 +208,19 @@ class CrossTrack(ViewingGeometry):
         scan_angles = np.abs(np.linspace(-self.scan_range / 2,
                                          self.scan_range / 2,
                                          self.pixels_per_scan))
-        bins = 0.5 * (angles[1:] + angles[:-1])
-        print(scan_angles, angles)
-        indices = np.digitize(scan_angles, bins)
+        indices = np.digitize(scan_angles, angles)
 
-        for i in range(bins.size):
-            mask = indices == i
+        for i in range(angles.size - 1):
+            mask = (indices - 1) == i
             weights[mask, i] = ((angles[i + 1] - scan_angles[mask]) /
                                 (angles[i + 1] - angles[i]))
             weights[mask, i + 1] = ((scan_angles[mask] - angles[i]) /
                                     (angles[i + 1] - angles[i]))
 
-        weights[scan_angles < angles[0]] = 0.0
-        weights[scan_angles < angles[0], 0] = 1.0
-        weights[scan_angles > angles[-1]] = 0.0
-        weights[scan_angles > angles[-1], -1] = 1.0
+        weights[indices == 0] = 0.0
+        weights[indices == 0, 0] = 1.0
+        weights[indices == angles.size] = 0.0
+        weights[indices == angles.size, 0] = -1.0
 
         # Undo reversal
         return weights[:, ::-1]
