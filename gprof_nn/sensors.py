@@ -1202,11 +1202,11 @@ class CrossTrackScanner(Sensor):
                     bias = expand_pixels(bias.data[np.newaxis])[0][valid]
 
                     mask = bias > -1000
-                    #bias = bias_scales * bias
-                    #bts[mask] = bts[mask] - bias[mask]
+                    bias = bias_scales * bias
+                    bts[mask] = bts[mask] - bias[mask]
 
-                    #bts += (rng.standard_normal(size=bts.shape)
-                    #        * self.nedt[np.newaxis, ...])
+                    bts += (rng.standard_normal(size=bts.shape)
+                            * self.nedt[np.newaxis, ...])
 
                     invalid = (bts > 500.0) + (bts < 0.0)
                     bts[invalid] = np.nan
@@ -1386,7 +1386,7 @@ class CrossTrackScanner(Sensor):
         tbs = extract_domain(tbs, coords)
 
         biases = data["brightness_temperature_biases"].data
-        invalid = (biases < -999)
+        invalid = (biases <= -999)
         biases[invalid] = np.nan
         biases = extract_domain(biases, coords)
         biases = np.expand_dims(biases, axis=-2)
@@ -1394,13 +1394,6 @@ class CrossTrackScanner(Sensor):
         tbs = tbs - biases
         tbs = np.sum(tbs * weights, axis=-2)
         tbs = np.transpose(tbs, (2, 0, 1))
-
-        # Simulate missing high-frequency channels
-        if augment:
-            r = rng.random()
-            n_p = rng.integers(10, 30)
-            if r > 0.80:
-                tbs[:, 10:15, :n_p] = np.nan
 
         t2m = data["two_meter_temperature"].data
         t2m[t2m < 0] = np.nan
@@ -1604,7 +1597,7 @@ MHS_ANGLES = np.array([
 ])
 
 MHS_NEDT = np.array([
-    5.0, 5.0, 5.0, 5.0, 5.0
+    1.0, 1.0, 4.0, 2.0, 2.0
 ])
 
 
