@@ -6,7 +6,8 @@ from quantnn.transformations import LogLinear
 
 from gprof_nn import sensors
 from gprof_nn.definitions import ALL_TARGETS
-from gprof_nn.data.training_data import SimulatorDataset
+from gprof_nn.data.training_data import (SimulatorDataset,
+                                         GPROF2DDataset)
 from gprof_nn.models import (
     MLP,
     ResidualMLP,
@@ -99,14 +100,32 @@ def test_gprof_nn_0d():
     assert all([t in y for t in ALL_TARGETS])
 
 
-def test_gprof_nn_2d():
+def test_gprof_nn_2d_gmi():
     """
-    Tests for GPROFNN2D classes module with hyper-residual connections.
+    Ensure that GPROF_NN_2D model is consistent with training data
+    for GMI.
     """
-    network = GPROF_NN_2D_QRNN(2, 128, 2, 64)
-    x = torch.ones(1, 39, 128, 128)
-    y = network.predict(x)
-    assert all([t in y for t in ALL_TARGETS])
+    path = Path(__file__).parent
+    input_file = path / "data" / "gmi" / "gprof_nn_gmi_era5.nc"
+    dataset = GPROF2DDataset(input_file)
+    network = GPROF_NN_2D_QRNN(sensors.GMI, 2, 128, 2, 64)
+    x, y = dataset[0]
+    y_pred = network.predict(x)
+    assert all([t in y_pred for t in y])
+
+
+def test_gprof_nn_2d_mhs():
+    """
+    Ensure that GPROF_NN_2D model is consistent with training data
+    for MHS.
+    """
+    path = Path(__file__).parent
+    input_file = path / "data" / "gprof_nn_mhs_era5.nc"
+    dataset = GPROF2DDataset(input_file)
+    network = GPROF_NN_2D_QRNN(sensors.MHS, 2, 128, 2, 64)
+    x, y = dataset[0]
+    y_pred = network.predict(x)
+    assert all([t in y_pred for t in y])
 
 
 def test_simulator():

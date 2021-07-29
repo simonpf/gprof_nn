@@ -225,6 +225,19 @@ class CrossTrack(ViewingGeometry):
         # Undo reversal
         return weights[:, ::-1]
 
+    def get_earth_incidence_angles(self):
+        """
+        Return:
+            A numpy array containing the earth incidence angles across a scan
+            of the sensor in degrees.
+        """
+        beta = np.linspace(-self.scan_range / 2,
+                           self.scan_range,
+                           self.pixels_per_scan)
+        a = np.sin(np.deg2rad(beta)) / R_EARTH * (R_EARTH + self.altitude)
+        gamma = -np.arcsin(a) + np.pi
+        return np.rad2deg(np.pi - gamma)
+
 
 GMI_GEOMETRY = Conical(
     altitude=407e3,
@@ -406,7 +419,6 @@ def get_transformation_coordinates(viewing_geometry,
     )
     coords_pixel_in = np.nan_to_num(coords_pixel_in, nan=-1)
     c = coords_rel_out + coords_center_in
-    print(c[1].min(), c[1].max())
 
     y_min = coords_pixel_in[0].min()
     y_max = SCANS_PER_SAMPLE - coords_pixel_in[0].max()

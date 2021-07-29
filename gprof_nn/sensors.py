@@ -1412,6 +1412,10 @@ class CrossTrackScanner(Sensor):
         tcwv = extract_domain(tcwv, coords)
         tcwv = tcwv[np.newaxis, ...]
 
+        eia = MHS_GEOMETRY.get_earth_incidence_angles()
+        eia = eia[j_start:j_end].reshape(1, -1)
+        eia = np.repeat(eia, height, axis=0)[np.newaxis, ...]
+
         st = data["surface_type"].data
         st = extract_domain(st, coords, order=0)
         st_1h = np.zeros((18,) + st.shape, dtype=np.float32)
@@ -1424,7 +1428,7 @@ class CrossTrackScanner(Sensor):
         for j in range(4):
             at_1h[j, np.maximum(at, 0) == j] = 1.0
 
-        x = np.concatenate([tbs, t2m, tcwv, st_1h, at_1h], axis=0)
+        x = np.concatenate([tbs, t2m, tcwv, eia, st_1h, at_1h], axis=0)
 
         #
         # Output data
@@ -1497,6 +1501,10 @@ class CrossTrackScanner(Sensor):
         tcwv = tcwv[np.newaxis, ...]
         tcwv[tcwv < 0] = np.nan
 
+        eia = data["earth_incidence_angle"].data[i_start:i_end, j_start:j_end, 0]
+        eia = eia[np.newaxis, ...]
+        eia[eia < -100] = np.nan
+
         st = data["surface_type"].data[i_start:i_end, j_start:j_end]
         st_1h = np.zeros((18,) + st.shape, dtype=np.float32)
         for j in range(18):
@@ -1507,7 +1515,8 @@ class CrossTrackScanner(Sensor):
         for j in range(4):
             at_1h[j, np.maximum(at, 0) == j] = 1.0
 
-        x = np.concatenate([tbs, t2m, tcwv, st_1h, at_1h], axis=0)
+        x = np.concatenate([tbs, t2m, tcwv, eia, st_1h, at_1h],
+                           axis=0)
 
         #
         # Output data

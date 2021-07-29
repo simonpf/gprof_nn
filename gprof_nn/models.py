@@ -537,6 +537,7 @@ class XceptionFPN(nn.Module):
     architecture.
     """
     def __init__(self,
+                 sensor,
                  n_outputs,
                  n_blocks,
                  n_features_body,
@@ -556,6 +557,11 @@ class XceptionFPN(nn.Module):
             target: List of target variables.
         """
         super().__init__()
+
+        self.sensor = sensor
+        n_channels = sensor.n_freqs
+        n_anc = sensor.n_inputs - n_channels
+
         self.ancillary = ancillary
         if target is None:
             self.target = ["surface_precip"]
@@ -566,7 +572,7 @@ class XceptionFPN(nn.Module):
         if isinstance(n_blocks, int):
             n_blocks = [n_blocks] * 5
 
-        self.in_block = nn.Conv2d(15, n_features_body, 1)
+        self.in_block = nn.Conv2d(n_channels, n_features_body, 1)
 
         self.down_block_2 = DownsamplingBlock(n_features_body, n_blocks[0])
         self.down_block_4 = DownsamplingBlock(n_features_body, n_blocks[1])
@@ -582,7 +588,7 @@ class XceptionFPN(nn.Module):
 
         n_inputs = 2 * n_features_body
         if self.ancillary:
-            n_inputs += 24
+            n_inputs += n_anc
 
         targets = self.target
         if not isinstance(targets, list):
@@ -604,8 +610,9 @@ class XceptionFPN(nn.Module):
         """
         Propagate input through block.
         """
-        x_in = self.in_block(x[:, :15])
-        x_in[:, :15] += x[:, :15]
+        n_freqs = self.sensor.n_freqs
+        x_in = self.in_block(x[:, :n_freqs])
+        x_in[:, :n_freqs] += x[:, :n_freqs]
 
         x_2 = self.down_block_2(x_in)
         x_4 = self.down_block_4(x_2)
@@ -620,7 +627,7 @@ class XceptionFPN(nn.Module):
         x_u = self.up_block(x_2_u, x_in)
 
         if self.ancillary:
-            x = torch.cat([x_in, x_u, x[:, 15:]], 1)
+            x = torch.cat([x_in, x_u, x[:, n_freqs:]], 1)
         else:
             x = torch.cat([x_in, x_u], 1)
 
@@ -633,7 +640,9 @@ class XceptionFPN(nn.Module):
         for k in targets:
             y = self.heads[k](x)
             if k in PROFILE_NAMES:
-                profile_shape = y.shape[:1] + (self.n_outputs, 28) + y.shape[2:4]
+                profile_shape = (y.shape[:1] +
+                                 (self.n_outputs, 28) +
+                                 y.shape[2:4])
                 results[k] = y.reshape(profile_shape)
             else:
                 results[k] = y
@@ -647,6 +656,7 @@ class GPROF_NN_2D_QRNN(QRNN):
     QRNN-based version of the GPROF-NN 2D algorithm.
     """
     def __init__(self,
+                 sensor,
                  n_blocks,
                  n_features_body,
                  n_layers_head,
@@ -657,6 +667,8 @@ class GPROF_NN_2D_QRNN(QRNN):
     ):
         """
         Args:
+            sensor: The sensor for which this network is meant to retrieve
+                rain rates.
             n_blocks: The number of blocks in each downsampling stage.
             n_features_body: The number of features in the network body.
             n_layers_head: The number of hidden layers in each head.
@@ -677,14 +689,15 @@ class GPROF_NN_2D_QRNN(QRNN):
             if "latent_heat" in targets:
                 transformation["latent_heat"] = None
 
-        model = XceptionFPN(64,
+        model = XceptionFPN(sensor,
+                            64,
                             n_blocks,
                             n_features_body,
                             n_layers_head,
                             n_features_head,
                             target=targets)
 
-        super().__init__(n_inputs=39,
+        super().__init__(n_inputs=sensor.n_inputs,
                          quantiles=QUANTILES,
                          model=model,
                          transformation=transformation)
@@ -698,6 +711,7 @@ class GPROF_NN_2D_DRNN(DRNN):
     QRNN-based version of the GPROF-NN 2D algorithm.
     """
     def __init__(self,
+                 sensor,
                  n_blocks,
                  n_features_body,
                  n_layers_head,
@@ -707,6 +721,8 @@ class GPROF_NN_2D_DRNN(DRNN):
     ):
         """
         Args:
+            sensor: The sensor for which this network is meant to retrieve
+                rain rates.
             n_blocks: The number of blocks in each downsampling stage.
             n_features_body: The number of features in the network body.
             n_layers_head: The number of hidden layers in each head.
@@ -714,23 +730,30 @@ class GPROF_NN_2D_DRNN(DRNN):
             activation: The activation to use in the network.
             targets: List of retrieval targets to retrieve.
         """
+        self.sensor = sensor
         if targets is None:
             targets = ALL_TARGETS
         self.targets = targets
 
-        model = XceptionFPN(128,
+        model = XceptionFPN(sensor,
+                            128,
                             n_blocks,
                             n_features_body,
                             n_layers_head,
                             n_features_head,
                             target=targets)
 
-        super().__init__(n_inputs=39,
+        super().__init__(n_inputs=sensor.n_inputs,
                          bins=BINS,
                          model=model)
 
         self.preprocessor_class = PreprocessorLoader2D
         self.netcdf_class = NetcdfLoader2D
+
+
+###############################################################################
+# Simulator
+###############################################################################
 
 
 class SimulatorNet(nn.Module):
@@ -842,7 +865,8 @@ class Simulator(QRNN):
         Args:
             sensor: Sensor object defining the object for which the simulations
                 should be performed.
-            n_features_body: The number of features in the body of the Exception FPN.
+            n_features_body: The number of features in the body of the Xception
+                FPN.
             n_layers_head: The number of layers in each head of the FPN.
             n_features_header: The number of features in each head.
         """
