@@ -450,10 +450,11 @@ def extract_domain(data,
             results.append(map_coordinates(
                 data_c[:, :, i],
                 coordinates,
-                order=order
+                order=order,
+                cval=np.nan
             ))
         results = np.stack(results, axis=-1)
         results = results.reshape(coordinates.shape[1:] + old_shape[2:])
     else:
-        results = map_coordinates(data, coordinates, order=order)
+        results = map_coordinates(data, coordinates, order=order, cval=np.nan)
     return results
