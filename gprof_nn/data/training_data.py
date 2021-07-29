@@ -787,7 +787,7 @@ class SimulatorDataset(GPROF2DDataset):
                 r = rng.random()
                 n_p = rng.integers(10, 30)
                 if r > 0.80:
-                    tbs[:, 10:15, :n_p] = np.nan
+                    tbs[10:15, :, :n_p] = np.nan
 
             t2m = dataset["two_meter_temperature"][i].data
             t2m[t2m < 0] = np.nan
