@@ -16,7 +16,9 @@ from quantnn.metrics import ScatterPlot
 from quantnn.transformations import LogLinear
 
 from gprof_nn.data.training_data import GPROF2DDataset
+from gprof_nn import sensors
 from gprof_nn.models import GPROF_NN_2D_QRNN, GPROF_NN_2D_DRNN
+
 
 ###############################################################################
 # Command line arguments.
@@ -27,6 +29,10 @@ parser = argparse.ArgumentParser(
 
 
 # Input and output data
+parser.add_argument('sensor',
+                    metavar='sensor',
+                    type=str,
+                    help='The sensor for which to train a retrieval network.')
 parser.add_argument('training_data',
                     metavar='training_data',
                     type=str,
@@ -97,6 +103,10 @@ parser.add_argument('--batch_size', metavar="n", type=int, nargs=1,
 
 args = parser.parse_args()
 
+sensor = getattr(sensors, args.sensor, None)
+if sensor is None:
+    raise ValueError(f"The sensor {args.sensor} isn't currently supported.")
+
 training_data = args.training_data[0]
 validation_data = args.validation_data[0]
 
@@ -158,7 +168,8 @@ network_name = (f"gprof_nn_2d_gmi_{network_type}_{n_blocks}_{n_features_body}"
 #
 
 if network_type == "drnn":
-    xrnn = GPROF_NN_2D_DRNN(n_blocks,
+    xrnn = GPROF_NN_2D_DRNN(sensor,
+                            n_blocks,
                             n_features_body,
                             n_layers_head,
                             n_features_head,
@@ -166,14 +177,16 @@ if network_type == "drnn":
 elif network_type == "qrnn_exp":
     transformation = {t: LogLinear() for t in targets}
     transformation["latent_heat"] = None
-    xrnn = GPROF_NN_2D_QRNN(n_blocks,
+    xrnn = GPROF_NN_2D_QRNN(sensor,
+                            n_blocks,
                             n_features_body,
                             n_layers_head,
                             n_features_head,
                             transformation=transformation,
                             targets=targets)
 else:
-    xrnn = GPROF_NN_2D_QRNN(n_blocks,
+    xrnn = GPROF_NN_2D_QRNN(sensor,
+                            n_blocks,
                             n_features_body,
                             n_layers_head,
                             n_features_head,
