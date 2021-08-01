@@ -19,6 +19,24 @@ R_EARTH = 6_371_000
 class ViewingGeometry:
     pass
 
+def calculate_smoothing_kernel(res_x_source,
+                               res_a_source,
+                               res_x_target,
+                               res_a_target,
+                               size):
+    """
+    Calculate smoothing kernel to smooth a field observed at
+    the resolution of a source sensor to that of a given target
+    sensor.
+    """
+    x = np.linspace(-(size - 1) / 2, (size - 1) / 2, size)
+    y, x = np.meshgrid(x, x, indexing="ij")
+    x = x * res_x_source / res_x_target
+    y = y * res_a_source / res_a_target
+    w = np.exp(np.log(0.5) * (x ** 2 + y ** 2))
+    w = w / w.sum()
+    return w
+
 
 class Conical(ViewingGeometry):
     """
@@ -238,6 +256,34 @@ class CrossTrack(ViewingGeometry):
         gamma = -np.arcsin(a) + np.pi
         return np.rad2deg(np.pi - gamma)
 
+    def get_resolution_x(self, earth_incidence_angles):
+        """
+        Calculate across track resolution for given earth incidence angles.
+
+        Args:
+            earth_incidence_angles: Array of earth incidence angles for which
+                to compute the across track resolution.
+
+        Return:
+            Array containing the across-track resolution in meters.
+        """
+        # Convert earth incidence angle to viewing angle
+        sin_ang = (R_EARTH / (R_EARTH + self.altitude) *
+                   np.sin(np.pi - np.deg2rad(earth_incidence_angles)))
+        beta = np.arcsin(sin_ang)
+
+        c = (R_EARTH + self.altitude) / R_EARTH
+        dg_db = - c * np.cos(beta) / np.sqrt(1 - np.sin(beta * c) ** 2)
+        da_db = - (dg_db + 1)
+
+        r = da_db * R_EARTH * np.deg2rad(1.1)
+        return r
+
+    def get_resolution_a(self):
+        """
+        The along-track resolution.
+        """
+        return self.scan_offset
 
 GMI_GEOMETRY = Conical(
     altitude=407e3,

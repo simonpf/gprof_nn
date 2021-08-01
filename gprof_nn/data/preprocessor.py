@@ -867,3 +867,7 @@ TWB_INTERP_OCEAN = sp.interpolate.interp1d(
     assume_sorted=True,
     kind="linear"
 )
+
+# GANAL Preprocessor
+# /qdata1/pbrown/gpm/modelprep/GANALV7/
+# STANDARD

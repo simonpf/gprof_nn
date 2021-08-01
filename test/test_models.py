@@ -141,6 +141,7 @@ def test_simulator():
     print(x.shape)
     y_pred = simulator(x)
     for k in y_pred:
+        print(y_pred[k].shape, y[k].shape)
         assert k in y
         assert y_pred[k].shape[1] == 128
         assert y_pred[k].shape[2] == y[k].shape[1]

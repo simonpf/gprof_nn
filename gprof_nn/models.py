@@ -779,9 +779,10 @@ class SimulatorNet(nn.Module):
 
         if hasattr(sensor, "angles"):
             n_freqs_sim = sensor.n_freqs * sensor.n_angles
+            n_biases = sensor.n_freqs * sensor.n_angles
         else:
             n_freqs_sim = sensor.n_freqs
-        n_biases = sensor.n_freqs
+            n_biases = sensor.n_freqs
 
         self.n_outputs = n_outputs
         self.in_block = nn.Conv2d(15, n_features_body, 1)
@@ -830,9 +831,6 @@ class SimulatorNet(nn.Module):
         x = torch.cat([x_in, x_u, x[:, 15:]], 1)
 
         n_freqs = self.sensor.n_freqs
-        shape = x.shape[:1] + (self.n_outputs, n_freqs) + x.shape[2:4]
-        bias = self.bias_head(x).reshape(shape)
-
         if hasattr(self.sensor, "angles"):
             n_angles = self.sensor.n_angles
             shape = (x.shape[:1] +
@@ -842,6 +840,7 @@ class SimulatorNet(nn.Module):
             shape = (x.shape[:1] +
                      (self.n_outputs, n_freqs) +
                      x.shape[2:4])
+        bias = self.bias_head(x).reshape(shape)
         sim = self.sim_head(x).reshape(shape)
 
         results = {

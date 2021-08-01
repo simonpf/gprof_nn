@@ -11,6 +11,7 @@ import logging
 import os
 from pathlib import Path
 
+from scipy.signal import convolve
 import numpy as np
 import torch
 import xarray as xr
@@ -21,7 +22,8 @@ from quantnn.normalizer import MinMaxNormalizer
 from gprof_nn import sensors
 from gprof_nn.data.utils import expand_pixels
 from gprof_nn.data.preprocessor import PreprocessorFile
-from gprof_nn.augmentation import (extract_domain,
+from gprof_nn.augmentation import (calculate_smoothing_kernel,
+                                   extract_domain,
                                    get_transformation_coordinates,
                                    GMI_GEOMETRY,
                                    MHS_GEOMETRY)
@@ -676,6 +678,46 @@ class GPROF2DDataset:
             return self.x.shape[0]
 
 
+
+def calculate_smoothing_kernels(sensor,
+                                geometry):
+
+    res_x_source = 14.4e3
+    res_a_source = 8.6e3
+    angles = sensor.angles
+    res_x_target = geometry.get_resolution_x(angles)
+    res_a_target = geometry.get_resolution_a()
+
+    kernels = []
+    for res in res_x_target:
+        k = calculate_smoothing_kernel(res_x_source,
+                                       res_a_source,
+                                       res,
+                                       res_a_target,
+                                       size=7)
+        kernels.append(k)
+    return kernels
+
+
+def smooth_gmi_field(field,
+                     kernels):
+    mask = np.isfinite(field)
+    mask_f = mask.astype(np.float32)
+    field = np.nan_to_num(field, nan=0.0)
+    smoothed = []
+    for k in kernels:
+        if field.ndim > k.ndim:
+            shape = k.shape + (1,) * (field.ndim - k.ndim)
+            k = k.reshape(shape)
+        field_s = convolve(field, k, mode="same")
+        counts = convolve(mask, k, mode="same")
+        #field_s = field_s / counts
+        field_s[~mask] = np.nan
+        smoothed.append(field_s)
+
+    return np.stack(smoothed, axis=2)
+
+
 class SimulatorDataset(GPROF2DDataset):
     """
     Dataset to train a simulator network to predict simulated brightness
@@ -758,6 +800,11 @@ class SimulatorDataset(GPROF2DDataset):
         x = []
         y = {}
 
+        sensor = getattr(sensors, dataset.attrs["sensor"])
+        if sensor != sensors.GMI:
+            kernels = calculate_smoothing_kernels(sensor,
+                                                  MHS_GEOMETRY)
+
         for i in range(n):
             if augment:
                 p_x_o = rng.random()
@@ -821,8 +868,15 @@ class SimulatorDataset(GPROF2DDataset):
                 # Expand and reproject data.
                 y_k_r = expand_pixels(dataset[k][i].data[np.newaxis, ...])
                 y_k_r[y_k_r <= -999] = np.nan
+
+                if (k == "brightness_temperature_biases" and
+                    sensor != sensors.GMI):
+                    y_k_r = smooth_gmi_field(y_k_r[0], kernels)
+                else:
+                    y_k_r = y_k_r[0]
+
                 y_k_r = extract_domain(
-                    y_k_r[0], coords,
+                    y_k_r, coords,
                 )
 
                 y_k = y.setdefault(k, [])
