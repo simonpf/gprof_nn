@@ -498,7 +498,10 @@ class NetcdfLoader0D(NetcdfLoader):
         else:
             self.kind = "bin"
 
-        self.input_data = sensor.load_data_0d(self.filename)
+        self.input_data = sensor.load_data_0d(self.filename,
+                                              [],
+                                              False,
+                                              np.random.default_rng())
         self.n_samples = self.input_data.shape[0]
 
         self.scalar_dimensions = ("samples")
@@ -903,15 +906,24 @@ class SimulatorLoader(NetcdfLoader):
         self.normalizer = normalizer
         self.batch_size = batch_size
 
+        sensor_name = xr.open_dataset(filename).attrs["sensor"]
+        sensor = getattr(sensors, sensor_name, None)
+        if sensor is None:
+            raise ValueError(
+                f"Sensor {sensor_name} isn't yet supported."
+            )
+        self.sensor = sensor
+
         self._load_data()
         self.n_samples = self.input_data.shape[0]
 
-        self.scalar_dimensions = ("samples", "scans", "pixels")
-        self.profile_dimensions = ("samples", "layers", "scans", "pixels")
-
+        if hasattr(sensor, "angles"):
+            dims = ("samples", "angles", "channels", "scans", "pixels")
+        else:
+            dims = ("samples", "channels", "scans", "pixels")
         self.dimensions = {
-            "simulated_brightness_temperatures": ("samples", "angles", "channels", "scans", "pixels"),
-            "brightness_temperature_biases": ("samples", "channels", "scans", "pixels")
+            "simulated_brightness_temperatures": dims,
+            "brightness_temperature_biases": dims
         }
 
     def _load_data(self):
@@ -921,8 +933,16 @@ class SimulatorLoader(NetcdfLoader):
         """
         dataset = xr.open_dataset(self.filename)
         dataset = dataset[{"samples": dataset.source == 0}]
-        input_data = combine_input_data_2d(dataset,
-                                           v_tbs="brightness_temperatures_gmi")
+        if self.sensor == sensors.GMI:
+            input_data = combine_input_data_2d(
+                dataset,
+                v_tbs="brightness_temperatures"
+            )
+        else:
+            input_data = combine_input_data_2d(
+                dataset,
+                v_tbs="brightness_temperatures_gmi"
+            )
         self.input_data = self.normalizer(input_data)
         self.padding = calculate_padding_dimensions(input_data)
 
@@ -948,26 +968,55 @@ class SimulatorLoader(NetcdfLoader):
             "scans": slice(self.padding[0], -self.padding[1]),
             "pixels": slice(self.padding[2], -self.padding[3])
         }]
-        data = data.transpose("samples", "scans", "pixels", "angles", "channels")
+
+        if hasattr(self.sensor, "angles"):
+            data = data.transpose("samples",
+                                  "scans",
+                                  "pixels",
+                                  "angles",
+                                  "channels")
+        else:
+            data = data.transpose("samples",
+                                  "scans",
+                                  "pixels",
+                                  "channels")
+
         input_data = xr.load_dataset(self.filename)
 
         n_samples = input_data.samples.size
         n_scans = data.scans.size
         n_pixels = data.pixels.size
-        n_angles = data.angles.size
         n_channels = data.channels.size
-        input_data["simulated_brightness_temperatures"] = (
-            ("samples", "scans", "pixels", "angles", "channels"),
-            np.nan * np.zeros(
-                (n_samples, n_scans, n_pixels, n_angles, n_channels)
+
+        if hasattr(self.sensor, "angles"):
+            dims = ("samples", "scans", "pixels", "angles", "channels")
+            n_angles = data.angles.size
+            input_data["simulated_brightness_temperatures"] = (
+                dims,
+                np.nan * np.zeros(
+                    (n_samples, n_scans, n_pixels, n_angles, n_channels)
+                )
             )
-        )
-        input_data["brightness_temperature_biases"] = (
-            ("samples", "scans", "pixels", "channels"),
-            np.nan * np.zeros(
-                (n_samples, n_scans, n_pixels, n_channels)
+            input_data["brightness_temperature_biases"] = (
+                ("samples", "scans", "pixels", "angles", "channels"),
+                np.nan * np.zeros(
+                    (n_samples, n_scans, n_pixels, n_angles, n_channels)
+                )
             )
-        )
+        else:
+            dims = ("samples", "scans", "pixels", "channels")
+            input_data["simulated_brightness_temperatures"] = (
+                dims,
+                np.nan * np.zeros(
+                    (n_samples, n_scans, n_pixels, n_channels)
+                )
+            )
+            input_data["brightness_temperature_biases"] = (
+                ("samples", "scans", "pixels", "channels"),
+                np.nan * np.zeros(
+                    (n_samples, n_scans, n_pixels, n_channels)
+                )
+            )
         index = 0
         for i in range(n_samples):
             if input_data.source[i] == 0:
