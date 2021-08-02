@@ -120,3 +120,63 @@ def apply_limits(v,
         mask = v > v_max
         v[mask] = np.nan
     return v
+
+
+def calculate_interpolation_weights(angles,
+                                    angle_grid):
+    """
+    Calculate interpolation weights for angle-dependent variables.
+
+    Args:
+        args: The angles to which to interpolate the variables.
+        angle_grid: Array containing the angle grid on which the
+            variables are calculated.
+
+    Return:
+        An array with one more dimension than 'angles' containing the
+        interpolation weights that can be used to linearly interpolate
+        variables to the given angles.
+    """
+    weights = np.zeros(angles.shape + (angle_grid.size,), np.float32)
+    indices = np.digitize(angles, angle_grid)
+
+    for i in range(angle_grid.size - 1):
+        mask = (indices - 1) == i
+        weights[mask, i] = ((angle_grid[i + 1] - angles[mask]) /
+                            (angle_grid[i + 1] - angle_grid[i]))
+        weights[mask, i + 1] = ((angles[mask] - angle_grid[i]) /
+                                (angle_grid[i + 1] - angle_grid[i]))
+    weights[indices == 0] = 0.0
+    weights[indices == 0, 0] = 1.0
+    weights[indices >= angle_grid.size] = 0.0
+    weights[indices >= angle_grid.size, -1] = 1.0
+
+    return weights
+
+
+def interpolate(variable,
+                weights):
+    """
+    Interpolate variable using precalculated weights.
+
+    Args:
+        variable: Array containing the variable values to interpolate.
+        weights: Weight array pre-calculated using
+        'calcualte_interpolation_weights'. Dimensions must match the
+        first dimensions of 'variable'.
+
+    Return:
+        The values in variable interpolated using the
+        precalculated weights.
+    """
+    if weights.shape != variable.shape[:weights.ndim]:
+        raise ValueError(
+            "Provided weights don't match the shape of value array to "
+            "interpolate."
+        )
+    shape = (variable.shape[:weights.ndim]
+             + (1,) * (variable.ndim - weights.ndim))
+    weights = weights.reshape(shape)
+    return np.sum(variable * weights, axis=weights.ndim - 1)
+
+
