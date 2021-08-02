@@ -5,6 +5,7 @@ gprof_nn.utils
 
 Collection of utility attributes and functions.
 """
+import numpy as np
 import xarray as xr
 
 # Rectangular bounding box around continental united states (CONUS).
@@ -90,3 +91,32 @@ def load_retrieval_results(files_gprof,
             reference[v + "_gprof_nn_0d"] = results_gprof_nn_0d[v]
 
     return reference
+
+
+def apply_limits(v,
+                 v_min,
+                 v_max):
+    """
+    Apply limits to variable.
+
+    Args:
+        v: A numpy array containing the variable values.
+        v_min: A lower bound below which values of the variable
+            should be considered physically unsound or 'None'.
+        v_max: An upper bound above which values of the variable should
+            be considered physically unsound or 'None'.
+
+    Return:
+        A copy of 'v' with value below the lower and above the upper
+        bound set to 'NAN'.
+    """
+    if v_min is None and v_max is None:
+        return v
+    v = v.copy()
+    if v_min is not None:
+        mask = v < v_min
+        v[mask] = np.nan
+    if v_max is not None:
+        mask = v > v_max
+        v[mask] = np.nan
+    return v
