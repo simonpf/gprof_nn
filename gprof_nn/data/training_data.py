@@ -27,8 +27,7 @@ from gprof_nn.data.utils import (load_variable,
 from gprof_nn.definitions import MASKED_OUTPUT, LIMITS
 from gprof_nn.data.utils import expand_pixels
 from gprof_nn.data.preprocessor import PreprocessorFile
-from gprof_nn.augmentation import (calculate_smoothing_kernel,
-                                   extract_domain,
+from gprof_nn.augmentation import (extract_domain,
                                    get_transformation_coordinates,
                                    GMI_GEOMETRY,
                                    MHS_GEOMETRY)
@@ -794,7 +793,7 @@ class SimulatorDataset(GPROF2DDataset):
                 GMI_GEOMETRY, 96, 128, p_x_i, p_x_o, p_y
             )
 
-            scene = remap_scene(dataset[{"samples": i}], coords, targets + vs)
+            scene = remap_scene(scene, coords, targets + vs)
 
             #
             # Input data
