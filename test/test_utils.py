@@ -6,7 +6,9 @@ import numpy as np
 from gprof_nn.utils import (apply_limits,
                             calculate_interpolation_weights,
                             interpolate)
-
+from gprof_nn.data.utils import (load_variable,
+                                 decompress_scene,
+                                 remap_scene)
 
 def test_apply_limits():
     """
@@ -58,3 +60,65 @@ def test_interpolation():
     weights = calculate_interpolation_weights(values, grid)
     y = interpolate(np.repeat(grid.reshape(1, -1), 10, 0), weights)
     assert np.all(np.isclose(y, values))
+
+
+def test_load_variable():
+    """
+    Ensure that loading a variable correctly replaces invalid value and
+    conserves shape when used without mask.
+
+    Also ensure that masking works.
+    """
+    path = Path(__file__).parent
+    input_file = path / "data" / "gmi" / "gprof_nn_gmi_era5.nc"
+    dataset = xr.open_dataset(input_file)
+    sp = load_variable(dataset, "surface_precip")
+
+    expected_shape = (dataset.samples.size,
+                      dataset.scans.size,
+                      dataset.pixels.size)
+    assert sp.shape == expected_shape
+
+    sp = sp[np.isfinite(sp)]
+    assert np.all((sp >= 0.0) * (sp < 500))
+
+    sp = load_variable(dataset, "surface_precip")
+    mask = sp > 10
+    sp = load_variable(dataset, "surface_precip", mask)
+    sp = sp[np.isfinite(sp)]
+    assert np.all((sp > 10.0) * (sp < 500))
+
+
+def test_decompress_scene():
+    """
+    Ensure that loading a variable correctly replaces invalid value and
+    conserves shape when used without mask.
+
+    Also ensure that masking works.
+    """
+    path = Path(__file__).parent
+    input_file = path / "data" / "gmi" / "gprof_nn_gmi_era5.nc"
+    scene = xr.open_dataset(input_file)[{"samples": 1}]
+
+    scene_d = decompress_scene(scene, ["rain_water_content"])
+
+    assert "pixels" in scene_d.rain_water_content.dims
+
+
+def test_remap_scene():
+    path = Path(__file__).parent
+    input_file = path / "data" / "gmi" / "gprof_nn_gmi_era5.nc"
+    scene = xr.open_dataset(input_file)[{"samples": 1}]
+    coords = get_transformation_coordinates(
+        GMI_GEOMETRY, 221, 221, 0.5, 0.5, 0.5
+    )
+    scene_r = remap_scene(scene, coords, ["surface_precip"])
+
+    sp_r = scene_r.surface_precip.data
+    mask = np.isfinite(sp_r)
+    sp_r = sp_r[mask]
+    sp = scene.surface_precip.data
+    sp = sp[mask]
+
+    assert np.all(np.isclose(sp, sp_r))
+

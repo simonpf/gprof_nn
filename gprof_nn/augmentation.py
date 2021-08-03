@@ -19,25 +19,6 @@ R_EARTH = 6_371_000
 class ViewingGeometry:
     pass
 
-def calculate_smoothing_kernel(res_x_source,
-                               res_a_source,
-                               res_x_target,
-                               res_a_target,
-                               size):
-    """
-    Calculate smoothing kernel to smooth a field observed at
-    the resolution of a source sensor to that of a given target
-    sensor.
-    """
-    x = np.linspace(-(size - 1) / 2, (size - 1) / 2, size)
-    y, x = np.meshgrid(x, x, indexing="ij")
-    x = x * res_x_source / res_x_target
-    y = y * res_a_source / res_a_target
-    w = np.exp(np.log(0.5) * (x ** 2 + y ** 2))
-    w = w / w.sum()
-    return w
-
-
 class Conical(ViewingGeometry):
     """
     Coordination transforms for a conical viewing geometry.
@@ -250,7 +231,7 @@ class CrossTrack(ViewingGeometry):
             of the sensor in degrees.
         """
         beta = np.linspace(-self.scan_range / 2,
-                           self.scan_range,
+                           self.scan_range / 2,
                            self.pixels_per_scan)
         a = np.sin(np.deg2rad(beta)) / R_EARTH * (R_EARTH + self.altitude)
         gamma = -np.arcsin(a) + np.pi
@@ -467,7 +448,7 @@ def get_transformation_coordinates(viewing_geometry,
     c = coords_rel_out + coords_center_in
 
     y_min = coords_pixel_in[0].min()
-    y_max = SCANS_PER_SAMPLE - coords_pixel_in[0].max()
+    y_max = (SCANS_PER_SAMPLE - coords_pixel_in[0].max() - 1)
     y = -y_min + 0.5 * (y + 1.0) * (y_max + y_min)
     coords_pixel_in[0] += y
 

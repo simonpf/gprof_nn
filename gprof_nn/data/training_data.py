@@ -20,10 +20,11 @@ from netCDF4 import Dataset
 from quantnn.normalizer import MinMaxNormalizer
 
 from gprof_nn import sensors
-from gprof_nn.sensors import (_decompress_scene,
-                              _remap_scene,
-                              _load_variable,
-                              MASKED_OUTPUT)
+from gprof_nn.utils import apply_limits
+from gprof_nn.data.utils import (load_variable,
+                                 decompress_scene,
+                                 remap_scene)
+from gprof_nn.definitions import MASKED_OUTPUT, LIMITS
 from gprof_nn.data.utils import expand_pixels
 from gprof_nn.data.preprocessor import PreprocessorFile
 from gprof_nn.augmentation import (calculate_smoothing_kernel,
@@ -691,45 +692,6 @@ class GPROF2DDataset:
 
 
 
-def calculate_smoothing_kernels(sensor,
-                                geometry):
-
-    res_x_source = 14.4e3
-    res_a_source = 8.6e3
-    angles = sensor.angles
-    res_x_target = geometry.get_resolution_x(angles)
-    res_a_target = geometry.get_resolution_a()
-
-    kernels = []
-    for res in res_x_target:
-        k = calculate_smoothing_kernel(res_x_source,
-                                       res_a_source,
-                                       res,
-                                       res_a_target,
-                                       size=11)
-        kernels.append(k)
-    return kernels
-
-
-def smooth_gmi_field(field,
-                     kernels):
-    mask = np.isfinite(field)
-    mask_f = mask.astype(np.float32)
-    field = np.nan_to_num(field, nan=0.0)
-    smoothed = []
-    for k in kernels:
-        if field.ndim > k.ndim:
-            shape = k.shape + (1,) * (field.ndim - k.ndim)
-            k = k.reshape(shape)
-        field_s = convolve(field, k, mode="same")
-        counts = convolve(mask_f, k, mode="same")
-        #field_s = field_s / counts
-        field_s[~mask] = np.nan
-        smoothed.append(field_s / counts)
-
-    return np.stack(smoothed, axis=2)
-
-
 class SimulatorDataset(GPROF2DDataset):
     """
     Dataset to train a simulator network to predict simulated brightness
@@ -817,7 +779,7 @@ class SimulatorDataset(GPROF2DDataset):
 
         for i in range(n):
 
-            scene = _decompress_scene(dataset[{"samples": i}], targets + vs)
+            scene = decompress_scene(dataset[{"samples": i}], targets + vs)
 
             if augment:
                 p_x_o = rng.random()
@@ -832,7 +794,7 @@ class SimulatorDataset(GPROF2DDataset):
                 GMI_GEOMETRY, 96, 128, p_x_i, p_x_o, p_y
             )
 
-            scene = _remap_scene(dataset[{"samples": i}], coords, targets + vs)
+            scene = remap_scene(dataset[{"samples": i}], coords, targets + vs)
 
             #
             # Input data
@@ -841,7 +803,7 @@ class SimulatorDataset(GPROF2DDataset):
             if sensor == sensors.GMI:
                 tbs = sensor.load_brightness_temperatures(scene)
             else:
-                tbs = _load_variable(scene, "brightness_temperatures_gmi")
+                tbs = load_variable(scene, "brightness_temperatures_gmi")
             tbs = np.transpose(tbs, (2, 0, 1))
             if augment:
                 r = rng.random()

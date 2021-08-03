@@ -13,14 +13,17 @@ from quantnn.normalizer import Normalizer
 from quantnn.models.pytorch.xception import XceptionFpn
 
 from gprof_nn import sensors
+from gprof_nn.augmentation import (get_transformation_coordinates,
+                                   GMI_GEOMETRY)
 from gprof_nn.data.training_data import (
+    load_variable,
+    decompress_scene,
+    remap_scene,
     GPROF0DDataset,
     TrainingObsDataset0D,
     GPROF2DDataset,
     SimulatorDataset,
 )
-
-
 def test_permutation_gmi():
     """
     Ensure that permutation permutes the right input features.
@@ -270,6 +273,7 @@ def test_gprof_0d_dataset_input_mhs():
     assert np.all((tbs > 30) * (tbs < 400))
 
     eia = x[:, 5]
+    eia = eia[np.isfinite(eia)]
     assert np.all((eia >= -60) * (eia <= 60))
 
     t2m = x[:, 6]

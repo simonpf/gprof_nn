@@ -11,11 +11,17 @@ from pathlib import Path
 
 from netCDF4 import Dataset
 import numpy as np
+from scipy.signal import convolve
 import xarray as xr
 
 from gprof_nn.definitions import N_LAYERS, LIMITS
-from gprof_nn.utils import apply_limits, calculate_interpolation_weights, interpolate
+from gprof_nn.data.utils import (load_variable,
+                                 decompress_scene,
+                                 remap_scene)
 
+from gprof_nn.utils import (apply_limits,
+                            calculate_interpolation_weights,
+                            interpolate)
 from gprof_nn.data.utils import expand_pixels
 from gprof_nn.augmentation import (
     GMI_GEOMETRY,
@@ -45,90 +51,84 @@ MASKED_OUTPUT = -9999
 _BIAS_SCALES_GMI = 1.0 / np.cos(np.deg2rad([52.8, 49.19, 49.19, 49.19, 49.19]))
 
 
-def _load_variable(data, variable, mask=None):
+def calculate_smoothing_kernel(res_x_source,
+                               res_a_source,
+                               res_x_target,
+                               res_a_target,
+                               size):
     """
-    Loads a variable from the given dataset
-    and replaces invalid values.
+    Calculate smoothing kernel to smooth a field observed at
+    the resolution of a source sensor to that of a given target
+    sensor.
+    """
+    x = np.linspace(-(size - 1) / 2, (size - 1) / 2, size)
+    y, x = np.meshgrid(x, x, indexing="ij")
+    x = x * res_x_source / res_x_target
+    y = y * res_a_source / res_a_target
+    w = np.exp(np.log(0.5) * (x ** 2 + y ** 2))
+    w = w / w.sum()
+    return w
+
+
+def calculate_smoothing_kernels(sensor,
+                                geometry):
+    """
+    Calculate smoothing kernels to average variables given on the GMI swath
+    to a lower resolution.
 
     Args:
-        data: ``xarray.Dataset`` containing the training data.
-        variable: The name of the variable to load.
-        mask: A mask to subset values in the training data.
+        sensor: Sensor object representing the sensor to which to smooth the
+             variables.
+        geometry: Viewing geometry of the sensor.
 
     Return:
-        An array containing the two-meter temperature from the
-        dataset.
+        A list of 2D Gaussian convolution kernels.
     """
-    v = data[variable].data
-    if mask is not None:
-        v = v[mask]
-    v_min, v_max = LIMITS[variable]
-    v = apply_limits(v, v_min, v_max)
-    return v
+    res_x_source = 14.4e3
+    res_a_source = 8.6e3
+    angles = sensor.angles
+    res_x_target = geometry.get_resolution_x(angles)
+    res_a_target = geometry.get_resolution_a()
+
+    kernels = []
+    for res in res_x_target:
+        k = calculate_smoothing_kernel(res_x_source,
+                                       res_a_source,
+                                       res,
+                                       res_a_target,
+                                       size=11)
+        kernels.append(k)
+    return kernels
 
 
-def _decompress_scene(scene, targets):
+def smooth_gmi_field(field,
+                     kernels):
     """
-    Decompresses compressed variables in scene.
+    Smooth a variable using precomputed kernels.
 
     Args:
-        scene: 'xarray.Dataset' containing the training data scene.
-        targets: List of the targets to remap.
-
-    Returns:
-        New 'xarray.Dataset' with all compressed variables decompressed.
-    """
-    variables = [
-        "brightness_temperatures",
-        "two_meter_temperature",
-        "total_column_water_vapor",
-        "surface_type",
-        "airmass_type",
-        "source",
-    ] + targets
-
-    data = {}
-    for v in variables:
-        data_r = expand_pixels(scene[v].data, axis=1)
-        data[v] = (scene[v].dims, data_r)
-
-    return xr.Dataset(data)
-
-
-def _remap_scene(scene, coords, targets):
-    """
-    Perform viewing geometry correction to a 2D training data
-    scene.
+        field: The variable which to smooth. The first two dimensions
+            are assumed to correspond to scans and pixels, respectively.
+        kernels: List of kernels to use for the smoothing.
 
     Args:
-        scene: 'xarray.Dataset' containing the training data scene.
-        coords: Precomputed coordinates to use for remapping.
-        targets: List of the targets to remap.
-
-    Returns:
-        New 'xarray.Dataset' containing the remapped data.
+        A new field with an new dimension at index 2 corresponding to the
+        smoothed fields for each of the kernels in 'kernels'.
     """
-    variables = [
-        "brightness_temperatures",
-        "two_meter_temperature",
-        "total_column_water_vapor",
-        "surface_type",
-        "airmass_type",
-        "source",
-    ] + targets
+    mask = np.isfinite(field)
+    mask_f = mask.astype(np.float32)
+    field = np.nan_to_num(field, nan=0.0)
+    smoothed = []
+    for k in kernels:
+        if field.ndim > k.ndim:
+            shape = k.shape + (1,) * (field.ndim - k.ndim)
+            k = k.reshape(shape)
+        field_s = convolve(field, k, mode="same")
+        counts = convolve(mask_f, k, mode="same")
+        field_s[~mask] = np.nan
+        smoothed.append(field_s / counts)
 
-    data = {}
-    dims = ("scans", "pixels")
-    for v in variables:
-        if "scans" in scene[v].dims:
-            if v in ["surface_type", "airmass_type"]:
-                data_r = extract_domain(scene[v].data, coords, order=0)
-            else:
-                data_r = extract_domain(scene[v].data, coords, order=1)
-            data[v] = (dims + scene[v].dims[2:], data_r)
-        else:
-            data[v] = (scene[v].dims, scene[v].data)
-    return xr.Dataset(data)
+    return np.stack(smoothed, axis=2)
 
 
 def calculate_bias_scaling(angles):
@@ -353,20 +353,20 @@ class Sensor(ABC):
         Load total column water vapor from the given dataset and replace
         invalid values.
         """
-        return _load_variable(data, "total_column_water_vapor", mask=mask)
+        return load_variable(data, "total_column_water_vapor", mask=mask)
 
     def load_two_meter_temperature(self, data, mask=None):
         """
         Load two-meter temperature from the given dataset and replace invalid
         values.
         """
-        return _load_variable(data, "two_meter_temperature", mask=mask)
+        return load_variable(data, "two_meter_temperature", mask=mask)
 
     def load_viewing_angle(self, data, mask=None):
         """
         Load viewing angle from the given dataset and replace invalid values.
         """
-        return _load_variable(data, "load_viewing_angle", mask=mask)
+        return load_variable(data, "load_viewing_angle", mask=mask)
 
     def load_surface_type(self, data, mask=None):
         """
@@ -402,7 +402,7 @@ class Sensor(ABC):
         """
         Load and, if necessary, expand target variable.
         """
-        v = _load_variable(data, name, mask=mask)
+        v = load_variable(data, name, mask=mask)
         return v
 
 
@@ -622,7 +622,7 @@ class ConicalScanner(Sensor):
         return self._preprocessor_file_record
 
     def load_brightness_temperatures(self, data, angles=None, mask=None):
-        return _load_variable(data, "brightness_temperatures", mask=mask)
+        return load_variable(data, "brightness_temperatures", mask=mask)
 
     def load_data_0d(self, filename):
         """
@@ -686,7 +686,7 @@ class ConicalScanner(Sensor):
                     ts = targets + ["surface_precip"]
                 else:
                     ts = targets
-                scene = _decompress_scene(dataset[{"samples": i}], ts)
+                scene = decompress_scene(dataset[{"samples": i}], ts)
 
                 #
                 # Input data
@@ -780,7 +780,7 @@ class ConicalScanner(Sensor):
         with xr.open_dataset(dataset) as dataset:
             n = dataset.samples.size
             for i in range(n):
-                scene = _decompress_scene(dataset[{"samples": i}], targets)
+                scene = decompress_scene(dataset[{"samples": i}], targets)
 
                 if augment:
                         p_x_o = rng.random()
@@ -795,7 +795,7 @@ class ConicalScanner(Sensor):
                         GMI_GEOMETRY, 96, 128, p_x_i, p_x_o, p_y
                    )
 
-                scene = _remap_scene(dataset[{"samples": i}], coords, targets)
+                scene = remap_scene(dataset[{"samples": i}], coords, targets)
 
                 #
                 # Input data
@@ -1118,26 +1118,26 @@ class CrossTrackScanner(Sensor):
             brightness temperatures.
         """
         if data.source == 0:
-            tbs_sim = _load_variable(
+            tbs_sim = load_variable(
                 data, "simulated_brightness_temperatures", mask=mask
             )
-            bias = _load_variable(data, "brightness_temperature_biases", mask=mask)
+            bias = load_variable(data, "brightness_temperature_biases", mask=mask)
             if tbs_sim.ndim > bias.ndim:
                 bias = np.expand_dims(bias, -2)
 
             tbs = interpolate(tbs_sim - bias, weights)
         else:
-            tbs = _load_variable(data, "brightness_temperatures", mask=mask)
+            tbs = load_variable(data, "brightness_temperatures", mask=mask)
         return tbs
 
     def load_earth_incidence_angle(self, data, mask=None):
-        return _load_variable(data, "earth_incidence_angle", mask=mask)
+        return load_variable(data, "earth_incidence_angle", mask=mask)
 
     def load_target(self, data, name, weights, mask=None):
         """
         Load and, if necessary, expand target variable.
         """
-        v = _load_variable(data, name, mask=mask)
+        v = load_variable(data, name, mask=mask)
         if name in ["surface_precip", "convective_precip"]:
             if data.source == 0:
                 v = interpolate(v, weights)
@@ -1166,36 +1166,37 @@ class CrossTrackScanner(Sensor):
                 vs = [
                     "simulated_brightness_temperatures",
                     "brightness_temperature_biases",
+                    "earth_incidence_angle"
                 ]
-                scene = _decompress_scene(dataset[{"samples": i}], vs)
+                scene = decompress_scene(dataset[{"samples": i}], vs)
                 source = dataset.source[i]
 
                 n_scans = scene.scans.size
                 n_pixels = scene.pixels.size
 
+                mask = np.ones((n_scans, n_pixels)).astype(np.bool)
+
                 if source == 0:
                     eia = np.arange(n_scans * n_pixels)
                     eia = eia.reshape(n_scans, n_pixels)
                     eia = self.angles[eia % self.n_angles]
-
+                    eia = eia[mask]
                     weights = calculate_interpolation_weights(eia, self.angles)
+                    eia = eia[..., np.newaxis]
                 else:
                     weights = None
-                    eia = _load_variable(scene, "earth_incidence_angle")
-
-                sp = scene["surface_precip"].data
-                mask = np.ones(sp.shape).astype(np.bool)
+                    eia = load_variable(scene, "earth_incidence_angle", mask=mask)
+                    eia = eia[..., :1]
 
                 tbs = self.load_brightness_temperatures(scene, weights, mask=mask)
-
                 t2m = self.load_two_meter_temperature(scene, mask=mask)
-                t2m = t2m[np.newaxis]
+                t2m = t2m[..., np.newaxis]
                 tcwv = self.load_two_meter_temperature(scene, mask=mask)
-                tcwv = tcwv[np.newaxis]
-                st = self.load_surface_type(scene)
-                am = self.load_airmass_type(scene)
+                tcwv = tcwv[..., np.newaxis]
+                st = self.load_surface_type(scene, mask=mask)
+                am = self.load_airmass_type(scene, mask=mask)
 
-                x.append(np.concatenate([tbs, eia, t2m, tcwv, st, am], axis=0))
+                x.append(np.concatenate([tbs, eia, t2m, tcwv, st, am], axis=1))
 
         x = np.concatenate(x, axis=0)
         return x
@@ -1249,7 +1250,7 @@ class CrossTrackScanner(Sensor):
                 vs += ["surface_precip"]
 
             for i in range(n_samples):
-                scene = _decompress_scene(dataset[{"samples": i}], targets + vs)
+                scene = decompress_scene(dataset[{"samples": i}], targets + vs)
                 source = dataset.source[i]
 
                 sp = scene["surface_precip"].data
@@ -1260,7 +1261,7 @@ class CrossTrackScanner(Sensor):
                     weights = calculate_interpolation_weights(eia, self.angles)
                 else:
                     weights = None
-                    eia = _load_variable(scene, "earth_incidence_angle", mask=mask)[
+                    eia = load_variable(scene, "earth_incidence_angle", mask=mask)[
                         ..., 0
                     ]
 
@@ -1330,7 +1331,7 @@ class CrossTrackScanner(Sensor):
         )
 
         vs = ["simulated_brightness_temperatures", "brightness_temperature_biases"]
-        scene = _remap_scene(scene, coords, targets + vs)
+        scene = remap_scene(scene, coords, targets + vs)
 
         center = MHS_GEOMETRY.get_window_center(p_x_o, width, height)
         j_start = int(center[1, 0, 0] - width // 2)
@@ -1488,7 +1489,7 @@ class CrossTrackScanner(Sensor):
             vs += ["surface_precip"]
 
         for i in range(n):
-            scene = _decompress_scene(dataset[{"samples": i}], targets + vs)
+            scene = decompress_scene(dataset[{"samples": i}], targets + vs)
             source = scene.source
             if source == 0:
                 x_i, y_i = self._load_training_data_2d_sim(scene, targets, augment, rng)

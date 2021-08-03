@@ -7,6 +7,8 @@ This module provides basic definitions that are used throughout the packages.
 """
 import numpy as np
 
+MASKED_OUTPUT = -9999
+
 MISSING = -9999.9
 
 ALL_TARGETS = [
@@ -62,7 +64,6 @@ LIMITS = {
     "brightness_temperature_biases": (-50, 50),
     "total_column_water_vapor": (0, None),
     "two_meter_temperature": (150, 400),
-    "surface_precip": (0, 500),
     "viewing_angle": (-180, 180),
     "surface_precip": (0, 500),
     "convective_precip": (0, 500),

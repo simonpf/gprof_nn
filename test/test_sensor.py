@@ -7,18 +7,20 @@ import numpy as np
 import xarray as xr
 
 from gprof_nn import sensors
+from gprof_nn.augmentation import MHS_GEOMETRY
 
 TEST_FILE_MHS = "gprof_nn_mhs_era5_5.nc"
 
 
-def test_bias_scaling_mhs():
+def test_calculate_smoothing_kernels():
     """
-    Ensure that bias scaling for GMI angles is 1.0.
+    Ensure that 'calculate_smoothing_kernels' returns one kernel for each
+    viewing angle and that the kernels have the expected shape.
     """
-    angles = np.array([52.8, 49.19])
-    scales = sensors.calculate_bias_scaling_mhs(angles)
-    assert np.all(np.isclose(scales[0, 0], 1.0))
-    assert np.all(np.isclose(scales[1, 1:], 1.0))
+    kernels = sensors.calculate_smoothing_kernels(sensors.MHS,
+                                                  MHS_GEOMETRY)
+    assert len(kernels) == sensors.MHS.n_angles
+    assert kernels[0].shape == (11, 11)
 
 
 def test_load_data_mhs():
@@ -33,23 +35,14 @@ def test_load_data_mhs():
 
     x = sensor.load_data_0d(input_file)
 
-    mask = np.isfinite(x)
-    assert np.all(x[mask] > -100)
-    assert np.all(x[mask] < 500)
+    mask = np.all(np.isfinite(x[:, :5]), axis=1)
+    print(x[mask, :5])
+    assert np.all(x[mask, :5] > 20)
+    assert np.all(x[mask, :5] < 500)
 
     # Make sure all observation angles are withing expected limits.
-    valid = np.abs(x[:, 5] > -1000)
-    assert np.all(np.abs(x[valid, 5]) <= sensor.angles[0] + 1.0)
-    assert np.all(np.abs(x[valid, 5]) >= sensor.angles[-1])
-
-    st = x[:, 8:26]
-    st = st[np.all(np.isfinite(st), axis=-1)]
-    assert np.all(np.isclose((st > 0).sum(axis=1), 1.0))
-
-    at = x[:, 26:30]
-    at = at[np.all(np.isfinite(at), axis=-1)]
-    assert np.all(np.isclose((at > 0).sum(axis=1), 1.0))
-
+    assert np.all(np.abs(x[mask, 5]) <= sensor.angles[0] + 1.0)
+    assert np.all(np.abs(x[mask, 5]) >= sensor.angles[-1])
 
 def test_load_training_data_mhs(tmp_path):
 
@@ -121,8 +114,8 @@ def test_load_training_data_mhs():
     assert np.all(sp_ref.min(axis=-1) <= sp)
 
     # Make sure all observation angles are withing expected limits.
-    assert np.all(np.abs(x[:, 5]) <= sensor.angles[0] + 1.0)
-    assert np.all(np.abs(x[:, 5]) >= sensor.angles[-1])
+    assert np.all(np.abs(x[:, 5]) >= -64)
+    assert np.all(np.abs(x[:, 5]) <= 64)
 
     st = x[:, 8:26] > 0
     np.all(np.isclose(st.sum(axis=1), 1.0))
