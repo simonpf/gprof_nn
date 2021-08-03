@@ -48,5 +48,5 @@ def expand_pixels(data, axis=2):
 
     selection = [slice(0, None)] * data_new.ndim
     selection[axis] = slice(i_start, i_end)
-    data_new[selection] = data
+    data_new[tuple(selection)] = data
     return data_new
