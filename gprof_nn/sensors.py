@@ -713,7 +713,8 @@ class ConicalScanner(Sensor):
 
                 for t in targets:
                     y_t = self.load_target(scene, t, valid)
-                    y.setdefault(t, []).append(np.nan_to_num(y_t, MASKED_OUTPUT))
+                    y_t = np.nan_to_num(y_t, nan=MASKED_OUTPUT)
+                    y.setdefault(t, []).append(y_t)
         x = np.concatenate(x)
         y = {k: np.concatenate(y[k]) for k in y}
         return x, y
@@ -773,80 +774,74 @@ class ConicalScanner(Sensor):
             Tuple ``(x, y)`` containing the un-batched, un-shuffled training
             data as it is contained in the given NetCDF file.
         """
-        if isinstance(dataset, (str, Path)):
-            dataset = xr.open_dataset(dataset)
-
-        #
-        # Input data
-        #
-
-        # Brightness temperatures
-        n = dataset.samples.size
-
         x = []
         y = {}
 
-        for i in range(n):
+        with xr.open_dataset(dataset) as dataset:
+            n = dataset.samples.size
+            for i in range(n):
+                scene = _decompress_scene(dataset[{"samples": i}], targets)
 
-            scene = _decompress_scene(dataset[{"samples": i}], targets)
+                if augment:
+                        p_x_o = rng.random()
+                        p_x_i = rng.random()
+                        p_y = rng.random()
+                else:
+                        p_x_o = 0.0
+                        p_x_i = 0.0
+                        p_y = 0.0
 
-            if augment:
-                p_x_o = rng.random()
-                p_x_i = rng.random()
-                p_y = rng.random()
-            else:
-                p_x_o = 0.0
-                p_x_i = 0.0
-                p_y = 0.0
+                coords = get_transformation_coordinates(
+                        GMI_GEOMETRY, 96, 128, p_x_i, p_x_o, p_y
+                   )
 
-            coords = get_transformation_coordinates(
-                GMI_GEOMETRY, 96, 128, p_x_i, p_x_o, p_y
-            )
+                scene = _remap_scene(dataset[{"samples": i}], coords, targets)
 
-            scene = _remap_scene(dataset[{"samples": i}], coords, targets)
+                #
+                # Input data
+                #
 
-            tbs = self.load_brightness_temperatures(scene)
-            tbs = np.transpose(tbs, (2, 0, 1))
-            if augment:
-                r = rng.random()
-                n_p = rng.integers(10, 30)
-                if r > 0.80:
-                    tbs[10:15, :, :n_p] = np.nan
-            t2m = self.load_two_meter_temperature(scene)[np.newaxis]
-            tcwv = self.load_two_meter_temperature(scene)[np.newaxis]
-            st = self.load_surface_type(scene)
-            st = np.transpose(st, (2, 0, 1))
-            am = self.load_airmass_type(scene)
-            am = np.transpose(am, (2, 0, 1))
-            x.append(np.concatenate([tbs, t2m, tcwv, st, am], axis=0))
+                tbs = self.load_brightness_temperatures(scene)
+                tbs = np.transpose(tbs, (2, 0, 1))
+                if augment:
+                    r = rng.random()
+                    n_p = rng.integers(10, 30)
+                    if r > 0.80:
+                        tbs[10:15, :, :n_p] = np.nan
+                t2m = self.load_two_meter_temperature(scene)[np.newaxis]
+                tcwv = self.load_total_column_water_vapor(scene)[np.newaxis]
+                st = self.load_surface_type(scene)
+                st = np.transpose(st, (2, 0, 1))
+                am = self.load_airmass_type(scene)
+                am = np.transpose(am, (2, 0, 1))
+                x.append(np.concatenate([tbs, t2m, tcwv, st, am], axis=0))
 
-            #
-            # Output data
-            #
+                #
+                # Output data
+                #
 
-            for t in targets:
+                for t in targets:
+                    y_t = self.load_target(scene, t)
+                    y_t = np.nan_to_num(y_t, nan=MASKED_OUTPUT)
 
-                y_t = self.load_target(scene, t)
-                y_t = np.nan_to_num(y_t, MASKED_OUTPUT)
+                    dims_sp = tuple(range(2))
+                    dims_t = tuple(range(2, y_t.ndim))
 
-                dims_sp = tuple(range(2))
-                dims_t = tuple(range(2, y_t.ndim))
+                    y.setdefault(t, []).append(np.transpose(y_t, dims_t + dims_sp))
 
-                y.setdefault(t, []).append(np.transpose(y_t, dims_t + dims_sp))
+                # Also flip data if requested.
+                if augment:
+                    r = rng.random()
+                    if r > 0.5:
+                        x[i] = np.flip(x[i], -2)
+                        for k in targets:
+                            y[k][i] = np.flip(y[k][i], -2)
 
-            # Also flip data if requested.
-            if augment:
-                r = rng.random()
-                if r > 0.5:
-                    x[i] = np.flip(x[i], -2)
-                    for k in targets:
-                        y[k][i] = np.flip(y[k][i], -2)
-
-                r = rng.random()
-                if r > 0.5:
-                    x[i] = np.flip(x[i], -1)
-                    for k in targets:
-                        y[k][i] = np.flip(y[k][i], -1)
+                    r = rng.random()
+                    if r > 0.5:
+                        x[i] = np.flip(x[i], -1)
+                        for k in targets:
+                            y[k][i] = np.flip(y[k][i], -1)
 
         x = np.stack(x)
         for k in targets:
@@ -1277,7 +1272,7 @@ class CrossTrackScanner(Sensor):
                 eia = eia[..., np.newaxis]
                 t2m = self.load_two_meter_temperature(scene, mask=mask)
                 t2m = t2m[..., np.newaxis]
-                tcwv = self.load_two_meter_temperature(scene, mask=mask)
+                tcwv = self.load_total_column_water_vapor(scene, mask=mask)
                 tcwv = tcwv[..., np.newaxis]
                 st = self.load_surface_type(scene, mask=mask)
                 am = self.load_airmass_type(scene, mask=mask)
@@ -1350,7 +1345,7 @@ class CrossTrackScanner(Sensor):
         tbs = np.transpose(tbs, (2, 0, 1))
         eia = eia[np.newaxis]
         t2m = self.load_two_meter_temperature(scene)[np.newaxis]
-        tcwv = self.load_two_meter_temperature(scene)[np.newaxis]
+        tcwv = self.load_total_column_water_vapor(scene)[np.newaxis]
         st = self.load_surface_type(scene)
         st = np.transpose(st, (2, 0, 1))
         am = self.load_airmass_type(scene)
@@ -1365,7 +1360,7 @@ class CrossTrackScanner(Sensor):
 
         for t in targets:
             y_t = self.load_target(scene, t, weights)
-            y_t = np.nan_to_num(y_t, MASKED_OUTPUT)
+            y_t = np.nan_to_num(y_t, nan=MASKED_OUTPUT)
 
             dims_sp = tuple(range(2))
             dims_t = tuple(range(2, y_t.ndim))
@@ -1431,7 +1426,7 @@ class CrossTrackScanner(Sensor):
         t2m = self.load_two_meter_temperature(scene)
         t2m = t2m[np.newaxis, i_start:i_end, j_start:j_end]
 
-        tcwv = self.load_two_meter_temperature(scene)
+        tcwv = self.load_total_column_water_vapor(scene)
         tcwv = tcwv[np.newaxis, i_start:i_end, j_start:j_end]
 
         st = self.load_surface_type(scene)
@@ -1449,7 +1444,7 @@ class CrossTrackScanner(Sensor):
         for t in targets:
             y_t = self.load_target(scene, t, None)
             y_t = y_t[i_start:i_end, j_start:j_end]
-            y_t = np.nan_to_num(y_t, MASKED_OUTPUT)
+            y_t = np.nan_to_num(y_t, nan=MASKED_OUTPUT)
 
             dims_sp = tuple(range(2))
             dims_t = tuple(range(2, y_t.ndim))

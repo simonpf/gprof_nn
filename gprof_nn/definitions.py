@@ -57,6 +57,7 @@ DATABASE_MONTHS = [
 
 LIMITS = {
     "brightness_temperatures": (0, 400),
+    "brightness_temperatures_gmi": (0, 400),
     "simulated_brightness_temperatures": (0, 400),
     "brightness_temperature_biases": (-50, 50),
     "total_column_water_vapor": (0, None),

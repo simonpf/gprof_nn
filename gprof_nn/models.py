@@ -779,7 +779,7 @@ class SimulatorNet(nn.Module):
 
         if hasattr(sensor, "angles"):
             n_freqs_sim = sensor.n_freqs * sensor.n_angles
-            n_biases = sensor.n_freqs * sensor.n_angles
+            n_biases = sensor.n_freqs
         else:
             n_freqs_sim = sensor.n_freqs
             n_biases = sensor.n_freqs
@@ -833,15 +833,18 @@ class SimulatorNet(nn.Module):
         n_freqs = self.sensor.n_freqs
         if hasattr(self.sensor, "angles"):
             n_angles = self.sensor.n_angles
-            shape = (x.shape[:1] +
-                     (self.n_outputs, n_angles, n_freqs) +
-                     x.shape[2:4])
+            sim_shape = (x.shape[:1] +
+                         (self.n_outputs, n_angles, n_freqs) +
+                         x.shape[2:4])
         else:
-            shape = (x.shape[:1] +
-                     (self.n_outputs, n_freqs) +
-                     x.shape[2:4])
-        bias = self.bias_head(x).reshape(shape)
-        sim = self.sim_head(x).reshape(shape)
+            sim_shape = (x.shape[:1] +
+                         (self.n_outputs, n_freqs) +
+                         x.shape[2:4])
+        bias_shape = (x.shape[:1] +
+                        (self.n_outputs, n_freqs) +
+                        x.shape[2:4])
+        bias = self.bias_head(x).reshape(bias_shape)
+        sim = self.sim_head(x).reshape(sim_shape)
 
         results = {
             "brightness_temperature_biases": bias,

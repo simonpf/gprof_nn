@@ -89,6 +89,29 @@ def test_permutation_gmi():
     assert np.all(np.isclose(x_1[:, :-4], x_2[:, :-4]))
 
 
+def test_gprof_0d_dataset_input_gmi():
+    """
+    Ensure that input variables have realistic values.
+    """
+    path = Path(__file__).parent
+    input_file = path / "data" / "gmi" / "gprof_nn_gmi_era5.nc"
+    dataset = GPROF0DDataset(
+        input_file, batch_size=1, normalize=False, targets=["surface_precip"]
+    )
+    x, _ = dataset[0]
+    x = x.numpy()
+
+    tbs = x[:, :15]
+    tbs = tbs[np.isfinite(tbs)]
+    assert np.all((tbs > 30) * (tbs < 400))
+
+    t2m = x[:, 15]
+    assert np.all((t2m > 180) * (t2m < 350))
+
+    tcwv = x[:, 16]
+    assert np.all((tcwv > 0) * (tcwv < 100))
+
+
 def test_gprof_0d_dataset_gmi():
     """
     Ensure that iterating over single-pixel dataset conserves
@@ -230,6 +253,32 @@ def test_gprof_0d_dataset_multi_target_mhs():
         assert np.all(np.isclose(y_mean[k], y_mean_ref[k], rtol=1e-3))
 
 
+def test_gprof_0d_dataset_input_mhs():
+    """
+    Ensure that input variables have realistic values.
+    """
+    path = Path(__file__).parent
+    input_file = path / "data" / "gprof_nn_mhs_era5.nc"
+    dataset = GPROF0DDataset(
+        input_file, batch_size=1, normalize=False, targets=["surface_precip"]
+    )
+    x, _ = dataset[0]
+    x = x.numpy()
+
+    tbs = x[:, :5]
+    tbs = tbs[np.isfinite(tbs)]
+    assert np.all((tbs > 30) * (tbs < 400))
+
+    eia = x[:, 5]
+    assert np.all((eia >= -60) * (eia <= 60))
+
+    t2m = x[:, 6]
+    assert np.all((t2m > 180) * (t2m < 350))
+
+    tcwv = x[:, 7]
+    assert np.all((tcwv > 0) * (tcwv < 100))
+
+
 def test_observation_dataset_0d():
     """
     Test loading of observations data from MHS training data.
@@ -257,8 +306,7 @@ def test_observation_dataset_0d():
 
 def test_profile_variables():
     """
-    Ensure profile variables are available everywhere except over sea ice
-    or snow.
+    Test loading of profile variables.
     """
     path = Path(__file__).parent
     input_file = path / "data" / "gmi" / "gprof_nn_gmi_era5.nc"
@@ -270,13 +318,30 @@ def test_profile_variables():
         "latent_heat",
     ]
     dataset = GPROF0DDataset(input_file, targets=PROFILE_TARGETS, batch_size=1)
+    x, y = dataset[0]
 
-    for t in PROFILE_TARGETS:
-        x = dataset.x
-        y = dataset.y[t]
 
-        st = np.where(x[:, 17:35])[1]
-        indices = (st >= 8) * (st <= 11)
+def test_gprof_2d_dataset_input_gmi():
+    """
+    Ensure that input variables have realistic values.
+    """
+    path = Path(__file__).parent
+    input_file = path / "data" / "gmi" / "gprof_nn_gmi_era5.nc"
+    dataset = GPROF2DDataset(
+        input_file, batch_size=1, normalize=False, targets=["surface_precip"]
+    )
+    x, _ = dataset[0]
+    x = x.numpy()
+
+    tbs = x[:, :15]
+    tbs = tbs[np.isfinite(tbs)]
+    assert np.all((tbs > 30) * (tbs < 400))
+
+    t2m = x[:, 15]
+    assert np.all((t2m > 180) * (t2m < 350))
+
+    tcwv = x[:, 16]
+    assert np.all((tcwv > 0) * (tcwv < 100))
 
 
 def test_gprof_2d_dataset_gmi():
@@ -358,6 +423,32 @@ def test_gprof_2d_dataset_profiles():
         assert np.all(np.isclose(y_mean[k], y_mean_ref[k], atol=1e-3))
 
 
+def test_gprof_2d_dataset_input_mhs():
+    """
+    Ensure that input variables have realistic values.
+    """
+    path = Path(__file__).parent
+    input_file = path / "data" / "gprof_nn_mhs_era5.nc"
+    dataset = GPROF2DDataset(
+        input_file, batch_size=1, normalize=False, targets=["surface_precip"]
+    )
+    x, _ = dataset[0]
+    x = x.numpy()
+
+    tbs = x[:, :5]
+    tbs = tbs[np.isfinite(tbs)]
+    assert np.all((tbs > 30) * (tbs < 400))
+
+    eia = x[:, 5]
+    assert np.all((eia >= -60) * (eia <= 60))
+
+    t2m = x[:, 6]
+    assert np.all((t2m > 200) * (t2m < 350))
+
+    tcwv = x[:, 7]
+    assert np.all((tcwv > 0) * (tcwv < 100))
+
+
 def test_gprof_2d_dataset_mhs():
     """
     Test loading of 2D training data for MHS sensor.
@@ -402,6 +493,14 @@ def test_simulator_dataset_gmi():
     x = x.numpy()
     y = {k: y[k].numpy() for k in y}
 
+    tbs = x[:, :15]
+    tbs = tbs[np.isfinite(tbs)]
+    assert np.all((tbs > 30) * (tbs < 400))
+    t2m = x[:, 15]
+    assert np.all((t2m > 180) * (t2m < 350))
+    tcwv = x[:, 16]
+    assert np.all((tcwv > 0) * (tcwv < 100))
+
     # Input Tbs must match simulated plus biases.
     for i in range(x.shape[0]):
         tbs_in = x[i, :15, :, :]
@@ -425,13 +524,23 @@ def test_simulator_dataset_mhs():
     """
     path = Path(__file__).parent
     input_file = path / "data" / "gprof_nn_mhs_era5_5.nc"
-    dataset = SimulatorDataset(input_file, batch_size=1024, augment=True)
+    dataset = SimulatorDataset(
+        input_file, batch_size=1024, augment=True, normalize=False
+    )
     x, y = dataset[0]
 
-    assert np.all(np.isfinite(x.numpy()))
+    x = x.numpy()
+    tbs = x[:, :15]
+    tbs = tbs[np.isfinite(tbs)]
+    assert np.all((tbs > 30) * (tbs < 400))
+    t2m = x[:, 15]
+    assert np.all((t2m > 180) * (t2m < 350))
+    tcwv = x[:, 16]
+    assert np.all((tcwv > 0) * (tcwv < 100))
+
     assert np.all(np.isfinite(y["brightness_temperature_biases"].numpy()))
     assert np.all(np.isfinite(y["simulated_brightness_temperatures"].numpy()))
     assert "brightness_temperature_biases" in y
-    assert len(y["brightness_temperature_biases"].shape) == 5
+    assert len(y["brightness_temperature_biases"].shape) == 4
     assert "simulated_brightness_temperatures" in y
     assert len(y["simulated_brightness_temperatures"].shape) == 5
