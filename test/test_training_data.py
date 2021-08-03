@@ -13,10 +13,12 @@ from quantnn.normalizer import Normalizer
 from quantnn.models.pytorch.xception import XceptionFpn
 
 from gprof_nn import sensors
-from gprof_nn.data.training_data import (GPROF0DDataset,
-                                         TrainingObsDataset0D,
-                                         GPROF2DDataset,
-                                         SimulatorDataset)
+from gprof_nn.data.training_data import (
+    GPROF0DDataset,
+    TrainingObsDataset0D,
+    GPROF2DDataset,
+    SimulatorDataset,
+)
 
 
 def test_permutation_gmi():
@@ -26,19 +28,23 @@ def test_permutation_gmi():
     # Permute continuous input
     path = Path(__file__).parent
     input_file = path / "data" / "gmi" / "gprof_nn_gmi_era5.nc"
-    dataset_1 = GPROF0DDataset(input_file,
-                               batch_size=16,
-                               shuffle=False,
-                               augment=False,
-                               transform_zeros=False,
-                               targets=["surface_precip"])
-    dataset_2 = GPROF0DDataset(input_file,
-                               batch_size=16,
-                               shuffle=False,
-                               augment=False,
-                               transform_zeros=False,
-                               targets=["surface_precip"],
-                               permute=0)
+    dataset_1 = GPROF0DDataset(
+        input_file,
+        batch_size=16,
+        shuffle=False,
+        augment=False,
+        transform_zeros=False,
+        targets=["surface_precip"],
+    )
+    dataset_2 = GPROF0DDataset(
+        input_file,
+        batch_size=16,
+        shuffle=False,
+        augment=False,
+        transform_zeros=False,
+        targets=["surface_precip"],
+        permute=0,
+    )
     x_1, y_1 = dataset_1[0]
     y_1 = y_1["surface_precip"]
     x_2, y_2 = dataset_2[0]
@@ -49,13 +55,15 @@ def test_permutation_gmi():
     assert np.all(np.isclose(x_1[:, 1:], x_2[:, 1:]))
 
     # Permute surface type
-    dataset_2 = GPROF0DDataset(input_file,
-                               batch_size=16,
-                               shuffle=False,
-                               augment=False,
-                               transform_zeros=False,
-                               targets=["surface_precip"],
-                               permute=17)
+    dataset_2 = GPROF0DDataset(
+        input_file,
+        batch_size=16,
+        shuffle=False,
+        augment=False,
+        transform_zeros=False,
+        targets=["surface_precip"],
+        permute=17,
+    )
     x_2, y_2 = dataset_2[0]
     y_2 = y_2["surface_precip"]
 
@@ -65,13 +73,15 @@ def test_permutation_gmi():
     assert np.all(np.isclose(x_1[:, -4:], x_2[:, -4:]))
 
     # Permute airmass type
-    dataset_2 = GPROF0DDataset(input_file,
-                               batch_size=16,
-                               shuffle=False,
-                               augment=False,
-                               transform_zeros=False,
-                               targets=["surface_precip"],
-                               permute=18)
+    dataset_2 = GPROF0DDataset(
+        input_file,
+        batch_size=16,
+        shuffle=False,
+        augment=False,
+        transform_zeros=False,
+        targets=["surface_precip"],
+        permute=18,
+    )
     x_2, y_2 = dataset_2[0]
     y_2 = y_2["surface_precip"]
 
@@ -86,10 +96,9 @@ def test_gprof_0d_dataset_gmi():
     """
     path = Path(__file__).parent
     input_file = path / "data" / "gmi" / "gprof_nn_gmi_era5.nc"
-    dataset = GPROF0DDataset(input_file,
-                             batch_size=1,
-                             augment=False,
-                             targets=["surface_precip"])
+    dataset = GPROF0DDataset(
+        input_file, batch_size=1, augment=False, targets=["surface_precip"]
+    )
 
     xs = []
     ys = []
@@ -120,12 +129,9 @@ def test_gprof_0d_dataset_multi_target_gmi():
     input_file = path / "data" / "gmi" / "gprof_nn_gmi_era5.nc"
     dataset = GPROF0DDataset(
         input_file,
-        targets=["surface_precip",
-                 "latent_heat",
-                 "rain_water_content"],
+        targets=["surface_precip", "latent_heat", "rain_water_content"],
         batch_size=1,
-        transform_zeros=False
-
+        transform_zeros=False,
     )
 
     xs = []
@@ -157,11 +163,13 @@ def test_gprof_0d_dataset_mhs():
     """
     path = Path(__file__).parent
     input_file = path / "data" / "gprof_nn_mhs_era5.nc"
-    dataset = GPROF0DDataset(input_file,
-                             batch_size=1,
-                             augment=False,
-                             targets=["surface_precip"],
-                             sensor=sensors.MHS)
+    dataset = GPROF0DDataset(
+        input_file,
+        batch_size=1,
+        augment=False,
+        targets=["surface_precip"],
+        sensor=sensors.MHS,
+    )
 
     xs = []
     ys = []
@@ -182,8 +190,7 @@ def test_gprof_0d_dataset_mhs():
     assert np.all(np.isclose(x_mean, x_mean_ref, rtol=1e-3))
     assert np.all(np.isclose(y_mean, y_mean_ref, rtol=1e-3))
 
-    assert(np.all(np.isclose(x[:, 8:26].sum(-1),
-                             1.0)))
+    assert np.all(np.isclose(x[:, 8:26].sum(-1), 1.0))
 
 
 def test_gprof_0d_dataset_multi_target_mhs():
@@ -195,12 +202,10 @@ def test_gprof_0d_dataset_multi_target_mhs():
     input_file = path / "data" / "gprof_nn_mhs_era5.nc"
     dataset = GPROF0DDataset(
         input_file,
-        targets=["surface_precip",
-                 "latent_heat",
-                 "rain_water_content"],
+        targets=["surface_precip", "latent_heat", "rain_water_content"],
         batch_size=1,
         transform_zeros=False,
-        sensor=sensors.MHS
+        sensor=sensors.MHS,
     )
 
     xs = []
@@ -233,11 +238,7 @@ def test_observation_dataset_0d():
     input_file = path / "data" / "gprof_nn_mhs_era5.nc"
     input_data = xr.load_dataset(input_file)
     dataset = TrainingObsDataset0D(
-        input_file,
-        batch_size=1,
-        sensor=sensors.MHS,
-        normalize=False,
-        shuffle=False
+        input_file, batch_size=1, sensor=sensors.MHS, normalize=False, shuffle=False
     )
 
     x, y = dataset[0]
@@ -266,11 +267,9 @@ def test_profile_variables():
         "rain_water_content",
         "snow_water_content",
         "cloud_water_content",
-        "latent_heat"
+        "latent_heat",
     ]
-    dataset = GPROF0DDataset(
-        input_file, targets=PROFILE_TARGETS, batch_size=1
-    )
+    dataset = GPROF0DDataset(input_file, targets=PROFILE_TARGETS, batch_size=1)
 
     for t in PROFILE_TARGETS:
         x = dataset.x
@@ -287,10 +286,9 @@ def test_gprof_2d_dataset_gmi():
     """
     path = Path(__file__).parent
     input_file = path / "data" / "gmi" / "gprof_nn_gmi_era5.nc"
-    dataset = GPROF2DDataset(input_file,
-                             batch_size=1,
-                             augment=False,
-                             transform_zeros=True)
+    dataset = GPROF2DDataset(
+        input_file, batch_size=1, augment=False, transform_zeros=True
+    )
 
     xs = []
     ys = []
@@ -321,15 +319,13 @@ def test_gprof_2d_dataset_profiles():
     """
     path = Path(__file__).parent
     input_file = path / "data" / "gmi" / "gprof_nn_gmi_era5.nc"
-    dataset = GPROF2DDataset(input_file,
-                             batch_size=1,
-                             augment=False,
-                             transform_zeros=True,
-                             targets=[
-                                 "rain_water_content",
-                                 "snow_water_content",
-                                 "cloud_water_content"
-                             ])
+    dataset = GPROF2DDataset(
+        input_file,
+        batch_size=1,
+        augment=False,
+        transform_zeros=True,
+        targets=["rain_water_content", "snow_water_content", "cloud_water_content"],
+    )
 
     xs = []
     ys = {}
@@ -368,10 +364,9 @@ def test_gprof_2d_dataset_mhs():
     """
     path = Path(__file__).parent
     input_file = path / "data" / "gprof_nn_mhs_era5_sim.nc"
-    dataset = GPROF2DDataset(input_file,
-                             batch_size=1,
-                             augment=False,
-                             transform_zeros=True)
+    dataset = GPROF2DDataset(
+        input_file, batch_size=1, augment=False, transform_zeros=True
+    )
 
     xs = []
     ys = []
@@ -402,9 +397,7 @@ def test_simulator_dataset_gmi():
     """
     path = Path(__file__).parent
     input_file = path / "data" / "gmi" / "gprof_nn_gmi_era5.nc"
-    dataset = SimulatorDataset(input_file,
-                               normalize=False,
-                               batch_size=1024)
+    dataset = SimulatorDataset(input_file, normalize=False, batch_size=1024)
     x, y = dataset[0]
     x = x.numpy()
     y = {k: y[k].numpy() for k in y}
@@ -432,15 +425,13 @@ def test_simulator_dataset_mhs():
     """
     path = Path(__file__).parent
     input_file = path / "data" / "gprof_nn_mhs_era5_5.nc"
-    dataset = SimulatorDataset(input_file,
-                               batch_size=1024,
-                               augment=True)
+    dataset = SimulatorDataset(input_file, batch_size=1024, augment=True)
     x, y = dataset[0]
 
     assert np.all(np.isfinite(x.numpy()))
     assert np.all(np.isfinite(y["brightness_temperature_biases"].numpy()))
     assert np.all(np.isfinite(y["simulated_brightness_temperatures"].numpy()))
     assert "brightness_temperature_biases" in y
-    assert len(y["brightness_temperature_biases"].shape) == 4
+    assert len(y["brightness_temperature_biases"].shape) == 5
     assert "simulated_brightness_temperatures" in y
     assert len(y["simulated_brightness_temperatures"].shape) == 5

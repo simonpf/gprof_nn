@@ -45,9 +45,7 @@ def surface_type_to_name(surface_index):
     return SURFACE_TYPE_NAMES[int(surface_index) - 1]
 
 
-def load_retrieval_results(files_gprof,
-                           files_gprof_nn_0d,
-                           files_reference):
+def load_retrieval_results(files_gprof, files_gprof_nn_0d, files_reference):
     """
     Load and combine retrieval results from different algorithm.
 
@@ -93,9 +91,7 @@ def load_retrieval_results(files_gprof,
     return reference
 
 
-def apply_limits(v,
-                 v_min,
-                 v_max):
+def apply_limits(v, v_min, v_max):
     """
     Apply limits to variable.
 
@@ -122,8 +118,7 @@ def apply_limits(v,
     return v
 
 
-def calculate_interpolation_weights(angles,
-                                    angle_grid):
+def calculate_interpolation_weights(angles, angle_grid):
     """
     Calculate interpolation weights for angle-dependent variables.
 
@@ -142,10 +137,12 @@ def calculate_interpolation_weights(angles,
 
     for i in range(angle_grid.size - 1):
         mask = (indices - 1) == i
-        weights[mask, i] = ((angle_grid[i + 1] - angles[mask]) /
-                            (angle_grid[i + 1] - angle_grid[i]))
-        weights[mask, i + 1] = ((angles[mask] - angle_grid[i]) /
-                                (angle_grid[i + 1] - angle_grid[i]))
+        weights[mask, i] = (angle_grid[i + 1] - angles[mask]) / (
+            angle_grid[i + 1] - angle_grid[i]
+        )
+        weights[mask, i + 1] = (angles[mask] - angle_grid[i]) / (
+            angle_grid[i + 1] - angle_grid[i]
+        )
     weights[indices == 0] = 0.0
     weights[indices == 0, 0] = 1.0
     weights[indices >= angle_grid.size] = 0.0
@@ -154,8 +151,7 @@ def calculate_interpolation_weights(angles,
     return weights
 
 
-def interpolate(variable,
-                weights):
+def interpolate(variable, weights):
     """
     Interpolate variable using precalculated weights.
 
@@ -169,14 +165,10 @@ def interpolate(variable,
         The values in variable interpolated using the
         precalculated weights.
     """
-    if weights.shape != variable.shape[:weights.ndim]:
+    if weights.shape != variable.shape[: weights.ndim]:
         raise ValueError(
-            "Provided weights don't match the shape of value array to "
-            "interpolate."
+            "Provided weights don't match the shape of value array to " "interpolate."
         )
-    shape = (variable.shape[:weights.ndim]
-             + (1,) * (variable.ndim - weights.ndim))
-    weights = weights.reshape(shape)
-    return np.sum(variable * weights, axis=weights.ndim - 1)
-
-
+    shape = variable.shape[: weights.ndim] + (1,) * (variable.ndim - weights.ndim)
+    weights_r = weights.reshape(shape)
+    return np.sum(variable * weights_r, axis=weights.ndim - 1)

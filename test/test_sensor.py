@@ -42,7 +42,7 @@ def test_load_data_mhs():
     assert np.all(np.abs(x[valid, 5]) <= sensor.angles[0] + 1.0)
     assert np.all(np.abs(x[valid, 5]) >= sensor.angles[-1])
 
-    st = x[:,  8:26]
+    st = x[:, 8:26]
     st = st[np.all(np.isfinite(st), axis=-1)]
     assert np.all(np.isclose((st > 0).sum(axis=1), 1.0))
 
@@ -70,10 +70,7 @@ def test_load_training_data_mhs(tmp_path):
     targets = ["surface_precip", "rain_water_content"]
     rng = np.random.default_rng()
 
-    x, y = sensor.load_training_data_0d(input_file,
-                                        targets,
-                                        False,
-                                        rng)
+    x, y = sensor.load_training_data_0d(input_file, targets, False, rng)
 
     # Assert all targets are loaded
     sp_ref = input_data.surface_precip.data
@@ -99,6 +96,7 @@ def test_load_training_data_mhs(tmp_path):
     at = x[:, 26:30] > 0
     assert np.all(np.isclose(at.sum(axis=1), 1.0))
 
+
 def test_load_training_data_mhs():
 
     path = Path(__file__).parent
@@ -110,10 +108,7 @@ def test_load_training_data_mhs():
     targets = ["surface_precip", "rain_water_content"]
     rng = np.random.default_rng()
 
-    x, y = sensor.load_training_data_0d(input_file,
-                                        targets,
-                                        False,
-                                        rng)
+    x, y = sensor.load_training_data_0d(input_file, targets, False, rng)
 
     # Assert all targets are loaded
     sp_ref = input_data.surface_precip.data
@@ -124,7 +119,6 @@ def test_load_training_data_mhs():
     sp = y["surface_precip"]
     assert np.all(sp_ref.max(axis=-1) >= sp)
     assert np.all(sp_ref.min(axis=-1) <= sp)
-
 
     # Make sure all observation angles are withing expected limits.
     assert np.all(np.abs(x[:, 5]) <= sensor.angles[0] + 1.0)
@@ -159,10 +153,7 @@ def test_interpolation_mhs(tmp_path):
     targets = ["surface_precip", "rain_water_content"]
     rng = np.random.default_rng()
 
-    x, y = sensor.load_training_data_0d(tmp_path / "test.nc",
-                                        targets,
-                                        False,
-                                        rng)
+    x, y = sensor.load_training_data_0d(tmp_path / "test.nc", targets, False, rng)
 
     # Assert all targets are loaded
     sp = y["surface_precip"]
