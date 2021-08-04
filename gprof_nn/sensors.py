@@ -390,6 +390,7 @@ class Sensor(ABC):
         am = data["airmass_type"].data
         if mask is not None:
             am = am[mask]
+        am = np.maximum(am, 0)
         n_types = 4
         shape = am.shape + (n_types,)
         am_1h = np.zeros(shape, dtype=np.float32)
@@ -873,6 +874,8 @@ class CrossTrackScanner(Sensor):
         self.nedt = nedt
         n_angles = angles.size
         self._n_freqs = n_freqs
+        self.kernels = calculate_smoothing_kernels(self,
+                                                   MHS_GEOMETRY)
 
         self._bin_file_header = np.dtype(
             [
@@ -1121,11 +1124,15 @@ class CrossTrackScanner(Sensor):
             tbs_sim = load_variable(
                 data, "simulated_brightness_temperatures", mask=mask
             )
-            bias = load_variable(data, "brightness_temperature_biases", mask=mask)
-            if tbs_sim.ndim > bias.ndim:
-                bias = np.expand_dims(bias, -2)
 
-            tbs = interpolate(tbs_sim - bias, weights)
+            bias = load_variable(data, "brightness_temperature_biases")
+            bias = smooth_gmi_field(bias, self.kernels)
+            bias = bias[mask]
+
+            tbs_sim = tbs_sim.copy()
+            mask_b = np.isfinite(bias)
+            tbs_sim[mask_b] -= bias[mask_b]
+            tbs = interpolate(tbs_sim, weights)
         else:
             tbs = load_variable(data, "brightness_temperatures", mask=mask)
         return tbs
@@ -1264,6 +1271,8 @@ class CrossTrackScanner(Sensor):
                     eia = load_variable(scene, "earth_incidence_angle", mask=mask)[
                         ..., 0
                     ]
+                    tbs = scene["brightness_temperatures"].data
+                    mask = mask * np.all(np.isfinite(tbs), axis=-1)
 
                 #
                 # Input data

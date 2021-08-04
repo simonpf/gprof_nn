@@ -690,7 +690,6 @@ class GPROF2DDataset:
             return self.x.shape[0]
 
 
-
 class SimulatorDataset(GPROF2DDataset):
     """
     Dataset to train a simulator network to predict simulated brightness
@@ -760,6 +759,24 @@ class SimulatorDataset(GPROF2DDataset):
                               targets,
                               augment,
                               rng):
+        """
+        Load data for training a simulator data.
+
+        This function is different from the standard loading function in that
+        the input observations are always the GMI observations.
+
+        Args:
+            dataset: The 'xarray.Dataset' from which to load the training
+                data.
+            targets: List of the targets to load.
+            augment: Whether or not to augment the training data.
+            rng: 'numpy.random.Generator' to use to generate random numbers.
+
+        Return:
+
+            Tuple ``(x, y)`` containing the training input ``x`` and a
+            dictionary of target data ``y``.
+        """
         sensor = getattr(sensors, dataset.attrs["sensor"])
 
         #

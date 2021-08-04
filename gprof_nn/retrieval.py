@@ -878,13 +878,18 @@ class SimulatorLoader(NetcdfLoader):
         self.n_samples = self.input_data.shape[0]
 
         if hasattr(sensor, "angles"):
-            dims = ("samples", "angles", "channels", "scans", "pixels")
+            dims_tbs = ("samples", "angles", "channels", "scans", "pixels")
+            dims_bias = ("samples", "channels", "scans", "pixels")
+            self.dimensions = {
+                "simulated_brightness_temperatures": dims_tbs,
+                "brightness_temperature_biases": dims_bias,
+            }
         else:
             dims = ("samples", "channels", "scans", "pixels")
-        self.dimensions = {
-            "simulated_brightness_temperatures": dims,
-            "brightness_temperature_biases": dims,
-        }
+            self.dimensions = {
+                "simulated_brightness_temperatures": dims,
+                "brightness_temperature_biases": dims,
+            }
 
     def _load_data(self):
         """
@@ -943,21 +948,25 @@ class SimulatorLoader(NetcdfLoader):
             n_angles = data.angles.size
             input_data["simulated_brightness_temperatures"] = (
                 dims,
-                np.nan * np.zeros((n_samples, n_scans, n_pixels, n_angles, n_channels)),
+                np.nan * np.zeros((n_samples, n_scans, n_pixels, n_angles, n_channels),
+                                  dtype=np.float32),
             )
             input_data["brightness_temperature_biases"] = (
-                ("samples", "scans", "pixels", "angles", "channels"),
-                np.nan * np.zeros((n_samples, n_scans, n_pixels, n_angles, n_channels)),
+                ("samples", "scans", "pixels", "channels"),
+                np.nan * np.zeros((n_samples, n_scans, n_pixels, n_channels),
+                                  dtype=np.float32),
             )
         else:
             dims = ("samples", "scans", "pixels", "channels")
             input_data["simulated_brightness_temperatures"] = (
                 dims,
-                np.nan * np.zeros((n_samples, n_scans, n_pixels, n_channels)),
+                np.nan * np.zeros((n_samples, n_scans, n_pixels, n_channels),
+                                  dtype=np.float32),
             )
             input_data["brightness_temperature_biases"] = (
                 ("samples", "scans", "pixels", "channels"),
-                np.nan * np.zeros((n_samples, n_scans, n_pixels, n_channels)),
+                np.nan * np.zeros((n_samples, n_scans, n_pixels, n_channels),
+                                  dtype=np.float32),
             )
         index = 0
         for i in range(n_samples):
