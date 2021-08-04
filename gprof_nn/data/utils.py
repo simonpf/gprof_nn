@@ -138,10 +138,13 @@ def remap_scene(scene, coords, targets):
     dims = ("scans", "pixels")
     for v in variables:
         if "scans" in scene[v].dims:
+            data_v = scene[v].data
             if v in ["surface_type", "airmass_type"]:
-                data_r = extract_domain(scene[v].data, coords, order=0)
+                data_r = extract_domain(data_v, coords, order=0)
             else:
-                data_r = extract_domain(scene[v].data, coords, order=1)
+                if v in LIMITS:
+                    data_v = apply_limits(data_v, *LIMITS[v])
+                data_r = extract_domain(data_v, coords, order=1)
             data[v] = (dims + scene[v].dims[2:], data_r)
         else:
             data[v] = (scene[v].dims, scene[v].data)

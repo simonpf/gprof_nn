@@ -510,8 +510,8 @@ def test_simulator_dataset_gmi():
         tbs_in = x[i, :15, :, :]
         tbs_sim = y["simulated_brightness_temperatures"][i, :, :, :]
         tbs_bias = y["brightness_temperature_biases"][i, :, :, :]
-        tbs_sim[tbs_sim <= -9000] = np.nan
-        tbs_bias[tbs_bias <= -9000] = np.nan
+        tbs_sim[tbs_sim <= -900] = np.nan
+        tbs_bias[tbs_bias <= -900] = np.nan
         tbs_out = tbs_sim - tbs_bias
 
         tbs_in = tbs_in[np.isfinite(tbs_out)]
@@ -519,6 +519,7 @@ def test_simulator_dataset_gmi():
 
         if tbs_in.size == 0:
             continue
+        ind = np.argmax(np.abs(tbs_in - tbs_out))
         assert np.all(np.isclose(tbs_in, tbs_out, atol=1e-3))
 
 

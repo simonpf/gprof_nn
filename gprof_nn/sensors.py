@@ -373,7 +373,6 @@ class Sensor(ABC):
         Load surface type from dataset and convert to 1-hot encoding.
         """
         st = data["surface_type"].data
-        st = np.maximum(st, 1)
         if mask is not None:
             st = st[mask]
         n_types = 18
@@ -1128,12 +1127,10 @@ class CrossTrackScanner(Sensor):
 
             bias = load_variable(data, "brightness_temperature_biases")
             bias = smooth_gmi_field(bias, self.kernels)
-            bias = bias[mask]
+            if mask is not None:
+                bias = bias[mask]
 
-            tbs_sim = tbs_sim.copy()
-            mask_b = np.isfinite(bias)
-            tbs_sim[mask_b] -= bias[mask_b]
-            tbs = interpolate(tbs_sim, weights)
+            tbs = interpolate(tbs_sim - bias, weights)
         else:
             tbs = load_variable(data, "brightness_temperatures", mask=mask)
         return tbs
