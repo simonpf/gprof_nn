@@ -52,7 +52,6 @@ def test_smooth_gmi_field():
     field_s = sensors.smooth_gmi_field(field, kernels)
 
     assert field_s.shape[2] == sensors.MHS.n_angles
-    print(field_s[:, :, 0], field_s[:, :, 1])
     assert np.all(np.isclose(field_s[:, :, 0], field_s[:, :, 1], atol=1e-3))
 
 
@@ -79,7 +78,7 @@ def test_load_data_mhs():
     assert np.all(np.abs(x[mask, 5]) >= sensor.angles[-1])
 
 
-def test_load_training_data_gmi(tmp_path):
+def test_load_training_data_gmi():
     """
     Ensure that loading the training data for GMI produces realistic
     values.
@@ -122,11 +121,10 @@ def test_load_training_data_gmi(tmp_path):
     assert np.all(np.isclose(st.sum(axis=1), 1.0))
 
     at = x[:, -4:] > 0
-    print(at)
     assert np.all(np.isclose(at.sum(axis=1), 1.0))
 
 
-def test_load_training_data_mhs(tmp_path):
+def test_load_training_data_mhs():
     """
     Ensure that loading the training data for MHS produces realistic
     values.
@@ -145,42 +143,18 @@ def test_load_training_data_mhs(tmp_path):
     # TB ranges
     assert np.all(x[:, :5] > 20)
     assert np.all(x[:, :5] < 500)
-    assert np.all(x[:, 6:12] > 20)
-    assert np.all(x[:, 6:12] < 500)
-    assert np.all(x[:, 13:15] > 20)
-    assert np.all(x[:, 13:15] < 500)
     # Earth incidence angles
     assert np.all(x[:, 5] > -65)
     assert np.all(x[:, 5] < 65)
     # Two-meter temperature
-    assert np.all(x[:, 5] > 200)
-    assert np.all(x[:, 5] < 400)
+    assert np.all(x[:, 6] > 200)
+    assert np.all(x[:, 6] < 400)
     # TCWV
-    assert np.all(x[:, 5] >= 0)
-    assert np.all(x[:, 5] < 100)
+    assert np.all(x[:, 7] >= 0)
+    assert np.all(x[:, 7] < 100)
 
     # Assert all targets are loaded
     assert all(t in y for t in targets)
-
-    # Ensure that loaded surface precip is within the range given
-    # of the surface precip observed for the different angles.
-    sp_ref = input_data.surface_precip.data
-    mask = np.all(sp_ref >= 0, axis=-1)
-    sp_ref = sp_ref[mask]
-    sp = y["surface_precip"]
-    mask = np.isfinite(sp)
-    assert np.all(sp_ref[mask].max(axis=-1) >= sp[mask])
-    assert np.all(sp_ref[mask].min(axis=-1) <= sp[mask])
-
-    # Make sure all observation angles are withing expected limits.
-    assert np.all(np.abs(x[:, 5]) <= sensor.angles[0] + 1.0)
-    assert np.all(np.abs(x[:, 5]) >= sensor.angles[-1])
-
-    st = x[:, 8:26] > 0
-    assert np.all(np.isclose(st.sum(axis=1), 1.0))
-
-    at = x[:, 26:30] > 0
-    assert np.all(np.isclose(at.sum(axis=1), 1.0))
 
 
 def test_interpolation_mhs(tmp_path):

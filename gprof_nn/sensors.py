@@ -373,6 +373,7 @@ class Sensor(ABC):
         Load surface type from dataset and convert to 1-hot encoding.
         """
         st = data["surface_type"].data
+        st = np.maximum(st, 1)
         if mask is not None:
             st = st[mask]
         n_types = 18
@@ -1268,11 +1269,11 @@ class CrossTrackScanner(Sensor):
                     weights = calculate_interpolation_weights(eia, self.angles)
                 else:
                     weights = None
+                    tbs = scene["brightness_temperatures"].data
+                    mask = mask * np.all((tbs > 0) * (tbs < 500))
                     eia = load_variable(scene, "earth_incidence_angle", mask=mask)[
                         ..., 0
                     ]
-                    tbs = scene["brightness_temperatures"].data
-                    mask = mask * np.all(np.isfinite(tbs), axis=-1)
 
                 #
                 # Input data
