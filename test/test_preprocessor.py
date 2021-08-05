@@ -8,8 +8,9 @@ import numpy as np
 import pytest
 from quantnn.normalizer import Normalizer
 
-from gprof_nn import sensors
-from gprof_nn.data.preprocessor import PreprocessorFile, run_preprocessor
+from gprof_nn.data.preprocessor import (PreprocessorFile,
+                                        run_preprocessor,
+                                        calculate_frozen_precip)
 from gprof_nn.data.training_data import (GPROF0DDataset,
                                          write_preprocessor_file)
 from gprof_nn.data.l1c import L1CFile
@@ -20,12 +21,33 @@ def test_read_preprocessor_gmi():
     Tests reading a GMI preprocessor file.
     """
     path = Path(__file__).parent
-    input_file = PreprocessorFile(path / "data" / "GMIERA5_190101_027510.pp")
+    input_file = PreprocessorFile(path / "data" / "gmi" / "GMIERA5_190101_027510.pp")
     input_data = input_file.to_xarray_dataset()
 
     assert input_file.n_pixels == 221
     assert input_data.pixels.size == 221
     assert input_data.scans.size == input_file.n_scans
+
+    tbs = input_data.brightness_temperatures.data
+    tbs = tbs[tbs > 0]
+    assert np.all((tbs > 20) * (tbs <= 350))
+
+    st = input_data.surface_type.data
+    assert np.all((st >= 0) * (st <= 18))
+
+    am = input_data.airmass_type.data
+    am = am[am >= 0]
+    assert np.all((am >= 0) * (am <= 18))
+
+    lat = input_data.latitude
+    assert np.all((lat >= -90) * (lat <= 90))
+    lon = input_data.longitude
+    assert np.all((lat >= -180) * (lat <= 180))
+
+    t2m = input_data.two_meter_temperature
+    assert np.all((t2m > 200) * (t2m < 400))
+    tcwv = input_data.total_column_water_vapor
+    assert np.all((tcwv >= 0) * (tcwv < 200))
 
 
 def test_read_preprocessor_mhs():
@@ -33,12 +55,33 @@ def test_read_preprocessor_mhs():
     Tests reading a GMI preprocessor file.
     """
     path = Path(__file__).parent
-    input_file = PreprocessorFile(path / "data" / "MHS.pp")
+    input_file = PreprocessorFile(path / "data" / "mhs" / "MHS.pp")
     input_data = input_file.to_xarray_dataset()
 
     assert input_file.n_pixels == 90
     assert input_data.pixels.size == 90
     assert input_data.scans.size == input_file.n_scans
+
+    tbs = input_data.brightness_temperatures.data
+    tbs = tbs[tbs > 0]
+    assert np.all((tbs > 20) * (tbs <= 350))
+
+    st = input_data.surface_type.data
+    assert np.all((st >= 0) * (st <= 18))
+
+    am = input_data.airmass_type.data
+    am = am[am >= 0]
+    assert np.all((am >= 0) * (am <= 18))
+
+    lat = input_data.latitude
+    assert np.all((lat >= -90) * (lat <= 90))
+    lon = input_data.longitude
+    assert np.all((lat >= -180) * (lat <= 180))
+
+    t2m = input_data.two_meter_temperature
+    assert np.all((t2m > 200) * (t2m < 400))
+    tcwv = input_data.total_column_water_vapor
+    assert np.all((tcwv >= 0) * (tcwv < 200))
 
 
 def test_write_preprocessor_file(tmp_path):
@@ -48,7 +91,7 @@ def test_write_preprocessor_file(tmp_path):
     dataset.
     """
     path = Path(__file__).parent
-    input_file = path / "data" / "training_data.nc"
+    input_file = path / "data" / "gmi" / "gprof_nn_gmi_era5.nc"
 
     targets = ["surface_precip",
                "ice_water_path",
@@ -122,3 +165,16 @@ def test_run_preprocessor_mhs():
                             sensor=sensors.MHS)
     assert "two_meter_temperature" in data.variables
 
+
+def test_calculate_frozen_precip():
+    """
+    That below -6.5 all precip is frozen and above all precip is liquid.
+    """
+    fp = calculate_frozen_precip(263.15, 0, 10.0)
+    assert np.isclose(fp, 10.0)
+    fp = calculate_frozen_precip(263.15, 1, 10.0)
+    assert np.isclose(fp, 10.0)
+    fp = calculate_frozen_precip(283.15, 0, 10.0)
+    assert np.isclose(fp, 0.0)
+    fp = calculate_frozen_precip(283.15, 1, 10.0)
+    assert np.isclose(fp, 0.0)

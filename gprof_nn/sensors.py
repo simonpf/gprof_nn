@@ -18,6 +18,7 @@ from gprof_nn.definitions import N_LAYERS, LIMITS
 from gprof_nn.data.utils import (load_variable,
                                  decompress_scene,
                                  remap_scene)
+from gprof_nn.data import types
 
 from gprof_nn.utils import (apply_limits,
                             calculate_interpolation_weights,
@@ -159,12 +160,31 @@ class Sensor(ABC):
     The sensor class defines the abstract properties and methods that
     each sensor class must implement.
     """
+    def __init__(self,
+                 name,
+                 n_freqs):
+        from gprof_nn.data import preprocessor
+        self._name = name
+        self._n_freqs = n_freqs
+        self._preprocessor_orbit_header = types.get_preprocessor_orbit_header(
+            n_freqs
+        )
+        self._preprocessor_pixel_record = types.get_preprocessor_pixel_record(
+            n_freqs,
+            types.CONICAL
+        )
 
-    @abstractproperty
     def name(self):
         """
         The name of the sensor.
         """
+        return self._name
+
+    def sensor_id(self):
+        """
+        String that uniquely identifies the sensor.
+        """
+        return self._name
 
     @abstractproperty
     def n_inputs(self):
@@ -172,11 +192,11 @@ class Sensor(ABC):
         The number of input features for the GPORF-NN retrieval.
         """
 
-    @abstractproperty
     def n_freqs(self):
         """
         The number of frequencies or channels of the sensor.
         """
+        return self._n_freqs
 
     @abstractproperty
     def bin_file_header(self):
@@ -248,25 +268,21 @@ class Sensor(ABC):
         files.
         """
 
-    @abstractproperty
-    def preprocessor(self):
-        """
-        The name of the preprocessor executable for this sensor.
-        """
-
-    @abstractproperty
+    @property
     def preprocessor_orbit_header(self):
         """
         Numpy dtype defining the binary structure of the header of
         preprocessor files.
         """
+        return self._preprocessor_orbit_header
 
-    @abstractproperty
-    def preprocessor_file_record(self):
+    @property
+    def preprocessor_pixel_record(self):
         """
         Numpy dtype defining the binary record structure of preprocessor
         files.
         """
+        return self._preprocessor_pixel_record
 
     @abstractmethod
     def load_data_0d(self, filename):
@@ -421,10 +437,8 @@ class ConicalScanner(Sensor):
         mrms_file_path,
         sim_file_pattern,
         sim_file_path,
-        preprocessor,
     ):
-
-        self._name = name
+        super().__init__(name, n_freqs)
         self._n_freqs = n_freqs
 
         self._bin_file_header = np.dtype(
@@ -520,41 +534,7 @@ class ConicalScanner(Sensor):
                 ("tbs_bias", f"{n_freqs}f4"),
             ]
         )
-        self._preprocessor = preprocessor
 
-        self._preprocessor_orbit_header = np.dtype(
-            [
-                ("satellite", "a12"),
-                ("sensor", "a12"),
-                ("preprocessor", "a12"),
-                ("profile_database_file", "a128"),
-                ("radiometer_file", "a128"),
-                ("calibration_file", "a128"),
-                ("granule_number", "i"),
-                ("number_of_scans", "i"),
-                ("number_of_pixels", "i"),
-                ("n_channels", "i"),
-                ("frequencies", f"{n_freqs}f4"),
-                ("comment", "a40"),
-            ]
-        )
-        self._preprocessor_file_record = np.dtype(
-            [
-                ("latitude", "f4"),
-                ("longitude", "f4"),
-                ("brightness_temperatures", f"{n_freqs}f4"),
-                ("earth_incidence_angle", f"{n_freqs}f4"),
-                ("wet_bulb_temperature", "f4"),
-                ("lapse_rate", "f4"),
-                ("total_column_water_vapor", "f4"),
-                ("surface_temperature", "f4"),
-                ("two_meter_temperature", "f4"),
-                ("quality_flag", "i"),
-                ("sunglint_angle", "i1"),
-                ("surface_type", "i1"),
-                ("airmass_type", "i2"),
-            ]
-        )
 
     @property
     def name(self):
@@ -609,18 +589,6 @@ class ConicalScanner(Sensor):
     @property
     def sim_file_path(self):
         return self._sim_file_path
-
-    @property
-    def preprocessor(self):
-        return self._preprocessor
-
-    @property
-    def preprocessor_orbit_header(self):
-        return self._preprocessor_orbit_header
-
-    @property
-    def preprocessor_file_record(self):
-        return self._preprocessor_file_record
 
     def load_brightness_temperatures(self, data, angles=None, mask=None):
         return load_variable(data, "brightness_temperatures", mask=mask)
@@ -867,8 +835,16 @@ class CrossTrackScanner(Sensor):
         mrms_file_path,
         sim_file_pattern,
         sim_file_path,
-        preprocessor,
     ):
+        super().__init__(name, n_freqs)
+
+        self._preprocessor_orbit_header = types.get_preprocessor_orbit_header(
+            n_freqs
+        )
+        self._preprocessor_pixel_record = types.get_preprocessor_pixel_record(
+            n_freqs,
+            types.XTRACK
+        )
         self._name = name
         self._angles = angles
         self.nedt = nedt
@@ -955,45 +931,6 @@ class CrossTrackScanner(Sensor):
                 ("tbs_bias", f"{n_freqs}f4"),
             ]
         )
-        self._preprocessor = preprocessor
-
-        self._preprocessor_orbit_header = np.dtype(
-            [
-                ("satellite", "a12"),
-                ("sensor", "a12"),
-                ("preprocessor", "a12"),
-                ("profile_database_file", "a128"),
-                ("radiometer_file", "a128"),
-                ("calibration_file", "a128"),
-                ("granule_number", "i"),
-                ("number_of_scans", "i"),
-                ("number_of_pixels", "i"),
-                ("n_channels", "i"),
-                ("frequencies", f"{n_freqs}f4"),
-                ("comment", "a40"),
-            ]
-        )
-        self._preprocessor_file_record = np.dtype(
-            [
-                ("latitude", "f4"),
-                ("longitude", "f4"),
-                ("brightness_temperatures", f"{n_freqs}f4"),
-                ("earth_incidence_angle", f"f4"),
-                ("wet_bulb_temperature", "f4"),
-                ("lapse_rate", "f4"),
-                ("total_column_water_vapor", "f4"),
-                ("surface_temperature", "f4"),
-                ("two_meter_temperature", "f4"),
-                ("quality_flag", "i"),
-                ("sunglint_angle", "i1"),
-                ("surface_type", "i1"),
-                ("airmass_type", "i2"),
-            ]
-        )
-
-    @property
-    def name(self):
-        return self._name
 
     @property
     def n_inputs(self):
@@ -1094,16 +1031,12 @@ class CrossTrackScanner(Sensor):
         return self._sim_file_record
 
     @property
-    def preprocessor(self):
-        return self._preprocessor
-
-    @property
     def preprocessor_orbit_header(self):
         return self._preprocessor_orbit_header
 
     @property
-    def preprocessor_file_record(self):
-        return self._preprocessor_file_record
+    def preprocessor_pixel_record(self):
+        return self._preprocessor_pixel_record
 
     def load_brightness_temperatures(self, data, weights, mask=None):
         """
@@ -1520,8 +1453,7 @@ GMI = ConicalScanner(
     "/pdata4/archive/GPM/1CR_GMI",
     "/pdata4/veljko/GMI2MRMS_match2019/db_mrms4GMI/",
     "GMI.dbsatTb.??????{day}.??????.sim",
-    "/qdata1/pbrown/dbaseV7/simV7",
-    "gprof2020pp_GMI_L1C",
+    "/qdata1/pbrown/dbaseV7/simV7"
 )
 
 MHS_ANGLES = np.array(
@@ -1541,5 +1473,4 @@ MHS = CrossTrackScanner(
     "/pdata4/veljko/MHS2MRMS_match2019/monthly_2021/",
     "MHS.dbsatTb.??????{day}.??????.sim",
     "/qdata1/pbrown/dbaseV7/simV7x",
-    "gprof2020pp_MHS_L1C",
 )

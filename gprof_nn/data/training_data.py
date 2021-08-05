@@ -113,8 +113,12 @@ def write_preprocessor_file(input_data, output_file, template=None):
             ),
         )
 
+    sensor = getattr(sensors, data.attrs["sensor"])
     new_data = xr.Dataset(new_dataset)
-    PreprocessorFile.write(output_file, new_data, template=template)
+    PreprocessorFile.write(output_file,
+                           new_data,
+                           sensor,
+                           template=template)
 
 
 ###############################################################################
