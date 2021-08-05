@@ -8,13 +8,18 @@ import numpy as np
 import pytest
 from quantnn.normalizer import Normalizer
 
+from gprof_nn import sensors
 from gprof_nn.data.preprocessor import (PreprocessorFile,
+                                        has_preprocessor,
                                         run_preprocessor,
-                                        calculate_frozen_precip)
+                                        calculate_frozen_precip,
+                                        ERA5,
+                                        GANAL)
 from gprof_nn.data.training_data import (GPROF0DDataset,
                                          write_preprocessor_file)
 from gprof_nn.data.l1c import L1CFile
 
+HAS_PREPROCESSOR = has_preprocessor()
 
 def test_read_preprocessor_gmi():
     """
@@ -137,8 +142,8 @@ def test_write_preprocessor_file(tmp_path):
                              at_pp[:, :].ravel()[:n]))
 
 
-@pytest.mark.xfail
-def test_run_preprocessor_gmi():
+@pytest.mark.skipif(not HAS_PREPROCESSOR, reason="Preprocessor missing.")
+def test_run_preprocessor_gmi_era5():
     """
     Test running the GMI preprocessor on a specific L1C file.
     """
@@ -148,11 +153,65 @@ def test_run_preprocessor_gmi():
                                     sensor=sensors.GMI)
     data = run_preprocessor(l1c_file.filename,
                             sensor=sensors.GMI)
-    assert "two_meter_temperature" in data.variables
+
+    tbs = data.brightness_temperatures.data
+    tbs = tbs[tbs > 0]
+    assert np.all((tbs > 20) * (tbs <= 350))
+
+    st = data.surface_type.data
+    assert np.all((st >= 0) * (st <= 18))
+
+    am = data.airmass_type.data
+    am = am[am >= 0]
+    assert np.all((am >= 0) * (am <= 18))
+
+    lat = data.latitude
+    assert np.all((lat >= -90) * (lat <= 90))
+    lon = data.longitude
+    assert np.all((lat >= -180) * (lat <= 180))
+
+    t2m = data.two_meter_temperature
+    assert np.all((t2m > 200) * (t2m < 400))
+    tcwv = data.total_column_water_vapor
+    assert np.all((tcwv >= 0) * (tcwv < 200))
 
 
-@pytest.mark.xfail
-def test_run_preprocessor_mhs():
+@pytest.mark.skipif(not HAS_PREPROCESSOR, reason="Preprocessor missing.")
+def test_run_preprocessor_gmi_ganal():
+    """
+    Test running the GMI preprocessor on a specific L1C file.
+    """
+    l1c_path = Path("/pdata4/archive/GPM/1CR_GMI")
+    l1c_file = L1CFile.open_granule(27510,
+                                    l1c_path,
+                                    sensor=sensors.GMI)
+    data = run_preprocessor(l1c_file.filename,
+                            sensor=sensors.GMI,
+                            configuration=GANAL)
+
+    tbs = data.brightness_temperatures.data
+    tbs = tbs[tbs > 0]
+    assert np.all((tbs > 20) * (tbs <= 350))
+
+    st = data.surface_type.data
+    assert np.all((st >= 0) * (st <= 18))
+
+    am = data.airmass_type.data
+    am = am[am >= 0]
+    assert np.all((am >= 0) * (am <= 18))
+
+    lat = data.latitude
+    assert np.all((lat >= -90) * (lat <= 90))
+    lon = data.longitude
+    assert np.all((lat >= -180) * (lat <= 180))
+
+    t2m = data.two_meter_temperature
+    assert np.all((t2m > 200) * (t2m < 400))
+    tcwv = data.total_column_water_vapor
+    assert np.all((tcwv >= 0) * (tcwv < 200))
+
+@pytest.mark.skipif(not HAS_PREPROCESSOR, reason="Preprocessor missing.")
+def test_run_preprocessor_mhs_era5():
     """
     Test running the MHS preprocessor on a specific L1C file.
     """
@@ -163,7 +222,64 @@ def test_run_preprocessor_mhs():
                                  sensor=sensors.MHS,)
     data = run_preprocessor(l1c_file.filename,
                             sensor=sensors.MHS)
-    assert "two_meter_temperature" in data.variables
+
+    tbs = data.brightness_temperatures.data
+    tbs = tbs[tbs > 0]
+    assert np.all((tbs > 20) * (tbs <= 350))
+
+    st = data.surface_type.data
+    assert np.all((st >= 0) * (st <= 18))
+
+    am = data.airmass_type.data
+    am = am[am >= 0]
+    assert np.all((am >= 0) * (am <= 18))
+
+    lat = data.latitude
+    assert np.all((lat >= -90) * (lat <= 90))
+    lon = data.longitude
+    assert np.all((lat >= -180) * (lat <= 180))
+
+    t2m = data.two_meter_temperature
+    assert np.all((t2m > 200) * (t2m < 400))
+    tcwv = data.total_column_water_vapor
+    assert np.all((tcwv >= 0) * (tcwv < 200))
+
+
+@pytest.mark.skipif(not HAS_PREPROCESSOR, reason="Preprocessor missing.")
+def test_run_preprocessor_mhs_ganal():
+    """
+    Test running the MHS preprocessor on a specific L1C file.
+    """
+    l1c_path = Path("/pdata4/archive/GPM/1C_METOPB")
+    date = datetime(2019, 1, 1, 0, 30)
+    l1c_file = L1CFile.find_file(date,
+                                 l1c_path,
+                                 sensor=sensors.MHS,)
+    data = run_preprocessor(l1c_file.filename,
+                            configuration=GANAL,
+                            sensor=sensors.MHS)
+    print(data.attrs["preprocessor"])
+
+    tbs = data.brightness_temperatures.data
+    tbs = tbs[tbs > 0]
+    assert np.all((tbs > 20) * (tbs <= 350))
+
+    st = data.surface_type.data
+    assert np.all((st >= 0) * (st <= 18))
+
+    am = data.airmass_type.data
+    am = am[am >= 0]
+    assert np.all((am >= 0) * (am <= 18))
+
+    lat = data.latitude
+    assert np.all((lat >= -90) * (lat <= 90))
+    lon = data.longitude
+    assert np.all((lat >= -180) * (lat <= 180))
+
+    t2m = data.two_meter_temperature
+    assert np.all((t2m > 200) * (t2m < 400))
+    tcwv = data.total_column_water_vapor
+    assert np.all((tcwv >= 0) * (tcwv < 200))
 
 
 def test_calculate_frozen_precip():

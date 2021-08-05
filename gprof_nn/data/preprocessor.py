@@ -12,6 +12,7 @@ Additionally, it defines functions to run the preprocessor on the CSU
 from datetime import datetime
 import logging
 import os
+import shutil
 import subprocess
 import tempfile
 
@@ -299,7 +300,15 @@ class PreprocessorFile:
                 f"{year:04}-{month:02}-{day:02}" f"T{hour:02}:{minute:02}:{second:02}"
             )
         data["scan_time"] = ("scans",), scan_times
-        return xr.Dataset(data)
+        dataset = xr.Dataset(data)
+
+        sensor = self.orbit_header["sensor"][0].decode().strip()
+        satellite = self.orbit_header["satellite"][0].decode().strip()
+        preprocessor = self.orbit_header["preprocessor"][0].decode().strip()
+        dataset.attrs["satellite"] = satellite
+        dataset.attrs["sensor"] = sensor
+        dataset.attrs["preprocessor"] = preprocessor
+        return dataset
 
     def write_retrieval_results(self, path, results, ancillary_data=None):
         """
@@ -602,6 +611,15 @@ class PreprocessorFile:
 # Running the preprocessor
 ###############################################################################
 
+
+def has_preprocessor():
+    """
+    Function to determine whether a GMI preprocessor is available on the
+    system.
+    """
+    return shutil.which("gprof2020pp_GMI_L1C") is not None
+
+
 # Dictionary mapping sensor IDs to preprocessor executables.
 PREPROCESSOR_EXECUTABLES = {"GMI": "gprof2020pp_GMI_L1C", "MHS": "gprof2020pp_MHS_L1C"}
 
@@ -618,16 +636,15 @@ def get_preprocessor_settings(configuration):
     the preprocessor.
     """
     settings = {
+        "prodtype": "CLIMATOLOGY",
+        "prepdir": "/qdata2/archive/ERA5/",
         "ancdir": "/qdata1/pbrown/gpm/ppancillary/",
         "ingestdir": "/qdata1/pbrown/gpm/ppingest/",
     }
-    if configuration == ERA5:
-        settings["prodtype"] = "CLIMATOLOGY"
-        settings["prepdir"] = "/qdata2/archive/ERA5/"
-    else:
+    if configuration != ERA5:
         settings["prodtype"] = "STANDARD"
         settings["prepdir"] = "/qdata1/pbrown/gpm/modelprep/GANALV7/"
-    return [s for s, _ in settings.items()]
+    return [s for _, s in settings.items()]
 
 
 def run_preprocessor(
@@ -662,6 +679,7 @@ def run_preprocessor(
         args.append(output_file)
 
         subprocess.run([executable] + args, check=True, capture_output=True)
+        print(executable)
         if file is not None:
             data = PreprocessorFile(output_file).to_xarray_dataset()
 

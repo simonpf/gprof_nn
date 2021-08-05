@@ -174,12 +174,14 @@ class Sensor(ABC):
             types.CONICAL
         )
 
+    @property
     def name(self):
         """
         The name of the sensor.
         """
         return self._name
 
+    @property
     def sensor_id(self):
         """
         String that uniquely identifies the sensor.
