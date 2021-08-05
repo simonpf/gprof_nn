@@ -7,7 +7,7 @@ from quantnn.transformations import LogLinear
 from gprof_nn import sensors
 from gprof_nn.definitions import ALL_TARGETS
 from gprof_nn.data.training_data import (SimulatorDataset,
-                                         GPROF2DDataset)
+                                         GPROF_NN_2D_Dataset)
 from gprof_nn.models import (
     MLP,
     ResidualMLP,
@@ -107,7 +107,7 @@ def test_gprof_nn_2d_gmi():
     """
     path = Path(__file__).parent
     input_file = path / "data" / "gmi" / "gprof_nn_gmi_era5.nc"
-    dataset = GPROF2DDataset(input_file)
+    dataset = GPROF_NN_2D_Dataset(input_file)
     network = GPROF_NN_2D_QRNN(sensors.GMI, 2, 128, 2, 64)
     x, y = dataset[0]
     y_pred = network.predict(x)
@@ -121,7 +121,7 @@ def test_gprof_nn_2d_mhs():
     """
     path = Path(__file__).parent
     input_file = path / "data" / "gprof_nn_mhs_era5.nc"
-    dataset = GPROF2DDataset(input_file)
+    dataset = GPROF_NN_2D_Dataset(input_file)
     network = GPROF_NN_2D_QRNN(sensors.MHS, 2, 128, 2, 64)
     x, y = dataset[0]
     y_pred = network.predict(x)

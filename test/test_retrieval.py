@@ -11,7 +11,7 @@ from quantnn import QRNN
 from quantnn.normalizer import Normalizer
 
 from gprof_nn import sensors
-from gprof_nn.data.training_data import GPROF0DDataset
+from gprof_nn.data.training_data import GPROF_NN_0D_Dataset
 from gprof_nn.data.preprocessor import PreprocessorFile
 from gprof_nn.data.retrieval import (RetrievalFile,
                                      ORBIT_HEADER_TYPES,
@@ -156,7 +156,7 @@ def test_retrieval_netcdf_0d(tmp_path):
     input_file = data_path / "gmi" / "gprof_nn_gmi_era5.nc"
 
     qrnn = QRNN.load(data_path / "gprof_nn_0d.pckl")
-    qrnn.training_data_class = GPROF0DDataset
+    qrnn.training_data_class = GPROF_NN_0D_Dataset
     qrnn.preprocessor_class = PreprocessorLoader0D
     normalizer = Normalizer.load(data_path / "normalizer.pckl")
     driver = RetrievalDriver(input_file,

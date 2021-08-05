@@ -20,8 +20,8 @@ from gprof_nn.retrieval import (NetcdfLoader0D,
                                 PreprocessorLoader0D,
                                 PreprocessorLoader2D,
                                 SimulatorLoader)
-from gprof_nn.data.training_data import (GPROF0DDataset,
-                                         GPROF2DDataset)
+from gprof_nn.data.training_data import (GPROF_NN_0D_Dataset,
+                                         GPROF_NN_2D_Dataset)
 
 
 BINS = {
@@ -488,7 +488,7 @@ class GPROF_NN_0D_DRNN(DRNN):
                          model=model)
 
         self.preprocessor_class = PreprocessorLoader0D
-        self.training_data_class = GPROF0DDataset
+        self.training_data_class = GPROF_NN_0D_Dataset
 
         self.preprocessor_class = PreprocessorLoader0D
         self.netcdf_class = NetcdfLoader0D

@@ -22,7 +22,7 @@ import pandas as pd
 from gprof_nn import sensors
 import gprof_nn.logging
 from gprof_nn.definitions import PROFILE_NAMES, ALL_TARGETS
-from gprof_nn.data.training_data import GPROF0DDataset, GPROF0DDataset
+from gprof_nn.data.training_data import GPROF_NN_0D_Dataset
 from gprof_nn.data.preprocessor import PreprocessorFile, run_preprocessor
 
 

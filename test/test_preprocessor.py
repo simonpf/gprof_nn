@@ -15,7 +15,7 @@ from gprof_nn.data.preprocessor import (PreprocessorFile,
                                         calculate_frozen_precip,
                                         ERA5,
                                         GANAL)
-from gprof_nn.data.training_data import (GPROF0DDataset,
+from gprof_nn.data.training_data import (GPROF_NN_0D_Dataset,
                                          write_preprocessor_file)
 from gprof_nn.data.l1c import L1CFile
 
@@ -107,7 +107,7 @@ def test_write_preprocessor_file(tmp_path):
                "snow_water_content",
                "cloud_water_content"]
 
-    dataset = GPROF0DDataset(input_file,
+    dataset = GPROF_NN_0D_Dataset(input_file,
                              batch_size=1,
                              normalize=False,
                              transform_zeros=False,
@@ -121,25 +121,25 @@ def test_write_preprocessor_file(tmp_path):
     preprocessor_data = preprocessor_file.to_xarray_dataset()
 
     bts_pp = preprocessor_data["brightness_temperatures"].data
-    n = dataset.x.shape[0]
-    assert np.all(np.isclose(dataset.x[:, :5],
-                             bts_pp[:, :, :5].reshape(-1, 5)[:n]))
+    n = preprocessor_data.scans.size * preprocessor_data.pixels.size
+    assert np.all(np.isclose(dataset.x[:n, :5],
+                             bts_pp[:, :, :5].reshape(-1, 5)))
 
     t2m_pp = preprocessor_data["two_meter_temperature"].data
-    assert np.all(np.isclose(dataset.x[:, 15],
-                             t2m_pp[:, :].ravel()[:n]))
+    assert np.all(np.isclose(dataset.x[:n, 15],
+                             t2m_pp[:, :].ravel()))
 
     tcwv_pp = preprocessor_data["total_column_water_vapor"].data
-    assert np.all(np.isclose(dataset.x[:, 16],
-                             tcwv_pp[:, :].ravel()[:n]))
+    assert np.all(np.isclose(dataset.x[:n, 16],
+                             tcwv_pp[:, :].ravel()))
 
     st_pp = preprocessor_data["surface_type"].data
-    assert np.all(np.isclose(np.where(dataset.x[:, 17:17 + 18])[1],
-                             st_pp[:, :].ravel()[:n]))
+    assert np.all(np.isclose(np.where(dataset.x[:n, 17:17 + 18])[1] + 1,
+                             st_pp[:n, :].ravel()))
 
     at_pp = preprocessor_data["airmass_type"].data
-    assert np.all(np.isclose(np.where(dataset.x[:, 17 + 18:17 + 22])[1],
-                             at_pp[:, :].ravel()[:n]))
+    assert np.all(np.isclose(np.where(dataset.x[:n, 17 + 18:17 + 22])[1],
+                             at_pp[:n, :].ravel()))
 
 
 @pytest.mark.skipif(not HAS_PREPROCESSOR, reason="Preprocessor missing.")
@@ -258,7 +258,6 @@ def test_run_preprocessor_mhs_ganal():
     data = run_preprocessor(l1c_file.filename,
                             configuration=GANAL,
                             sensor=sensors.MHS)
-    print(data.attrs["preprocessor"])
 
     tbs = data.brightness_temperatures.data
     tbs = tbs[tbs > 0]

@@ -19,11 +19,102 @@ from gprof_nn.data.training_data import (
     load_variable,
     decompress_scene,
     remap_scene,
-    GPROF0DDataset,
+    GPROF_NN_0D_Dataset,
     TrainingObsDataset0D,
-    GPROF2DDataset,
+    GPROF_NN_2D_Dataset,
     SimulatorDataset,
 )
+
+
+def test_to_xarray_dataset_0d():
+    """
+    Ensure that converting training data to 'xarray.Dataset' yield same
+    Tbs as the ones found in the first batch of the training data when
+    data is not shuffled.
+    """
+    path = Path(__file__).parent
+    input_file = path / "data" / "gmi" / "gprof_nn_gmi_era5.nc"
+    dataset = GPROF_NN_0D_Dataset(
+        input_file,
+        batch_size=64,
+        normalize=False,
+        shuffle=False,
+        targets=["surface_precip", "rain_water_content"]
+    )
+    data = dataset.to_xarray_dataset()
+    x, y = dataset[0]
+    x = x.numpy()
+
+    tbs = data.brightness_temperatures.data[:x.shape[0]]
+    tbs_ref = x[:, :15]
+    valid = np.isfinite(tbs_ref)
+    assert np.all(np.isclose(tbs[valid], tbs_ref[valid]))
+
+    t2m = data.two_meter_temperature.data[:x.shape[0]]
+    t2m_ref = x[:, 15]
+    assert np.all(np.isclose(t2m, t2m_ref))
+
+    tcwv = data.total_column_water_vapor.data[:x.shape[0]]
+    tcwv_ref = x[:, 16]
+    assert np.all(np.isclose(tcwv, tcwv_ref))
+
+    st = data.surface_type.data[:x.shape[0]]
+    inds, st_ref = np.where(x[:, -22:-4])
+    assert np.all(np.isclose(st[inds], st_ref + 1))
+
+    at = data.airmass_type.data[:x.shape[0]]
+    inds, at_ref = np.where(x[:, -4:])
+    assert np.all(np.isclose(at[inds], at_ref))
+
+
+def test_to_xarray_dataset_2d():
+    """
+    Ensure that converting training data to 'xarray.Dataset' yield same
+    Tbs as the ones found in the first batch of the training data when
+    data is not shuffled.
+    """
+    path = Path(__file__).parent
+    input_file = path / "data" / "gmi" / "gprof_nn_gmi_era5.nc"
+    dataset = GPROF_NN_2D_Dataset(
+        input_file,
+        batch_size=32,
+        normalize=False,
+        shuffle=False,
+        targets=["surface_precip", "rain_water_content"]
+    )
+    data = dataset.to_xarray_dataset()
+    x, y = dataset[0]
+    x = x.numpy()
+
+    tbs = data.brightness_temperatures.data
+    tbs_ref = x[:, :15]
+    tbs_ref = np.transpose(tbs_ref, (0, 2, 3, 1))
+    valid = np.isfinite(tbs_ref)
+    assert np.all(np.isclose(tbs[valid], tbs_ref[valid]))
+
+    t2m = data.two_meter_temperature.data
+    t2m_ref = x[:, 15]
+    assert np.all(np.isclose(t2m, t2m_ref))
+
+    tcwv = data.total_column_water_vapor.data
+    tcwv_ref = x[:, 16]
+    assert np.all(np.isclose(tcwv, tcwv_ref))
+
+    st = data.surface_type.data
+    st_ref = np.zeros(t2m.shape, dtype=np.int32)
+    for i in range(18):
+        mask = x[:, -22 + i] == 1
+        st_ref[mask] = i + 1
+    assert np.all(np.isclose(st, st_ref))
+
+    at = data.airmass_type.data
+    at_ref = np.zeros(t2m.shape, dtype=np.int32)
+    for i in range(4):
+        mask = x[:, -4 + i] == 1
+        at_ref[mask] = i
+    assert np.all(np.isclose(at, at_ref))
+
+
 def test_permutation_gmi():
     """
     Ensure that permutation permutes the right input features.
@@ -31,7 +122,7 @@ def test_permutation_gmi():
     # Permute continuous input
     path = Path(__file__).parent
     input_file = path / "data" / "gmi" / "gprof_nn_gmi_era5.nc"
-    dataset_1 = GPROF0DDataset(
+    dataset_1 = GPROF_NN_0D_Dataset(
         input_file,
         batch_size=16,
         shuffle=False,
@@ -39,7 +130,7 @@ def test_permutation_gmi():
         transform_zeros=False,
         targets=["surface_precip"],
     )
-    dataset_2 = GPROF0DDataset(
+    dataset_2 = GPROF_NN_0D_Dataset(
         input_file,
         batch_size=16,
         shuffle=False,
@@ -58,7 +149,7 @@ def test_permutation_gmi():
     assert np.all(np.isclose(x_1[:, 1:], x_2[:, 1:]))
 
     # Permute surface type
-    dataset_2 = GPROF0DDataset(
+    dataset_2 = GPROF_NN_0D_Dataset(
         input_file,
         batch_size=16,
         shuffle=False,
@@ -76,7 +167,7 @@ def test_permutation_gmi():
     assert np.all(np.isclose(x_1[:, -4:], x_2[:, -4:]))
 
     # Permute airmass type
-    dataset_2 = GPROF0DDataset(
+    dataset_2 = GPROF_NN_0D_Dataset(
         input_file,
         batch_size=16,
         shuffle=False,
@@ -98,7 +189,7 @@ def test_gprof_0d_dataset_input_gmi():
     """
     path = Path(__file__).parent
     input_file = path / "data" / "gmi" / "gprof_nn_gmi_era5.nc"
-    dataset = GPROF0DDataset(
+    dataset = GPROF_NN_0D_Dataset(
         input_file, batch_size=1, normalize=False, targets=["surface_precip"]
     )
     x, _ = dataset[0]
@@ -122,7 +213,7 @@ def test_gprof_0d_dataset_gmi():
     """
     path = Path(__file__).parent
     input_file = path / "data" / "gmi" / "gprof_nn_gmi_era5.nc"
-    dataset = GPROF0DDataset(
+    dataset = GPROF_NN_0D_Dataset(
         input_file, batch_size=1, augment=False, targets=["surface_precip"]
     )
 
@@ -153,7 +244,7 @@ def test_gprof_0d_dataset_multi_target_gmi():
     """
     path = Path(__file__).parent
     input_file = path / "data" / "gmi" / "gprof_nn_gmi_era5.nc"
-    dataset = GPROF0DDataset(
+    dataset = GPROF_NN_0D_Dataset(
         input_file,
         targets=["surface_precip", "latent_heat", "rain_water_content"],
         batch_size=1,
@@ -189,7 +280,7 @@ def test_gprof_0d_dataset_mhs():
     """
     path = Path(__file__).parent
     input_file = path / "data" / "gprof_nn_mhs_era5.nc"
-    dataset = GPROF0DDataset(
+    dataset = GPROF_NN_0D_Dataset(
         input_file,
         batch_size=1,
         augment=False,
@@ -226,7 +317,7 @@ def test_gprof_0d_dataset_multi_target_mhs():
     """
     path = Path(__file__).parent
     input_file = path / "data" / "gprof_nn_mhs_era5.nc"
-    dataset = GPROF0DDataset(
+    dataset = GPROF_NN_0D_Dataset(
         input_file,
         targets=["surface_precip", "latent_heat", "rain_water_content"],
         batch_size=1,
@@ -262,7 +353,7 @@ def test_gprof_0d_dataset_input_mhs():
     """
     path = Path(__file__).parent
     input_file = path / "data" / "gprof_nn_mhs_era5.nc"
-    dataset = GPROF0DDataset(
+    dataset = GPROF_NN_0D_Dataset(
         input_file, batch_size=1, normalize=False, targets=["surface_precip"]
     )
     x, _ = dataset[0]
@@ -321,7 +412,7 @@ def test_profile_variables():
         "cloud_water_content",
         "latent_heat",
     ]
-    dataset = GPROF0DDataset(input_file, targets=PROFILE_TARGETS, batch_size=1)
+    dataset = GPROF_NN_0D_Dataset(input_file, targets=PROFILE_TARGETS, batch_size=1)
     x, y = dataset[0]
 
 
@@ -331,7 +422,7 @@ def test_gprof_2d_dataset_input_gmi():
     """
     path = Path(__file__).parent
     input_file = path / "data" / "gmi" / "gprof_nn_gmi_era5.nc"
-    dataset = GPROF2DDataset(
+    dataset = GPROF_NN_2D_Dataset(
         input_file, batch_size=1, normalize=False, targets=["surface_precip"]
     )
     x, _ = dataset[0]
@@ -355,7 +446,7 @@ def test_gprof_2d_dataset_gmi():
     """
     path = Path(__file__).parent
     input_file = path / "data" / "gmi" / "gprof_nn_gmi_era5.nc"
-    dataset = GPROF2DDataset(
+    dataset = GPROF_NN_2D_Dataset(
         input_file, batch_size=1, augment=False, transform_zeros=True
     )
 
@@ -388,7 +479,7 @@ def test_gprof_2d_dataset_profiles():
     """
     path = Path(__file__).parent
     input_file = path / "data" / "gmi" / "gprof_nn_gmi_era5.nc"
-    dataset = GPROF2DDataset(
+    dataset = GPROF_NN_2D_Dataset(
         input_file,
         batch_size=1,
         augment=False,
@@ -433,7 +524,7 @@ def test_gprof_2d_dataset_input_mhs():
     """
     path = Path(__file__).parent
     input_file = path / "data" / "gprof_nn_mhs_era5.nc"
-    dataset = GPROF2DDataset(
+    dataset = GPROF_NN_2D_Dataset(
         input_file, batch_size=1, normalize=False, targets=["surface_precip"]
     )
     x, _ = dataset[0]
@@ -459,7 +550,7 @@ def test_gprof_2d_dataset_mhs():
     """
     path = Path(__file__).parent
     input_file = path / "data" / "gprof_nn_mhs_era5_sim.nc"
-    dataset = GPROF2DDataset(
+    dataset = GPROF_NN_2D_Dataset(
         input_file, batch_size=1, augment=False, transform_zeros=True
     )
 

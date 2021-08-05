@@ -16,7 +16,7 @@ from quantnn.metrics import ScatterPlot
 from quantnn.transformations import LogLinear
 
 from gprof_nn import sensors
-from gprof_nn.data.training_data import GPROF0DDataset
+from gprof_nn.data.training_data import GPROF_NN_0D_Dataset
 from gprof_nn.models import GPROF_NN_0D_QRNN, GPROF_NN_0D_DRNN
 
 ###############################################################################
@@ -151,7 +151,7 @@ network_name = (f"gprof_nn_0d_{sensor.name.lower()}_{network_type}_"
 from gprof_nn.equalizer import QuantileEqualizer
 equalizer = QuantileEqualizer.load("../data/quantile_equalizer_mhs.pckl")
 
-dataset_factory = GPROF0DDataset
+dataset_factory = GPROF_NN_0D_Dataset
 normalizer = Normalizer.load(f"../data/normalizer_{sensor.name.lower()}.pckl")
 kwargs = {
     "sensor": sensor,

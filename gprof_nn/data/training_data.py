@@ -53,11 +53,23 @@ _THRESHOLDS = {
 
 def write_preprocessor_file(input_data, output_file, template=None):
     """
-    Extract sample from training data file and write to preprocessor format.
+    Extract samples from training dataset and write to a preprocessor
+    file.
+
+    This functions serves as an interface between the GPROF-NN training
+    data and the GPROF legacy algorithm as it can be used to create
+    preprocessor files with the observations. These can then be used
+    as input for the legacy GPROF.
+
+    Note: If the input isn't organized into scenes with dimensions
+    'scans' and 'pixels' the number of samples that will be written to
+    the file will be the largest multiple of 256 that is smaller than
+    or equal to the original number of samples. This means that up to
+    255 samples may be lost when writing them to a preprocessor file.
 
     Args:
         input_data: Path to a NetCDF4 file containing the training or test
-            data or xarray.Dataset containing the data to write to a
+            data or 'xarray.Dataset containing the data to write to a
             preprocessor file.
         output_file: Path of the file to write the output to.
         template: Template preprocessor file use to determine the orbit header
@@ -68,14 +80,21 @@ def write_preprocessor_file(input_data, output_file, template=None):
         data = xr.open_dataset(input_data)
     else:
         data = input_data
-    n_pixels = data.pixels.size
-    n_scans = data.scans.size
-    if hasattr(data, "samples"):
-        n_scenes = data.samples.size
-        dim_offset = 1
-    else:
+
+    if "pixels" not in data.dims or "scans" not in data.dims:
+        n_pixels = 256
+        n_scans = data.samples.size // n_pixels
         n_scenes = 1
-        dim_offset = 0
+        dim_offset = -1
+    else:
+        n_pixels = data.pixels.size
+        n_scans = data.scans.size
+        if hasattr(data, "samples"):
+            n_scenes = data.samples.size
+            dim_offset = 1
+        else:
+            n_scenes = 1
+            dim_offset = 0
 
     c = math.ceil(n_scenes / (n_pixels * 256))
     if c > 256:
@@ -100,10 +119,12 @@ def write_preprocessor_file(input_data, output_file, template=None):
             da = data[k]
             new_shape = (n_scans_r, n_pixels_r) + da.shape[(2 + dim_offset) :]
             new_shape = new_shape[: len(da.data.shape) - dim_offset]
-            dims = da.dims[dim_offset:]
+            dims = ("scans", "pixels") + da.dims[2 + dim_offset:]
             if "pixels_center" in dims:
                 continue
-            new_dataset[k] = (dims, da.data.reshape(new_shape))
+            n_elems = np.prod(new_shape)
+            elements = da.data.ravel()[:n_elems]
+            new_dataset[k] = (dims, elements.reshape(new_shape))
 
     if "nominal_eia" in data.attrs:
         new_dataset["earth_incidence_angle"] = (
@@ -196,7 +217,7 @@ class Dataset0DBase:
             return self.x.shape[0]
 
 
-class GPROF0DDataset(Dataset0DBase):
+class GPROF_NN_0D_Dataset(Dataset0DBase):
     """
     Dataset class providing an interface for the single-pixel GPROF-NN 0D
     retrieval algorithm.
@@ -324,10 +345,10 @@ class GPROF0DDataset(Dataset0DBase):
             self._shuffle()
 
     def __repr__(self):
-        return f"GPROF0DDataset({self.filename.name}, n_batches={len(self)})"
+        return f"GPROF_NN_0D_Dataset({self.filename.name}, n_batches={len(self)})"
 
     def __str__(self):
-        return f"GPROF0DDataset({self.filename.name}, n_batches={len(self)})"
+        return f"GPROF_NN_0D_Dataset({self.filename.name}, n_batches={len(self)})"
 
     def _transform_zeros(self):
         """
@@ -349,6 +370,65 @@ class GPROF0DDataset(Dataset0DBase):
         Loads the data from the file into the ``x`` and ``y`` attributes.
         """
 
+    def to_xarray_dataset(self,
+                          mask=None):
+        """
+        Convert training data to xarray dataset.
+
+        Args:
+            mask: A mask to select samples to include in the dataset.
+
+        Return:
+            An 'xarray.Dataset' containing the training data but converted
+            back to the original format.
+        """
+        if mask is None:
+            mask = slice(0, None)
+        if self.normalize:
+            x = self.normalizer.invert(self.x[mask])
+        else:
+            x = self.x[mask]
+        sensor = self.sensor
+
+        n_samples = x.shape[0]
+        n_levels = 28
+
+        tbs = x[:, :sensor.n_freqs]
+        if hasattr(sensor, "angles"):
+            eia = x[:, self.n_freqs]
+        else:
+            eia = None
+        t2m = x[:, -24]
+        tcwv = x[:, -23]
+        st = np.zeros(n_samples, dtype=np.int32)
+        i, j = np.where(x[:, -22:-4])
+        st[i] = j + 1
+        at = np.zeros(n_samples, dtype=np.int32) + 1
+        i, j = np.where(x[:, -4:])
+        at[i] = j
+
+        dims = ("samples", "channels")
+        new_dataset = {
+            "brightness_temperatures": (dims, tbs),
+            "two_meter_temperature": (dims[:-1], t2m),
+            "total_column_water_vapor": (dims[:-1], tcwv),
+            "surface_type": (dims[:-1], st),
+            "airmass_type": (dims[:-1], at),
+        }
+        if eia is not None:
+            new_dataset["earth_incidence_angle"] = (dims[:2], eia)
+
+        dims = ("samples", "levels")
+        for k, v in self.y.items():
+            n_dims = v.ndim
+            new_dataset[k] = (dims[:n_dims], v)
+
+        new_dataset = xr.Dataset(new_dataset)
+        with xr.open_dataset(self.filename) as dataset:
+            new_dataset.attrs = dataset.attrs
+        return new_dataset
+
+
     def save(self, filename):
         """
         Store dataset as NetCDF file.
@@ -356,70 +436,11 @@ class GPROF0DDataset(Dataset0DBase):
         Args:
             filename: The name of the file to which to write the dataset.
         """
-        if self.normalize:
-            x = self.normalizer.invert(self.x)
-        else:
-            x = self.x
-
-        n_samples = x.shape[0]
-        n_pixels = 221
-        n_scans = n_samples // 221
-        n_levels = 28
-        if (n_samples % 221) > 0:
-            n_scans += 1
-
-        bts = np.zeros((1, n_scans, n_pixels, 15), dtype=np.float32)
-        t2m = np.zeros((1, n_scans, n_pixels), dtype=np.float32)
-        tcwv = np.zeros((1, n_scans, n_pixels), dtype=np.float32)
-        st = np.zeros((1, n_scans, n_pixels), dtype=np.float32)
-        at = np.zeros((1, n_scans, n_pixels), dtype=np.float32)
-
-        bts.reshape((-1, 15))[:n_samples] = x[:, :15]
-        t2m.ravel()[:n_samples] = x[:, 15]
-        tcwv.ravel()[:n_samples] = x[:, 16]
-        st.ravel()[:n_samples] = np.where(x[:, 17 : 17 + 18])[1]
-        at.ravel()[:n_samples] = np.where(x[:, 17 + 18 : 17 + 22])[1]
-
-        dataset = xr.open_dataset(self.filename)
-
-        dims = ("samples", "scans", "pixels", "channel")
-        new_dataset = {
-            "brightness_temperatures": (dims, bts),
-            "two_meter_temperature": (dims[:-1], t2m),
-            "total_column_water_vapor": (dims[:-1], tcwv),
-            "surface_type": (dims[:-1], st),
-            "airmass_type": (dims[:-1], at),
-        }
-        dims = ("samples", "scans", "pixels", "levels")
-        if isinstance(self.y, dict):
-            for k, v in self.y.items():
-                shape = (1, n_scans, n_pixels, n_levels)
-                n_dims = v.ndim
-                data = np.zeros(shape[: 2 + n_dims], dtype=np.float32)
-                if n_dims == 2:
-                    data.reshape(-1, 28)[:n_samples] = v
-                else:
-                    data.ravel()[:n_samples] = v
-                new_dataset[k] = (dims[: 2 + n_dims], data)
-        else:
-            shape = (1, n_scans, n_pixels)
-            data = np.zeros(shape)
-            data.reshape(-1)[:n_samples] = self.y
-            new_dataset[k] = (dims[:-1], data)
-            new_dataset["surface_precip"] = (
-                (
-                    "samples",
-                    "scans",
-                    "pixels",
-                ),
-                self.y[np.newaxis, :],
-            )
-        new_dataset = xr.Dataset(new_dataset)
-        new_dataset.attrs = dataset.attrs
+        new_dataset = self.to_xarray_dataset()
         new_dataset.to_netcdf(filename)
 
 
-class TrainingObsDataset0D(GPROF0DDataset):
+class TrainingObsDataset0D(GPROF_NN_0D_Dataset):
     """
     Special training dataset that serves only the simulated brightness
     temperatures and ancillary data in order to train an observation
@@ -528,16 +549,14 @@ def _replace_randomly(x, p, rng=None):
 ###############################################################################
 
 
-class GPROF2DDataset:
+class GPROF_NN_2D_Dataset:
     """
     Base class for GPROF-NN 2D-retrieval training data in which training
     samples consist of 2D scenes of input data and corresponding target
     fields.
 
-    Object of this class act as an iterator over batches in the training
+    Objects of this class act as an iterator over batches in the training
     data set.
-
-
     """
     def __init__(
         self,
@@ -585,6 +604,7 @@ class GPROF2DDataset:
         sensor = getattr(sensors, sensor)
         x, y = sensor.load_training_data_2d(filename, self.targets,
                                             augment, self._rng)
+        self.sensor = sensor
 
         indices_1h = list(range(17, 39))
         if normalizer is None:
@@ -615,7 +635,7 @@ class GPROF2DDataset:
             self._shuffle()
 
     def __repr__(self):
-        return f"GPROF2DDataset({self.filename.name}, n_batches={len(self)})"
+        return f"GPROF_NN_2D_Dataset({self.filename.name}, n_batches={len(self)})"
 
     def __str__(self):
         return self.__repr__()
@@ -636,7 +656,7 @@ class GPROF2DDataset:
                 y_k[indices] = 10 ** self._rng.uniform(t_l - 4, t_l, indices.sum())
 
     def _shuffle(self):
-        if not self._shuffled:
+        if not self._shuffled and self.shuffle:
             LOGGER.info("Shuffling dataset %s.", self.filename.name)
             indices = self._rng.permutation(self.x.shape[0])
             self.x = self.x[indices, :]
@@ -693,8 +713,83 @@ class GPROF2DDataset:
         else:
             return self.x.shape[0]
 
+    def to_xarray_dataset(self,
+                          mask=None):
+        """
+        Convert training data to xarray dataset.
 
-class SimulatorDataset(GPROF2DDataset):
+        Args:
+            mask: A mask to select samples to include in the dataset.
+
+        Return:
+            An 'xarray.Dataset' containing the training data but converted
+            back to the original format.
+        """
+        if mask is None:
+            mask = slice(0, None)
+        if self.normalize:
+            x = self.normalizer.invert(self.x[mask])
+        else:
+            x = self.x[mask]
+        sensor = self.sensor
+
+        n_samples = x.shape[0]
+        n_levels = 28
+
+        tbs = np.transpose(x[:, :sensor.n_freqs], (0, 2, 3, 1))
+        if hasattr(sensor, "angles"):
+            eia = x[:, self.n_freqs]
+        else:
+            eia = None
+        t2m = x[:, -24]
+        tcwv = x[:, -23]
+
+        st = np.zeros(t2m.shape, dtype=np.int32)
+        for i in range(18):
+            mask = x[:, -22 + i] == 1
+            st[mask] = i + 1
+
+        at = np.zeros(t2m.shape, dtype=np.int32)
+        for i in range(4):
+            mask = x[:, -4 + i] == 1
+            at[mask] = i
+
+        dims = ("samples", "scans", "pixels", "channels")
+        new_dataset = {
+            "brightness_temperatures": (dims, tbs),
+            "two_meter_temperature": (dims[:-1], t2m),
+            "total_column_water_vapor": (dims[:-1], tcwv),
+            "surface_type": (dims[:-1], st),
+            "airmass_type": (dims[:-1], at),
+        }
+        if eia is not None:
+            new_dataset["earth_incidence_angle"] = (dims[:2], eia)
+
+        dims = ("samples", "scans", "pixels", "levels")
+        for k, v in self.y.items():
+            n_dims = v.ndim
+            if n_dims > 3:
+                v = np.transpose(v, (0, 2, 3, 1))
+            new_dataset[k] = (dims[:n_dims], v)
+
+        new_dataset = xr.Dataset(new_dataset)
+        with xr.open_dataset(self.filename) as dataset:
+            new_dataset.attrs = dataset.attrs
+        return new_dataset
+
+
+    def save(self, filename):
+        """
+        Store dataset as NetCDF file.
+
+        Args:
+            filename: The name of the file to which to write the dataset.
+        """
+        new_dataset = self.to_xarray_dataset()
+        new_dataset.to_netcdf(filename)
+
+
+class SimulatorDataset(GPROF_NN_2D_Dataset):
     """
     Dataset to train a simulator network to predict simulated brightness
     temperatures and brightness temperature biases.

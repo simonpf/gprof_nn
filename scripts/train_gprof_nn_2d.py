@@ -15,7 +15,7 @@ from quantnn.models.pytorch.logging import TensorBoardLogger
 from quantnn.metrics import ScatterPlot
 from quantnn.transformations import LogLinear
 
-from gprof_nn.data.training_data import GPROF2DDataset
+from gprof_nn.data.training_data import GPROF_NN_2D_Dataset
 from gprof_nn import sensors
 from gprof_nn.models import GPROF_NN_2D_QRNN, GPROF_NN_2D_DRNN
 
@@ -127,7 +127,7 @@ batch_size = args.batch_size[0]
 # Prepare in- and output.
 ###############################################################################
 
-dataset_factory = GPROF2DDataset
+dataset_factory = GPROF_NN_2D_Dataset
 normalizer = Normalizer.load("../data/normalizer_gprof_0d_gmi.pckl")
 kwargs = {
     "batch_size": batch_size,

@@ -10,7 +10,7 @@ import xarray as xr
 from gprof_nn import sensors
 from gprof_nn.data.bin import (FileProcessor,
                                BinFile)
-from gprof_nn.data.training_data import GPROF0DDataset
+from gprof_nn.data.training_data import GPROF_NN_0D_Dataset
 
 
 def test_bin_file_gmi():
@@ -92,7 +92,7 @@ def test_file_processor_gmi(tmp_path):
     input_file = BinFile(path / "data" / "gmi" / "gpm_291_55_04.bin")
     input_data = input_file.to_xarray_dataset()
 
-    dataset = GPROF0DDataset(output_file,
+    dataset = GPROF_NN_0D_Dataset(output_file,
                              normalize=False,
                              shuffle=False,
                              augment=False)
