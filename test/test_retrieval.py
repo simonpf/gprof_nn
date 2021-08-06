@@ -54,7 +54,7 @@ def test_retrieval_read_and_write(tmp_path):
     retrieval_file = data_path / "GMIERA5_190101_027510_np.bin"
     retrieval_file = RetrievalFile(retrieval_file, has_profiles=True)
     retrieval_data = retrieval_file.to_xarray_dataset(full_profiles=False)
-    preprocessor_file = PreprocessorFile(data_path / "GMIERA5_190101_027510.pp")
+    preprocessor_file = PreprocessorFile(data_path / "gmi" / "GMIERA5_190101_027510.pp")
     output_file = preprocessor_file.write_retrieval_results(tmp_path,
                                                             retrieval_data,
                                                             data_path)
@@ -95,7 +95,7 @@ def test_retrieval_preprocessor_0d_gmi(tmp_path):
     Ensure that GPROF-NN 0D retrieval works with preprocessor input.
     """
     data_path = Path(__file__).parent / "data"
-    input_file = data_path / "GMIERA5_190101_027510.pp"
+    input_file = data_path / "gmi" / "GMIERA5_190101_027510.pp"
 
     qrnn = QRNN.load(data_path / "gprof_nn_0d.pckl")
     normalizer = Normalizer.load(data_path / "normalizer.pckl")
@@ -114,7 +114,7 @@ def test_retrieval_preprocessor_0d_mhs(tmp_path):
     Ensure that GPROF-NN 0D retrieval works with preprocessor input.
     """
     data_path = Path(__file__).parent / "data"
-    input_file = data_path / "MHS.pp"
+    input_file = data_path / "mhs" / "MHS.pp"
 
     qrnn = QRNN.load(data_path / "gprof_nn_0d_mhs.pckl")
     normalizer = Normalizer.load(data_path / "normalizer_mhs.pckl")
@@ -133,7 +133,7 @@ def test_retrieval_preprocessor_2d(tmp_path):
     Ensure that GPROF-NN 0D retrieval works with preprocessor input.
     """
     data_path = Path(__file__).parent / "data"
-    input_file = data_path / "GMIERA5_190101_027510.pp"
+    input_file = data_path / "gmi" / "GMIERA5_190101_027510.pp"
 
     qrnn = QRNN.load(data_path / "gprof_nn_2d.pckl")
     qrnn.model.sensor = sensors.GMI

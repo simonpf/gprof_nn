@@ -324,7 +324,7 @@ class GPROF_NN_0D_Dataset(Dataset0DBase):
             self._transform_zeros()
 
         if permute is not None:
-            n_features = self.sensor.n_freqs + 2
+            n_features = self.sensor.n_chans + 2
             if isinstance(self.sensor, sensors.CrossTrackScanner):
                 n_features += 1
             if permute < n_features:
@@ -393,9 +393,9 @@ class GPROF_NN_0D_Dataset(Dataset0DBase):
         n_samples = x.shape[0]
         n_levels = 28
 
-        tbs = x[:, :sensor.n_freqs]
-        if hasattr(sensor, "angles"):
-            eia = x[:, self.n_freqs]
+        tbs = x[:, :sensor.n_chans]
+        if sensor.n_angles > 1:
+            eia = x[:, self.n_chans]
         else:
             eia = None
         t2m = x[:, -24]
@@ -487,10 +487,10 @@ class TrainingObsDataset0D(GPROF_NN_0D_Dataset):
         self.normalizer_y = normalizer_y
 
         # Extract observations and ancillary data.
-        self.y = self.x[:, : sensor.n_freqs]
+        self.y = self.x[:, : sensor.n_chans]
         features = []
         if isinstance(sensor, sensors.CrossTrackScanner):
-            features += [self.x[:, [sensor.n_freqs]]]
+            features += [self.x[:, [sensor.n_chans]]]
         features += [self.x[:, -22:-4]]
         self.x = np.concatenate(features, axis=1)
 
@@ -736,9 +736,9 @@ class GPROF_NN_2D_Dataset:
         n_samples = x.shape[0]
         n_levels = 28
 
-        tbs = np.transpose(x[:, :sensor.n_freqs], (0, 2, 3, 1))
-        if hasattr(sensor, "angles"):
-            eia = x[:, self.n_freqs]
+        tbs = np.transpose(x[:, :sensor.n_chans], (0, 2, 3, 1))
+        if sensor.n_angles > 1:
+            eia = x[:, self.n_chans]
         else:
             eia = None
         t2m = x[:, -24]

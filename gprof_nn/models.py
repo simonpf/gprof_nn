@@ -559,7 +559,7 @@ class XceptionFPN(nn.Module):
         super().__init__()
 
         self.sensor = sensor
-        n_channels = sensor.n_freqs
+        n_channels = sensor.n_chans
         n_anc = sensor.n_inputs - n_channels
 
         self.ancillary = ancillary
@@ -610,9 +610,9 @@ class XceptionFPN(nn.Module):
         """
         Propagate input through block.
         """
-        n_freqs = self.sensor.n_freqs
-        x_in = self.in_block(x[:, :n_freqs])
-        x_in[:, :n_freqs] += x[:, :n_freqs]
+        n_chans = self.sensor.n_chans
+        x_in = self.in_block(x[:, :n_chans])
+        x_in[:, :n_chans] += x[:, :n_chans]
 
         x_2 = self.down_block_2(x_in)
         x_4 = self.down_block_4(x_2)
@@ -627,7 +627,7 @@ class XceptionFPN(nn.Module):
         x_u = self.up_block(x_2_u, x_in)
 
         if self.ancillary:
-            x = torch.cat([x_in, x_u, x[:, n_freqs:]], 1)
+            x = torch.cat([x_in, x_u, x[:, n_chans:]], 1)
         else:
             x = torch.cat([x_in, x_u], 1)
 
@@ -777,12 +777,12 @@ class SimulatorNet(nn.Module):
         super().__init__()
         self.sensor = sensor
 
-        if hasattr(sensor, "angles"):
-            n_freqs_sim = sensor.n_freqs * sensor.n_angles
-            n_biases = sensor.n_freqs
+        if sensor.n_angles > 1:
+            n_chans_sim = sensor.n_chans * sensor.n_angles
+            n_biases = sensor.n_chans
         else:
-            n_freqs_sim = sensor.n_freqs
-            n_biases = sensor.n_freqs
+            n_chans_sim = sensor.n_chans
+            n_biases = sensor.n_chans
 
         self.n_outputs = n_outputs
         self.in_block = nn.Conv2d(15, n_features_body, 1)
@@ -806,7 +806,7 @@ class SimulatorNet(nn.Module):
                                  n_layers_head)
         self.sim_head = MLPHead(n_inputs,
                                 n_features_head,
-                                n_freqs_sim * n_outputs,
+                                n_chans_sim * n_outputs,
                                 n_layers_head)
 
     def forward(self, x):
@@ -830,18 +830,18 @@ class SimulatorNet(nn.Module):
 
         x = torch.cat([x_in, x_u, x[:, 15:]], 1)
 
-        n_freqs = self.sensor.n_freqs
-        if hasattr(self.sensor, "angles"):
+        n_chans = self.sensor.n_chans
+        if sensor.n_angles > 1:
             n_angles = self.sensor.n_angles
             sim_shape = (x.shape[:1] +
-                         (self.n_outputs, n_angles, n_freqs) +
+                         (self.n_outputs, n_angles, n_chans) +
                          x.shape[2:4])
         else:
             sim_shape = (x.shape[:1] +
-                         (self.n_outputs, n_freqs) +
+                         (self.n_outputs, n_chans) +
                          x.shape[2:4])
         bias_shape = (x.shape[:1] +
-                        (self.n_outputs, n_freqs) +
+                        (self.n_outputs, n_chans) +
                         x.shape[2:4])
         bias = self.bias_head(x).reshape(bias_shape)
         sim = self.sim_head(x).reshape(sim_shape)

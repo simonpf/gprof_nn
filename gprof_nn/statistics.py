@@ -650,8 +650,8 @@ class TrainingDataStatistics(Statistic):
                 stems.
             data: ``xarray.Dataset`` containing the data to process.
         """
-        n_freqs = sensor.n_freqs
-        self.has_angles = hasattr(sensor, "angles")
+        n_chans = sensor.n_chans
+        self.has_angles = sensor.n_angles > 1
         if self.has_angles:
             n_angles = sensor.n_angles
             self.angle_bins = np.zeros(sensor.angles.size + 1)
@@ -660,26 +660,26 @@ class TrainingDataStatistics(Statistic):
             self.angle_bins[0] = 2.0 * self.angle_bins[1] - self.angle_bins[2]
             self.angle_bins[-1] = (2.0 * self.angle_bins[-2] -
                                    self.angle_bins[-3])
-            self.tbs = np.zeros((18, n_freqs, n_angles, self.tb_bins.size - 1),
+            self.tbs = np.zeros((18, n_chans, n_angles, self.tb_bins.size - 1),
                                 dtype=np.float32)
-            self.tbs_sim = np.zeros((18, n_freqs, n_angles, self.tb_bins.size - 1),
+            self.tbs_sim = np.zeros((18, n_chans, n_angles, self.tb_bins.size - 1),
                                     dtype=np.float32)
             if self.conditional is not None:
                 self.tbs_cond = np.zeros(
-                    (18, n_freqs, n_angles,) + (self.tb_bins.size - 1,) * 2,
+                    (18, n_chans, n_angles,) + (self.tb_bins.size - 1,) * 2,
                     dtype=np.float32
                 )
 
         else:
-            self.tbs = np.zeros((18, n_freqs, self.tb_bins.size - 1),
+            self.tbs = np.zeros((18, n_chans, self.tb_bins.size - 1),
                                 dtype=np.float32)
             if self.conditional is not None:
                 self.tbs_cond = np.zeros(
-                    (18, n_freqs,) + (self.tb_bins.size - 1,) * 2,
+                    (18, n_chans,) + (self.tb_bins.size - 1,) * 2,
                     dtype=np.float32
                 )
         self.bias_bins = np.linspace(-100, 100, 201)
-        self.tbs_bias = np.zeros((18, n_freqs, self.bias_bins.size - 1),
+        self.tbs_bias = np.zeros((18, n_chans, self.bias_bins.size - 1),
                                  dtype=np.float32)
 
         for k in ALL_TARGETS:
@@ -735,7 +735,7 @@ class TrainingDataStatistics(Statistic):
                         lower = self.angle_bins[j + 1]
                         upper = self.angle_bins[j]
                         i_a = (eia >= lower) * (eia < upper)
-                        for k in range(sensor.n_freqs):
+                        for k in range(sensor.n_chans):
                             cs, _ = np.histogram(tbs[i_a, k],
                                                  bins=self.tb_bins)
                             self.tbs[i, k, j] += cs
@@ -756,12 +756,12 @@ class TrainingDataStatistics(Statistic):
                     b = (dataset["brightness_temperature_biases"]
                          .data[i_st[:, :, 90:-90]])
 
-                    for k in range(sensor.n_freqs):
+                    for k in range(sensor.n_chans):
                         cs, _ = np.histogram(b[:, k], bins=self.bias_bins)
                         self.tbs_bias[i, k] += cs
 
                     for j in range(sensor.n_angles):
-                        for k in range(sensor.n_freqs):
+                        for k in range(sensor.n_chans):
                             # Simulated observations
                             cs, _ = np.histogram(tbs[:, j, k],
                                                  bins=self.tb_bins)
@@ -783,7 +783,7 @@ class TrainingDataStatistics(Statistic):
                                 self.tbs_cond[i, k, j] += cs
             # Sensor with constant EIA
             else:
-                for j in range(sensor.n_freqs):
+                for j in range(sensor.n_chans):
                     cs, _ = np.histogram(tbs[:, j], bins=self.tb_bins)
                     self.tbs[i, j] += cs
                     if self.conditional is not None:
@@ -998,8 +998,8 @@ class CorrectedObservations(Statistic):
                 stems.
             data: ``xarray.Dataset`` containing the data to process.
         """
-        n_freqs = sensor.n_freqs
-        self.has_angles = hasattr(sensor, "angles")
+        n_chans = sensor.n_chans
+        self.has_angles = sensor.n_angles > 1
         if self.has_angles:
             n_angles = sensor.n_angles
             self.angle_bins = np.zeros(sensor.angles.size + 1)
@@ -1008,10 +1008,10 @@ class CorrectedObservations(Statistic):
             self.angle_bins[0] = 2.0 * self.angle_bins[1] - self.angle_bins[2]
             self.angle_bins[-1] = (2.0 * self.angle_bins[-2] -
                                    self.angle_bins[-3])
-            self.tbs = np.zeros((18, n_freqs, n_angles, self.tb_bins.size - 1),
+            self.tbs = np.zeros((18, n_chans, n_angles, self.tb_bins.size - 1),
                                 dtype=np.float32)
         else:
-            self.tbs = np.zeros((18, n_freqs, self.tb_bins.size - 1),
+            self.tbs = np.zeros((18, n_chans, self.tb_bins.size - 1),
                                 dtype=np.float32)
 
     def process_file(self,
@@ -1035,7 +1035,7 @@ class CorrectedObservations(Statistic):
                                             equalizer=self.equalizer)
 
         st = np.where(x[:, -22:-4])[1]
-        tbs = x[:, :sensor.n_freqs]
+        tbs = x[:, :sensor.n_chans]
 
         for i in range(18):
             # Select only TBs that are actually used for training.
@@ -1043,18 +1043,18 @@ class CorrectedObservations(Statistic):
 
             # Sensor with varying EIA (cross track).
             if self.has_angles:
-                eia = np.abs(x[:, sensor.n_freqs])
+                eia = np.abs(x[:, sensor.n_chans])
                 for j in range(sensor.n_angles):
                     lower = self.angle_bins[j + 1]
                     upper = self.angle_bins[j]
                     inds = i_st * (eia >= lower) * (eia < upper)
-                    for k in range(sensor.n_freqs):
+                    for k in range(sensor.n_chans):
                         cs, _ = np.histogram(tbs[inds, k],
                                              bins=self.tb_bins)
                         self.tbs[i, k, j] += cs
             # Sensor with constant EIA
             else:
-                for j in range(sensor.n_freqs):
+                for j in range(sensor.n_chans):
                     cs, _ = np.histogram(tbs[i_st, j], bins=self.tb_bins)
                     self.tbs[i, j] += cs
 
@@ -1116,8 +1116,8 @@ class BinFileStatistics(Statistic):
                          sensor,
                          data):
         self.tb_bins = np.linspace(0, 400, 401)
-        n_freqs = sensor.n_freqs
-        self.has_angles = hasattr(sensor, "angles")
+        n_chans = sensor.n_chans
+        self.has_angles = sensor.n_angles > 1
         if self.has_angles:
             n_angles = sensor.n_angles
             self.angle_bins = np.zeros(sensor.angles.size + 1)
@@ -1126,10 +1126,10 @@ class BinFileStatistics(Statistic):
             self.angle_bins[0] = 2.0 * self.angle_bins[1] - self.angle_bins[2]
             self.angle_bins[-1] = (2.0 * self.angle_bins[-2] -
                                    self.angle_bins[-3])
-            self.tbs = np.zeros((18, n_freqs, n_angles, self.tb_bins.size - 1),
+            self.tbs = np.zeros((18, n_chans, n_angles, self.tb_bins.size - 1),
                                 dtype=np.float32)
         else:
-            self.tbs = np.zeros((18, n_freqs, self.tb_bins.size - 1),
+            self.tbs = np.zeros((18, n_chans, self.tb_bins.size - 1),
                                 dtype=np.float32)
 
         self.targets = {}
@@ -1179,21 +1179,21 @@ class BinFileStatistics(Statistic):
                 for a in range(sensor.n_angles):
                     i_a = dataset["pixel_position"].data == (a + 1)
                     tbs = dataset["brightness_temperatures"].data[i_a]
-                    for k in range(sensor.n_freqs):
+                    for k in range(sensor.n_chans):
                         cs, _ = np.histogram(tbs[:, k],
                                              bins=self.tb_bins)
                         self.tbs[st - 1, k, a] += cs
             else:
                 for a in range(sensor.n_angles):
                     tbs = dataset["brightness_temperatures"].data
-                    for k in range(sensor.n_freqs):
+                    for k in range(sensor.n_chans):
                         cs, _ = np.histogram(tbs[:, a, k],
                                              bins=self.tb_bins)
                         self.tbs[st - 1, k, a] += cs
         # Sensor with constant EIA.
         else:
             tbs = dataset["brightness_temperatures"]
-            for k in range(sensor.n_freqs):
+            for k in range(sensor.n_chans):
                 cs, _ = np.histogram(tbs[:, k],
                                      bins=self.tb_bins)
                 self.tbs[st - 1, k] += cs
@@ -1336,8 +1336,8 @@ class ObservationStatistics(Statistic):
     def _initialize_data(self,
                          sensor,
                          data):
-        n_freqs = sensor.n_freqs
-        self.has_angles = hasattr(sensor, "angles")
+        n_chans = sensor.n_chans
+        self.has_angles = sensor.n_angles > 1
         if self.has_angles:
             n_angles = sensor.n_angles
             self.angle_bins = np.zeros(sensor.angles.size + 1)
@@ -1346,19 +1346,19 @@ class ObservationStatistics(Statistic):
             self.angle_bins[0] = 2.0 * self.angle_bins[1] - self.angle_bins[2]
             self.angle_bins[-1] = (2.0 * self.angle_bins[-2] -
                                    self.angle_bins[-3])
-            self.tbs = np.zeros((18, n_freqs, n_angles, self.tb_bins.size - 1),
+            self.tbs = np.zeros((18, n_chans, n_angles, self.tb_bins.size - 1),
                                 dtype=np.float32)
             if self.conditional is not None:
                 self.tbs_cond = np.zeros(
-                    (18, n_freqs, n_angles,) + (self.tb_bins.size - 1,) * 2,
+                    (18, n_chans, n_angles,) + (self.tb_bins.size - 1,) * 2,
                     dtype=np.float32
                 )
         else:
-            self.tbs = np.zeros((18, n_freqs, self.tb_bins.size - 1),
+            self.tbs = np.zeros((18, n_chans, self.tb_bins.size - 1),
                                 dtype=np.float32)
             if self.conditional is not None:
                 self.tbs_cond = np.zeros(
-                    (18, n_freqs,) + (self.tb_bins.size - 1,) * 2,
+                    (18, n_chans,) + (self.tb_bins.size - 1,) * 2,
                     dtype=np.float32
                 )
 
@@ -1388,7 +1388,7 @@ class ObservationStatistics(Statistic):
                     lower = self.angle_bins[j + 1]
                     upper = self.angle_bins[j]
                     i_a = (eia >= lower) * (eia < upper)
-                    for k in range(sensor.n_freqs):
+                    for k in range(sensor.n_chans):
                         cs, _ = np.histogram(tbs[i_a, k],
                                              bins=self.tb_bins)
                         self.tbs[i, k, j] += cs
@@ -1399,7 +1399,7 @@ class ObservationStatistics(Statistic):
                             self.tbs_cond[i, k, j] += cs
             # Sensor with constant EIA
             else:
-                for j in range(sensor.n_freqs):
+                for j in range(sensor.n_chans):
                     cs, _ = np.histogram(tbs[:, j], bins=self.tb_bins)
                     self.tbs[i, j] += cs
                     if self.conditional is not None:

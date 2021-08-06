@@ -22,7 +22,6 @@ from gprof_nn.definitions import PROFILE_NAMES
 
 LOGGER = logging.getLogger(__name__)
 N_LAYERS = 28
-N_FREQS = 15
 GENERIC_HEADER = np.dtype(
     [
         ("satellite_code", "a5"),
@@ -109,8 +108,9 @@ class BinFile:
             angles in this file.
         """
         attributes = {
-            "frequencies": self.header["frequencies"],
-            "nominal_eia": self.header["nominal_eia"],
+            "frequencies": self.header["frequencies"][0],
+            "nominal_eia": self.header["nominal_eia"][0],
+            "sensor": self.sensor.name
         }
         return attributes
 
@@ -143,10 +143,10 @@ class BinFile:
         # dictionary.
         results = {}
         dim_dict = {
-            self.sensor.n_freqs: "channels",
+            self.sensor.n_chans: "channels",
             N_LAYERS: "layers",
         }
-        if hasattr(self.sensor, "n_angles"):
+        if self.sensor.n_angles > 1:
             dim_dict[self.sensor.n_angles] = "angles"
 
         record_type = self.sensor.get_bin_file_record(self.surface_type)
@@ -176,10 +176,22 @@ class BinFile:
             ("samples",),
             self.airmass_type * np.ones(n_samples, dtype=np.int),
         )
+        source = 0
+        if self.surface_type in [8, 9, 10, 11]:
+            source = 1
+        elif self.surface_type in [2, 16]:
+            source = 2
+        results["source"] = (
+            ("samples",),
+            source * np.ones(n_samples, dtype=np.int),
+        )
+
         results["tpw"] = (("samples"), self.tpw * np.ones(n_samples, dtype=np.float))
         results["temperature"] = (("samples",), self.temperature * np.ones(n_samples))
 
-        return xr.Dataset(results)
+        dataset = xr.Dataset(results)
+        dataset.attrs.update(self.get_attributes())
+        return dataset
 
 
 def load_data(filename, start=0.0, end=1.0, include_profiles=False):

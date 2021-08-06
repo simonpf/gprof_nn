@@ -48,7 +48,7 @@ LOGGER = logging.getLogger(__name__)
 # Data types
 ###############################################################################
 
-N_FREQS_MAX = 15
+N_CHANS_MAX = 15
 GENERIC_HEADER = np.dtype(
     [
         ("satellite_code", "a5"),
@@ -160,20 +160,20 @@ class SimFile:
         dists, indices = kdtree.query(coords_sim)
 
         n_angles = 0
-        if hasattr(self.sensor, "n_angles"):
+        if self.sensor.n_angles > 1:
             n_angles = self.sensor.n_angles
-        n_freqs = self.sensor.n_freqs
+        n_chans = self.sensor.n_chans
 
         if "tbs_simulated" in self.data.dtype.fields:
             if n_angles > 0:
-                shape = (n_scans, dx + 1, n_angles, n_freqs)
-                full_shape = (n_scans, n_pixels, n_angles, n_freqs)
-                matched = np.zeros((n_scans * (dx + 1), n_angles, n_freqs))
+                shape = (n_scans, dx + 1, n_angles, n_chans)
+                full_shape = (n_scans, n_pixels, n_angles, n_chans)
+                matched = np.zeros((n_scans * (dx + 1), n_angles, n_chans))
                 dims = ("scans", "pixels_center", "angles", "channels")
             else:
-                shape = (n_scans, dx + 1, n_freqs)
-                full_shape = (n_scans, n_pixels, n_freqs)
-                matched = np.zeros((n_scans * (dx + 1), n_freqs))
+                shape = (n_scans, dx + 1, n_chans)
+                full_shape = (n_scans, n_pixels, n_chans)
+                matched = np.zeros((n_scans * (dx + 1), n_chans))
                 dims = ("scans", "pixels_center", "channels")
             matched[:] = np.nan
             ind = np.argmax(indices)
@@ -194,9 +194,9 @@ class SimFile:
             )
 
         if "tbs_bias" in self.data.dtype.fields:
-            shape = (n_scans, dx + 1, n_freqs)
-            full_shape = (n_scans, n_pixels, n_freqs)
-            matched = np.zeros((n_scans * (dx + 1), n_freqs))
+            shape = (n_scans, dx + 1, n_chans)
+            full_shape = (n_scans, n_pixels, n_chans)
+            matched = np.zeros((n_scans * (dx + 1), n_chans))
 
             matched[:] = np.nan
             matched[indices, ...] = self.data["tbs_bias"]
@@ -743,10 +743,10 @@ def add_targets(data,
         data["brightness_temperatures_gmi"] = (
                 ("scans", "pixels", "channels_gmi"), d
         )
-    if hasattr(sensor, "n_angles"):
+    if sensor.n_angles > 1:
         n_angles = sensor.n_angles
 
-        shape = (n_scans, n_pixels_center, n_angles, sensor.n_freqs)
+        shape = (n_scans, n_pixels_center, n_angles, sensor.n_chans)
         d = np.zeros(shape, dtype=np.float32)
         d[:] = np.nan
         data["simulated_brightness_temperatures"] = (
@@ -760,14 +760,14 @@ def add_targets(data,
             data[v] = (("scans", "pixels", "angles"), values.copy())
 
     else:
-        shape = (n_scans, n_pixels_center, sensor.n_freqs)
+        shape = (n_scans, n_pixels_center, sensor.n_chans)
         d = np.zeros(shape, dtype=np.float32)
         d[:] = np.nan
         data["simulated_brightness_temperatures"] = (
                 ("scans", "pixels_center", "channels"), d
         )
 
-    shape = (n_scans, n_pixels_center, sensor.n_freqs)
+    shape = (n_scans, n_pixels_center, sensor.n_chans)
     d = np.zeros(shape, dtype=np.float32)
     d[:] = np.nan
     data["brightness_temperature_biases"] = (
@@ -782,7 +782,7 @@ def add_brightness_temperatures(data, sensor):
     n_scans = data.scans.size
     n_pixels = data.pixels.size
 
-    n_channels = sensor.n_freqs
+    n_channels = sensor.n_chans
     shape = (n_samples, n_scans, n_pixels, n_channels)
     bts = np.zeros(shape, dtype=np.float32)
     bts[:] = np.nan

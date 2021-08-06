@@ -161,17 +161,33 @@ class Sensor(ABC):
     each sensor class must implement.
     """
     def __init__(self,
+                 kind,
                  name,
-                 n_freqs):
-        from gprof_nn.data import preprocessor
+                 channels,
+                 angles):
+        self.kind = kind
         self._name = name
-        self._n_freqs = n_freqs
+        self._channels = channels
+        self._angles = angles
+        n_chans =len(channels)
+        n_angles = len(angles)
+        self._n_chans = n_chans
+        self._n_angles = n_angles
+
+        # Bin file types
+        self._bin_file_header = types.get_bin_file_header(
+            n_chans,
+            n_angles,
+            kind
+        )
+
+        # Preprocessor types
         self._preprocessor_orbit_header = types.get_preprocessor_orbit_header(
-            n_freqs
+            n_chans
         )
         self._preprocessor_pixel_record = types.get_preprocessor_pixel_record(
-            n_freqs,
-            types.CONICAL
+            n_chans,
+            self.kind
         )
 
     @property
@@ -188,26 +204,54 @@ class Sensor(ABC):
         """
         return self._name
 
-    @abstractproperty
-    def n_inputs(self):
+    @property
+    def channels(self):
         """
-        The number of input features for the GPORF-NN retrieval.
+        List containing channel frequencies and polarizations.
         """
+        return self._n_chans
 
-    def n_freqs(self):
+    @property
+    def n_chans(self):
+        """
+        The number of channels of the sensor
+        """
+        return self._n_chans
+
+    @property
+    def angles(self):
+        """
+        The list of earth incidence angles that are simulated for this
+        sensor.
+        """
+        return self._angles
+
+    @property
+    def n_angles(self):
+        """
+        The list of earth incidence angles that are simulated for this
+        sensor.
+        """
+        return self._n_angles
+
+    @property
+    def n_inputs(self):
         """
         The number of frequencies or channels of the sensor.
         """
-        return self._n_freqs
+        n_inputs = self.n_freqs + 24
+        if self.kind == types.XTRACK:
+            n_inputs += 1
+        return n_inputs
 
-    @abstractproperty
+    @property
     def bin_file_header(self):
         """
         Numpy dtype defining the binary structure of the header
         of binned, non-clustered database files.
         """
+        return self._bin_file_header
 
-    @abstractproperty
     def get_bin_file_record(self, surface_type):
         """
         Args:
@@ -218,6 +262,13 @@ class Sensor(ABC):
             Numpy dtype defining the binary record structure of binned,
             non-clustered database files.
         """
+        return types.get_bin_file_record(
+            self.n_chans,
+            self.n_angles,
+            N_LAYERS,
+            surface_type,
+            self.kind
+        )
 
     @abstractproperty
     def l1c_file_prefix(self):
@@ -433,45 +484,17 @@ class ConicalScanner(Sensor):
     def __init__(
         self,
         name,
-        n_freqs,
+        channels,
+        angles,
         l1c_prefix,
         l1c_file_path,
         mrms_file_path,
         sim_file_pattern,
         sim_file_path,
     ):
-        super().__init__(name, n_freqs)
-        self._n_freqs = n_freqs
+        super().__init__(types.CONICAL, name, channels, angles)
+        n_chans = len(channels)
 
-        self._bin_file_header = np.dtype(
-            [
-                ("satellite_code", "a5"),
-                ("sensor", "a5"),
-                ("frequencies", f"{n_freqs}f4"),
-                ("nominal_eia", f"{n_freqs}f4"),
-            ]
-        )
-        self._bin_file_record = np.dtype(
-            [
-                ("dataset_number", "i4"),
-                ("latitude", "f4"),
-                ("longitude", "f4"),
-                ("scan_time", "i4", (6,)),
-                ("surface_precip", np.float32),
-                ("convective_precip", np.float32),
-                ("brightness_temperatures", "f4", (n_freqs,)),
-                ("delta_tb", "f4", (n_freqs,)),
-                ("rain_water_path", np.float32),
-                ("cloud_water_path", np.float32),
-                ("ice_water_path", np.float32),
-                ("total_column_water_vapor", np.float32),
-                ("two_meter_temperature", np.float32),
-                ("rain_water_content", "f4", (N_LAYERS,)),
-                ("cloud_water_content", "f4", (N_LAYERS,)),
-                ("snow_water_content", "f4", (N_LAYERS,)),
-                ("latent_heat", "f4", (N_LAYERS,)),
-            ]
-        )
         self._l1c_file_prefix = l1c_prefix
         self._l1c_file_path = l1c_file_path
 
@@ -495,7 +518,7 @@ class ConicalScanner(Sensor):
                 ("n_rain", "i4"),
                 ("n_snow", "i4"),
                 ("fraction_missing", "f4"),
-                ("brightness_temperatures", f"{n_freqs}f4"),
+                ("brightness_temperatures", f"{n_chans}f4"),
             ]
         )
 
@@ -505,8 +528,8 @@ class ConicalScanner(Sensor):
             [
                 ("satellite_code", "a5"),
                 ("sensor", "a5"),
-                ("frequencies", f"{n_freqs}f4"),
-                ("nominal_eia", f"{n_freqs}f4"),
+                ("frequencies", f"{n_chans}f4"),
+                ("nominal_eia", f"{n_chans}f4"),
                 ("start_pixel", "i4"),
                 ("end_pixel", "i4"),
                 ("start_scan", "i4"),
@@ -525,15 +548,15 @@ class ConicalScanner(Sensor):
                 ("surface_type", "i4"),
                 ("surface_precip", "f4"),
                 ("convective_precip", "f4"),
-                ("emissivity", f"{n_freqs}f4"),
+                ("emissivity", f"{n_chans}f4"),
                 ("rain_water_content", f"{N_LAYERS}f4"),
                 ("snow_water_content", f"{N_LAYERS}f4"),
                 ("cloud_water_content", f"{N_LAYERS}f4"),
                 ("latent_heat", f"{N_LAYERS}f4"),
-                ("tbs_observed", f"{n_freqs}f4"),
-                ("tbs_simulated", f"{n_freqs}f4"),
-                ("d_tbs", f"{n_freqs}f4"),
-                ("tbs_bias", f"{n_freqs}f4"),
+                ("tbs_observed", f"{n_chans}f4"),
+                ("tbs_simulated", f"{n_chans}f4"),
+                ("d_tbs", f"{n_chans}f4"),
+                ("tbs_bias", f"{n_chans}f4"),
             ]
         )
 
@@ -547,18 +570,11 @@ class ConicalScanner(Sensor):
         """
         The number of input features for the GPORF-NN retrieval.
         """
-        return self.n_freqs + 2 + 18 + 4
-
-    @property
-    def n_freqs(self):
-        return self._n_freqs
+        return self.n_chans + 2 + 18 + 4
 
     @property
     def bin_file_header(self):
         return self._bin_file_header
-
-    def get_bin_file_record(self, surface_type):
-        return self._bin_file_record
 
     @property
     def sim_file_header(self):
@@ -613,7 +629,7 @@ class ConicalScanner(Sensor):
             for i in range(n_samples):
                 scene = dataset[{"samples": i}]
                 tbs = self.load_brightness_temperatures(scene)
-                tbs = tbs.reshape(-1, self.n_freqs)
+                tbs = tbs.reshape(-1, self.n_chans)
                 t2m = self.load_two_meter_temperature(scene)
                 t2m = t2m.reshape(-1, 1)
                 tcwv = self.load_total_column_water_vapor(scene)
@@ -829,40 +845,21 @@ class CrossTrackScanner(Sensor):
     def __init__(
         self,
         name,
-        angles,
+        channels,
         nedt,
-        n_freqs,
+        angles,
         l1c_prefix,
         l1c_file_path,
         mrms_file_path,
         sim_file_pattern,
         sim_file_path,
     ):
-        super().__init__(name, n_freqs)
-
-        self._preprocessor_orbit_header = types.get_preprocessor_orbit_header(
-            n_freqs
-        )
-        self._preprocessor_pixel_record = types.get_preprocessor_pixel_record(
-            n_freqs,
-            types.XTRACK
-        )
-        self._name = name
-        self._angles = angles
+        super().__init__(types.XTRACK, "MHS", channels, angles)
         self.nedt = nedt
-        n_angles = angles.size
-        self._n_freqs = n_freqs
+        n_chans = len(channels)
+        n_angles = len(angles)
         self.kernels = calculate_smoothing_kernels(self,
                                                    MHS_GEOMETRY)
-
-        self._bin_file_header = np.dtype(
-            [
-                ("satellite_code", "a5"),
-                ("sensor", "a5"),
-                ("frequencies", "f4", (n_freqs,)),
-                ("nominal_eia", "f4", (n_angles,)),
-            ]
-        )
         self._l1c_file_prefix = l1c_prefix
         self._l1c_file_path = l1c_file_path
 
@@ -896,7 +893,7 @@ class CrossTrackScanner(Sensor):
                 ("n_rain", "i4"),
                 ("n_snow", "i4"),
                 ("fraction_missing", "f4"),
-                ("brightness_temperatures", f"{n_freqs}f4"),
+                ("brightness_temperatures", f"{n_chans}f4"),
             ]
         )
         self._sim_file_pattern = sim_file_pattern
@@ -905,7 +902,7 @@ class CrossTrackScanner(Sensor):
             [
                 ("satellite_code", "a5"),
                 ("sensor", "a5"),
-                ("frequencies", f"{n_freqs}f4"),
+                ("frequencies", f"{n_chans}f4"),
                 ("viewing_angles", f"{n_angles}f4"),
                 ("start_pixel", "i4"),
                 ("end_pixel", "i4"),
@@ -924,13 +921,13 @@ class CrossTrackScanner(Sensor):
                 ("surface_type", "i4"),
                 ("surface_precip", f"{n_angles}f4"),
                 ("convective_precip", f"{n_angles}f4"),
-                ("emissivity", f"{n_angles * n_freqs}f4"),
+                ("emissivity", f"{n_angles * n_chans}f4"),
                 ("rain_water_content", f"{N_LAYERS}f4"),
                 ("snow_water_content", f"{N_LAYERS}f4"),
                 ("cloud_water_content", f"{N_LAYERS}f4"),
                 ("latent_heat", f"{N_LAYERS}f4"),
-                ("tbs_simulated", f"{n_angles * n_freqs}f4"),
-                ("tbs_bias", f"{n_freqs}f4"),
+                ("tbs_simulated", f"{n_angles * n_chans}f4"),
+                ("tbs_bias", f"{n_chans}f4"),
             ]
         )
 
@@ -939,19 +936,7 @@ class CrossTrackScanner(Sensor):
         """
         The number of input features for the GPORF-NN retrieval.
         """
-        return self.n_freqs + 3 + 18 + 4
-
-    @property
-    def angles(self):
-        return self._angles
-
-    @property
-    def n_angles(self):
-        return self._angles.size
-
-    @property
-    def n_freqs(self):
-        return self._n_freqs
+        return self.n_chans + 3 + 18 + 4
 
     @property
     def bin_file_header(self):
@@ -967,7 +952,7 @@ class CrossTrackScanner(Sensor):
                     ("surface_precip", "f4"),
                     ("convective_precip", "f4"),
                     ("pixel_position", "i4"),
-                    ("brightness_temperatures", "f4", (self.n_freqs,)),
+                    ("brightness_temperatures", "f4", (self.n_chans,)),
                     ("rain_water_path", np.float32),
                     ("cloud_water_path", np.float32),
                     ("ice_water_path", np.float32),
@@ -987,7 +972,7 @@ class CrossTrackScanner(Sensor):
                     ("longitude", "f4"),
                     ("surface_precip", "f4", (self.n_angles,)),
                     ("convective_precip", "f4", (self.n_angles,)),
-                    ("brightness_temperatures", "f4", (self.n_angles, self.n_freqs)),
+                    ("brightness_temperatures", "f4", (self.n_angles, self.n_chans)),
                     ("rain_water_path", np.float32),
                     ("cloud_water_path", np.float32),
                     ("ice_water_path", np.float32),
@@ -1448,9 +1433,34 @@ class CrossTrackScanner(Sensor):
         return x, y
 
 
+###############################################################################
+# GMI
+###############################################################################
+
+GMI_CHANNELS = [
+    (10.6, "V"),
+    (10.6, "H"),
+    (18.7, "V"),
+    (18.7, "H"),
+    (23.0, "V"),
+    (np.nan, ""),
+    (37.0, "V"),
+    (37.0, "H"),
+    (89.0, "V"),
+    (89.0, "H"),
+    (166.0, "V"),
+    (166.0, "H"),
+    (np.nan, ""),
+    (186.0, "V"),
+    (190.0, "H"),
+]
+
+GMI_ANGLES = [52.8]
+
 GMI = ConicalScanner(
     "GMI",
-    15,
+    GMI_CHANNELS,
+    GMI_ANGLES,
     "1C-R.GPM.GMI",
     "/pdata4/archive/GPM/1CR_GMI",
     "/pdata4/veljko/GMI2MRMS_match2019/db_mrms4GMI/",
@@ -1462,17 +1472,30 @@ MHS_ANGLES = np.array(
     [59.798, 53.311, 46.095, 39.222, 32.562, 26.043, 19.619, 13.257, 6.934, 0.0]
 )
 
+MHS_CHANNELS = [
+    (89.0, "V"),
+    (150.0, "H"),
+    (184.0, "V"),
+    (186.0, "V"),
+    (190.0, "H"),
+]
+
 MHS_NEDT = np.array([1.0, 1.0, 4.0, 2.0, 2.0])
 
 
 MHS = CrossTrackScanner(
     "MHS",
-    MHS_ANGLES,
+    MHS_CHANNELS,
     MHS_NEDT,
-    5,
+    MHS_ANGLES,
     "1C.*.MHS.",
     "/pdata4/archive/GPM/1C_NOAA19",
     "/pdata4/veljko/MHS2MRMS_match2019/monthly_2021/",
     "MHS.dbsatTb.??????{day}.??????.sim",
     "/qdata1/pbrown/dbaseV7/simV7x",
 )
+
+
+###############################################################################
+# MHS
+###############################################################################

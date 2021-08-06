@@ -542,7 +542,7 @@ class NetcdfLoader0D(NetcdfLoader):
         """
         if self.kind == "standard":
 
-            invalid = np.all(self.input_data[:, : self.sensor.n_freqs] <= -1.5, axis=-1)
+            invalid = np.all(self.input_data[:, : self.sensor.n_chans] <= -1.5, axis=-1)
             for v in ALL_TARGETS:
                 data[v].data[invalid] = np.nan
 
@@ -675,7 +675,7 @@ class PreprocessorLoader0D:
         Return:
             PyTorch Tensor ``x`` containing the normalized inputs.
         """
-        n_freqs = self.sensor.n_freqs
+        n_chans = self.sensor.n_chans
         n_inputs = self.sensor.n_inputs
 
         i_start = i * self.scans_per_batch
@@ -685,7 +685,7 @@ class PreprocessorLoader0D:
         x = np.zeros((n, n_inputs), dtype=np.float32)
 
         tbs = self.data["brightness_temperatures"].data[i_start:i_end]
-        tbs = tbs.reshape(-1, n_freqs)
+        tbs = tbs.reshape(-1, n_chans)
         t2m = self.data["two_meter_temperature"].data[i_start:i_end]
         t2m = t2m.reshape(-1)
         tcwv = self.data["total_column_water_vapor"].data[i_start:i_end]
@@ -695,14 +695,14 @@ class PreprocessorLoader0D:
         at = np.maximum(self.data["airmass_type"].data[i_start:i_end], 0.0)
         at = at.reshape(-1)
 
-        x[:, :n_freqs] = tbs
-        x[:, :n_freqs][x[:, :n_freqs] < 0] = np.nan
+        x[:, :n_chans] = tbs
+        x[:, :n_chans][x[:, :n_chans] < 0] = np.nan
 
-        i_anc = n_freqs
+        i_anc = n_chans
         if isinstance(self.sensor, sensors.CrossTrackScanner):
             va = self.data["earth_incidence_angle"].data[i_start:i_end]
-            x[:, n_freqs] = va.ravel()
-            i_anc = n_freqs + 1
+            x[:, n_chans] = va.ravel()
+            i_anc = n_chans + 1
 
         x[:, i_anc] = t2m
         x[:, i_anc][t2m < 0] = np.nan
@@ -877,7 +877,7 @@ class SimulatorLoader(NetcdfLoader):
         self._load_data()
         self.n_samples = self.input_data.shape[0]
 
-        if hasattr(sensor, "angles"):
+        if sensor.n_angles > 1:
             dims_tbs = ("samples", "angles", "channels", "scans", "pixels")
             dims_bias = ("samples", "channels", "scans", "pixels")
             self.dimensions = {
@@ -931,7 +931,7 @@ class SimulatorLoader(NetcdfLoader):
             }
         ]
 
-        if hasattr(self.sensor, "angles"):
+        if self.sensor.n_angles > 1:
             data = data.transpose("samples", "scans", "pixels", "angles", "channels")
         else:
             data = data.transpose("samples", "scans", "pixels", "channels")
@@ -943,7 +943,7 @@ class SimulatorLoader(NetcdfLoader):
         n_pixels = data.pixels.size
         n_channels = data.channels.size
 
-        if hasattr(self.sensor, "angles"):
+        if self.sensor.n_angles > 1:
             dims = ("samples", "scans", "pixels", "angles", "channels")
             n_angles = data.angles.size
             input_data["simulated_brightness_temperatures"] = (

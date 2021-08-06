@@ -29,6 +29,11 @@ def test_bin_file_gmi():
     assert np.all(input_file["total_column_water_vapor"] < 55 + 0.5)
     assert np.all(input_file["surface_type"] == 4)
     assert np.all(input_file["airmass_type"] == 0)
+    tbs = input_file.brightness_temperatures.data
+    valid = tbs > 0
+    tbs = tbs[valid]
+    assert np.all(tbs > 20)
+    assert np.all(tbs < 400)
 
 
 def test_bin_file_mhs():
@@ -41,7 +46,7 @@ def test_bin_file_mhs():
     assert np.all(input_file["surface_precip"] >= 0)
     assert np.all(input_file["convective_precip"] >= 0)
     assert np.all(input_file["rain_water_path"] >= 0)
-    assert np.all(input_file["brightness_temperatures"] > 0)
+    assert np.all(input_file["brightness_temperatures"] > 20)
     assert np.all(input_file["brightness_temperatures"] < 400)
     assert np.all(input_file["two_meter_temperature"] > 290 - 0.5)
     assert np.all(input_file["two_meter_temperature"] < 290 + 0.5)
@@ -55,7 +60,7 @@ def test_bin_file_mhs():
     assert np.all(input_file["surface_precip"] >= 0)
     assert np.all(input_file["convective_precip"] >= 0)
     assert np.all(input_file["rain_water_path"] < 0)
-    assert np.all(input_file["brightness_temperatures"] > 0)
+    assert np.all(input_file["brightness_temperatures"] > 20)
     assert np.all(input_file["brightness_temperatures"] < 400)
     assert np.all(input_file["two_meter_temperature"] > 291 - 0.5)
     assert np.all(input_file["two_meter_temperature"] < 291 + 0.5)
@@ -69,7 +74,7 @@ def test_bin_file_mhs():
     assert np.all(input_file["surface_precip"] >= 0)
     assert np.all(input_file["convective_precip"] >= 0)
     assert np.all(input_file["rain_water_path"] < 0)
-    assert np.all(input_file["brightness_temperatures"] > 0)
+    assert np.all(input_file["brightness_temperatures"] > 20)
     assert np.all(input_file["brightness_temperatures"] < 400)
     assert np.all(input_file["two_meter_temperature"] > 266 - 0.5)
     assert np.all(input_file["two_meter_temperature"] < 266 + 0.5)
@@ -99,7 +104,7 @@ def test_file_processor_gmi(tmp_path):
     normalizer = dataset.normalizer
 
     bts_input = input_data["brightness_temperatures"]
-    bts = dataset.x[:, :input_file.sensor.n_freqs]
+    bts = dataset.x[:, :input_file.sensor.n_chans]
     bts = np.nan_to_num(bts, nan=-9999.9)
     valid = bts[:, -1] > 0
 
