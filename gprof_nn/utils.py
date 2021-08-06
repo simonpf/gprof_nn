@@ -118,6 +118,30 @@ def apply_limits(v, v_min, v_max):
     return v
 
 
+def get_mask(v, v_min, v_max):
+    """
+    Return boolean mask identifying valid values.
+
+    Args:
+
+        v: A numpy array containing the variable values.
+        v_min: A lower bound below which values of the variable
+            should be considered physically unsound or 'None'.
+        v_max: An upper bound above which values of the variable should
+            be considered physically unsound or 'None'.
+
+    Return:
+        Bool array of same shape as v containing 'True' where the values
+        of 'v' are within the range ``[v_min, v_max]``.
+    """
+    mask = np.ones(v.shape, dtype=np.bool)
+    if v_min is not None:
+        mask = mask * (v >= v_min)
+    if v_max is not None:
+        mask = mask * (v <= v_max)
+    return mask
+
+
 def calculate_interpolation_weights(angles, angle_grid):
     """
     Calculate interpolation weights for angle-dependent variables.

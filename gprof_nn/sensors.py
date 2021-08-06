@@ -21,6 +21,7 @@ from gprof_nn.data.utils import (load_variable,
 from gprof_nn.data import types
 
 from gprof_nn.utils import (apply_limits,
+                            get_mask,
                             calculate_interpolation_weights,
                             interpolate)
 from gprof_nn.data.utils import expand_pixels
@@ -1182,12 +1183,25 @@ class CrossTrackScanner(Sensor):
                 mask = np.all(sp >= 0, axis=-1)
 
                 if source == 0:
+                    tbs = scene["simulated_brightness_temperatures"].data
+                    mask_tbs = get_mask(
+                        tbs,
+                        *LIMITS["simulated_brightness_temperatures"]
+                    )
+                    biases = scene["brightness_temperature_biases"].data
+                    mask_biases = get_mask(
+                        biases,
+                        *LIMITS["brightness_temperature_biases"]
+                    )
+                    mask = (mask *
+                            np.all(mask_tbs, axis=(-2,-1)) *
+                            np.all(mask_biases, axis=-1))
                     eia = rng.uniform(angles_min, angles_max, size=mask.sum())
                     weights = calculate_interpolation_weights(eia, self.angles)
                 else:
                     weights = None
                     tbs = scene["brightness_temperatures"].data
-                    mask = mask * np.all((tbs > 0) * (tbs < 500))
+                    mask = mask * np.all((tbs > 0) * (tbs < 500), axis=-1)
                     eia = load_variable(scene, "earth_incidence_angle", mask=mask)[
                         ..., 0
                     ]

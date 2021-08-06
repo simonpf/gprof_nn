@@ -1,9 +1,15 @@
 """
 Tests for the ``gprof_nn.utils`` module.
 """
-import numpy as np
+from pathlib import Path
 
+import numpy as np
+import xarray as xr
+
+from gprof_nn.augmentation import (get_transformation_coordinates,
+                                   GMI_GEOMETRY)
 from gprof_nn.utils import (apply_limits,
+                            get_mask,
                             calculate_interpolation_weights,
                             interpolate)
 from gprof_nn.data.utils import (load_variable,
@@ -26,6 +32,25 @@ def test_apply_limits():
 
     x = apply_limits(x, 0.0, 0.0)
     x = x[np.isfinite(x)]
+    assert x.size == 0
+
+
+def test_get_mask():
+    """
+    Ensure that values extracted with mask are within given limits.
+    """
+    x = np.random.normal(size=(10, 10))
+
+    mask = get_mask(x, 0.0, None)
+    x_l = x[mask]
+    assert np.all(x_l >= 0.0)
+
+    mask = get_mask(x, None, 0.0)
+    x_r = x[mask]
+    assert np.all(x_r <= 0.0)
+
+    mask = get_mask(x, 0.0, 0.0)
+    x = x[mask]
     assert x.size == 0
 
 
