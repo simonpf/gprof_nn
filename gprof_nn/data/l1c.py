@@ -35,8 +35,8 @@ class L1CFile:
     def open_granule(cls,
                      granule,
                      path,
-                     date=None,
-                     sensor=sensors.GMI):
+                     sensor,
+                     date=None):
         """
         Find and open L1C file with a given granule number.
 
@@ -44,6 +44,8 @@ class L1CFile:
             granule: The granule number as integer.
             path: The root of the directory tree containing the
                 L1C files.
+            sensor: Sensor object representing the sensor of which to open the
+                corresponding L1C file.
             date: The date of the file used to determine sub-folders
                 corresponding to month and day.
 

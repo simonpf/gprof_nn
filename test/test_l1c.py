@@ -16,7 +16,7 @@ def test_open_granule_gmi():
     """
     l1c_path = Path(__file__).parent / "data"
 
-    l1c_file = L1CFile.open_granule(27510, l1c_path, sensor=sensors.GMI)
+    l1c_file = L1CFile.open_granule(27510, l1c_path, sensors.GMI)
     l1c_data = l1c_file.to_xarray_dataset()
 
     assert l1c_data.pixels.size == 221
@@ -30,7 +30,7 @@ def test_open_granule_mhs():
     """
     l1c_path = Path(__file__).parent / "data"
 
-    l1c_file = L1CFile.open_granule(32624, l1c_path, sensor=sensors.MHS)
+    l1c_file = L1CFile.open_granule(32624, l1c_path, sensors.MHS)
     l1c_data = l1c_file.to_xarray_dataset()
 
     assert l1c_data.pixels.size == 90

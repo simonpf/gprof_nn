@@ -4,6 +4,7 @@ Tests for the reading and processing of .sim files.
 from pathlib import Path
 
 import numpy as np
+import pytest
 import xarray as xr
 
 from gprof_nn import sensors
@@ -19,17 +20,29 @@ from gprof_nn.data.sim import (SimFile,
 from gprof_nn.data.preprocessor import PreprocessorFile
 
 
+HAS_ARCHIVES = Path(sensors.GMI.l1c_file_path).exists()
+
+
 def test_match_l1c_gmi():
     """
     Tests reading a GMI L1C file and matching it to data in
     a GMI .sim file.
     """
     data_path = Path(__file__).parent / "data"
-    l1c_file = L1CFile.open_granule(27510, data_path)
+    l1c_file = L1CFile.open_granule(27510, data_path, sensors.GMI)
     l1c_data = l1c_file.to_xarray_dataset()
+    tbs = l1c_data.brightness_temperatures.data
+    tbs_new = np.zeros(tbs.shape[:2] + (15,))
+    tbs_new[:, :, :5] = tbs[..., :5]
+    tbs_new[:, :, 6:12] = tbs[..., 5:11]
+    tbs_new[:, :, 13:] = tbs[..., 11:]
+    l1c_data["brightness_temperatures"] = (("scans", "pixels", "channels"),
+                                           tbs_new)
+
     sim_file = SimFile(data_path / "GMI.dbsatTb.20190101.027510.sim")
 
-    targets = ["latent_heat",
+    targets = ["surface_precip",
+               "latent_heat",
                "rain_water_content",
                "ice_water_path"]
 
@@ -40,15 +53,37 @@ def test_match_l1c_gmi():
     assert "snow_water_content" in l1c_data.variables.keys()
     assert "rain_water_content" in l1c_data.variables.keys()
 
+    tbs = l1c_data.brightness_temperatures.data
+    valid = tbs > 0
+    assert np.all((tbs[valid] > 20) * (tbs[valid] < 400))
+
+    lats = l1c_data.latitude.data
+    assert np.all((lats >= -90) * (lats <= 90))
+    lons = l1c_data.longitude.data
+    assert np.all((lons >= -180) * (lons <= 180))
+
+    sp = l1c_data.surface_precip.data
+    valid = np.isfinite(sp)
+    assert np.all((sp[valid] >= 0.0) * (sp[valid] < 300))
+
+    lh = l1c_data.latent_heat.data
+    valid = np.isfinite(lh)
+    assert np.all(lh[valid] < 1000)
+
 
 def test_match_l1c_mhs():
     """
     Tests reading a GMI L1C file and matching it to data in
-    a GMI .sim file.
+    a MHS .sim file.
     """
     data_path = Path(__file__).parent / "data"
-    l1c_file = L1CFile.open_granule(27510, data_path)
+    l1c_file = L1CFile.open_granule(27510, data_path, sensors.GMI)
     l1c_data = l1c_file.to_xarray_dataset()
+    l1c_data = l1c_data.rename({
+        "channels": "channels_gmi",
+        "brightness_temperatures": "brightness_temperatures_gmi"}
+    )
+
     sim_file = SimFile(data_path / "MHS.dbsatTb.20190101.027510.sim")
 
     targets = ["surface_precip",
@@ -65,6 +100,24 @@ def test_match_l1c_mhs():
 
     assert "brightness_temperature_biases" in l1c_data.variables.keys()
     assert "simulated_brightness_temperatures" in l1c_data.variables.keys()
+
+    tbs = l1c_data.brightness_temperatures_gmi.data
+    valid = tbs > 0
+    print(tbs[valid].min(), tbs[valid].max())
+    assert np.all((tbs[valid] > 20) * (tbs[valid] < 400))
+
+    lats = l1c_data.latitude.data
+    assert np.all((lats >= -90) * (lats <= 90))
+    lons = l1c_data.longitude.data
+    assert np.all((lons >= -180) * (lons <= 180))
+
+    sp = l1c_data.surface_precip.data
+    valid = np.isfinite(sp)
+    assert np.all((sp[valid] >= 0.0) * (sp[valid] < 300))
+
+    lh = l1c_data.latent_heat.data
+    valid = np.isfinite(lh)
+    assert np.all(lh[valid] < 1000)
 
 
 def test_find_files():
@@ -88,11 +141,11 @@ def test_match_era5_precip():
     Test loading and matching of data from ERA5.
     """
     data_path = Path(__file__).parent / "data"
-    l1c_file = L1CFile.open_granule(27510, data_path)
+    l1c_file = L1CFile.open_granule(27510, data_path, sensors.GMI)
     l1c_data = l1c_file.to_xarray_dataset()
 
     preprocessor_file = PreprocessorFile(
-        data_path / "GMIERA5_190101_027510.pp"
+        data_path / "gmi" / "GMIERA5_190101_027510.pp"
     )
     input_data = preprocessor_file.to_xarray_dataset()
 
@@ -109,7 +162,7 @@ def test_match_era5_precip():
                      era5_data)
 
 
-def test_orographic_enhancement(tmp_path):
+def test_orographic_enhancement():
     """
     Writes dataset to preprocessor file and ensures that the
     data from the preprocessor file matches that in the original
@@ -117,7 +170,7 @@ def test_orographic_enhancement(tmp_path):
     """
     path = Path(__file__).parent / "data"
 
-    preprocessor_file = PreprocessorFile(path / "GMIERA5_190101_027510.pp")
+    preprocessor_file = PreprocessorFile(path / "gmi" / "GMIERA5_190101_027510.pp")
     input_data = preprocessor_file.to_xarray_dataset()
     sim_file = SimFile(path / "GMI.dbsatTb.20190101.027510.sim")
     sim_file.match_targets(input_data)
@@ -140,6 +193,7 @@ def test_orographic_enhancement(tmp_path):
     assert np.all(np.isclose(sp[indices], sp_ref[indices], rtol=1e-3))
     assert np.all(np.isclose(cp[indices], cp_ref[indices], rtol=1e-3))
 
+
 def test_extend_dataset():
     """
     Ensure that extending a dataset along pixel dimensions works as expected.
@@ -151,10 +205,11 @@ def test_extend_dataset():
     assert np.all(np.isclose(extended.data[:, 110], 0.0))
 
 
+@pytest.mark.skipif(not HAS_ARCHIVES, reason="Data archives not available.")
 def test_process_sim_file_gmi():
     sim_file = (Path(__file__).parent /
                 "data" /
-                "GMI.dbsatTb.20181001.026079.sim")
+                "GMI.dbsatTb.20190101.027510.sim")#GMI.dbsatTb.20181001.026079.sim")
     era5_path = "/qdata2/archive/ERA5/"
     data = process_sim_file(sim_file, era5_path)
 
@@ -165,6 +220,7 @@ def test_process_sim_file_gmi():
     assert np.all(np.isnan(sp[snow]))
 
 
+@pytest.mark.skipif(not HAS_ARCHIVES, reason="Data archives not available.")
 def test_process_mrms_file_gmi():
     """
     Test processing of MRMS-GMI matches for a given day.
@@ -179,6 +235,7 @@ def test_process_mrms_file_gmi():
     assert np.all(data["source"].data == 1)
 
 
+@pytest.mark.skipif(not HAS_ARCHIVES, reason="Data archives not available.")
 def test_process_l1c_file_gmi():
     l1c_file = (Path(__file__).parent /
                 "data" /
@@ -195,6 +252,7 @@ def test_process_l1c_file_gmi():
     assert np.all(np.isnan(sp[~si]))
 
 
+@pytest.mark.skipif(not HAS_ARCHIVES, reason="Data archives not available.")
 def test_process_sim_file_mhs():
     sim_file = (Path(__file__).parent /
                 "data" /
@@ -211,6 +269,7 @@ def test_process_sim_file_mhs():
     assert np.all(np.isnan(sp[snow + sea_ice]))
 
 
+@pytest.mark.skipif(not HAS_ARCHIVES, reason="Data archives not available.")
 def test_process_mrms_file_mhs():
     """
     Test processing of MRMS-MHS (NOAA-19) matches for a given day.
@@ -225,6 +284,7 @@ def test_process_mrms_file_mhs():
     assert np.all(data["source"].data == 1)
 
 
+@pytest.mark.skipif(not HAS_ARCHIVES, reason="Data archives not available.")
 def test_process_l1c_file_mhs():
     l1c_file = (Path(__file__).parent /
                 "data" /

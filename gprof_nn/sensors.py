@@ -191,6 +191,19 @@ class Sensor(ABC):
             self.kind
         )
 
+        # Sim file types
+        self._sim_file_header = types.get_sim_file_header(
+            n_chans,
+            n_angles,
+            kind
+        )
+        self._sim_file_record = types.get_sim_file_record(
+            n_chans,
+            n_angles,
+            N_LAYERS,
+            kind
+        )
+
     @property
     def name(self):
         """
@@ -308,19 +321,21 @@ class Sensor(ABC):
         The default sim-file path on the CSU system.
         """
 
-    @abstractproperty
+    @property
     def sim_file_header(self):
         """
         Numpy dtype defining the binary structure of the header
         of simulator files.
         """
+        return self._sim_file_header
 
-    @abstractproperty
+    @property
     def sim_file_record(self):
         """
         Numpy dtype defining the binary record structure of simulator
         files.
         """
+        return self._sim_file_record
 
     @property
     def preprocessor_orbit_header(self):
@@ -525,42 +540,6 @@ class ConicalScanner(Sensor):
 
         self._sim_file_pattern = sim_file_pattern
         self._sim_file_path = sim_file_path
-        self._sim_file_header = np.dtype(
-            [
-                ("satellite_code", "a5"),
-                ("sensor", "a5"),
-                ("frequencies", f"{n_chans}f4"),
-                ("nominal_eia", f"{n_chans}f4"),
-                ("start_pixel", "i4"),
-                ("end_pixel", "i4"),
-                ("start_scan", "i4"),
-                ("end_scan", "i4"),
-            ]
-        )
-        self._sim_file_record = np.dtype(
-            [
-                ("pixel_index", "i4"),
-                ("scan_index", "i4"),
-                ("data_source", "f4"),
-                ("latitude", "f4"),
-                ("longitude", "f4"),
-                ("elevation", "f4"),
-                ("scan_time", DATE_TYPE),
-                ("surface_type", "i4"),
-                ("surface_precip", "f4"),
-                ("convective_precip", "f4"),
-                ("emissivity", f"{n_chans}f4"),
-                ("rain_water_content", f"{N_LAYERS}f4"),
-                ("snow_water_content", f"{N_LAYERS}f4"),
-                ("cloud_water_content", f"{N_LAYERS}f4"),
-                ("latent_heat", f"{N_LAYERS}f4"),
-                ("tbs_observed", f"{n_chans}f4"),
-                ("tbs_simulated", f"{n_chans}f4"),
-                ("d_tbs", f"{n_chans}f4"),
-                ("tbs_bias", f"{n_chans}f4"),
-            ]
-        )
-
 
     @property
     def name(self):
@@ -576,14 +555,6 @@ class ConicalScanner(Sensor):
     @property
     def bin_file_header(self):
         return self._bin_file_header
-
-    @property
-    def sim_file_header(self):
-        return self._sim_file_header
-
-    @property
-    def sim_file_record(self):
-        return self._sim_file_record
 
     @property
     def l1c_file_prefix(self):
@@ -899,38 +870,7 @@ class CrossTrackScanner(Sensor):
         )
         self._sim_file_pattern = sim_file_pattern
         self._sim_file_path = sim_file_path
-        self._sim_file_header = np.dtype(
-            [
-                ("satellite_code", "a5"),
-                ("sensor", "a5"),
-                ("frequencies", f"{n_chans}f4"),
-                ("viewing_angles", f"{n_angles}f4"),
-                ("start_pixel", "i4"),
-                ("end_pixel", "i4"),
-                ("start_scan", "i4"),
-                ("end_scan", "i4"),
-            ]
-        )
-        self._sim_file_record = np.dtype(
-            [
-                ("pixel_index", "i4"),
-                ("scan_index", "i4"),
-                ("latitude", "f4"),
-                ("longitude", "f4"),
-                ("elevation", "f4"),
-                ("scan_time", DATE_TYPE),
-                ("surface_type", "i4"),
-                ("surface_precip", f"{n_angles}f4"),
-                ("convective_precip", f"{n_angles}f4"),
-                ("emissivity", f"{n_angles * n_chans}f4"),
-                ("rain_water_content", f"{N_LAYERS}f4"),
-                ("snow_water_content", f"{N_LAYERS}f4"),
-                ("cloud_water_content", f"{N_LAYERS}f4"),
-                ("latent_heat", f"{N_LAYERS}f4"),
-                ("tbs_simulated", f"{n_angles * n_chans}f4"),
-                ("tbs_bias", f"{n_chans}f4"),
-            ]
-        )
+
 
     @property
     def n_inputs(self):
@@ -1009,14 +949,6 @@ class CrossTrackScanner(Sensor):
     @property
     def sim_file_path(self):
         return self._sim_file_path
-
-    @property
-    def sim_file_header(self):
-        return self._sim_file_header
-
-    @property
-    def sim_file_record(self):
-        return self._sim_file_record
 
     @property
     def preprocessor_orbit_header(self):

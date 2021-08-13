@@ -204,3 +204,124 @@ def get_bin_file_record(n_chans,
                 ]
             )
     return dtype
+
+
+def get_sim_file_header(n_chans,
+                        n_angles,
+                        kind):
+    """
+    Create 'numpy.dtype' describing the header format of a CSU GPROF *.sim
+    file.
+
+    Args:
+        n_chans: The number of frequencies of the sensor.
+        n_angles: The number of viewing angles of the sensor.
+        kind: The type of sensor ('CONICAL' or 'XTRACK')
+
+    Return:
+        Numpy dtype that can be used to read the header of a *.sim file.
+    """
+    if kind == CONICAL:
+        dtype = np.dtype(
+            [
+                ("satellite_code", "a5"),
+                ("sensor", "a5"),
+                ("frequencies", "f4", (n_chans,)),
+                ("nominal_eia", "f4", (n_chans,)),
+                ("start_pixel", "i4"),
+                ("end_pixel", "i4"),
+                ("start_scan", "i4"),
+                ("end_scan", "i4"),
+            ]
+        )
+    else:
+        dtype = np.dtype(
+            [
+                ("satellite_code", "a5"),
+                ("sensor", "a5"),
+                ("frequencies", f"{n_chans}f4"),
+                ("viewing_angles", f"{n_angles}f4"),
+                ("start_pixel", "i4"),
+                ("end_pixel", "i4"),
+                ("start_scan", "i4"),
+                ("end_scan", "i4"),
+            ]
+        )
+    return dtype
+
+
+def get_sim_file_record(n_chans,
+                        n_angles,
+                        n_layers,
+                        kind):
+    """
+    Create 'numpy.dtype' describing the binary format used to represent an
+    observation in a CSU GPROF *.sim file.
+
+    Args:
+        n_chans: The number of frequencies of the sensor.
+        n_layers: The number of layers used to represent profiles.
+        n_angles: The number of viewing angles of the sensor.
+        kind: The type of sensor ('CONICAL' or 'XTRACK')
+
+    Return:
+        Numpy dtype that can be used to read entries in a *.sim file into
+        a numpy structured array.
+    """
+    date_type = np.dtype(
+        [
+            ("year", "i4"),
+            ("month", "i4"),
+            ("day", "i4"),
+            ("hour", "i4"),
+            ("minute", "i4"),
+            ("second", "i4"),
+        ]
+    )
+
+    if kind == CONICAL:
+        dtype = np.dtype(
+            [
+                ("pixel_index", "i4"),
+                ("scan_index", "i4"),
+                ("data_source", "f4"),
+                ("latitude", "f4"),
+                ("longitude", "f4"),
+                ("elevation", "f4"),
+                ("scan_time", date_type),
+                ("surface_type", "i4"),
+                ("surface_precip", "f4"),
+                ("convective_precip", "f4"),
+                ("emissivity", "f4", (n_chans,)),
+                ("rain_water_content", "f4", (n_layers,)),
+                ("snow_water_content", "f4", (n_layers,)),
+                ("cloud_water_content", "f4", (n_layers,)),
+                ("latent_heat", "f4", (n_layers,)),
+                ("tbs_observed", "f4", (n_chans,)),
+                ("tbs_simulated", "f4", (n_chans,)),
+                ("d_tbs", "f4", (n_chans,)),
+                ("tbs_bias", "f4", (n_chans,))
+            ]
+        )
+    else:
+        dtype = np.dtype(
+            [
+                ("pixel_index", "i4"),
+                ("scan_index", "i4"),
+                ("latitude", "f4"),
+                ("longitude", "f4"),
+                ("elevation", "f4"),
+                ("scan_time", date_type),
+                ("surface_type", "i4"),
+                ("surface_precip", "f4", (n_angles,)),
+                ("convective_precip", "f4", (n_angles,)),
+                ("emissivity", "f4", (n_angles, n_chans)),
+                ("rain_water_content", "f4", (n_layers,)),
+                ("snow_water_content", "f4", (n_layers,)),
+                ("cloud_water_content", "f4", (n_layers,)),
+                ("latent_heat", "f4", (n_layers,)),
+                ("tbs_simulated", "f4", (n_angles, n_chans)),
+                ("tbs_bias", "f4", (n_chans)),
+            ]
+        )
+    return dtype

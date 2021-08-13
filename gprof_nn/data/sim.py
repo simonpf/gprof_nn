@@ -3,22 +3,22 @@
 gprof_nn.data.sim
 =================
 
-This module contains functions to read and convert .sim files for GPROF
- v. 7.
+This module defines a class to read the simulator output files (*.sim) that
+contain the atmospheric profiles and corresponding simulated brightness
+temperatures.
+
+The module also provides functionality to extract the training data for the
+GPROF-NN algorithm from these files.
 """
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from datetime import datetime
 import logging
 from pathlib import Path
 import tempfile
-import traceback
-import sys
 
 import numpy as np
 import pandas as pd
-import pyproj
 from pykdtree.kdtree import KDTree
-from netCDF4 import Dataset
 from rich.progress import track
 import xarray as xr
 
@@ -468,7 +468,7 @@ def process_sim_file(sim_filename,
 
     For the GMI sensor also ERA5 precip over sea ice and sea ice edge are
     added to the surface precipitation.
-    
+
     Surface and convective precipitation over mountains is set to NAN.
     This is also done for precipitation over sea ice for sensors that
     are not GMI.
@@ -487,7 +487,8 @@ def process_sim_file(sim_filename,
     # Load sim file and corresponding GMI L1C file.
     sim_file = SimFile(sim_filename)
     l1c_file = L1CFile.open_granule(sim_file.granule,
-                                    sensors.GMI.l1c_file_path)
+                                    sensors.GMI.l1c_file_path,
+                                    sensors.GMI)
 
     LOGGER.info("Running preprocessor for sim file %s.", sim_filename)
     data_pp = run_preprocessor(l1c_file.filename, sensor=sensors.GMI)
