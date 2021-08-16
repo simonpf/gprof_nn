@@ -55,7 +55,13 @@ def add_parser(subparsers):
                         metavar="output",
                         type=str,
                         help='Folder to which to write the extracted data.')
+    parser.add_argument('--era5_path',
+                        metavar="path",
+                        type=str,
+                        help='Folder to which to write the extracted data.',
+                        default="/qdata2/archive/ERA5")
     parser.set_defaults(func=run)
+
 
 def run(args):
     """
@@ -91,6 +97,8 @@ def run(args):
         LOGGER.error("The 'output' argument must point to a directory.")
         return 1
 
+    era5_path = args.era5_path
+
     if kind == "train":
         days = TRAINING_DAYS
     elif kind == "val":
@@ -105,8 +113,8 @@ def run(args):
         LOGGER.info("Pocessing day %s.")
         processor = SimFileProcessor(output,
                                      sensor,
-                                     era5_path=ERA5_PATH,
+                                     config.upper(),
+                                     era5_path=era5_path,
                                      n_workers=4,
-                                     day=day)
+                                     day=d)
         processor.run()
-    

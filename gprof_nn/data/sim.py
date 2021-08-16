@@ -275,6 +275,7 @@ ENHANCEMENT_FACTORS = {
     }
 }
 
+
 def apply_orographic_enhancement(data,
                                  kind="ERA5"):
     """
@@ -458,7 +459,9 @@ def _add_era5_precip(input_data, l1c_data, era5_data):
 
 
 def process_sim_file(sim_filename,
-                     era5_path):
+                     configuration,
+                     era5_path,
+                     log_queue=None):
     """
     Extract 2D training scenes from sim file.
 
@@ -483,7 +486,10 @@ def process_sim_file(sim_filename,
         2D training scenes.
     """
     import gprof_nn.logging
+    if log_queue is not None:
+        gprof_nn.logging.configure_queue_logging(log_queue)
     LOGGER.info("Starting processing sim file %s.", sim_filename)
+
     # Load sim file and corresponding GMI L1C file.
     sim_file = SimFile(sim_filename)
     l1c_file = L1CFile.open_granule(sim_file.granule,
@@ -491,7 +497,9 @@ def process_sim_file(sim_filename,
                                     sensors.GMI)
 
     LOGGER.info("Running preprocessor for sim file %s.", sim_filename)
-    data_pp = run_preprocessor(l1c_file.filename, sensor=sensors.GMI)
+    data_pp = run_preprocessor(l1c_file.filename,
+                               sensor=sensors.GMI,
+                               configuration=configuration)
     if data_pp is None:
         return None
 
@@ -556,7 +564,9 @@ def process_sim_file(sim_filename,
 
 
 def process_mrms_file(mrms_filename,
-                      day):
+                      configuration,
+                      day,
+                      log_queue=None):
     """
     Extract training data from MRMS-GMI match up files for given day.
     Matches the observations in the MRMS file with input data from the
@@ -568,7 +578,9 @@ def process_mrms_file(mrms_filename,
         day: The day of the month for which to extract data.
     """
     import gprof_nn.logging
-    LOGGER.info("Starting processing MRMS file %s.", mrms_filename)
+    if log_queue is not None:
+        gprof_nn.logging.configure_queue_logging(log_queue)
+    LOGGER.info("Processing MRMS file %s.", mrms_filename)
     mrms_file = MRMSMatchFile(mrms_filename)
     sensor = mrms_file.sensor
 
@@ -590,7 +602,9 @@ def process_mrms_file(mrms_filename,
         _, f_roi = tempfile.mkstemp()
         try:
             f.extract_scans(CONUS, f_roi)
-            data_pp = run_preprocessor(f_roi, sensor=sensor)
+            data_pp = run_preprocessor(f_roi,
+                                       configuration=configuration,
+                                       sensor=sensor)
         finally:
             Path(f_roi).unlink()
         if data_pp is None:
@@ -626,7 +640,9 @@ def process_mrms_file(mrms_filename,
 
 def process_l1c_file(l1c_filename,
                      sensor,
-                     era5_path):
+                     configuration,
+                     era5_path,
+                     log_queue=None):
     """
     Match L1C files with ERA5 surface and convective precipitation for
     sea-ice and sea-ice-edge surfaces.
@@ -638,8 +654,13 @@ def process_l1c_file(l1c_filename,
         era5_path: Root of the directory tree containing the ERA5 data.
     """
     import gprof_nn.logging
+    if log_queue is not None:
+        gprof_nn.logging.configure_queue_logging(log_queue)
+        LOGGER.info("Starting processing l1d file %s.", l1c_filename)
     l1c_file = L1CFile(l1c_filename)
-    data_pp = run_preprocessor(l1c_filename, sensor=sensor)
+    data_pp = run_preprocessor(l1c_filename,
+                               sensor=sensor,
+                               configuration=configuration)
     if data_pp is None:
         return None
     data_pp = add_targets(data_pp, sensor)
@@ -776,6 +797,7 @@ def add_targets(data,
     )
     return data
 
+
 def add_brightness_temperatures(data, sensor):
     if "brightness_temperatures" in data.variables.keys():
         return data
@@ -803,6 +825,7 @@ class SimFileProcessor:
         self,
         output_file,
         sensor,
+        configuration,
         era5_path=None,
         n_workers=4,
         day=None,
@@ -822,6 +845,7 @@ class SimFileProcessor:
 
         self.output_file = output_file
         self.sensor = sensor
+        self.configuration = configuration
 
         if era5_path is None:
             raise ValueError(
@@ -877,24 +901,31 @@ class SimFileProcessor:
         i = 0
 
         # Submit tasks interleaving .sim and MRMS files.
+        log_queue = gprof_nn.logging.get_log_queue()
         tasks = []
         while i < max(n_sim_files, n_mrms_files, n_l1c_files):
             if i < n_sim_files:
                 sim_file = sim_files[i]
                 tasks.append(self.pool.submit(process_sim_file,
                                               sim_file,
-                                              self.era5_path))
+                                              self.configuration,
+                                              self.era5_path,
+                                              log_queue=log_queue))
             if i < n_mrms_files:
                 mrms_file = mrms_files[i]
                 tasks.append(self.pool.submit(process_mrms_file,
                                               mrms_file,
-                                              self.day))
+                                              self.configuration,
+                                              self.day,
+                                              log_queue=log_queue))
             if i < n_l1c_files:
                 l1c_file = l1c_files[i]
                 tasks.append(self.pool.submit(process_l1c_file,
                                               l1c_file,
                                               self.sensor,
-                                              self.era5_path))
+                                              self.configuration,
+                                              self.era5_path,
+                                              log_queue=log_queue))
             i += 1
 
         n_datasets = len(tasks)
@@ -905,15 +936,19 @@ class SimFileProcessor:
         # Retrieve extracted observations and concatenate into
         # single dataset.
         for t in track(tasks, description="Extracting data ..."):
-            try:
-                dataset = t.result()
-            except Exception as e:
-                LOGGER.warning(
-                    "The follow error was encountered while collecting "
-                    " results: %s", e
-                )
-                console.print_exception()
-                dataset = None
+            # Log messages from processes.
+            dataset = None
+            while dataset is None:
+                try:
+                    gprof_nn.logging.log_messages()
+                    dataset = t.result()
+                except Exception as e:
+                    LOGGER.warning(
+                        "The follow error was encountered while collecting "
+                        " results: %s", e
+                    )
+                    console.print_exception()
+                    break
 
             if dataset is not None:
                 dataset = add_brightness_temperatures(dataset, self.sensor)

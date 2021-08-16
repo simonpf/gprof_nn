@@ -10,6 +10,10 @@ that are defined in the sub-module of the 'gprof_nn.bin' module.
 import argparse
 import sys
 
+import gprof_nn.logging
+from gprof_nn.logging import set_log_level
+
+
 def gprof_nn():
     """
     This function implements the top-level command line interface for the
@@ -17,6 +21,7 @@ def gprof_nn():
     any of the available sub-commands.
     """
     from gprof_nn.bin import extract_data
+    set_log_level("INFO")
 
     description = ("Neural-network based implementation of the Goddard "
                    "PROFiling algorithm (GPROF)")

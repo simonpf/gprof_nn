@@ -206,12 +206,12 @@ def test_extend_dataset():
 
 
 @pytest.mark.skipif(not HAS_ARCHIVES, reason="Data archives not available.")
-def test_process_sim_file_gmi():
+def test_process_sim_file_gmi_era5():
     sim_file = (Path(__file__).parent /
                 "data" /
                 "GMI.dbsatTb.20190101.027510.sim")#GMI.dbsatTb.20181001.026079.sim")
     era5_path = "/qdata2/archive/ERA5/"
-    data = process_sim_file(sim_file, era5_path)
+    data = process_sim_file(sim_file, "ERA5", era5_path)
 
     assert np.all(data["source"].data == 0)
     sp = data["surface_precip"].data
@@ -229,7 +229,7 @@ def test_process_mrms_file_gmi():
                  "data" /
                  "1801_MRMS2GMI_gprof_db_08all.bin.gz")
     era5_path = "/qdata2/archive/ERA5/"
-    data = process_mrms_file(mrms_file, 24)
+    data = process_mrms_file(mrms_file, "ERA5", 24)
     assert data is not None
     assert data.pixels.size == 221
     assert np.all(data["source"].data == 1)
@@ -241,7 +241,7 @@ def test_process_l1c_file_gmi():
                 "data" /
                 "1C-R.GPM.GMI.XCAL2016-C.20180124-S000358-E013632.022190.V05A.HDF5")
     era5_path = "/qdata2/archive/ERA5/"
-    data = process_l1c_file(l1c_file, sensors.GMI, era5_path)
+    data = process_l1c_file(l1c_file, sensors.GMI, "ERA5", era5_path)
 
     assert np.all(data["source"].data == 2)
 
@@ -258,7 +258,7 @@ def test_process_sim_file_mhs():
                 "data" /
                 "MHS.dbsatTb.20181001.026079.sim")
     era5_path = "/qdata2/archive/ERA5/"
-    data = process_sim_file(sim_file, era5_path)
+    data = process_sim_file(sim_file, "ER5", era5_path)
 
     assert np.all(data["source"].data == 0)
     sp = data["surface_precip"].data
@@ -278,7 +278,7 @@ def test_process_mrms_file_mhs():
                  "data" /
                  "1801_MRMS2MHS_DB1_01.bin.gz")
     era5_path = "/qdata2/archive/ERA5/"
-    data = process_mrms_file(mrms_file, 23)
+    data = process_mrms_file(mrms_file, "ERA5", 23)
     assert data is not None
     assert data.pixels.size == 221
     assert np.all(data["source"].data == 1)
@@ -290,7 +290,7 @@ def test_process_l1c_file_mhs():
                 "data" /
                 "1C.METOPB.MHS.XCAL2016-V.20190101-S011834-E025954.032624.V05A.HDF5")
     era5_path = "/qdata2/archive/ERA5/"
-    data = process_l1c_file(l1c_file, sensors.MHS, era5_path)
+    data = process_l1c_file(l1c_file, sensors.MHS, "ERA5", era5_path)
 
     assert np.all(data["source"].data == 2)
 
