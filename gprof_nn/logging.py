@@ -53,7 +53,7 @@ def set_log_level(level):
         level=level.upper(),
         format="%(message)s",
         datefmt="[%X]",
-        handlers=[RichHandler()]
+        handlers=[RichHandler(console=get_console())]
     )
 
 #
