@@ -23,8 +23,7 @@ def has_surface_type_maps():
     return path.exists()
 
 
-def get_surface_type_map(time,
-                         sensor="GMI"):
+def get_surface_type_map(time, sensor="GMI"):
     """
     Return dataset contining global surface types for a given
     time.
@@ -42,12 +41,13 @@ def get_surface_type_map(time,
     month = time.month
     day = time.day
 
-    filename = (f"/qdata1/pbrown/gpm/surfdat/{sensor}_surfmap_{year:02}"
-                f"{month:02}_V7.dat")
+    filename = (
+        f"/qdata1/pbrown/gpm/surfdat/{sensor}_surfmap_{year:02}" f"{month:02}_V7.dat"
+    )
 
     with open(filename, "rb") as file:
-        n_lon, = struct.unpack("i", file.read(4))
-        n_lat, = struct.unpack("i", file.read(4))
+        (n_lon,) = struct.unpack("i", file.read(4))
+        (n_lat,) = struct.unpack("i", file.read(4))
 
     N_LON = 32 * 360
     N_LAT = 32 * 180
@@ -57,8 +57,8 @@ def get_surface_type_map(time,
     lons = np.linspace(-180, 180, n_lon + 1)
     lons = 0.5 * (lons[1:] + lons[:-1])
 
-    offset = (day - 1) * (20 + n_lon* n_lat) + 20
-    count = n_lon * n_lat 
+    offset = (day - 1) * (20 + n_lon * n_lat) + 20
+    count = n_lon * n_lat
     data = np.fromfile(filename, count=count, offset=offset, dtype="u1")
     data = data.reshape((n_lat, n_lon))
     data = data[::-1]
@@ -68,10 +68,7 @@ def get_surface_type_map(time,
     arr = xr.DataArray(
         data=data,
         dims=["latitude", "longitude"],
-        coords={
-            "latitude": lats,
-            "longitude": lons
-        }
+        coords={"latitude": lats, "longitude": lons},
     )
     arr.attrs["header"] = attrs
 
@@ -79,9 +76,7 @@ def get_surface_type_map(time,
     lons = arr.longitude.data.copy()
     lons = np.where(lons < 0.0, lons + 360, lons)
     mountain = mountain_mask.interp(
-        longitude=lons,
-        latitude=arr.latitude,
-        method="nearest"
+        longitude=lons, latitude=arr.latitude, method="nearest"
     )
     mountain = mountain.data >= 1
     land = (arr.data >= 3) * (arr.data <= 7)
@@ -109,8 +104,8 @@ def get_mountain_mask():
     if _MOUNTAIN_MASK is None:
         with open(_MOUNTAIN_MASK_FILE, "rb") as file:
             file.read(4)
-            n_lon, = struct.unpack("i", file.read(4))
-            n_lat, = struct.unpack("i", file.read(4))
+            (n_lon,) = struct.unpack("i", file.read(4))
+            (n_lat,) = struct.unpack("i", file.read(4))
             file.read(8)
             data = np.fromfile(file, dtype="i", count=n_lon * n_lat)
             data = data.reshape((n_lat, n_lon))
@@ -122,18 +117,15 @@ def get_mountain_mask():
             _MOUNTAIN_MASK = xr.DataArray(
                 data=data,
                 dims=["latitude", "longitude"],
-                coords={
-                    "latitude": lats,
-                    "longitude": lons
-                })
+                coords={"latitude": lats, "longitude": lons},
+            )
     return _MOUNTAIN_MASK
 
 
-def get_surface_type_map_legacy(time,
-                                sensor="GMI"):
+def get_surface_type_map_legacy(time, sensor="GMI"):
     """
     Return dataset contining pre GPROF V6 global surface types for given
-    data. 
+    data.
 
     Intended for testing purposes.
 
@@ -150,8 +142,9 @@ def get_surface_type_map_legacy(time,
     month = time.month
     day = time.day
 
-    filename = (f"/xdata/drandel/gpm/surfdat/{sensor}_surfmap_{year:02}"
-                f"{month:02}_V3.dat")
+    filename = (
+        f"/xdata/drandel/gpm/surfdat/{sensor}_surfmap_{year:02}" f"{month:02}_V3.dat"
+    )
 
     N_LON = 16 * 360
     N_LAT = 16 * 180
@@ -169,10 +162,7 @@ def get_surface_type_map_legacy(time,
     arr = xr.DataArray(
         data=data,
         dims=["latitude", "longitude"],
-        coords={
-            "latitude": LATS,
-            "longitude": LONS
-        }
+        coords={"latitude": LATS, "longitude": LONS},
     )
     arr.attrs["header"] = attrs
     return arr

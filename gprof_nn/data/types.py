@@ -55,6 +55,7 @@ def get_preprocessor_orbit_header(n_chans):
     )
     return dtype
 
+
 def get_preprocessor_pixel_record(n_chans, kind):
     """
     Args:
@@ -102,29 +103,30 @@ def get_preprocessor_pixel_record(n_chans, kind):
         )
     return dtype
 
+
 def get_bin_file_header(n_chans, n_angles, kind):
     if kind == CONICAL:
-        dtype =  np.dtype([
+        dtype = np.dtype(
+            [
                 ("satellite_code", "a5"),
                 ("sensor", "a5"),
                 ("frequencies", f"{n_chans}f4"),
                 ("nominal_eia", f"{n_chans}f4"),
-            ])
+            ]
+        )
     else:
-        dtype = np.dtype([
+        dtype = np.dtype(
+            [
                 ("satellite_code", "a5"),
                 ("sensor", "a5"),
                 ("frequencies", "f4", (n_chans,)),
                 ("nominal_eia", "f4", (n_angles,)),
-            ])
+            ]
+        )
     return dtype
 
 
-def get_bin_file_record(n_chans,
-                        n_angles,
-                        n_layers,
-                        surface_type,
-                        kind):
+def get_bin_file_record(n_chans, n_angles, n_layers, surface_type, kind):
     """
     Create 'numpy.dtype' describing the binary format used to represent an
     observation in a CSU GPROF bin file.
@@ -141,7 +143,8 @@ def get_bin_file_record(n_chans,
         a numpy structured array.
     """
     if kind == CONICAL:
-        dtype = np.dtype([
+        dtype = np.dtype(
+            [
                 ("dataset_number", "i4"),
                 ("latitude", "f4"),
                 ("longitude", "f4"),
@@ -206,9 +209,7 @@ def get_bin_file_record(n_chans,
     return dtype
 
 
-def get_sim_file_header(n_chans,
-                        n_angles,
-                        kind):
+def get_sim_file_header(n_chans, n_angles, kind):
     """
     Create 'numpy.dtype' describing the header format of a CSU GPROF *.sim
     file.
@@ -250,10 +251,7 @@ def get_sim_file_header(n_chans,
     return dtype
 
 
-def get_sim_file_record(n_chans,
-                        n_angles,
-                        n_layers,
-                        kind):
+def get_sim_file_record(n_chans, n_angles, n_layers, kind):
     """
     Create 'numpy.dtype' describing the binary format used to represent an
     observation in a CSU GPROF *.sim file.
@@ -300,7 +298,7 @@ def get_sim_file_record(n_chans,
                 ("tbs_observed", "f4", (n_chans,)),
                 ("tbs_simulated", "f4", (n_chans,)),
                 ("d_tbs", "f4", (n_chans,)),
-                ("tbs_bias", "f4", (n_chans,))
+                ("tbs_bias", "f4", (n_chans,)),
             ]
         )
     else:

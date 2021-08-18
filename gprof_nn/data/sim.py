@@ -23,14 +23,15 @@ from rich.progress import track
 import xarray as xr
 
 from gprof_nn import sensors
-from gprof_nn.definitions import (ALL_TARGETS,
-                                  N_LAYERS,
-                                  LEVELS,
-                                  DATABASE_MONTHS,
-                                  MISSING,
-                                  PROFILE_NAMES)
-from gprof_nn.data.utils import (compressed_pixel_range,
-                                 N_PIXELS_CENTER)
+from gprof_nn.definitions import (
+    ALL_TARGETS,
+    N_LAYERS,
+    LEVELS,
+    DATABASE_MONTHS,
+    MISSING,
+    PROFILE_NAMES,
+)
+from gprof_nn.data.utils import compressed_pixel_range, N_PIXELS_CENTER
 from gprof_nn.coordinates import latlon_to_ecef
 from gprof_nn.data.preprocessor import PreprocessorFile, run_preprocessor
 from gprof_nn.data.l1c import L1CFile
@@ -65,11 +66,9 @@ class SimFile:
     """
     Interface class to read GPROF .sim files.
     """
+
     @classmethod
-    def find_files(cls,
-                   path,
-                   sensor=sensors.GMI,
-                   day=None):
+    def find_files(cls, path, sensor=sensors.GMI, day=None):
         """
         Find all files that match the standard filename pattern for GMI
         sim files.
@@ -103,17 +102,11 @@ class SimFile:
         try:
             sensor = getattr(sensors, sensor.upper())
         except AttributeError:
-            raise Exception(
-                f"The sensor {sensor} isn't currently supported."
-            )
+            raise Exception(f"The sensor {sensor} isn't currently supported.")
         self.sensor = sensor
-        self.header = np.fromfile(self.path,
-                                  self.sensor.sim_file_header,
-                                  count=1)
+        self.header = np.fromfile(self.path, self.sensor.sim_file_header, count=1)
         offset = self.sensor.sim_file_header.itemsize
-        self.data = np.fromfile(self.path,
-                                sensor.sim_file_record,
-                                offset=offset)
+        self.data = np.fromfile(self.path, sensor.sim_file_record, offset=offset)
 
     def match_targets(self, input_data, targets=None):
         """
@@ -190,7 +183,7 @@ class SimFile:
 
             input_data["simulated_brightness_temperatures"] = (
                 dims,
-                matched_full[:, i_left:i_right]
+                matched_full[:, i_left:i_right],
             )
 
         if "tbs_bias" in self.data.dtype.fields:
@@ -209,7 +202,7 @@ class SimFile:
 
             input_data["brightness_temperature_biases"] = (
                 ("scans", "pixels_center", "channels"),
-                matched_full[:, i_left:i_right]
+                matched_full[:, i_left:i_right],
             )
 
         # Extract matching data
@@ -241,8 +234,10 @@ class SimFile:
 
             if t in PROFILE_NAMES:
                 data = matched_full[:, i_left:i_right]
-                input_data[t] = (("scans", "pixels_center", "levels"),
-                                 data.astype(np.float32))
+                input_data[t] = (
+                    ("scans", "pixels_center", "levels"),
+                    data.astype(np.float32),
+                )
                 if "content" in t:
                     path = np.trapz(data, x=LEVELS, axis=-1) * 1e-3
                     path_name = t.replace("content", "path").replace("snow", "ice")
@@ -254,8 +249,10 @@ class SimFile:
                         dims = dims + ("angles",)
                     input_data[t] = (dims, matched_full.astype(np.float32))
                 else:
-                    input_data[t] = (("scans", "pixels_center"),
-                                     matched_full[:, i_left:i_right].astype(np.float32))
+                    input_data[t] = (
+                        ("scans", "pixels_center"),
+                        matched_full[:, i_left:i_right].astype(np.float32),
+                    )
 
         return input_data
 
@@ -266,18 +263,17 @@ ENHANCEMENT_FACTORS = {
         (17, 1): 2.05213,
         (17, 2): 1.62242,
         (17, 3): 1.87049,
-        (18, 0): 3.91369
+        (18, 0): 3.91369,
     },
     "GANAL": {
         (17, 0): 1.58177,
         (17, 1): 1.81539,
         (18, 0): 3.91369,
-    }
+    },
 }
 
 
-def apply_orographic_enhancement(data,
-                                 kind="ERA5"):
+def apply_orographic_enhancement(data, kind="ERA5"):
     """
     Applies orographic enhancement factors to 'surface_precip' and
     'convective_precip' targets.
@@ -292,9 +288,7 @@ def apply_orographic_enhancement(data,
     """
     kind = kind.upper()
     if kind not in ["ERA5", "GANAL"]:
-        raise ValueError(
-            "The kind argument to  must be 'ERA5' or 'GANAL'."
-        )
+        raise ValueError("The kind argument to  must be 'ERA5' or 'GANAL'.")
     surface_types = data["surface_type"].data
     airmass_types = data["airmass_type"].data
     surface_precip = data["surface_precip"].data
@@ -312,6 +306,7 @@ def apply_orographic_enhancement(data,
 
     surface_precip *= enh
     convective_precip *= enh
+
 
 ###############################################################################
 # Helper functions
@@ -339,7 +334,7 @@ def _extract_scenes(data):
         return None
 
     i_start = 0
-    i_end =  data.scans.size
+    i_end = data.scans.size
 
     scenes = []
     i = i_start
@@ -428,7 +423,7 @@ def _add_era5_precip(input_data, l1c_data, era5_data):
     n_pixels = l1c_data.pixels.size
 
     surface_types = input_data["surface_type"].data
-    indices = ((surface_types == 2) + (surface_types == 16))
+    indices = (surface_types == 2) + (surface_types == 16)
 
     lats = xr.DataArray(input_data["latitude"].data[indices], dims="samples")
     lons = input_data["longitude"].data[indices]
@@ -458,10 +453,7 @@ def _add_era5_precip(input_data, l1c_data, era5_data):
     input_data["convective_precip"].data[indices] = 1000.0 * cp
 
 
-def process_sim_file(sim_filename,
-                     configuration,
-                     era5_path,
-                     log_queue=None):
+def process_sim_file(sim_filename, configuration, era5_path, log_queue=None):
     """
     Extract 2D training scenes from sim file.
 
@@ -486,20 +478,21 @@ def process_sim_file(sim_filename,
         2D training scenes.
     """
     import gprof_nn.logging
+
     if log_queue is not None:
         gprof_nn.logging.configure_queue_logging(log_queue)
     LOGGER.info("Starting processing sim file %s.", sim_filename)
 
     # Load sim file and corresponding GMI L1C file.
     sim_file = SimFile(sim_filename)
-    l1c_file = L1CFile.open_granule(sim_file.granule,
-                                    sensors.GMI.l1c_file_path,
-                                    sensors.GMI)
+    l1c_file = L1CFile.open_granule(
+        sim_file.granule, sensors.GMI.l1c_file_path, sensors.GMI
+    )
 
     LOGGER.info("Running preprocessor for sim file %s.", sim_filename)
-    data_pp = run_preprocessor(l1c_file.filename,
-                               sensor=sensors.GMI,
-                               configuration=configuration)
+    data_pp = run_preprocessor(
+        l1c_file.filename, sensor=sensors.GMI, configuration=configuration
+    )
     if data_pp is None:
         return None
 
@@ -507,9 +500,11 @@ def process_sim_file(sim_filename,
     # and therefore renamed.
     sensor = sim_file.sensor
     if sensor != sensors.GMI:
-        data_pp = data_pp.rename({
-            "channels": "channels_gmi",
-            "brightness_temperatures": "brightness_temperatures_gmi"}
+        data_pp = data_pp.rename(
+            {
+                "channels": "channels_gmi",
+                "brightness_temperatures": "brightness_temperatures_gmi",
+            }
         )
 
     # Match targets from sim file to preprocessor data.
@@ -522,9 +517,7 @@ def process_sim_file(sim_filename,
         date = data_pp["scan_time"].data[data_pp.scans.size // 2]
         surface_types = get_surface_type_map(date, sensor=sensor.name)
         surface_types = surface_types.interp(
-            latitude=data_pp.latitude,
-            longitude=data_pp.longitude,
-            method="nearest"
+            latitude=data_pp.latitude, longitude=data_pp.longitude, method="nearest"
         )
         data_pp["surface_type"].data = surface_types.data.astype(np.int8)
 
@@ -558,15 +551,11 @@ def process_sim_file(sim_filename,
     data = _extract_scenes(data_pp)
 
     # Add source indicator.
-    data["source"] = ("samples", np.zeros(data.samples.size,
-                                          dtype=np.int8))
+    data["source"] = ("samples", np.zeros(data.samples.size, dtype=np.int8))
     return data
 
 
-def process_mrms_file(mrms_filename,
-                      configuration,
-                      day,
-                      log_queue=None):
+def process_mrms_file(mrms_filename, configuration, day, log_queue=None):
     """
     Extract training data from MRMS-GMI match up files for given day.
     Matches the observations in the MRMS file with input data from the
@@ -578,6 +567,7 @@ def process_mrms_file(mrms_filename,
         day: The day of the month for which to extract data.
     """
     import gprof_nn.logging
+
     if log_queue is not None:
         gprof_nn.logging.configure_queue_logging(log_queue)
     LOGGER.info("Processing MRMS file %s.", mrms_filename)
@@ -588,30 +578,26 @@ def process_mrms_file(mrms_filename,
     if len(indices) <= 0:
         return None
     date = mrms_file.scan_time[indices[len(indices) // 2]]
-    l1c_files = list(L1CFile.find_files(date,
-                                        sensor.l1c_file_path,
-                                        roi=CONUS,
-                                        sensor=sensor))
+    l1c_files = list(
+        L1CFile.find_files(date, sensor.l1c_file_path, roi=CONUS, sensor=sensor)
+    )
 
     scenes = []
-    LOGGER.info("Found %s L1C file for MRMS file %s.",
-                len(l1c_files),
-                mrms_filename)
+    LOGGER.info("Found %s L1C file for MRMS file %s.", len(l1c_files), mrms_filename)
     for f in l1c_files:
         # Extract scans over CONUS ans run preprocessor.
         _, f_roi = tempfile.mkstemp()
         try:
             f.extract_scans(CONUS, f_roi)
-            data_pp = run_preprocessor(f_roi,
-                                       configuration=configuration,
-                                       sensor=sensor)
+            data_pp = run_preprocessor(
+                f_roi, configuration=configuration, sensor=sensor
+            )
         finally:
             Path(f_roi).unlink()
         if data_pp is None:
             continue
 
-        LOGGER.info("Matching MRMS data for %s.",
-                    f.filename)
+        LOGGER.info("Matching MRMS data for %s.", f.filename)
         mrms_file.match_targets(data_pp)
         surface_type = data_pp["surface_type"].data
         snow = (surface_type >= 8) * (surface_type <= 11)
@@ -630,19 +616,14 @@ def process_mrms_file(mrms_filename,
 
     if scenes:
         dataset = xr.concat(scenes, "samples")
-        dataset["source"] = (("samples",),
-                             np.ones(dataset.samples.size, dtype=np.int8))
+        dataset["source"] = (("samples",), np.ones(dataset.samples.size, dtype=np.int8))
         dataset = extend_pixels(dataset)
         return dataset
 
     return None
 
 
-def process_l1c_file(l1c_filename,
-                     sensor,
-                     configuration,
-                     era5_path,
-                     log_queue=None):
+def process_l1c_file(l1c_filename, sensor, configuration, era5_path, log_queue=None):
     """
     Match L1C files with ERA5 surface and convective precipitation for
     sea-ice and sea-ice-edge surfaces.
@@ -654,13 +635,12 @@ def process_l1c_file(l1c_filename,
         era5_path: Root of the directory tree containing the ERA5 data.
     """
     import gprof_nn.logging
+
     if log_queue is not None:
         gprof_nn.logging.configure_queue_logging(log_queue)
         LOGGER.info("Starting processing l1d file %s.", l1c_filename)
     l1c_file = L1CFile(l1c_filename)
-    data_pp = run_preprocessor(l1c_filename,
-                               sensor=sensor,
-                               configuration=configuration)
+    data_pp = run_preprocessor(l1c_filename, sensor=sensor, configuration=configuration)
     if data_pp is None:
         return None
     data_pp = add_targets(data_pp, sensor)
@@ -678,10 +658,7 @@ def process_l1c_file(l1c_filename,
         data_pp[v].data[~sea_ice] = np.nan
 
     scenes = _extract_scenes(data_pp)
-    scenes["source"] = (
-        ("samples",),
-        2 * np.ones(scenes.samples.size, dtype=np.int8)
-    )
+    scenes["source"] = (("samples",), 2 * np.ones(scenes.samples.size, dtype=np.int8))
     if scenes is not None:
         scenes = extend_pixels(scenes)
     return scenes
@@ -702,9 +679,9 @@ def extend_pixels(data, n_pixels=221):
     """
     if "pixels" in data.dims and data.pixels.size == 221:
         return data
-    dimensions = {n: d for n,d in data.dims.items()}
+    dimensions = {n: d for n, d in data.dims.items()}
     dimensions["pixels"] = n_pixels
-    data_new = {n: d for n,d in data.dims.items()}
+    data_new = {n: d for n, d in data.dims.items()}
     data_new["pixels"] = np.arange(n_pixels)
 
     data_new = {}
@@ -729,8 +706,7 @@ def extend_pixels(data, n_pixels=221):
     return data_new
 
 
-def add_targets(data,
-                sensor):
+def add_targets(data, sensor):
     """
     Helper function to ensure all target variables are present in
     dataset.
@@ -743,28 +719,23 @@ def add_targets(data,
     for t in ALL_TARGETS:
         if not t in data.variables:
             if "content" in t or t == "latent_heat":
-                d = np.zeros((n_scans, N_PIXELS_CENTER, n_levels),
-                             dtype=np.float32)
+                d = np.zeros((n_scans, N_PIXELS_CENTER, n_levels), dtype=np.float32)
                 d[:] = np.nan
                 data[t] = (("scans", "pixels_center", "levels"), d)
             else:
                 if t in ["surface_precip", "convective_precip"]:
-                    d = np.zeros((n_scans, n_pixels),
-                                 dtype=np.float32)
+                    d = np.zeros((n_scans, n_pixels), dtype=np.float32)
                     d[:] = np.nan
                     data[t] = (("scans", "pixels"), d)
                 else:
-                    d = np.zeros((n_scans, N_PIXELS_CENTER),
-                                 dtype=np.float32)
+                    d = np.zeros((n_scans, N_PIXELS_CENTER), dtype=np.float32)
                     d[:] = np.nan
                     data[t] = (("scans", "pixels_center"), d)
 
     if sensor != sensors.GMI:
         d = np.zeros((n_scans, n_pixels, 15), dtype=np.float32)
         d[:] = np.nan
-        data["brightness_temperatures_gmi"] = (
-                ("scans", "pixels", "channels_gmi"), d
-        )
+        data["brightness_temperatures_gmi"] = (("scans", "pixels", "channels_gmi"), d)
     if sensor.n_angles > 1:
         n_angles = sensor.n_angles
 
@@ -772,7 +743,8 @@ def add_targets(data,
         d = np.zeros(shape, dtype=np.float32)
         d[:] = np.nan
         data["simulated_brightness_temperatures"] = (
-                ("scans", "pixels_center", "angles", "channels"), d
+            ("scans", "pixels_center", "angles", "channels"),
+            d,
         )
 
         for v in ["surface_precip", "convective_precip"]:
@@ -786,15 +758,14 @@ def add_targets(data,
         d = np.zeros(shape, dtype=np.float32)
         d[:] = np.nan
         data["simulated_brightness_temperatures"] = (
-                ("scans", "pixels_center", "channels"), d
+            ("scans", "pixels_center", "channels"),
+            d,
         )
 
     shape = (n_scans, n_pixels_center, sensor.n_chans)
     d = np.zeros(shape, dtype=np.float32)
     d[:] = np.nan
-    data["brightness_temperature_biases"] = (
-            ("scans", "pixels_center", "channels"), d
-    )
+    data["brightness_temperature_biases"] = (("scans", "pixels_center", "channels"), d)
     return data
 
 
@@ -809,11 +780,9 @@ def add_brightness_temperatures(data, sensor):
     shape = (n_samples, n_scans, n_pixels, n_channels)
     bts = np.zeros(shape, dtype=np.float32)
     bts[:] = np.nan
-    data["brightness_temperatures"] = (
-            ("samples", "scans", "pixels", "channels"),
-            bts
-    )
+    data["brightness_temperatures"] = (("samples", "scans", "pixels", "channels"), bts)
     return data
+
 
 ###############################################################################
 # File processor
@@ -869,14 +838,11 @@ class SimFileProcessor:
         of the driver.
         """
         sim_file_path = self.sensor.sim_file_path
-        sim_files = SimFile.find_files(sim_file_path,
-                                       sensor=self.sensor,
-                                       day=self.day)
+        sim_files = SimFile.find_files(sim_file_path, sensor=self.sensor, day=self.day)
         sim_files = np.random.permutation(sim_files)
 
         mrms_file_path = self.sensor.mrms_file_path
-        mrms_files = MRMSMatchFile.find_files(mrms_file_path,
-                                              sensor=self.sensor)
+        mrms_files = MRMSMatchFile.find_files(mrms_file_path, sensor=self.sensor)
         mrms_files = np.random.permutation(mrms_files)
 
         l1c_file_path = self.sensor.l1c_file_path
@@ -884,9 +850,7 @@ class SimFileProcessor:
         for year, month in DATABASE_MONTHS:
             try:
                 date = datetime(year, month, self.day)
-                l1c_files += L1CFile.find_files(date,
-                                                l1c_file_path,
-                                                sensor=self.sensor)
+                l1c_files += L1CFile.find_files(date, l1c_file_path, sensor=self.sensor)
             except ValueError:
                 pass
         l1c_files = [f.filename for f in l1c_files]
@@ -906,26 +870,38 @@ class SimFileProcessor:
         while i < max(n_sim_files, n_mrms_files, n_l1c_files):
             if i < n_sim_files:
                 sim_file = sim_files[i]
-                tasks.append(self.pool.submit(process_sim_file,
-                                              sim_file,
-                                              self.configuration,
-                                              self.era5_path,
-                                              log_queue=log_queue))
+                tasks.append(
+                    self.pool.submit(
+                        process_sim_file,
+                        sim_file,
+                        self.configuration,
+                        self.era5_path,
+                        log_queue=log_queue,
+                    )
+                )
             if i < n_mrms_files:
                 mrms_file = mrms_files[i]
-                tasks.append(self.pool.submit(process_mrms_file,
-                                              mrms_file,
-                                              self.configuration,
-                                              self.day,
-                                              log_queue=log_queue))
+                tasks.append(
+                    self.pool.submit(
+                        process_mrms_file,
+                        mrms_file,
+                        self.configuration,
+                        self.day,
+                        log_queue=log_queue,
+                    )
+                )
             if i < n_l1c_files:
                 l1c_file = l1c_files[i]
-                tasks.append(self.pool.submit(process_l1c_file,
-                                              l1c_file,
-                                              self.sensor,
-                                              self.configuration,
-                                              self.era5_path,
-                                              log_queue=log_queue))
+                tasks.append(
+                    self.pool.submit(
+                        process_l1c_file,
+                        l1c_file,
+                        self.sensor,
+                        self.configuration,
+                        self.era5_path,
+                        log_queue=log_queue,
+                    )
+                )
             i += 1
 
         n_datasets = len(tasks)
@@ -945,7 +921,8 @@ class SimFileProcessor:
                 except Exception as e:
                     LOGGER.warning(
                         "The follow error was encountered while collecting "
-                        " results: %s", e
+                        " results: %s",
+                        e,
                     )
                     console.print_exception()
                     break

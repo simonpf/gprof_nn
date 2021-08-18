@@ -28,12 +28,11 @@ class MRMSMatchFile:
         year: The year from which the observations stem.
         month: The month from which the observations stem.
     """
+
     file_pattern = "????_MRMS2{sensor}_*.bin.gz"
 
     @classmethod
-    def find_files(cls,
-                   path,
-                   sensor=sensors.GMI):
+    def find_files(cls, path, sensor=sensors.GMI):
         """
         Generator providing access to all files that match the naming scheme
         for GMI-MRMS match file in a give folder.
@@ -48,9 +47,7 @@ class MRMSMatchFile:
         path = Path(path)
         return list(path.glob(cls.file_pattern.format(sensor=sensor.name)))
 
-    def __init__(self,
-                 filename,
-                 sensor=None):
+    def __init__(self, filename, sensor=None):
         """
         Reads gzipped matchup file.
 
@@ -148,12 +145,9 @@ class MRMSMatchFile:
         if indices.sum() <= 0:
             surface_precip = np.zeros((n_scans, n_pixels))
             surface_precip[:] = np.nan
-            input_data["surface_precip"] = (("scans", "pixels"),
-                                            surface_precip)
+            input_data["surface_precip"] = (("scans", "pixels"), surface_precip)
 
-
-            input_data["convective_precip"] = (("scans", "pixels"),
-                                               surface_precip)
+            input_data["convective_precip"] = (("scans", "pixels"), surface_precip)
             return input_data
 
         lats_1c = input_data["latitude"].data.reshape(-1, 1)
@@ -176,11 +170,9 @@ class MRMSMatchFile:
         mrms_ratios = get_mrms_ratios()
         ratios = mrms_ratios.interp(
             latitude=xr.DataArray(lats.ravel(), dims="samples"),
-            longitude=xr.DataArray(lons.ravel(), dims="samples")
+            longitude=xr.DataArray(lons.ravel(), dims="samples"),
         )
-        corrected = (data["surface_precip"] -
-                     data["snow"] +
-                     data["snow"] * ratios)
+        corrected = data["surface_precip"] - data["snow"] + data["snow"] * ratios
         corrected[ratios == 1.0] = np.nan
 
         matched[indices] = corrected
@@ -197,15 +189,19 @@ class MRMSMatchFile:
 
         return input_data
 
+
 ################################################################################
 # MRMS / snodas correction factors
 ################################################################################
 
-_RATIO_FILE = ("/qdata1/pbrown/dbaseV7/mrms_snow_scale_factors/"
-              "201710-201805_10km_snodas_mrms_ratio_scale.asc."
-              "bin")
+_RATIO_FILE = (
+    "/qdata1/pbrown/dbaseV7/mrms_snow_scale_factors/"
+    "201710-201805_10km_snodas_mrms_ratio_scale.asc."
+    "bin"
+)
 
 _MRMS_RATIOS = None
+
 
 def has_snowdas_ratios():
     """
@@ -213,6 +209,7 @@ def has_snowdas_ratios():
     present on system.
     """
     return Path(_RATIO_FILE).exists()
+
 
 def get_mrms_ratios():
     """
@@ -238,19 +235,15 @@ def get_mrms_ratios():
             lats = lat_ll + d_lat * np.arange(n_lat)
 
             offset = 2 * 2 + 4 * 8 + 4
-            array = np.frombuffer(buffer,
-                                  dtype="f4",
-                                  offset=offset,
-                                  count=n_lon * n_lat)
+            array = np.frombuffer(
+                buffer, dtype="f4", offset=offset, count=n_lon * n_lat
+            )
             ratios = array.reshape((n_lat, n_lon)).copy()
             ratios[ratios < 0] = np.nan
 
             _MRMS_RATIOS = xr.DataArray(
                 data=ratios,
                 dims=["latitude", "longitude"],
-                coords={
-                    "latitude": lats,
-                    "longitude": lons
-                }
+                coords={"latitude": lats, "longitude": lons},
             ).fillna(1.0)
     return _MRMS_RATIOS

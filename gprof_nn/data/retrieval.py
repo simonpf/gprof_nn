@@ -178,7 +178,7 @@ DATA_RECORD_TYPES_SENSITIVITY = np.dtype(
         ("precip_3rd_tercile", "f4"),
         ("profile_t2m_index", "i2"),
         ("profile_index", f"{N_SPECIES}i2"),
-        ("profile_scale", f"{N_SPECIES}f4")
+        ("profile_scale", f"{N_SPECIES}f4"),
     ]
 )
 
@@ -188,10 +188,7 @@ class RetrievalFile:
     Class to read binary retrieval results from the GPROF 7 algorithm.
     """
 
-    def __init__(self,
-                 filename,
-                 has_sensitivity=False,
-                 has_profiles=False):
+    def __init__(self, filename, has_sensitivity=False, has_profiles=False):
         """
         Read retrieval results.
 
@@ -217,13 +214,10 @@ class RetrievalFile:
         else:
             with open(filename, "rb") as file:
                 self.data = file.read()
-        self.orbit_header = np.frombuffer(self.data,
-                                          ORBIT_HEADER_TYPES,
-                                          count=1)
-        self.profile_info = np.frombuffer(self.data,
-                                          PROFILE_INFO_TYPES,
-                                          count=1,
-                                          offset=ORBIT_HEADER_TYPES.itemsize)
+        self.orbit_header = np.frombuffer(self.data, ORBIT_HEADER_TYPES, count=1)
+        self.profile_info = np.frombuffer(
+            self.data, PROFILE_INFO_TYPES, count=1, offset=ORBIT_HEADER_TYPES.itemsize
+        )
         self.n_scans = self.orbit_header["number_of_scans"][0]
         self.n_pixels = self.orbit_header["number_of_pixels"][0]
 
@@ -314,7 +308,7 @@ class RetrievalFile:
                 "rain_water_content",
                 "cloud_water_content",
                 "snow_water_content",
-                "latent_heat"
+                "latent_heat",
             ]
             dataset = {}
             dims = ("scans", "pixels", "levels")
@@ -330,7 +324,7 @@ class RetrievalFile:
             temperature_indices = data["profile_t2m_index"]
             factors = data["profile_scale"]
 
-            invalid = (profile_indices <= 0)
+            invalid = profile_indices <= 0
             profile_indices[invalid] = 1
             profile_indices = np.clip(profile_indices, 1, 12)
             temperature_indices = np.clip(temperature_indices, 1, 12)
@@ -359,7 +353,7 @@ class RetrievalFile:
                 "rain_water_content": (("scans", "pixels", "levels"), rwc),
                 "cloud_water_content": (("scans", "pixels", "levels"), cwc),
                 "snow_water_content": (("scans", "pixels", "levels"), swc),
-                "latent_heat": (("scans", "pixels", "levels"), lh)
+                "latent_heat": (("scans", "pixels", "levels"), lh),
             }
         else:
             dataset = {}
@@ -370,5 +364,3 @@ class RetrievalFile:
                 dataset[k] = (dims[: len(d.shape)], d)
 
         return xarray.Dataset(dataset)
-
-

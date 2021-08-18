@@ -71,9 +71,7 @@ class BinFile:
         elif len(parts) == 5:
             self.airmass_type = int(parts[-2])
         else:
-            raise Exception(
-                f"Filename {filename} does not match expected format!"
-            )
+            raise Exception(f"Filename {filename} does not match expected format!")
 
         # Read the header
         header = np.fromfile(self.filename, GENERIC_HEADER, count=1)
@@ -82,13 +80,11 @@ class BinFile:
             self.sensor = getattr(sensors, sensor)
         except AttributeError:
             raise Exception(f"The sensor '{sensor}' is not yet supported.")
-        self.header = np.fromfile(self.filename,
-                                  self.sensor.bin_file_header,
-                                  count=1)
+        self.header = np.fromfile(self.filename, self.sensor.bin_file_header, count=1)
         self.handle = np.fromfile(
             self.filename,
             self.sensor.get_bin_file_record(self.surface_type),
-            offset=self.sensor.bin_file_header.itemsize
+            offset=self.sensor.bin_file_header.itemsize,
         )
         self.n_profiles = self.handle.shape[0]
 
@@ -110,7 +106,7 @@ class BinFile:
         attributes = {
             "frequencies": self.header["frequencies"][0],
             "nominal_eia": self.header["nominal_eia"][0],
-            "sensor": self.sensor.name
+            "sensor": self.sensor.name,
         }
         return attributes
 
@@ -153,14 +149,16 @@ class BinFile:
         for k, t, *shape in record_type.descr:
             if k == "scan_time":
                 data = self.handle[k]
-                date = pd.DataFrame({
-                    "year": data[:, 0],
-                    "month": data[:, 1],
-                    "day": data[:, 2],
-                    "hour": data[:, 3],
-                    "minute": data[:, 4],
-                    "second": data[:, 5],
-                })
+                date = pd.DataFrame(
+                    {
+                        "year": data[:, 0],
+                        "month": data[:, 1],
+                        "day": data[:, 2],
+                        "hour": data[:, 3],
+                        "minute": data[:, 4],
+                        "second": data[:, 5],
+                    }
+                )
                 results[k] = (("samples",), pd.to_datetime(date))
             else:
                 dims = ("samples",)
@@ -218,10 +216,7 @@ GPM_FILE_REGEXP = re.compile(r"gpm_(\d\d\d)_(\d\d)(_(\d\d))?_(\d\d).bin")
 
 
 def process_input(input_filename, start=1.0, end=1.0, include_profiles=False):
-    data = load_data(input_filename,
-                     start,
-                     end,
-                     include_profiles=include_profiles)
+    data = load_data(input_filename, start, end, include_profiles=include_profiles)
     return data
 
 

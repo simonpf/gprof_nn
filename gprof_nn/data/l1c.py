@@ -31,12 +31,9 @@ class L1CFile:
     """
     Interface class to GPROF L1C-R files in HDF5 format.
     """
+
     @classmethod
-    def open_granule(cls,
-                     granule,
-                     path,
-                     sensor,
-                     date=None):
+    def open_granule(cls, granule, path, sensor, date=None):
         """
         Find and open L1C file with a given granule number.
 
@@ -57,12 +54,8 @@ class L1CFile:
             year = date.year - 2000
             month = date.month
             day = date.day
-            path = (Path(path) /
-                    f"{year:02}{month:02}" /
-                    f"{year:02}{month:02}{day:02}")
-            files = path.glob(
-                sensor.l1c_file_prefix + f"*{granule:06}.V05A.HDF5"
-            )
+            path = Path(path) / f"{year:02}{month:02}" / f"{year:02}{month:02}{day:02}"
+            files = path.glob(sensor.l1c_file_prefix + f"*{granule:06}.V05A.HDF5")
         else:
             path = Path(path)
             files = path.glob(
@@ -75,15 +68,10 @@ class L1CFile:
         except StopIteration:
             if date is not None:
                 return cls.open_granule(granule, path, None)
-            raise Exception(
-                f"Could not find a L1C file with granule number {granule}."
-            )
+            raise Exception(f"Could not find a L1C file with granule number {granule}.")
 
     @classmethod
-    def find_file(cls,
-                  date,
-                  path,
-                  sensor=sensors.GMI):
+    def find_file(cls, date, path, sensor=sensors.GMI):
         """
         Find L1C files for given time.
 
@@ -138,14 +126,10 @@ class L1CFile:
         date = date.to_datetime64()
 
         if len(start_times) == 0 or len(end_times) == 0:
-            raise ValueError(
-                "No file found for the requested date."
-            )
+            raise ValueError("No file found for the requested date.")
         inds = np.where((start_times <= date) * (end_times >= date))[0]
         if len(inds) == 0:
-            raise ValueError(
-                "No file found for the requested date."
-            )
+            raise ValueError("No file found for the requested date.")
         filename = files[inds[0]]
 
         return L1CFile(filename)
@@ -178,14 +162,14 @@ class L1CFile:
         data_path = Path(path) / f"{year:02}{month:02}" / f"{year:02}{month:02}{day:02}"
         files = list(
             data_path.glob(
-                sensor.l1c_file_prefix +
-                f"*{date.year:04}{month:02}{day:02}*.V05A.HDF5"
+                sensor.l1c_file_prefix + f"*{date.year:04}{month:02}{day:02}*.V05A.HDF5"
             )
         )
-        files += list(path.glob(
-            sensor.l1c_file_prefix +
-            f"*{date.year:04}{month:02}{day:02}*.V05A.HDF5"
-        ))
+        files += list(
+            path.glob(
+                sensor.l1c_file_prefix + f"*{date.year:04}{month:02}{day:02}*.V05A.HDF5"
+            )
+        )
         for f in files:
             f = L1CFile(f)
             if roi is not None:
@@ -193,7 +177,6 @@ class L1CFile:
                     yield f
             else:
                 yield f
-
 
     def __init__(self, path):
         """
@@ -317,7 +300,7 @@ class L1CFile:
                             g_st.create_dataset(
                                 name, shape=(n_scans,) + shape[1:], data=item[indices]
                             )
-    
+
                     g_sc = g.create_group("SCstatus")
                     for name, item in input["S2/SCstatus"].items():
                         if isinstance(item, h5py.Dataset):
@@ -535,13 +518,13 @@ class L1CFile:
             if "incidenceAngle" in input["S1"].keys():
                 data["incidence_angle"] = (
                     dims,
-                    input["S1/incidenceAngle"][indices, :, 0]
+                    input["S1/incidenceAngle"][indices, :, 0],
                 )
 
             if "SCorientation" in input["S1/SCstatus"]:
                 data["sensor_orientation"] = (
                     ("scans",),
-                    input["S1/SCstatus/SCorientation"][indices]
+                    input["S1/SCstatus/SCorientation"][indices],
                 )
 
         return xr.Dataset(data)
@@ -577,8 +560,8 @@ def extract_scenes(data):
         return xr.concat(scenes, "samples")
     return None
 
-def process_l1c_file(l1c_filename,
-                     sensor):
+
+def process_l1c_file(l1c_filename, sensor):
     """
     Run preprocessor for L1C file and extract resulting data.
 
@@ -588,6 +571,7 @@ def process_l1c_file(l1c_filename,
             the data originates.
     """
     import gprof_nn.logging
+
     data_pp = run_preprocessor(l1c_filename, sensor=sensor)
     return extract_scenes(data_pp)
 
@@ -596,6 +580,7 @@ class ObservationProcessor:
     """
     Processor class to extract observations from L1C files.
     """
+
     def __init__(
         self,
         output_file,
@@ -638,9 +623,7 @@ class ObservationProcessor:
         for year, month in DATABASE_MONTHS:
             try:
                 date = datetime(year, month, self.day)
-                l1c_files += L1CFile.find_files(date,
-                                                l1c_file_path,
-                                                sensor=self.sensor)
+                l1c_files += L1CFile.find_files(date, l1c_file_path, sensor=self.sensor)
             except ValueError:
                 pass
         l1c_files = [f.filename for f in l1c_files]
@@ -653,9 +636,7 @@ class ObservationProcessor:
         # Submit tasks interleaving .sim and MRMS files.
         tasks = []
         for l1c_file in l1c_files:
-            tasks.append(self.pool.submit(process_l1c_file,
-                                          l1c_file,
-                                          self.sensor))
+            tasks.append(self.pool.submit(process_l1c_file, l1c_file, self.sensor))
             i += 1
 
         n_datasets = len(tasks)
@@ -670,8 +651,8 @@ class ObservationProcessor:
                 dataset = t.result()
             except Exception as e:
                 LOGGER.warning(
-                    "The follow error was encountered while collecting "
-                    " results: %s", e
+                    "The follow error was encountered while collecting " " results: %s",
+                    e,
                 )
                 console.print_exception()
                 dataset = None

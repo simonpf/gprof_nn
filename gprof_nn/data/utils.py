@@ -149,4 +149,3 @@ def remap_scene(scene, coords, targets):
         else:
             data[v] = (scene[v].dims, scene[v].data)
     return xr.Dataset(data)
-

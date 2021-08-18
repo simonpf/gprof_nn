@@ -21,16 +21,16 @@ from quantnn.normalizer import MinMaxNormalizer
 
 from gprof_nn import sensors
 from gprof_nn.utils import apply_limits
-from gprof_nn.data.utils import (load_variable,
-                                 decompress_scene,
-                                 remap_scene)
+from gprof_nn.data.utils import load_variable, decompress_scene, remap_scene
 from gprof_nn.definitions import MASKED_OUTPUT, LIMITS
 from gprof_nn.data.utils import expand_pixels
 from gprof_nn.data.preprocessor import PreprocessorFile
-from gprof_nn.augmentation import (extract_domain,
-                                   get_transformation_coordinates,
-                                   GMI_GEOMETRY,
-                                   MHS_GEOMETRY)
+from gprof_nn.augmentation import (
+    extract_domain,
+    get_transformation_coordinates,
+    GMI_GEOMETRY,
+    MHS_GEOMETRY,
+)
 
 LOGGER = logging.getLogger(__name__)
 _DEVICE = torch.device("cpu")
@@ -119,7 +119,7 @@ def write_preprocessor_file(input_data, output_file, template=None):
             da = data[k]
             new_shape = (n_scans_r, n_pixels_r) + da.shape[(2 + dim_offset) :]
             new_shape = new_shape[: len(da.data.shape) - dim_offset]
-            dims = ("scans", "pixels") + da.dims[2 + dim_offset:]
+            dims = ("scans", "pixels") + da.dims[2 + dim_offset :]
             if "pixels_center" in dims:
                 continue
             n_elems = np.prod(new_shape)
@@ -136,10 +136,7 @@ def write_preprocessor_file(input_data, output_file, template=None):
 
     sensor = getattr(sensors, data.attrs["sensor"])
     new_data = xr.Dataset(new_dataset)
-    PreprocessorFile.write(output_file,
-                           new_data,
-                           sensor,
-                           template=template)
+    PreprocessorFile.write(output_file, new_data, sensor, template=template)
 
 
 ###############################################################################
@@ -289,20 +286,15 @@ class GPROF_NN_0D_Dataset(Dataset0DBase):
 
         with xr.open_dataset(self.filename) as dataset:
             if "sensor" not in dataset.attrs:
-                raise Exception(
-                    f"Provided dataset lacks 'sensor' attribute."
-                )
+                raise Exception(f"Provided dataset lacks 'sensor' attribute.")
             sensor_name = dataset.attrs["sensor"]
             sensor = getattr(sensors, sensor_name, None)
             if sensor is None:
-                raise Exception(
-                    f"Sensor {sensor_name} isn't supported yet"
-                )
+                raise Exception(f"Sensor {sensor_name} isn't supported yet")
         self.sensor = sensor
 
         x, y = self.sensor.load_training_data_0d(
-            filename, self.targets, self.augment, self._rng,
-            equalizer=equalizer
+            filename, self.targets, self.augment, self._rng, equalizer=equalizer
         )
         self.x = x
         self.y = y
@@ -370,8 +362,7 @@ class GPROF_NN_0D_Dataset(Dataset0DBase):
         Loads the data from the file into the ``x`` and ``y`` attributes.
         """
 
-    def to_xarray_dataset(self,
-                          mask=None):
+    def to_xarray_dataset(self, mask=None):
         """
         Convert training data to xarray dataset.
 
@@ -393,7 +384,7 @@ class GPROF_NN_0D_Dataset(Dataset0DBase):
         n_samples = x.shape[0]
         n_levels = 28
 
-        tbs = x[:, :sensor.n_chans]
+        tbs = x[:, : sensor.n_chans]
         if sensor.n_angles > 1:
             eia = x[:, self.n_chans]
         else:
@@ -427,7 +418,6 @@ class GPROF_NN_0D_Dataset(Dataset0DBase):
         with xr.open_dataset(self.filename) as dataset:
             new_dataset.attrs = dataset.attrs
         return new_dataset
-
 
     def save(self, filename):
         """
@@ -558,6 +548,7 @@ class GPROF_NN_2D_Dataset:
     Objects of this class act as an iterator over batches in the training
     data set.
     """
+
     def __init__(
         self,
         filename,
@@ -602,8 +593,7 @@ class GPROF_NN_2D_Dataset:
 
         sensor = xr.open_dataset(filename).attrs["sensor"]
         sensor = getattr(sensors, sensor)
-        x, y = sensor.load_training_data_2d(filename, self.targets,
-                                            augment, self._rng)
+        x, y = sensor.load_training_data_2d(filename, self.targets, augment, self._rng)
         self.sensor = sensor
 
         indices_1h = list(range(17, 39))
@@ -713,8 +703,7 @@ class GPROF_NN_2D_Dataset:
         else:
             return self.x.shape[0]
 
-    def to_xarray_dataset(self,
-                          mask=None):
+    def to_xarray_dataset(self, mask=None):
         """
         Convert training data to xarray dataset.
 
@@ -736,7 +725,7 @@ class GPROF_NN_2D_Dataset:
         n_samples = x.shape[0]
         n_levels = 28
 
-        tbs = np.transpose(x[:, :sensor.n_chans], (0, 2, 3, 1))
+        tbs = np.transpose(x[:, : sensor.n_chans], (0, 2, 3, 1))
         if sensor.n_angles > 1:
             eia = x[:, self.n_chans]
         else:
@@ -777,7 +766,6 @@ class GPROF_NN_2D_Dataset:
             new_dataset.attrs = dataset.attrs
         return new_dataset
 
-
     def save(self, filename):
         """
         Store dataset as NetCDF file.
@@ -794,6 +782,7 @@ class SimulatorDataset(GPROF_NN_2D_Dataset):
     Dataset to train a simulator network to predict simulated brightness
     temperatures and brightness temperature biases.
     """
+
     def __init__(
         self,
         filename,
@@ -814,8 +803,7 @@ class SimulatorDataset(GPROF_NN_2D_Dataset):
                 and to randomly permute ancillary data.
         """
         self.filename = Path(filename)
-        targets = ["simulated_brightness_temperatures",
-                   "brightness_temperature_biases"]
+        targets = ["simulated_brightness_temperatures", "brightness_temperature_biases"]
         self.transform_zeros = False
         self.batch_size = batch_size
         self.shuffle = shuffle
@@ -826,8 +814,7 @@ class SimulatorDataset(GPROF_NN_2D_Dataset):
 
         dataset = xr.open_dataset(filename)
         dataset = dataset[{"samples": dataset.source == 0}]
-        x, y = self.load_training_data_2d(dataset, targets,
-                                          augment, self._rng)
+        x, y = self.load_training_data_2d(dataset, targets, augment, self._rng)
         indices_1h = list(range(17, 39))
         if normalizer is None:
             self.normalizer = MinMaxNormalizer(x, exclude_indices=indices_1h)
@@ -853,11 +840,7 @@ class SimulatorDataset(GPROF_NN_2D_Dataset):
         if self.shuffle:
             self._shuffle()
 
-    def load_training_data_2d(self,
-                              dataset,
-                              targets,
-                              augment,
-                              rng):
+    def load_training_data_2d(self, dataset, targets, augment, rng):
         """
         Load data for training a simulator data.
 

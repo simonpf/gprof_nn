@@ -34,9 +34,8 @@ class ProfileClusters:
     """
     Interface to read profile cluster databases.
     """
-    def __init__(self,
-                 ancillary_data_path,
-                 raining):
+
+    def __init__(self, ancillary_data_path, raining):
         """
         Args:
             ancillary_data_path: Path pointing towards the folder containing
@@ -53,9 +52,7 @@ class ProfileClusters:
             shape = (N_TEMPS, 1, N_CLUSTERS, N_LAYERS)
         self.data = np.fromfile(filename, dtype=np.float32).reshape(shape)
 
-    def get_profiles(self,
-                     species,
-                     t2m):
+    def get_profiles(self, species, t2m):
         """
         Return array of profiles for given species and two-meter temperature.
 
@@ -146,10 +143,7 @@ class ProfileClusters:
             t2m_indices = np.clip(int((t2m - 268.0) / 3), 1, 12) - 1
         return t2m_indices
 
-    def get_scales_and_indices(self,
-                               species,
-                               t2m,
-                               profiles):
+    def get_scales_and_indices(self, species, t2m, profiles):
         """
         Matches profiles to corresponding profile shapes and scaling factors.
 
@@ -167,8 +161,10 @@ class ProfileClusters:
         """
         output_shape = profiles.shape[:-1]
         if not self.raining and species != "cloud_water_content":
-            return (np.zeros(output_shape, dtype=np.float32),
-                    np.zeros(output_shape, dtype=np.int32))
+            return (
+                np.zeros(output_shape, dtype=np.float32),
+                np.zeros(output_shape, dtype=np.int32),
+            )
 
         # Centers have shape (..., 40, 28) with layers along last dimension.
         centers = self.get_profiles(species, t2m)
@@ -177,12 +173,6 @@ class ProfileClusters:
         profiles = profiles / scales[..., np.newaxis]
 
         # Insert dummy dimension to trigger broadcasting across profile centers.
-        mse = np.mean(
-            (profiles[..., np.newaxis, :] - centers) ** 2,
-            axis=-1
-        )
+        mse = np.mean((profiles[..., np.newaxis, :] - centers) ** 2, axis=-1)
         indices = np.argmin(mse, axis=-1)
         return scales, indices
-
-
-
