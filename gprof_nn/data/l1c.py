@@ -20,7 +20,7 @@ import xarray as xr
 from gprof_nn import sensors
 from gprof_nn.data.preprocessor import PreprocessorFile, run_preprocessor
 from gprof_nn.definitions import DATABASE_MONTHS
-from gprof_nn.logging import console
+from gprof_nn.logging import get_console
 
 _RE_META_INFO = re.compile(r"NumberScansGranule=(\d*);")
 
@@ -654,7 +654,7 @@ class ObservationProcessor:
                     "The follow error was encountered while collecting " " results: %s",
                     e,
                 )
-                console.print_exception()
+                get_console().print_exception()
                 dataset = None
 
             if dataset is not None:

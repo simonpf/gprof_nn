@@ -19,7 +19,7 @@ import tempfile
 import numpy as np
 import pandas as pd
 from pykdtree.kdtree import KDTree
-from rich.progress import track
+from rich.progress import Progress
 import xarray as xr
 
 import gprof_nn
@@ -31,12 +31,13 @@ from gprof_nn.definitions import (
     PROFILE_NAMES,
 )
 
-from gprof_nn.data.utils import compressed_pixel_range, N_PIXELS_CENTER
 from gprof_nn.coordinates import latlon_to_ecef
-from gprof_nn.data.preprocessor import PreprocessorFile, run_preprocessor
 from gprof_nn.data.l1c import L1CFile
 from gprof_nn.data.mrms import MRMSMatchFile
+from gprof_nn.data.preprocessor import run_preprocessor
 from gprof_nn.data.surface import get_surface_type_map
+from gprof_nn.data.utils import compressed_pixel_range, N_PIXELS_CENTER
+from gprof_nn.logging import get_console
 from gprof_nn.utils import CONUS
 
 
@@ -122,18 +123,18 @@ class SimFile:
         if targets is None:
             targets = ALL_TARGETS
         path_variables = [t for t in targets if "path" in t]
-        for v in path_variables:
-            profile_variable = v.replace("path", "content").replace("ice", "snow")
+        for var in path_variables:
+            profile_variable = var.replace("path", "content").replace("ice", "snow")
             if profile_variable not in targets:
                 targets.append(profile_variable)
         targets = [t for t in targets if "path" not in t]
 
         n_scans = input_data.scans.size
         n_pixels = 221
-        dx = 40
+        w_c = 40
         i_c = 110
-        ix_start = i_c - dx // 2
-        ix_end = i_c + 1 + dx // 2
+        ix_start = i_c - w_c // 2
+        ix_end = i_c + 1 + w_c // 2
         i_left, i_right = compressed_pixel_range()
 
         lats_1c = input_data["latitude"][:, ix_start:ix_end].data.reshape(-1, 1)
@@ -157,14 +158,14 @@ class SimFile:
 
         if "tbs_simulated" in self.data.dtype.fields:
             if n_angles > 0:
-                shape = (n_scans, dx + 1, n_angles, n_chans)
+                shape = (n_scans, w_c + 1, n_angles, n_chans)
                 full_shape = (n_scans, n_pixels, n_angles, n_chans)
-                matched = np.zeros((n_scans * (dx + 1), n_angles, n_chans))
+                matched = np.zeros((n_scans * (w_c + 1), n_angles, n_chans))
                 dims = ("scans", "pixels_center", "angles", "channels")
             else:
-                shape = (n_scans, dx + 1, n_chans)
+                shape = (n_scans, w_c + 1, n_chans)
                 full_shape = (n_scans, n_pixels, n_chans)
-                matched = np.zeros((n_scans * (dx + 1), n_chans))
+                matched = np.zeros((n_scans * (w_c + 1), n_chans))
                 dims = ("scans", "pixels_center", "channels")
             matched[:] = np.nan
             assert np.all(indices[dists < 10e3] < matched.shape[0])
@@ -184,9 +185,9 @@ class SimFile:
             )
 
         if "tbs_bias" in self.data.dtype.fields:
-            shape = (n_scans, dx + 1, n_chans)
+            shape = (n_scans, w_c + 1, n_chans)
             full_shape = (n_scans, n_pixels, n_chans)
-            matched = np.zeros((n_scans * (dx + 1), n_chans))
+            matched = np.zeros((n_scans * (w_c + 1), n_chans))
 
             matched[:] = np.nan
             matched[indices, ...] = self.data["tbs_bias"]
@@ -203,25 +204,25 @@ class SimFile:
             )
 
         # Extract matching data
-        for t in targets:
-            if t in PROFILE_NAMES:
-                n = n_scans * (dx + 1)
-                shape = (n_scans, dx + 1, 28)
+        for target in targets:
+            if target in PROFILE_NAMES:
+                n = n_scans * (w_c + 1)
+                shape = (n_scans, w_c + 1, 28)
                 full_shape = (n_scans, n_pixels, 28)
                 matched = np.zeros((n, 28), dtype=np.float32)
             else:
-                n = n_scans * (dx + 1)
+                n = n_scans * (w_c + 1)
                 if n_angles > 0:
-                    shape = (n_scans, dx + 1, n_angles)
+                    shape = (n_scans, w_c + 1, n_angles)
                     full_shape = (n_scans, n_pixels, n_angles)
                     matched = np.zeros((n, n_angles), dtype=np.float32)
                 else:
-                    shape = (n_scans, dx + 1)
+                    shape = (n_scans, w_c + 1)
                     full_shape = (n_scans, n_pixels)
                     matched = np.zeros(n, dtype=np.float32)
 
             matched[:] = np.nan
-            matched[indices, ...] = self.data[t]
+            matched[indices, ...] = self.data[target]
             matched[indices, ...][dists > 5e3] = np.nan
             matched = matched.reshape(shape)
 
@@ -229,24 +230,24 @@ class SimFile:
             matched_full[:] = np.nan
             matched_full[:, ix_start:ix_end] = matched
 
-            if t in PROFILE_NAMES:
+            if target in PROFILE_NAMES:
                 data = matched_full[:, i_left:i_right]
-                input_data[t] = (
+                input_data[target] = (
                     ("scans", "pixels_center", "levels"),
                     data.astype(np.float32),
                 )
-                if "content" in t:
+                if "content" in target:
                     path = np.trapz(data, x=LEVELS, axis=-1) * 1e-3
-                    path_name = t.replace("content", "path").replace("snow", "ice")
+                    path_name = target.replace("content", "path").replace("snow", "ice")
                     input_data[path_name] = (("scans", "pixels_center"), path)
             else:
-                if t in ["surface_precip", "convective_precip"]:
+                if target in ["surface_precip", "convective_precip"]:
                     dims = ("scans", "pixels")
                     if n_angles > 0:
                         dims = dims + ("angles",)
-                    input_data[t] = (dims, matched_full.astype(np.float32))
+                    input_data[target] = (dims, matched_full.astype(np.float32))
                 else:
-                    input_data[t] = (
+                    input_data[target] = (
                         ("scans", "pixels_center"),
                         matched_full[:, i_left:i_right].astype(np.float32),
                     )
@@ -293,12 +294,12 @@ def apply_orographic_enhancement(data, kind="ERA5"):
 
     enh = np.ones(surface_precip.shape, dtype=np.float32)
     factors = ENHANCEMENT_FACTORS[kind]
-    for st in [17, 18]:
-        for at in range(4):
-            key = (st, at)
-            if not key in factors:
+    for t_s in [17, 18]:
+        for t_a in range(4):
+            key = (t_s, t_a)
+            if key not in factors:
                 continue
-            indices = (surface_types == st) * (airmass_types == at)
+            indices = (surface_types == t_s) * (airmass_types == t_a)
             enh[indices] = factors[key]
 
     surface_precip *= enh
@@ -325,20 +326,19 @@ def _extract_scenes(data):
         and corresponding surface precipitation.
     """
     n = 221
-    sp = data["surface_precip"].data
+    surface_precip = data["surface_precip"].data
 
-    if np.all(np.isnan(sp)):
+    if np.all(np.isnan(surface_precip)):
         return None
 
     i_start = 0
     i_end = data.scans.size
 
     scenes = []
-    i = i_start
     while i_start + n < i_end:
         subscene = data[{"scans": slice(i_start, i_start + n)}]
-        sp = subscene["surface_precip"].data
-        if np.isfinite(sp).sum() > 100:
+        surface_precip = subscene["surface_precip"].data
+        if np.isfinite(surface_precip).sum() > 100:
             scenes.append(subscene)
             i_start += n
         else:
@@ -413,9 +413,9 @@ def _add_era5_precip(input_data, l1c_data, era5_data):
         era5_data: The era5 data covering the time range of observations
             in l1c_data.
     """
-    l0 = era5_data[{"longitude": slice(0, 1)}].copy(deep=True)
-    l0 = l0.assign_coords({"longitude": [360.0]})
-    era5_data = xr.concat([era5_data, l0], "longitude")
+    l_0 = era5_data[{"longitude": slice(0, 1)}].copy(deep=True)
+    l_0 = l_0.assign_coords({"longitude": [360.0]})
+    era5_data = xr.concat([era5_data, l_0], "longitude")
     n_scans = l1c_data.scans.size
     n_pixels = l1c_data.pixels.size
 
@@ -431,23 +431,23 @@ def _add_era5_precip(input_data, l1c_data, era5_data):
     )[indices]
     time = xr.DataArray(time, dims="samples")
     # Interpolate and convert to mm/h
-    tp = era5_data["tp"].interp(
+    total_precip = era5_data["tp"].interp(
         {"latitude": lats, "longitude": lons, "time": time}, method="nearest"
     )
     if len(input_data.surface_precip.dims) > 2:
-        tp = tp.data[..., np.newaxis]
+        total_precip = total_precip.data[..., np.newaxis]
     else:
-        tp = tp.data
-    input_data["surface_precip"].data[indices] = 1000.0 * tp
+        total_precip = total_precip.data
+    input_data["surface_precip"].data[indices] = 1000.0 * total_precip
 
-    cp = era5_data["cp"].interp(
+    convective_precip = era5_data["cp"].interp(
         {"latitude": lats, "longitude": lons, "time": time}, method="nearest"
     )
     if len(input_data.surface_precip.dims) > 2:
-        cp = cp.data[..., np.newaxis]
+        convective_precip = convective_precip.data[..., np.newaxis]
     else:
-        cp = cp.data
-    input_data["convective_precip"].data[indices] = 1000.0 * cp
+        convective_precip = convective_precip.data
+    input_data["convective_precip"].data[indices] = 1000.0 * convective_precip
 
 
 def process_sim_file(sim_filename, configuration, era5_path, log_queue=None):
@@ -525,9 +525,9 @@ def process_sim_file(sim_filename, configuration, era5_path, log_queue=None):
     # since these are handled separately.
     surface_type = data_pp.variables["surface_type"].data
     snow = (surface_type >= 8) * (surface_type <= 11)
-    for v in data_pp.variables:
-        if v in ["surface_precip", "convective_precip"]:
-            data_pp[v].data[snow] = np.nan
+    for var in data_pp.variables:
+        if var in ["surface_precip", "convective_precip"]:
+            data_pp[var].data[snow] = np.nan
 
     # If we are dealing with GMI add precip from ERA5.
     if sensor == sensors.GMI:
@@ -541,8 +541,8 @@ def process_sim_file(sim_filename, configuration, era5_path, log_queue=None):
     # Else set to missing.
     else:
         sea_ice = (surface_type == 2) + (surface_type == 16)
-        for v in ["surface_precip", "convective_precip"]:
-            data_pp[v].data[sea_ice] = np.nan
+        for var in ["surface_precip", "convective_precip"]:
+            data_pp[var].data[sea_ice] = np.nan
 
     # Organize into scenes.
     data = _extract_scenes(data_pp)
@@ -677,92 +677,98 @@ def extend_pixels(data, n_pixels=221):
         return data
     dimensions = dict(data.dims)
     dimensions["pixels"] = n_pixels
-    data_new = dict(data.dim)
+    data_new = dict(data.dims)
     data_new["pixels"] = np.arange(n_pixels)
 
     data_new = {}
-    for n, v in data.variables.items():
-        shape = tuple(dimensions[d] for d in v.dims)
-        dims = v.dims.keys()
-        x = np.zeros(shape, v.dtype)
-        if v.dtype in [np.float32, np.float64]:
-            x[:] = np.nan
+    for name, var in data.variables.items():
+        shape = tuple(dimensions[d] for d in var.dims)
+        dims = var.dims
+        var_new = np.zeros(shape, var.dtype)
+        if var.dtype in [np.float32, np.float64]:
+            var_new[:] = np.nan
         else:
-            x[:] = -1
-        data_new[n] = (dims, x)
+            var_new[:] = -1
+        data_new[name] = (dims, var_new)
 
-    l = (n_pixels - data.pixels.size) // 2
-    r = n_pixels - data.pixels.size - l
+    left = (n_pixels - data.pixels.size) // 2
+    right = n_pixels - data.pixels.size - left
 
     data_new = xr.Dataset(data_new)
-    data_new_sub = data_new[{"pixels": slice(l, -r)}]
+    data_new_sub = data_new[{"pixels": slice(left, -right)}]
     for n, v in data.variables.items():
         data_new_sub[n].data[:] = data[n].data[:]
 
     return data_new
 
 
-def add_targets(data, sensor):
+def add_targets(dataset, sensor):
     """
     Helper function to ensure all target variables are present in
     dataset.
     """
-    n_scans = data.scans.size
-    n_pixels = data.pixels.size
+    n_scans = dataset.scans.size
+    n_pixels = dataset.pixels.size
     n_pixels_center = 41
     n_levels = 28
 
-    for t in ALL_TARGETS:
-        if not t in data.variables:
-            if "content" in t or t == "latent_heat":
-                d = np.zeros((n_scans, N_PIXELS_CENTER, n_levels), dtype=np.float32)
-                d[:] = np.nan
-                data[t] = (("scans", "pixels_center", "levels"), d)
+    for target in ALL_TARGETS:
+        if target not in dataset.variables:
+            if "content" in target or target == "latent_heat":
+                data = np.zeros((n_scans, N_PIXELS_CENTER, n_levels), dtype=np.float32)
+                data[:] = np.nan
+                dataset[target] = (("scans", "pixels_center", "levels"), data)
             else:
-                if t in ["surface_precip", "convective_precip"]:
-                    d = np.zeros((n_scans, n_pixels), dtype=np.float32)
-                    d[:] = np.nan
-                    data[t] = (("scans", "pixels"), d)
+                if target in ["surface_precip", "convective_precip"]:
+                    data = np.zeros((n_scans, n_pixels), dtype=np.float32)
+                    data[:] = np.nan
+                    dataset[target] = (("scans", "pixels"), data)
                 else:
-                    d = np.zeros((n_scans, N_PIXELS_CENTER), dtype=np.float32)
-                    d[:] = np.nan
-                    data[t] = (("scans", "pixels_center"), d)
+                    data = np.zeros((n_scans, N_PIXELS_CENTER), dtype=np.float32)
+                    data[:] = np.nan
+                    dataset[target] = (("scans", "pixels_center"), data)
 
     if sensor != sensors.GMI:
-        d = np.zeros((n_scans, n_pixels, 15), dtype=np.float32)
-        d[:] = np.nan
-        data["brightness_temperatures_gmi"] = (("scans", "pixels", "channels_gmi"), d)
+        data = np.zeros((n_scans, n_pixels, 15), dtype=np.float32)
+        data[:] = np.nan
+        dataset["brightness_temperatures_gmi"] = (
+            ("scans", "pixels", "channels_gmi"),
+            data,
+        )
     if sensor.n_angles > 1:
         n_angles = sensor.n_angles
 
         shape = (n_scans, n_pixels_center, n_angles, sensor.n_chans)
-        d = np.zeros(shape, dtype=np.float32)
-        d[:] = np.nan
-        data["simulated_brightness_temperatures"] = (
+        data = np.zeros(shape, dtype=np.float32)
+        data[:] = np.nan
+        dataset["simulated_brightness_temperatures"] = (
             ("scans", "pixels_center", "angles", "channels"),
-            d,
+            data,
         )
 
-        for v in ["surface_precip", "convective_precip"]:
-            values = data[v].data
+        for var in ["surface_precip", "convective_precip"]:
+            values = dataset[var].data
             new_shape = (n_scans, n_pixels, n_angles)
             values = np.broadcast_to(values[..., np.newaxis], new_shape)
-            data[v] = (("scans", "pixels", "angles"), values.copy())
+            dataset[var] = (("scans", "pixels", "angles"), values.copy())
 
     else:
         shape = (n_scans, n_pixels_center, sensor.n_chans)
-        d = np.zeros(shape, dtype=np.float32)
-        d[:] = np.nan
-        data["simulated_brightness_temperatures"] = (
+        data = np.zeros(shape, dtype=np.float32)
+        data[:] = np.nan
+        dataset["simulated_brightness_temperatures"] = (
             ("scans", "pixels_center", "channels"),
-            d,
+            data,
         )
 
     shape = (n_scans, n_pixels_center, sensor.n_chans)
-    d = np.zeros(shape, dtype=np.float32)
-    d[:] = np.nan
-    data["brightness_temperature_biases"] = (("scans", "pixels_center", "channels"), d)
-    return data
+    data = np.zeros(shape, dtype=np.float32)
+    data[:] = np.nan
+    dataset["brightness_temperature_biases"] = (
+        ("scans", "pixels_center", "channels"),
+        data,
+    )
+    return dataset
 
 
 def add_brightness_temperatures(data, sensor):
@@ -927,24 +933,28 @@ class SimFileProcessor:
 
         # Retrieve extracted observations and concatenate into
         # single dataset.
-        for t in track(tasks, description="Extracting data ..."):
-            # Log messages from processes.
-            task_done = False
-            dataset = None
-            while not task_done:
-                try:
-                    gprof_nn.logging.log_messages()
-                    dataset = t.result(timeout=1)
-                    task_done = True
-                except TimeoutError:
-                    pass
-                except Exception as e:
-                    LOGGER.warning(
-                        "The follow error was encountered while collecting "
-                        " results: %s",
-                        e,
-                    )
-                    task_done = True
+        with Progress(console=get_console()) as progress:
+            bar = progress.add_task("Extracting data:", total=len(tasks))
+            for task in tasks:
+                # Log messages from processes.
+                task_done = False
+                dataset = None
+                while not task_done:
+                    try:
+                        gprof_nn.logging.log_messages()
+                        dataset = task.result(timeout=1)
+                        task_done = True
+                    except TimeoutError:
+                        pass
+                    except Exception as e:
+                        LOGGER.warning(
+                            "The following error was encountered while "
+                            "collecting results: %s",
+                            e,
+                        )
+                        get_console().print_exception()
+                        task_done = True
+                progress.advance(bar)
 
             if dataset is not None:
                 dataset = add_brightness_temperatures(dataset, self.sensor)

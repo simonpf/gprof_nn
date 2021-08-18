@@ -14,6 +14,53 @@ import threading
 from rich.logging import RichHandler
 from rich.console import Console
 
+#
+# Basic logging
+#
+
+_LOG_LEVEL = os.environ.get('GPROF_NN_LOG_LEVEL', 'INFO').upper()
+
+
+logging.basicConfig(
+    level=_LOG_LEVEL,
+    format="%(message)s",
+    datefmt="[%X]",
+    handlers=[RichHandler(level=_LOG_LEVEL),
+              logging.FileHandler("debug.log")]
+)
+
+
+_MP_LOGGER = multiprocessing.get_logger()
+_MP_LOGGER.setLevel(_LOG_LEVEL)
+
+
+_CONSOLE = Console()
+
+
+def get_console():
+    """
+    Return the console to use for live logging.
+    """
+    return _CONSOLE
+
+
+def set_log_level(level):
+    """
+    Args:
+        level: String defining the log level.
+    """
+    logging.basicConfig(
+        level=level.upper(),
+        format="%(message)s",
+        datefmt="[%X]",
+        handlers=[RichHandler()]
+    )
+
+#
+# Multi-process logging.
+#
+
+
 _LOG_QUEUE = None
 
 
@@ -48,30 +95,3 @@ def log_messages():
             record = _LOG_QUEUE.get()
             logger = logging.getLogger(record.name)
             logger.handle(record)
-
-
-_LOG_LEVEL = os.environ.get('GPROF_NN_LOG_LEVEL', 'INFO').upper()
-logging.basicConfig(
-    level=_LOG_LEVEL,
-    format="%(message)s",
-    datefmt="[%X]",
-    handlers=[RichHandler(level=_LOG_LEVEL),
-              logging.FileHandler("debug.log")]
-)
-_MP_LOGGER = multiprocessing.get_logger()
-_MP_LOGGER.setLevel(_LOG_LEVEL)
-
-console = Console()
-
-
-def set_log_level(level):
-    """
-    Args:
-        level: String defining the log level.
-    """
-    logging.basicConfig(
-        level=level.upper(),
-        format="%(message)s",
-        datefmt="[%X]",
-        handlers=[RichHandler()]
-    )
