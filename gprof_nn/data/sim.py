@@ -10,7 +10,7 @@ temperatures.
 The module also provides functionality to extract the training data for the
 GPROF-NN algorithm from these files.
 """
-from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
+from concurrent.futures import ProcessPoolExecutor
 from datetime import datetime
 import logging
 from pathlib import Path
@@ -30,6 +30,7 @@ from gprof_nn.definitions import (
     DATABASE_MONTHS,
     PROFILE_NAMES,
 )
+
 from gprof_nn.data.utils import compressed_pixel_range, N_PIXELS_CENTER
 from gprof_nn.coordinates import latlon_to_ecef
 from gprof_nn.data.preprocessor import PreprocessorFile, run_preprocessor
@@ -166,7 +167,6 @@ class SimFile:
                 matched = np.zeros((n_scans * (dx + 1), n_chans))
                 dims = ("scans", "pixels_center", "channels")
             matched[:] = np.nan
-            ind = np.argmax(indices)
             assert np.all(indices[dists < 10e3] < matched.shape[0])
             indices = np.clip(indices, 0, matched.shape[0] - 1)
             tbs = self.data["tbs_simulated"].reshape((-1,) + shape[2:])
@@ -487,9 +487,9 @@ def process_sim_file(sim_filename, configuration, era5_path, log_queue=None):
     )
 
     LOGGER.debug("Running preprocessor for sim file %s.", sim_filename)
-    data_pp = run_preprocessor(l1c_file.filename,
-                               sensor=sensors.GMI,
-                               configuration=configuration)
+    data_pp = run_preprocessor(
+        l1c_file.filename, sensor=sensors.GMI, configuration=configuration
+    )
     if data_pp is None:
         return None
 
@@ -580,9 +580,7 @@ def process_mrms_file(mrms_filename, configuration, day, log_queue=None):
     )
 
     scenes = []
-    LOGGER.debug("Found %s L1C file for MRMS file %s.",
-                len(l1c_files),
-                mrms_filename)
+    LOGGER.debug("Found %s L1C file for MRMS file %s.", len(l1c_files), mrms_filename)
     for f in l1c_files:
         # Extract scans over CONUS ans run preprocessor.
         _, f_roi = tempfile.mkstemp()
@@ -596,8 +594,7 @@ def process_mrms_file(mrms_filename, configuration, day, log_queue=None):
         if data_pp is None:
             continue
 
-        LOGGER.debug("Matching MRMS data for %s.",
-                     f.filename)
+        LOGGER.debug("Matching MRMS data for %s.", f.filename)
         mrms_file.match_targets(data_pp)
         surface_type = data_pp["surface_type"].data
         snow = (surface_type >= 8) * (surface_type <= 11)
@@ -639,7 +636,6 @@ def process_l1c_file(l1c_filename, sensor, configuration, era5_path, log_queue=N
     if log_queue is not None:
         gprof_nn.logging.configure_queue_logging(log_queue)
     LOGGER.info("Starting processing L1C file %s.", l1c_filename)
-    l1c_file = L1CFile(l1c_filename)
     data_pp = run_preprocessor(l1c_filename, sensor=sensor, configuration=configuration)
     if data_pp is None:
         return None
@@ -687,7 +683,7 @@ def extend_pixels(data, n_pixels=221):
     data_new = {}
     for n, v in data.variables.items():
         shape = tuple(dimensions[d] for d in v.dims)
-        dims = [v for v in v.dims]
+        dims = v.dims.keys()
         x = np.zeros(shape, v.dtype)
         if v.dtype in [np.float32, np.float64]:
             x[:] = np.nan
@@ -770,6 +766,21 @@ def add_targets(data, sensor):
 
 
 def add_brightness_temperatures(data, sensor):
+    """
+    Add brightness temperatures variables to dataset.
+
+    Simulated observations from *.sim files for sensors other than GMI lack
+    the 'brightness_temperature' variable. This function adds these as empty
+    variables to enable merging with MRMS- and L1C-derived datasets.
+
+    Args:
+        data: 'xarray.Dataset' containing the matched data from the *.sim file.
+        sensor: Sensor object representing the sensor for which the data is
+            extracted.
+
+    Return:
+        The 'xarray.Dataset' with the added 'brighness_temperatures' variable.
+    """
     if "brightness_temperatures" in data.variables.keys():
         return data
     n_samples = data.samples.size
@@ -795,6 +806,7 @@ class SimFileProcessor:
     single processor instance processes all *.sim, MRMRS matchup and L1C
     files for a given day from each month of the database period.
     """
+
     def __init__(
         self,
         output_file,
@@ -909,7 +921,6 @@ class SimFileProcessor:
                 )
             i += 1
 
-        n_datasets = len(tasks)
         datasets = []
         output_path = Path(self.output_file).parent
         output_file = Path(self.output_file).stem
