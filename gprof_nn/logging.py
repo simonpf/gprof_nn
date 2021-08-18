@@ -81,9 +81,14 @@ def configure_queue_logging(log_queue):
     Args:
         log_queue: The log queue provided from the parent process.
     """
-    h = logging.handlers.QueueHandler(log_queue)
-    root = logging.getLogger()
-    root.addHandler(h)
+    log_level = os.environ.get('GPROF_NN_LOG_LEVEL', 'INFO').upper()
+    handler = logging.handlers.QueueHandler(log_queue)
+    logging.basicConfig(
+        level=log_level,
+        format="%(message)s",
+        datefmt="[%X]",
+        handlers=[handler]
+    )
 
 
 def log_messages():
