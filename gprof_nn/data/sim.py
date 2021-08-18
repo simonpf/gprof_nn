@@ -22,13 +22,12 @@ from pykdtree.kdtree import KDTree
 from rich.progress import track
 import xarray as xr
 
+import gprof_nn
 from gprof_nn import sensors
 from gprof_nn.definitions import (
     ALL_TARGETS,
-    N_LAYERS,
     LEVELS,
     DATABASE_MONTHS,
-    MISSING,
     PROFILE_NAMES,
 )
 from gprof_nn.data.utils import compressed_pixel_range, N_PIXELS_CENTER
@@ -37,9 +36,7 @@ from gprof_nn.data.preprocessor import PreprocessorFile, run_preprocessor
 from gprof_nn.data.l1c import L1CFile
 from gprof_nn.data.mrms import MRMSMatchFile
 from gprof_nn.data.surface import get_surface_type_map
-from gprof_nn import sensors
 from gprof_nn.utils import CONUS
-from gprof_nn.logging import console
 
 
 LOGGER = logging.getLogger(__name__)
@@ -481,7 +478,7 @@ def process_sim_file(sim_filename, configuration, era5_path, log_queue=None):
 
     if log_queue is not None:
         gprof_nn.logging.configure_queue_logging(log_queue)
-    LOGGER.info("Starting processing sim file %s.", sim_filename)
+    LOGGER.info("Processing sim file %s.", sim_filename)
 
     # Load sim file and corresponding GMI L1C file.
     sim_file = SimFile(sim_filename)
@@ -489,10 +486,10 @@ def process_sim_file(sim_filename, configuration, era5_path, log_queue=None):
         sim_file.granule, sensors.GMI.l1c_file_path, sensors.GMI
     )
 
-    LOGGER.info("Running preprocessor for sim file %s.", sim_filename)
-    data_pp = run_preprocessor(
-        l1c_file.filename, sensor=sensors.GMI, configuration=configuration
-    )
+    LOGGER.debug("Running preprocessor for sim file %s.", sim_filename)
+    data_pp = run_preprocessor(l1c_file.filename,
+                               sensor=sensors.GMI,
+                               configuration=configuration)
     if data_pp is None:
         return None
 
@@ -508,7 +505,7 @@ def process_sim_file(sim_filename, configuration, era5_path, log_queue=None):
         )
 
     # Match targets from sim file to preprocessor data.
-    LOGGER.info("Matching retrieval targets for file %s.", sim_filename)
+    LOGGER.debug("Matching retrieval targets for file %s.", sim_filename)
     sim_file.match_targets(data_pp)
     l1c_data = l1c_file.to_xarray_dataset()
 
@@ -534,13 +531,13 @@ def process_sim_file(sim_filename, configuration, era5_path, log_queue=None):
 
     # If we are dealing with GMI add precip from ERA5.
     if sensor == sensors.GMI:
-        LOGGER.info("Adding ERA5 precip for file %s.", sim_filename)
+        LOGGER.degbug("Adding ERA5 precip for file %s.", sim_filename)
         start_time = data_pp["scan_time"].data[0]
         end_time = data_pp["scan_time"].data[-1]
-        LOGGER.info("Loading ERA5 data: %s %s", start_time, end_time)
+        LOGGER.debug("Loading ERA5 data: %s %s", start_time, end_time)
         era5_data = _load_era5_data(start_time, end_time, era5_path)
         _add_era5_precip(data_pp, l1c_data, era5_data)
-        LOGGER.info("Added era5 precip.")
+        LOGGER.degbu("Added era5 precip.")
     # Else set to missing.
     else:
         sea_ice = (surface_type == 2) + (surface_type == 16)
@@ -583,7 +580,9 @@ def process_mrms_file(mrms_filename, configuration, day, log_queue=None):
     )
 
     scenes = []
-    LOGGER.info("Found %s L1C file for MRMS file %s.", len(l1c_files), mrms_filename)
+    LOGGER.debug("Found %s L1C file for MRMS file %s.",
+                len(l1c_files),
+                mrms_filename)
     for f in l1c_files:
         # Extract scans over CONUS ans run preprocessor.
         _, f_roi = tempfile.mkstemp()
@@ -597,7 +596,8 @@ def process_mrms_file(mrms_filename, configuration, day, log_queue=None):
         if data_pp is None:
             continue
 
-        LOGGER.info("Matching MRMS data for %s.", f.filename)
+        LOGGER.debug("Matching MRMS data for %s.",
+                     f.filename)
         mrms_file.match_targets(data_pp)
         surface_type = data_pp["surface_type"].data
         snow = (surface_type >= 8) * (surface_type <= 11)
@@ -638,7 +638,7 @@ def process_l1c_file(l1c_filename, sensor, configuration, era5_path, log_queue=N
 
     if log_queue is not None:
         gprof_nn.logging.configure_queue_logging(log_queue)
-        LOGGER.info("Starting processing l1d file %s.", l1c_filename)
+    LOGGER.info("Starting processing L1C file %s.", l1c_filename)
     l1c_file = L1CFile(l1c_filename)
     data_pp = run_preprocessor(l1c_filename, sensor=sensor, configuration=configuration)
     if data_pp is None:
@@ -679,9 +679,9 @@ def extend_pixels(data, n_pixels=221):
     """
     if "pixels" in data.dims and data.pixels.size == 221:
         return data
-    dimensions = {n: d for n, d in data.dims.items()}
+    dimensions = dict(data.dims)
     dimensions["pixels"] = n_pixels
-    data_new = {n: d for n, d in data.dims.items()}
+    data_new = dict(data.dim)
     data_new["pixels"] = np.arange(n_pixels)
 
     data_new = {}
@@ -790,6 +790,11 @@ def add_brightness_temperatures(data, sensor):
 
 
 class SimFileProcessor:
+    """
+    Processor class that manages the extraction of GPROF training data. A
+    single processor instance processes all *.sim, MRMRS matchup and L1C
+    files for a given day from each month of the database period.
+    """
     def __init__(
         self,
         output_file,
@@ -857,11 +862,11 @@ class SimFileProcessor:
         l1c_files = np.random.permutation(l1c_files)
 
         n_sim_files = len(sim_files)
-        print(f"Found {n_sim_files} SIM files.")
+        LOGGER.debug("Found %s SIM files.", n_sim_files)
         n_mrms_files = len(mrms_files)
-        print(f"Found {n_mrms_files} MRMS files.")
+        LOGGER.debug("Found %s MRMS files.", n_mrms_files)
         n_l1c_files = len(l1c_files)
-        print(f"Found {n_l1c_files} L1C files.")
+        LOGGER.debug("Found %s L1C files.", n_l1c_files)
         i = 0
 
         # Submit tasks interleaving .sim and MRMS files.
@@ -924,7 +929,6 @@ class SimFileProcessor:
                         " results: %s",
                         e,
                     )
-                    console.print_exception()
                     break
 
             if dataset is not None:

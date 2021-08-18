@@ -679,7 +679,6 @@ def run_preprocessor(
         args.append(output_file)
 
         subprocess.run([executable] + args, check=True, capture_output=True)
-        print(executable)
         if file is not None:
             data = PreprocessorFile(output_file).to_xarray_dataset()
 
