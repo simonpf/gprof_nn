@@ -929,18 +929,22 @@ class SimFileProcessor:
         # single dataset.
         for t in track(tasks, description="Extracting data ..."):
             # Log messages from processes.
+            task_done = False
             dataset = None
-            while dataset is None:
+            while not task_done:
                 try:
                     gprof_nn.logging.log_messages()
-                    dataset = t.result()
+                    dataset = t.result(timeout=1)
+                    task_done = True
+                except TimeoutError:
+                    pass
                 except Exception as e:
                     LOGGER.warning(
                         "The follow error was encountered while collecting "
                         " results: %s",
                         e,
                     )
-                    break
+                    task_done = True
 
             if dataset is not None:
                 dataset = add_brightness_temperatures(dataset, self.sensor)
