@@ -531,13 +531,13 @@ def process_sim_file(sim_filename, configuration, era5_path, log_queue=None):
 
     # If we are dealing with GMI add precip from ERA5.
     if sensor == sensors.GMI:
-        LOGGER.degbug("Adding ERA5 precip for file %s.", sim_filename)
+        LOGGER.debug("Adding ERA5 precip for file %s.", sim_filename)
         start_time = data_pp["scan_time"].data[0]
         end_time = data_pp["scan_time"].data[-1]
         LOGGER.debug("Loading ERA5 data: %s %s", start_time, end_time)
         era5_data = _load_era5_data(start_time, end_time, era5_path)
         _add_era5_precip(data_pp, l1c_data, era5_data)
-        LOGGER.degbu("Added era5 precip.")
+        LOGGER.debug("Added era5 precip.")
     # Else set to missing.
     else:
         sea_ice = (surface_type == 2) + (surface_type == 16)
