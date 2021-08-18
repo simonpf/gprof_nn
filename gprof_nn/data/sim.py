@@ -10,7 +10,7 @@ temperatures.
 The module also provides functionality to extract the training data for the
 GPROF-NN algorithm from these files.
 """
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, TimeoutError
 from datetime import datetime
 import logging
 from pathlib import Path
