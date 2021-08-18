@@ -28,7 +28,6 @@ from gprof_nn.definitions import (ALL_TARGETS,
                                   N_LAYERS,
                                   LEVELS,
                                   DATABASE_MONTHS,
-                                  MISSING,
                                   PROFILE_NAMES)
 from gprof_nn.data.utils import (compressed_pixel_range,
                                  N_PIXELS_CENTER)
@@ -37,9 +36,7 @@ from gprof_nn.data.preprocessor import PreprocessorFile, run_preprocessor
 from gprof_nn.data.l1c import L1CFile
 from gprof_nn.data.mrms import MRMSMatchFile
 from gprof_nn.data.surface import get_surface_type_map
-from gprof_nn import sensors
 from gprof_nn.utils import CONUS
-from gprof_nn.logging import console
 
 
 LOGGER = logging.getLogger(__name__)
@@ -703,9 +700,9 @@ def extend_pixels(data, n_pixels=221):
     """
     if "pixels" in data.dims and data.pixels.size == 221:
         return data
-    dimensions = {n: d for n,d in data.dims.items()}
+    dimensions = dict(data.dims)
     dimensions["pixels"] = n_pixels
-    data_new = {n: d for n,d in data.dims.items()}
+    data_new = dict(data.dim)
     data_new["pixels"] = np.arange(n_pixels)
 
     data_new = {}
@@ -822,6 +819,11 @@ def add_brightness_temperatures(data, sensor):
 
 
 class SimFileProcessor:
+    """
+    Processor class that manages the extraction of GPROF training data. A
+    single processor instance processes all *.sim, MRMRS matchup and L1C
+    files for a given day from each month of the database period.
+    """
     def __init__(
         self,
         output_file,
