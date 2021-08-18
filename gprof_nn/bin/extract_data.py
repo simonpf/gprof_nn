@@ -32,7 +32,7 @@ def add_parser(subparsers):
     """
     parser= subparsers.add_parser(
             'extract_data',
-            help='Extract training data from *.sim files.'
+            description='Extract training data from *.sim files.'
             )
     parser.add_argument(
             'sensor',
@@ -110,7 +110,7 @@ def run(args):
 
     # Loop over days.
     for d in days:
-        LOGGER.info("Pocessing day %s.")
+        LOGGER.info("Pocessing day %s.", d)
         processor = SimFileProcessor(output,
                                      sensor,
                                      config.upper(),

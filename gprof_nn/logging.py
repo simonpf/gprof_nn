@@ -23,7 +23,7 @@ def get_log_queue():
     """
     global _LOG_QUEUE
     if _LOG_QUEUE is None:
-        _LOG_QUEUE = multiprocessing.Queue()
+        _LOG_QUEUE = multiprocessing.Manager().Queue()
     return _LOG_QUEUE
 
 
@@ -45,7 +45,7 @@ def log_messages():
     """
     if _LOG_QUEUE is not None:
         while _LOG_QUEUE.qsize():
-            record = self.log_queue.get()
+            record = _LOG_QUEUE.get()
             logger = logging.getLogger(record.name)
             logger.handle(record)
 
@@ -55,7 +55,8 @@ logging.basicConfig(
     level=_LOG_LEVEL,
     format="%(message)s",
     datefmt="[%X]",
-    handlers=[RichHandler()]
+    handlers=[RichHandler(level=_LOG_LEVEL),
+              logging.FileHandler("debug.log")]
 )
 _MP_LOGGER = multiprocessing.get_logger()
 _MP_LOGGER.setLevel(_LOG_LEVEL)
@@ -74,4 +75,3 @@ def set_log_level(level):
         datefmt="[%X]",
         handlers=[RichHandler()]
     )
-
