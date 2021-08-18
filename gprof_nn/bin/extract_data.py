@@ -30,7 +30,7 @@ def add_parser(subparsers):
     Args:
         subparsers: The subparsers object provided by the top-level parser.
     """
-    parser= subparsers.add_parser(
+    parser = subparsers.add_parser(
             'extract_data',
             description='Extract training data from *.sim files.'
             )

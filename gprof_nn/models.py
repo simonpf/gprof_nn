@@ -831,7 +831,7 @@ class SimulatorNet(nn.Module):
         x = torch.cat([x_in, x_u, x[:, 15:]], 1)
 
         n_chans = self.sensor.n_chans
-        if sensor.n_angles > 1:
+        if self.sensor.n_angles > 1:
             n_angles = self.sensor.n_angles
             sim_shape = (x.shape[:1] +
                          (self.n_outputs, n_angles, n_chans) +

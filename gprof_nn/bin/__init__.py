@@ -21,6 +21,8 @@ def gprof_nn():
     any of the available sub-commands.
     """
     from gprof_nn.bin import extract_data
+    from gprof_nn.bin import retrieve
+
     set_log_level("INFO")
 
     description = ("Neural-network based implementation of the Goddard "
@@ -33,11 +35,8 @@ def gprof_nn():
 
     subparsers = parser.add_subparsers(help='Sub-commands')
 
-    parser_ret = subparsers.add_parser(
-            'retrieve',
-            help='Apply GPROF-NN to observations.')
-
     extract_data.add_parser(subparsers)
+    retrieve.add_parser(subparsers)
 
     if len(sys.argv)==1:
         parser.print_help(sys.stderr)
