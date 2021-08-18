@@ -7,6 +7,7 @@ Sets up the Python logging to use rich for formatting. This can be used in
 scripts based on the 'gprof_nn' package to get fancier output.
 """
 import logging
+import logging.handlers
 import multiprocessing
 import os
 import threading
@@ -19,19 +20,6 @@ from rich.console import Console
 #
 
 _LOG_LEVEL = os.environ.get('GPROF_NN_LOG_LEVEL', 'INFO').upper()
-
-
-logging.basicConfig(
-    level=_LOG_LEVEL,
-    format="%(message)s",
-    datefmt="[%X]",
-    handlers=[RichHandler(level=_LOG_LEVEL),
-              logging.FileHandler("debug.log")]
-)
-
-
-_MP_LOGGER = multiprocessing.get_logger()
-_MP_LOGGER.setLevel(_LOG_LEVEL)
 
 
 _CONSOLE = Console()
@@ -55,6 +43,16 @@ def set_log_level(level):
         datefmt="[%X]",
         handlers=[RichHandler(console=get_console())]
     )
+
+
+logging.basicConfig(
+    level=_LOG_LEVEL,
+    format="%(message)s",
+    datefmt="[%X]",
+    handlers=[RichHandler(level=LOG_LEVEL, console=get_console()),
+              logging.FileHandler("debug.log")]
+)
+
 
 #
 # Multi-process logging.
