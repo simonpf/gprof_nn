@@ -754,7 +754,7 @@ class ConicalScanner(Sensor):
                         GMI_GEOMETRY, 96, 128, p_x_i, p_x_o, p_y
                    )
 
-                scene = remap_scene(dataset[{"samples": i}], coords, targets)
+                scene = remap_scene(scene, coords, targets)
 
                 #
                 # Input data
@@ -1192,9 +1192,9 @@ class CrossTrackScanner(Sensor):
             p_x_i = rng.random()
             p_y = rng.random()
         else:
-            p_x_o = 0.0
-            p_x_i = 0.0
-            p_y = 0.0
+            p_x_o = 0.5
+            p_x_i = 0.5
+            p_y = 0.5
 
         width = 32
         height = 128

@@ -139,6 +139,7 @@ def remap_scene(scene, coords, targets):
     for v in variables:
         if "scans" in scene[v].dims:
             data_v = scene[v].data
+
             if v in ["surface_type", "airmass_type"]:
                 data_r = extract_domain(data_v, coords, order=0)
             else:

@@ -125,9 +125,19 @@ def test_decompress_scene():
     input_file = path / "data" / "gmi" / "gprof_nn_gmi_era5.nc"
     scene = xr.open_dataset(input_file)[{"samples": 1}]
 
-    scene_d = decompress_scene(scene, ["rain_water_content"])
+    scene_d = decompress_scene(scene, ["surface_precip",
+                                       "rain_water_content",
+                                       "rain_water_path"])
 
     assert "pixels" in scene_d.rain_water_content.dims
+
+    # Over ocean all pixels where IWP is defines should also
+    # have a valid surface precip value.
+    rwp = scene_d.rain_water_path.data
+    sp = scene_d.surface_precip.data
+    st = scene_d.surface_type
+    inds = (st == 1) * (rwp >= 0.0)
+    assert np.all(sp[inds] >= 0.0)
 
 
 def test_remap_scene():
