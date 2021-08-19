@@ -125,6 +125,8 @@ def run(args):
         "observations": "**/*.nc"
     }
 
-    input_files = list(Path(input).glob("**/*.nc"))
-    processor = statistics.StatisticsProcessor(sensor, input_files, stats)
+    input_files = list(Path(input).glob(endings[kind]))
+    processor = statistics.StatisticsProcessor(sensor,
+                                               input_files,
+                                               stats[kind])
     processor.run(n_procs, output)
