@@ -344,7 +344,7 @@ def test_observation_statistics_gmi(tmpdir):
     MHS bin file for an ocean surface.
     """
     data_path = Path(__file__).parent / "data"
-    files = [data_path / "GMIERA5_190101_027510.pp"] * 2
+    files = [data_path / "gmi" / "GMIERA5_190101_027510.pp"] * 2
 
     stats = [ObservationStatistics(conditional=1),
              ZonalDistribution(),
@@ -391,7 +391,7 @@ def test_observation_statistics_mhs(tmpdir):
     MHS bin file for an ocean surface.
     """
     data_path = Path(__file__).parent / "data"
-    files = [data_path / "MHS.pp"] * 2
+    files = [data_path / "mhs" / "MHS.pp"] * 2
 
     stats = [ObservationStatistics(conditional=1),
              ZonalDistribution(),

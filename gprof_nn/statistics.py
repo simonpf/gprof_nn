@@ -10,6 +10,7 @@ datasets split across multiple files.
 from abc import ABC, abstractmethod
 from concurrent.futures import ProcessPoolExecutor
 import logging
+import multiprocessing
 from pathlib import Path
 import re
 
@@ -200,7 +201,7 @@ class ZonalDistribution(Statistic):
 
         if self.has_time:
             for month in range(12):
-                indices = data["scan_time"].dt.month == (i + 1)
+                indices = data["scan_time"].dt.month == (month + 1)
                 if indices.ndim > 1:
                     indices = indices.all(axis=tuple(np.arange(indices.ndim)[1:]))
                 data.latitude.load()
@@ -1034,7 +1035,9 @@ class CorrectedObservations(Statistic):
                                             np.random.default_rng(),
                                             equalizer=self.equalizer)
 
-        st = np.where(x[:, -22:-4])[1]
+        st = np.copy(x[:, -22:-4])
+        st[np.all(st == 0, axis=-1), 0] = 1
+        st = np.where(st)[1]
         tbs = x[:, :sensor.n_chans]
 
         for i in range(18):
@@ -1516,7 +1519,23 @@ class ObservationStatistics(Statistic):
 ###############################################################################
 
 
-def process_files(sensor, files, statistics):
+def process_files(sensor,
+                  files,
+                  statistics,
+                  log_queue):
+    """
+    Helper function to process a list of files in a separate
+    process.
+
+    Args:
+        files: The list of files to process.
+        statistics: List of the statistics to calculate.
+        log_queue: The queue to use to log messages to.
+
+    Return:
+        List of the calculated statistics.
+    """
+    gprof_nn.logging.configure_queue_logging(log_queue)
     for f in files:
         for s in statistics:
             s.process_file(sensor, f)
@@ -1578,14 +1597,19 @@ class StatisticsProcessor:
         pool = ProcessPoolExecutor(n_workers)
         batches = [[f] for f in np.random.permutation(self.files)]
 
+        log_queue = gprof_nn.logging.get_log_queue()
         tasks = []
         for b in batches:
             tasks.append(pool.submit(process_files,
                                      self.sensor,
                                      b,
-                                     self.statistics))
+                                     self.statistics,
+                                     log_queue))
         stats = tasks.pop(0).result()
-        for t in track(tasks, description="Processing files:"):
+        for t in track(tasks,
+                       description="Processing files:",
+                       console=gprof_nn.logging.get_console()):
+            gprof_nn.logging.log_messages()
             for s_old, s_new in zip(stats, t.result()):
                 s_old.merge(s_new)
 
