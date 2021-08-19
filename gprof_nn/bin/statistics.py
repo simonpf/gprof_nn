@@ -18,6 +18,7 @@ from rich.progress import track
 import gprof_nn.logging
 from gprof_nn.retrieval import RetrievalDriver, RetrievalGradientDriver
 from gprof_nn import sensors
+from gprof_nn import statistics
 
 
 LOGGER = logging.getLogger(__name__)
@@ -97,7 +98,7 @@ def run(args):
     output = Path(args.output)
     if not output.exists():
         LOGGER.error(
-            "The given input path '%s' doesn't exist", output
+            "The given output path '%s' doesn't exist", output
         )
         return 1
 
