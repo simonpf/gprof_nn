@@ -464,7 +464,7 @@ class PreprocessorFile:
             scan_index: The index of the scan for which to write the header.
         """
         header = self.get_scan_header(scan_index)
-        scan_header = np.recarray(1, dtype=retrieval.SCAN_HEADER_TYPE)
+        scan_header = np.recarray(1, dtype=retrieval.SCAN_HEADER_TYPES)
         scan_header["scan_latitude"] = header["scan_latitude"]
         scan_header["scan_longitude"] = header["scan_longitude"]
         scan_header["scan_altitude"] = header["scan_altitude"]

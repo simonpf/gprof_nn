@@ -555,8 +555,14 @@ class NetcdfLoader0D(NetcdfLoader):
             data = data.rename_dims({"samples_t": "samples"})
 
             input_data = xr.open_dataset(self.filename)
-            data["latitude"] = input_data["latitude"]
-            data["longitude"] = input_data["longitude"]
+            vars = [
+                "latitude",
+                "longitude",
+                "total_column_water_vapor",
+                "two_meter_temperature"
+            ]
+            for var in vars:
+                data[var] = input_data[var]
 
         return data
 
