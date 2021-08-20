@@ -159,7 +159,7 @@ class BinFile:
                         "second": data[:, 5],
                     }
                 )
-                results[k] = (("samples",), pd.to_datetime(date))
+                results[k] = (("samples",), pd.to_datetime(date, errors="coerce"))
             else:
                 dims = ("samples",)
                 if shape:

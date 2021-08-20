@@ -1183,6 +1183,9 @@ class BinFileStatistics(Statistic):
         if not hasattr(self, "tb_bins"):
             self._initialize_data(sensor, dataset)
 
+        if not dataset.surface_type.size:
+            return
+
         st = dataset["surface_type"][0]
 
         # Sensor with varying EIA need to be treated separately.

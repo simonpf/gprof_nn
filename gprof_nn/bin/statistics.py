@@ -49,8 +49,8 @@ def add_parser(subparsers):
                         help="The type of statistics to calculate.")
     parser.add_argument('input', metavar="input", type=str,
                         help="The path to the directory tree containing"
-                        nargs="*",
-                        "the input data.")
+                        "the input data.",
+                        nargs="*")
     parser.add_argument('output', metavar="output", type=str,
                         help="Path to the folder to which to write the "
                         "results.")
