@@ -1113,7 +1113,11 @@ class BinFileStatistics(Statistic):
     as well as ancillary data.
     """
     def __init__(self):
-        pass
+        self.targets = {}
+        self.sums_t2m = {}
+        self.counts_t2m = {}
+        self.sums_tcwv = {}
+        self.counts_tcwv = {}
 
     def _initialize_data(self,
                          sensor,
@@ -1153,10 +1157,15 @@ class BinFileStatistics(Statistic):
                 else:
                     self.bins[k] = np.linspace(l, h, 201)
 
-        self.t2m = np.zeros((18, 200), dtype=np.float32)
-        self.t2m_bins = np.linspace(240, 330, 201)
-        self.tcwv = np.zeros((18, 200), dtype=np.float32)
-        self.tcwv_bins = np.linspace(0, 100, 201)
+                self.sums_t2m[k] = np.zeros((18, 100))
+                self.counts_t2m[k] = np.zeros((18, 100))
+                self.sums_tcwv[k] = np.zeros((18, 100))
+                self.counts_tcwv[k] = np.zeros((18, 100))
+
+        self.t2m = np.zeros((18, 100), dtype=np.float32)
+        self.t2m_bins = np.linspace(239.5, 339.5, 101)
+        self.tcwv = np.zeros((18, 100), dtype=np.float32)
+        self.tcwv_bins = np.linspace(-0.5, 99.5, 101)
         self.st = np.zeros(18, dtype=np.float32)
         self.at = np.zeros(4, dtype=np.float32)
 
@@ -1217,9 +1226,31 @@ class BinFileStatistics(Statistic):
                     for a in range(sensor.n_angles):
                         cs, _ = np.histogram(v[:, a], bins=self.bins[k])
                         self.targets[k][st - 1, a] += cs
+
+
             else:
                 cs, _ = np.histogram(v, bins=self.bins[k])
                 self.targets[k][st - 1] += cs
+
+            t2m = dataset["two_meter_temperature"].data
+            tcwv = dataset["total_column_water_vapor"].data
+            if v.ndim > t2m.ndim:
+                t2m = np.repeat(t2m.reshape(-1, 1), 28, axis=-1)
+                tcwv = np.repeat(tcwv.reshape(-1, 1), 28, axis=-1)
+
+            # Conditional mean
+            self.sums_t2m[k][st - 1] = np.histogram(
+                t2m, bins=self.t2m_bins, weights=v
+            )[0]
+            self.counts_t2m[k][st - 1] = np.histogram(
+                t2m, bins=self.t2m_bins
+            )[0]
+            self.sums_tcwv[k][st - 1] = np.histogram(
+                tcwv, bins=self.tcwv_bins, weights=v
+            )[0]
+            self.counts_tcwv[k][st - 1] = np.histogram(
+                tcwv, bins=self.tcwv_bins
+            )[0]
 
         # Ancillary data
         v = dataset["two_meter_temperature"].data
@@ -1247,6 +1278,10 @@ class BinFileStatistics(Statistic):
         self.tbs += other.tbs
         for k in self.targets:
             self.targets[k] += other.targets[k]
+            self.sums_t2m[k] += other.sums_t2m[k]
+            self.counts_t2m[k] += other.counts_t2m[k]
+            self.sums_tcwv[k] += other.sums_tcwv[k]
+            self.counts_tcwv[k] += other.counts_tcwv[k]
         self.t2m += other.t2m
         self.tcwv += other.tcwv
         self.st += other.st
@@ -1288,6 +1323,14 @@ class BinFileStatistics(Statistic):
                 data[k] = ("surface_type", "angles", bin_dim), self.targets[k]
             else:
                 data[k] = ("surface_type", bin_dim), self.targets[k]
+            data[k + "_mean_tcwv"] = (
+                ("surface_type", "tcwv_bins"),
+                self.sums_tcwv[k] / self.counts_tcwv[k]
+            )
+            data[k + "_mean_t2m"] = (
+                ("surface_type", "t2m_bins"),
+                self.sums_t2m[k] / self.counts_t2m[k]
+            )
 
         bins = 0.5 * (self.t2m_bins[1:] + self.t2m_bins[:-1])
         bin_dim = "two_meter_temperature_bins"
@@ -1515,8 +1558,7 @@ class ObservationStatistics(Statistic):
         data.to_netcdf(output_file)
 
 
-
-class RetrievalResultStatistics(Statistic):
+class RetrievalStatistics(Statistic):
     """
     Class to calculate statistics of retrieval results
     """
@@ -1526,21 +1568,15 @@ class RetrievalResultStatistics(Statistic):
             conditional: If provided should identify a channel for which
                 conditional of all other channels will be calculated.
         """
-        self.tbs = None
-        self.tbs_sim = None
-        self.tbs_bias = None
-        self.tbs_cond = None
-        self.angle_bins = None
-        self.tb_bins = np.linspace(0, 400, 401)
-
         self.targets = {}
+        self.sums_t2m = {}
+        self.counts_t2m = {}
+        self.sums_tcwv = {}
+        self.counts_tcwv = {}
+
         self.bins = {}
-        self.t2m = np.zeros((18, 200), dtype=np.float32)
-        self.t2m_bins = np.linspace(240, 330, 201)
-        self.tcwv = np.zeros((18, 200), dtype=np.float32)
-        self.tcwv_bins = np.linspace(0, 100, 201)
-        self.st = np.zeros(18, dtype=np.float32)
-        self.at = np.zeros(4, dtype=np.float32)
+        self.t2m_bins = np.linspace(239.5, 339.5, 101)
+        self.tcwv_bins = np.linspace(-0.5, 99.5, 101)
 
     def _initialize_data(self,
                          sensor,
@@ -1553,53 +1589,23 @@ class RetrievalResultStatistics(Statistic):
                 stems.
             data: ``xarray.Dataset`` containing the data to process.
         """
-        n_chans = sensor.n_chans
         self.has_angles = sensor.n_angles > 1
-        if self.has_angles:
-            n_angles = sensor.n_angles
-            self.angle_bins = np.zeros(sensor.angles.size + 1)
-            self.angle_bins[1:-1] = 0.5 * (sensor.angles[1:] +
-                                           sensor.angles[:-1])
-            self.angle_bins[0] = 2.0 * self.angle_bins[1] - self.angle_bins[2]
-            self.angle_bins[-1] = (2.0 * self.angle_bins[-2] -
-                                   self.angle_bins[-3])
-            self.tbs = np.zeros((18, n_chans, n_angles, self.tb_bins.size - 1),
-                                dtype=np.float32)
-            self.tbs_sim = np.zeros((18, n_chans, n_angles, self.tb_bins.size - 1),
-                                    dtype=np.float32)
-            if self.conditional is not None:
-                self.tbs_cond = np.zeros(
-                    (18, n_chans, n_angles,) + (self.tb_bins.size - 1,) * 2,
-                    dtype=np.float32
-                )
-
-        else:
-            self.tbs = np.zeros((18, n_chans, self.tb_bins.size - 1),
-                                dtype=np.float32)
-            if self.conditional is not None:
-                self.tbs_cond = np.zeros(
-                    (18, n_chans,) + (self.tb_bins.size - 1,) * 2,
-                    dtype=np.float32
-                )
-        self.bias_bins = np.linspace(-100, 100, 201)
-        self.tbs_bias = np.zeros((18, n_chans, self.bias_bins.size - 1),
-                                 dtype=np.float32)
+        n_angles = sensor.n_angles
 
         for k in ALL_TARGETS:
             if k in data.variables:
-                # Surface and convective precip have angle depen
-                if (k in ["surface_precip", "convective_precip"] and
-                    self.has_angles):
-                    self.targets[k] = np.zeros((18, n_angles, 200),
-                                               dtype=np.float32)
-                else:
-                    self.targets[k] = np.zeros((18, 200),
-                                               dtype=np.float32)
+                self.targets[k] = np.zeros((18, 200),
+                                           dtype=np.float32)
                 l, h = LIMITS[k]
                 if l > 0:
                     self.bins[k] = np.logspace(np.log10(l), np.log10(h), 201)
                 else:
                     self.bins[k] = np.linspace(l, h, 201)
+
+                self.sums_t2m[k] = np.zeros((18, 100))
+                self.counts_t2m[k] = np.zeros((18, 100))
+                self.sums_tcwv[k] = np.zeros((18, 100))
+                self.counts_tcwv[k] = np.zeros((18, 100))
 
     def process_file(self,
                      sensor,
@@ -1612,262 +1618,108 @@ class RetrievalResultStatistics(Statistic):
         """
         self.sensor = sensor
         dataset = xr.open_dataset(filename)
-        if self.tbs is None:
+        if not len(self.targets):
             self._initialize_data(sensor, dataset)
 
-        st = dataset["surface_type"]
-        sp = dataset["surface_precip"]
+        t_s = dataset["surface_type"].data
+
         for i in range(18):
-            # Select only TBs that are actually used for training.
-            if self.has_angles:
-                i_st = ((st == i + 1) * (sp[..., 0] >= 0)).data
-            else:
-                i_st = ((st == i + 1) * (sp >= 0)).data
 
-
-            # Sensor with varying EIA (cross track).
-            tbs = (dataset["brightness_temperatures"] .data[i_st.data])
-            if self.has_angles:
-                eia = dataset["earth_incidence_angle"].data[i_st, 0]
-
-                # For samples with real observations (snow + sea ice)
-                # observations must be selected based on earth incidence
-                # angle variable.
-                if (i + 1) in [2, 8, 9, 10, 11, 16]:
-                    for j in range(sensor.n_angles):
-                        lower = self.angle_bins[j + 1]
-                        upper = self.angle_bins[j]
-                        i_a = (eia >= lower) * (eia < upper)
-                        for k in range(sensor.n_chans):
-                            cs, _ = np.histogram(tbs[i_a, k],
-                                                 bins=self.tb_bins)
-                            self.tbs[i, k, j] += cs
-                            if self.conditional is not None:
-                                cs, _, _ = np.histogram2d(
-                                    tbs[i_a, self.conditional],
-                                    tbs[i_a, k],
-                                    bins=self.tb_bins
-                                )
-                                self.tbs_cond[i, k, j] += cs
-
-
-                # For samples with simulated observations, values are already
-                # binned but bias correction must be applied.
-                else:
-                    tbs = (dataset["simulated_brightness_temperatures"]
-                           .data[i_st[:, :, 90:-90].data])
-                    b = (dataset["brightness_temperature_biases"]
-                         .data[i_st[:, :, 90:-90]])
-
-                    for k in range(sensor.n_chans):
-                        cs, _ = np.histogram(b[:, k], bins=self.bias_bins)
-                        self.tbs_bias[i, k] += cs
-
-                    for j in range(sensor.n_angles):
-                        for k in range(sensor.n_chans):
-                            # Simulated observations
-                            cs, _ = np.histogram(tbs[:, j, k],
-                                                 bins=self.tb_bins)
-                            self.tbs_sim[i, k, j] += cs
-
-                            # Corrected observations
-                            x = tbs[:, j, k] - b[:, k]
-                            cs, _ = np.histogram(x, bins=self.tb_bins)
-                            self.tbs[i, k, j] += cs
-
-                            if self.conditional is not None:
-                                x_0 = (tbs[:, j, self.conditional] -
-                                       b[:, self.conditional])
-                                cs, _, _ = np.histogram2d(
-                                    x_0,
-                                    x,
-                                    bins=self.tb_bins
-                                )
-                                self.tbs_cond[i, k, j] += cs
-            # Sensor with constant EIA
-            else:
-                for j in range(sensor.n_chans):
-                    cs, _ = np.histogram(tbs[:, j], bins=self.tb_bins)
-                    self.tbs[i, j] += cs
-                    if self.conditional is not None:
-                        cs, _, _ = np.histogram2d(tbs[:, self.conditional],
-                                                  tbs[:, j],
-                                                  bins=self.tb_bins)
-                        self.tbs_cond[i, j] += cs
+            # Select obs for given surface type.
+            i_s = (t_s == i + 1)
 
             # Retrieval targets
             for k in self.bins:
+
                 v = dataset[k].data
-                if v.shape[2] < i_st.shape[2]:
-                    inds = i_st[:, :, 90:-90]
+                if v.ndim <= 2:
+                    inds = i_s * (v > -999)
                 else:
-                    inds = i_st
+                    inds = i_s * np.all(v > -999, axis=-1)
+
                 v = v[inds]
-                # Surface precip and convective precip must be treated
-                # separately.
-                if ((k in ["surface_precip", "convective_precip"]) and
-                    self.has_angles):
-                    if (i + 1) in [2, 8, 9, 10, 11, 16]:
-                        for j in range(sensor.n_angles):
-                            lower = self.angle_bins[j + 1]
-                            upper = self.angle_bins[j]
-                            i_a = (eia >= lower) * (eia < upper)
-                            cs, _ = np.histogram(v[i_a, 0],
-                                                 bins=self.bins[k])
-                            self.targets[k][i, j] += cs
-                    else:
-                        for j in range(sensor.n_angles):
-                            cs, _ = np.histogram(v[:, j], bins=self.bins[k])
-                            self.targets[k][i, j] += cs
-                else:
-                    cs, _ = np.histogram(v, bins=self.bins[k])
-                    self.targets[k][i] += cs
+                t2m = dataset["two_meter_temperature"].data[inds]
+                tcwv = dataset["total_column_water_vapor"].data[inds]
 
-            # Ancillary data
-            v = dataset["two_meter_temperature"].data[i_st]
-            cs, _ = np.histogram(v, bins=self.t2m_bins)
-            self.t2m[i] += cs
-            v = dataset["total_column_water_vapor"].data[i_st]
-            cs, _ = np.histogram(v, bins=self.tcwv_bins)
-            self.tcwv[i] += cs
+                # Histogram
+                cs, _ = np.histogram(v, bins=self.bins[k])
+                self.targets[k][i] += cs
 
-        bins = np.arange(0, 19) + 0.5
-        cs, _ = np.histogram(st, bins=bins)
-        self.st += cs
-        at = dataset["airmass_type"]
-        bins = np.arange(-1, 4) + 0.5
-        cs, _ = np.histogram(at, bins=bins)
-        self.at += cs
+                if v.ndim > t2m.ndim:
+                    t2m = np.repeat(t2m.reshape(-1, 1), 28, axis=-1)
+                    tcwv = np.repeat(tcwv.reshape(-1, 1), 28, axis=-1)
+
+                # Conditional mean
+                self.sums_t2m[k][i] = np.histogram(
+                    t2m, bins=self.t2m_bins, weights=v
+                )[0]
+                self.counts_t2m[k][i] = np.histogram(
+                    t2m, bins=self.t2m_bins
+                )[0]
+                self.sums_tcwv[k][i] = np.histogram(
+                    tcwv, bins=self.tcwv_bins, weights=v
+                )[0]
+                self.counts_tcwv[k][i] = np.histogram(
+                    tcwv, bins=self.tcwv_bins
+                )[0]
 
     def merge(self, other):
         """
         Merge the data of this statistic with that calculated in a different
         process.
         """
-        if self.tbs is None:
-            self.tbs = other.tbs
-            self.tbs_cond = other.tbs_cond
-            self.tbs_sim = other.tbs_sim
-            self.tbs_bias = other.tbs_bias
+        if not len(self.targets):
             self.targets = other.targets
-            self.t2m = other.t2m
-            self.tcwv = other.tcwv
-            self.st = other.st
-            self.at = other.at
-        elif other.tbs is not None:
-            self.tbs += other.tbs
-            if self.tbs_sim is not None:
-                self.tbs_sim += other.tbs_sim
-                self.tbs_bias += other.tbs_bias
-            if self.conditional is not None and other.conditional is not None:
-                self.tbs_cond += other.tbs_cond
+            self.bins = other.bins
+            self.sums_t2m = other.sums_t2m
+            self.counts_t2m = other.tums_t2m
+            self.sums_tcwv = other.sums_tcwv
+            self.counts_tcwv = other.tums_tcwv
+
+        elif len(self.targets):
             for k in self.targets:
                 self.targets[k] += other.targets[k]
-            self.t2m += other.t2m
-            self.tcwv += other.tcwv
-            self.st += other.st
-            self.at += other.at
+                self.sums_t2m[k] += other.sums_t2m[k]
+                self.counts_t2m[k] += other.counts_t2m[k]
+                self.sums_tcwv[k] += other.sums_tcwv[k]
+                self.counts_tcwv[k] += other.counts_tcwv[k]
 
     def save(self, destination):
         """
         Save results to file in NetCDF format.
         """
         data = {}
-        tb_bins = 0.5 * (self.tb_bins[1:] + self.tb_bins[:-1])
-        data["brightness_temperature_bins"] = (
-            ("brightness_temperature_bins",),
-            tb_bins
+
+        t2m_bins = 0.5 * (self.t2m_bins[1:] + self.t2m_bins[:-1])
+        data["two_meter_temperature_bins"] = (
+            ("two_meter_temperature_bins",),
+            t2m_bins
         )
-
-        if self.has_angles:
-            data["brightness_temperatures"] = (
-                ("surface_type_bins",
-                 "channels",
-                 "angles",
-                 "brightness_temperature_bins"),
-                self.tbs
-            )
-            data["simulated_brightness_temperatures"] = (
-                ("surface_type_bins",
-                 "channels",
-                 "angles",
-                 "brightness_temperature_bins"),
-                self.tbs_sim
-            )
-            if self.conditional is not None:
-                data["conditional_brightness_temperatures"] = (
-                    ("surface_type_bins",
-                     "channels",
-                     "angles",
-                     "brightness_temperature_bins",
-                     "brightness_temperature_bins"),
-                    self.tbs_cond
-                )
-
-        else:
-            data["brightness_temperatures"] = (
-                ("surface_type_bins",
-                 "channels",
-                 "brightness_temperature_bins"),
-                self.tbs
-            )
-            if self.tbs_sim is not None:
-                if self.tbs_sim is not None:
-                    data["simulated_brightness_temperatures"] = (
-                        ("surface_type_bins",
-                        "channels",
-                        "brightness_temperature_bins"),
-                        self.tbs_sim
-                    )
-            if self.conditional is not None:
-                data["conditional_brightness_temperatures"] = (
-                    ("surface_type_bins",
-                     "channels",
-                     "brightness_temperature_bins",
-                     "brightness_temperature_bins"),
-                    self.tbs_cond
-                )
-
-        bias_bins = 0.5 * (self.bias_bins[1:] + self.bias_bins[:-1])
-        data["bias_bins"] = (
-            ("bias_bins",),
-            bias_bins
-        )
-        data["brightness_temperatures_biases"] = (
-            ("surface_type_bins",
-             "channels",
-             "bias_bins"),
-            self.tbs_bias
+        tcwv_bins = 0.5 * (self.tcwv_bins[1:] + self.tcwv_bins[:-1])
+        data["total_column_water_vapor_bins"] = (
+            ("total_column_water_vapor_bins",),
+            tcwv_bins
         )
 
         for k in self.targets:
             bins = 0.5 * (self.bins[k][1:] + self.bins[k][:-1])
             bin_dim = k + "_bins"
             data[bin_dim] = (bin_dim,), bins
-            if (self.has_angles
-                and k in ["surface_precip", "convective_precip"]):
-                data[k] = ("surface_type", "angles", bin_dim), self.targets[k]
-            else:
-                data[k] = ("surface_type", bin_dim), self.targets[k]
+            data[k] = ("surface_type", bin_dim), self.targets[k]
 
-        bins = 0.5 * (self.t2m_bins[1:] + self.t2m_bins[:-1])
-        bin_dim = "two_meter_temperature_bins"
-        data[bin_dim] = (bin_dim,), bins
-        data["two_meter_temperature"] = ("surface_type", bin_dim), self.t2m
-
-        bins = 0.5 * (self.tcwv_bins[1:] + self.tcwv_bins[:-1])
-        bin_dim = "total_column_water_vapor_bins"
-        data[bin_dim] = (bin_dim,), bins
-        data["total_column_water_vapor"] = ("surface_type", bin_dim), self.tcwv
-
-        data["surface_type"] = ("surface_type_bins",), self.st
-        data["airmass_type"] = ("airmass_type_bins"), self.st
+            data[k + "_mean_tcwv"] = (
+                ("surface_type", "tcwv_bins"),
+                self.sums_tcwv[k] / self.counts_tcwv[k]
+            )
+            data[k + "_mean_t2m"] = (
+                ("surface_type", "t2m_bins"),
+                self.sums_t2m[k] / self.counts_t2m[k]
+            )
 
         data = xr.Dataset(data)
-
         destination = Path(destination)
         output_file = (destination /
-                       (f"training_data_statistics_{self.sensor.name.lower()}"
+                       (f"retrieval_statistics_{self.sensor.name.lower()}"
                         ".nc"))
         data.to_netcdf(output_file)
 
@@ -1974,4 +1826,4 @@ class StatisticsProcessor:
         for s in stats:
             s.save(output_path)
 
-        pool.shutdown(wait=False)
+        pool.shutdown()
