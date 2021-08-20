@@ -61,6 +61,27 @@ def add_parser(subparsers):
     parser.set_defaults(func=run)
 
 
+STATS = {
+    "training": [
+        statistics.TrainingDataStatistics(conditional=1),
+        statistics.ZonalDistribution(),
+        statistics.GlobalDistribution()
+    ],
+    "bin": [
+        statistics.BinFileStatistics(),
+        statistics.ZonalDistribution(),
+        statistics.GlobalDistribution()
+    ],
+    "observations": [statistics.ObservationStatistics(conditional=1)]
+}
+
+ENDINGS = {
+    "training": "**/*.nc",
+    "bin": "**/*.bin",
+    "observations": "**/*.nc"
+}
+
+
 def run(args):
     """
     Calculate statistics.
@@ -104,29 +125,8 @@ def run(args):
 
     n_procs = args.n_processes
 
-
-    stats = {
-        "training": [
-            statistics.TrainingDataStatistics(conditional=1),
-            statistics.ZonalDistribution(),
-            statistics.GlobalDistribution()
-        ],
-        "bin": [
-            statistics.BinFileStatistics(),
-            statistics.ZonalDistribution(),
-            statistics.GlobalDistribution()
-        ],
-        "observations": [statistics.ObservationStatistics(conditional=1)]
-    }
-
-    endings = {
-        "training": "**/*.nc",
-        "bin": "**/*.bin",
-        "observations": "**/*.nc"
-    }
-
-    input_files = list(Path(input).glob(endings[kind]))
-    processor = statistics.StatisticsProcessor(sensor,
-                                               input_files,
-                                               stats[kind])
+    endings = ENDINGS[kind]
+    input_files = list(Path(input).glob(endings))
+    stats = STATS[kind]
+    processor = statistics.StatisticsProcessor(sensor, input_files, stats)
     processor.run(n_procs, output)
