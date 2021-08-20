@@ -49,6 +49,7 @@ def add_parser(subparsers):
                         help="The type of statistics to calculate.")
     parser.add_argument('input', metavar="input", type=str,
                         help="The path to the directory tree containing"
+                        nargs="*",
                         "the input data.")
     parser.add_argument('output', metavar="output", type=str,
                         help="Path to the folder to which to write the "
@@ -109,12 +110,13 @@ def run(args):
         )
         return 1
 
-    input = Path(args.input)
-    if not input.exists():
-        LOGGER.error(
-            "The given input path '%s' doesn't exist", input
-        )
-        return 1
+    inputs = [Path(f) for f in args.input]
+    for path in inputs:
+        if not path.exists():
+            LOGGER.error(
+                "The given input path '%s' doesn't exist", path
+            )
+            return 1
 
     output = Path(args.output)
     if not output.exists():
@@ -126,7 +128,11 @@ def run(args):
     n_procs = args.n_processes
 
     endings = ENDINGS[kind]
-    input_files = list(Path(input).glob(endings))
+
+    input_files = []
+    for path in inputs:
+        input_files += list(path.glob(endings))
+
     stats = STATS[kind]
     processor = statistics.StatisticsProcessor(sensor, input_files, stats)
     processor.run(n_procs, output)
