@@ -705,6 +705,19 @@ class GPROF_NN_2D_QRNN(QRNN):
         self.preprocessor_class = PreprocessorLoader2D
         self.netcdf_class = NetcdfLoader2D
 
+    def set_targets(self, targets):
+        """
+        Set target list.
+
+        This function can be used to reduc
+
+        """
+        if not all([t in self.targets for t in targets]):
+            raise ValueError(
+                "'targets' must be a sub-set of the models targets."
+            )
+        self.targets = targets
+        self.model.targets = targets
 
 class GPROF_NN_2D_DRNN(DRNN):
     """
@@ -749,6 +762,20 @@ class GPROF_NN_2D_DRNN(DRNN):
 
         self.preprocessor_class = PreprocessorLoader2D
         self.netcdf_class = NetcdfLoader2D
+
+    def set_targets(self, targets):
+        """
+        Set target list.
+
+        This function can be used to reduc
+
+        """
+        if not all([t in self.targets for t in targets]):
+            raise ValueError(
+                "'targets' must be a sub-set of the models targets."
+            )
+        self.targets = targets
+        self.model.targets = targets
 
 
 ###############################################################################

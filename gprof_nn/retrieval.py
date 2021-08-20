@@ -130,7 +130,12 @@ class RetrievalDriver:
     N_CHANNELS = 15
 
     def __init__(
-        self, input_file, normalizer, model, ancillary_data=None, output_file=None
+            self,
+            input_file,
+            normalizer,
+            model,
+            ancillary_data=None,
+            output_file=None
     ):
         """
         Create retrieval driver.
@@ -309,10 +314,16 @@ class RetrievalDriver:
         else:
             # Include some inputs in result.
             if hasattr(input_data, "data"):
-                results["latitude"] = input_data.data.latitude
-                results["longitude"] = input_data.data.longitude
-                results["surface_type"] = input_data.data.surface_type
-                results["airmass_type"] = input_data.data.airmass_type
+                vars = [
+                    "latitude",
+                    "longitude",
+                    "total_column_water_vapor",
+                    "two_meter_temperature",
+                    "surface_type",
+                    "airmass_type",
+                ]
+                for var in vars:
+                    results[var] = input_data.data[var]
             results.to_netcdf(self.output_file)
         return self.output_file
 

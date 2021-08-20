@@ -17,6 +17,7 @@ from rich.progress import track
 
 import gprof_nn.logging
 from gprof_nn.retrieval import RetrievalDriver, RetrievalGradientDriver
+from gprof_nn.definitions import ALL_TARGETS, PROFILE_NAMES
 
 
 LOGGER = logging.getLogger(__name__)
@@ -55,6 +56,7 @@ def add_parser(subparsers):
                         type=str,
                         help='Folder or file to which to write the output.')
     parser.add_argument('--gradients', action='store_true')
+    parser.add_argument('--no_profiles', action='store_true')
     parser.add_argument('--n_processes',
                         metavar="n",
                         type=int,
@@ -145,6 +147,10 @@ def run(args):
 
     # Try to load the model.
     xrnn = QRNN.load(model)
+    if args.no_profiles:
+        targets = [t for t in ALL_TARGETS if not t in PROFILE_NAMES]
+        xrnn.set_targets(targets)
+
 
     # Try to load the normalizer.
     normalizer = Normalizer.load(normalizer)
