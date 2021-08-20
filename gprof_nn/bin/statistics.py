@@ -73,13 +73,15 @@ STATS = {
         statistics.ZonalDistribution(),
         statistics.GlobalDistribution()
     ],
-    "observations": [statistics.ObservationStatistics(conditional=1)]
+    "observations": [statistics.ObservationStatistics(conditional=1)],
+    "retrieval": [statistics.RetrievalStatistics()]
 }
 
 ENDINGS = {
     "training": "**/*.nc",
     "bin": "**/*.bin",
-    "observations": "**/*.nc"
+    "observations": "**/*.nc",
+    "retrieval": "**/*.nc"
 }
 
 
@@ -103,10 +105,10 @@ def run(args):
         return 1
 
     kind = args.kind.lower()
-    if not kind in ["training", "bin", "observations"]:
+    if not kind in ["training", "bin", "observations", "retrieval"]:
         LOGGER.error(
-            "'kind' argument must be one of 'training', 'bin' or"
-            "'observations'."
+            "'kind' argument must be one of 'training', 'bin', "
+            "'observations' or 'retrieval'."
         )
         return 1
 
