@@ -1242,16 +1242,16 @@ class BinFileStatistics(Statistic):
                 tcwv = np.repeat(tcwv.reshape(-1, 1), 28, axis=-1)
 
             # Conditional mean
-            self.sums_t2m[k][st - 1] = np.histogram(
+            self.sums_t2m[k][st - 1] += np.histogram(
                 t2m, bins=self.t2m_bins, weights=v
             )[0]
-            self.counts_t2m[k][st - 1] = np.histogram(
+            self.counts_t2m[k][st - 1] += np.histogram(
                 t2m, bins=self.t2m_bins
             )[0]
-            self.sums_tcwv[k][st - 1] = np.histogram(
+            self.sums_tcwv[k][st - 1] += np.histogram(
                 tcwv, bins=self.tcwv_bins, weights=v
             )[0]
-            self.counts_tcwv[k][st - 1] = np.histogram(
+            self.counts_tcwv[k][st - 1] += np.histogram(
                 tcwv, bins=self.tcwv_bins
             )[0]
 
@@ -1653,16 +1653,16 @@ class RetrievalStatistics(Statistic):
                     tcwv = np.repeat(tcwv.reshape(-1, 1), 28, axis=-1)
 
                 # Conditional mean
-                self.sums_t2m[k][i] = np.histogram(
+                self.sums_t2m[k][i] += np.histogram(
                     t2m, bins=self.t2m_bins, weights=v
                 )[0]
-                self.counts_t2m[k][i] = np.histogram(
+                self.counts_t2m[k][i] += np.histogram(
                     t2m, bins=self.t2m_bins
                 )[0]
-                self.sums_tcwv[k][i] = np.histogram(
+                self.sums_tcwv[k][i] += np.histogram(
                     tcwv, bins=self.tcwv_bins, weights=v
                 )[0]
-                self.counts_tcwv[k][i] = np.histogram(
+                self.counts_tcwv[k][i] += np.histogram(
                     tcwv, bins=self.tcwv_bins
                 )[0]
 
