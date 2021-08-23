@@ -13,8 +13,6 @@ from quantnn.normalizer import Normalizer
 from quantnn.models.pytorch.xception import XceptionFpn
 
 from gprof_nn import sensors
-from gprof_nn.augmentation import (get_transformation_coordinates,
-                                   GMI_GEOMETRY)
 from gprof_nn.data.training_data import (
     load_variable,
     decompress_scene,

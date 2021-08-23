@@ -14,22 +14,22 @@ import numpy as np
 from scipy.signal import convolve
 import xarray as xr
 
+from gprof_nn.data import types
 from gprof_nn.definitions import N_LAYERS, LIMITS
 from gprof_nn.data.utils import (load_variable,
                                  decompress_scene,
                                  remap_scene)
-from gprof_nn.data import types
-
 from gprof_nn.utils import (apply_limits,
                             get_mask,
                             calculate_interpolation_weights,
                             interpolate)
 from gprof_nn.data.utils import expand_pixels
 from gprof_nn.augmentation import (
-    GMI_GEOMETRY,
-    MHS_GEOMETRY,
+    Conical,
+    CrossTrack,
     get_transformation_coordinates,
     extract_domain,
+    SCANS_PER_SAMPLE
 )
 
 DATE_TYPE = np.dtype(
@@ -165,7 +165,9 @@ class Sensor(ABC):
                  kind,
                  name,
                  channels,
-                 angles):
+                 angles,
+                 platform,
+                 viewing_geometry):
         self.kind = kind
         self._name = name
         self._channels = channels
@@ -174,6 +176,8 @@ class Sensor(ABC):
         n_angles = len(angles)
         self._n_chans = n_chans
         self._n_angles = n_angles
+        self.platform = platform
+        self.viewing_geometry = viewing_geometry
 
         # Bin file types
         self._bin_file_header = types.get_bin_file_header(
@@ -201,6 +205,13 @@ class Sensor(ABC):
             n_chans,
             n_angles,
             N_LAYERS,
+            kind
+        )
+
+        # MRMS types
+        self._mrms_file_record = types.get_mrms_file_record(
+            n_chans,
+            n_angles,
             kind
         )
 
@@ -284,17 +295,17 @@ class Sensor(ABC):
             self.kind
         )
 
-    @abstractproperty
     def l1c_file_prefix(self):
         """
         The prefix used for L1C files of this sensor.
         """
+        self.platform.l1c_file_prefix
 
-    @abstractproperty
     def l1c_file_path(self):
         """
         The default file path on the CSU system.
         """
+        self.platform.l1c_file_path
 
     @abstractproperty
     def mrms_file_path(self):
@@ -302,12 +313,13 @@ class Sensor(ABC):
         The default path for MRMS match-up files on the CSU system.
         """
 
-    @abstractproperty
+    @property
     def mrms_file_record(self):
         """
         Numpy dtype defining the binary record structure for MRMS match
         up files.
         """
+        return self._mrms_file_record
 
     @abstractproperty
     def sim_file_pattern(self):
@@ -502,42 +514,16 @@ class ConicalScanner(Sensor):
         name,
         channels,
         angles,
-        l1c_prefix,
-        l1c_file_path,
+        platform,
+        viewing_geometry,
         mrms_file_path,
         sim_file_pattern,
         sim_file_path,
     ):
-        super().__init__(types.CONICAL, name, channels, angles)
+        super().__init__(types.CONICAL, name, channels, angles, platform, viewing_geometry)
         n_chans = len(channels)
 
-        self._l1c_file_prefix = l1c_prefix
-        self._l1c_file_path = l1c_file_path
-
         self._mrms_file_path = mrms_file_path
-        self._mrms_file_record = np.dtype(
-            [
-                ("latitude", "f4"),
-                ("longitude", "f4"),
-                ("scan_time", f"5i4"),
-                ("quality_flag", f"f4"),
-                ("surface_precip", "f4"),
-                ("surface_rain", "f4"),
-                ("convective_rain", "f4"),
-                ("stratiform_rain", "f4"),
-                ("snow", "f4"),
-                ("quality_index", "f4"),
-                ("gauge_fraction", "f4"),
-                ("standard_deviation", "f4"),
-                ("n_stratiform", "i4"),
-                ("n_convective", "i4"),
-                ("n_rain", "i4"),
-                ("n_snow", "i4"),
-                ("fraction_missing", "f4"),
-                ("brightness_temperatures", f"{n_chans}f4"),
-            ]
-        )
-
         self._sim_file_pattern = sim_file_pattern
         self._sim_file_path = sim_file_path
 
@@ -551,18 +537,6 @@ class ConicalScanner(Sensor):
         The number of input features for the GPORF-NN retrieval.
         """
         return self.n_chans + 2 + 18 + 4
-
-    @property
-    def bin_file_header(self):
-        return self._bin_file_header
-
-    @property
-    def l1c_file_prefix(self):
-        return self._l1c_file_prefix
-
-    @property
-    def l1c_file_path(self):
-        return self._l1c_file_path
 
     @property
     def mrms_file_path(self):
@@ -736,10 +710,11 @@ class ConicalScanner(Sensor):
         x = []
         y = {}
 
+        vs = ["latitude", "longitude"]
         with xr.open_dataset(dataset) as dataset:
             n = dataset.samples.size
             for i in range(n):
-                scene = decompress_scene(dataset[{"samples": i}], targets)
+                scene = decompress_scene(dataset[{"samples": i}], targets + vs)
 
                 if augment:
                         p_x_o = rng.random()
@@ -750,8 +725,10 @@ class ConicalScanner(Sensor):
                         p_x_i = 0.5
                         p_y = 0.5
 
+                lats = scene.latitude.data
+                lons = scene.longitude.data
                 coords = get_transformation_coordinates(
-                        GMI_GEOMETRY, 96, 128, p_x_i, p_x_o, p_y
+                        lats, lons, self.viewing_geometry, 96, 128, p_x_i, p_x_o, p_y
                    )
 
                 scene = remap_scene(scene, coords, targets)
@@ -820,54 +797,25 @@ class CrossTrackScanner(Sensor):
         channels,
         nedt,
         angles,
-        l1c_prefix,
-        l1c_file_path,
+        platform,
+        viewing_geometry,
         mrms_file_path,
         sim_file_pattern,
         sim_file_path,
     ):
-        super().__init__(types.XTRACK, "MHS", channels, angles)
+        super().__init__(types.XTRACK,
+                         "MHS",
+                         channels,
+                         angles,
+                         platform,
+                         viewing_geometry)
         self.nedt = nedt
         n_chans = len(channels)
         n_angles = len(angles)
         self.kernels = calculate_smoothing_kernels(self,
-                                                   MHS_GEOMETRY)
-        self._l1c_file_prefix = l1c_prefix
-        self._l1c_file_path = l1c_file_path
+                                                   self.viewing_geometry)
 
         self._mrms_file_path = mrms_file_path
-        self._mrms_file_record = np.dtype(
-            [
-                ("datasetnum", "i4"),
-                ("latitude", "f4"),
-                ("longitude", "f4"),
-                ("orbitnum", "i4"),
-                ("n_pixels", "i4"),
-                ("n_scans", "i4"),
-                ("scan_time", f"5i4"),
-                ("skin_temperature", f"i4"),
-                ("total_column_water_vapor", f"i4"),
-                ("surface_type", f"i4"),
-                ("quality_flag", f"f4"),
-                ("two_meter_temperature", "f4"),
-                ("wet_bulb_temperature", "f4"),
-                ("lapse_rate", "f4"),
-                ("surface_precip", "f4"),
-                ("surface_rain", "f4"),
-                ("convective_rain", "f4"),
-                ("stratiform_rain", "f4"),
-                ("snow", "f4"),
-                ("quality_index", "f4"),
-                ("gauge_fraction", "f4"),
-                ("standard_deviation", "f4"),
-                ("n_stratiform", "i4"),
-                ("n_convective", "i4"),
-                ("n_rain", "i4"),
-                ("n_snow", "i4"),
-                ("fraction_missing", "f4"),
-                ("brightness_temperatures", f"{n_chans}f4"),
-            ]
-        )
         self._sim_file_pattern = sim_file_pattern
         self._sim_file_path = sim_file_path
 
@@ -878,53 +826,6 @@ class CrossTrackScanner(Sensor):
         The number of input features for the GPORF-NN retrieval.
         """
         return self.n_chans + 3 + 18 + 4
-
-    @property
-    def bin_file_header(self):
-        return self._bin_file_header
-
-    def get_bin_file_record(self, surface_type):
-        if surface_type in [2, 8, 9, 10, 11, 16]:
-            return np.dtype(
-                [
-                    ("dataset_number", "i4"),
-                    ("latitude", "f4"),
-                    ("longitude", "f4"),
-                    ("surface_precip", "f4"),
-                    ("convective_precip", "f4"),
-                    ("pixel_position", "i4"),
-                    ("brightness_temperatures", "f4", (self.n_chans,)),
-                    ("rain_water_path", np.float32),
-                    ("cloud_water_path", np.float32),
-                    ("ice_water_path", np.float32),
-                    ("total_column_water_vapor", np.float32),
-                    ("two_meter_temperature", np.float32),
-                    ("rain_water_content", "f4", (N_LAYERS,)),
-                    ("cloud_water_content", "f4", (N_LAYERS,)),
-                    ("snow_water_content", "f4", (N_LAYERS,)),
-                    ("latent_heat", "f4", (N_LAYERS,)),
-                ]
-            )
-        else:
-            return np.dtype(
-                [
-                    ("dataset_number", "i4"),
-                    ("latitude", "f4"),
-                    ("longitude", "f4"),
-                    ("surface_precip", "f4", (self.n_angles,)),
-                    ("convective_precip", "f4", (self.n_angles,)),
-                    ("brightness_temperatures", "f4", (self.n_angles, self.n_chans)),
-                    ("rain_water_path", np.float32),
-                    ("cloud_water_path", np.float32),
-                    ("ice_water_path", np.float32),
-                    ("total_column_water_vapor", np.float32),
-                    ("two_meter_temperature", np.float32),
-                    ("rain_water_content", "f4", (N_LAYERS,)),
-                    ("cloud_water_content", "f4", (N_LAYERS,)),
-                    ("snow_water_content", "f4", (N_LAYERS,)),
-                    ("latent_heat", "f4", (N_LAYERS,)),
-                ]
-            )
 
     @property
     def l1c_file_prefix(self):
@@ -1199,17 +1100,19 @@ class CrossTrackScanner(Sensor):
         width = 32
         height = 128
 
+        lats = scene.latitude.data
+        lons = scene.longitude.data
         coords = get_transformation_coordinates(
-            MHS_GEOMETRY, width, height, p_x_i, p_x_o, p_y
+            lats, lons, self.viewing_geometry, width, height, p_x_i, p_x_o, p_y
         )
 
         vs = ["simulated_brightness_temperatures", "brightness_temperature_biases"]
         scene = remap_scene(scene, coords, targets + vs)
 
-        center = MHS_GEOMETRY.get_window_center(p_x_o, width, height)
+        center = self.viewing_geometry.get_window_center(p_x_o, width, height)
         j_start = int(center[1, 0, 0] - width // 2)
         j_end = int(center[1, 0, 0] + width // 2)
-        eia = MHS_GEOMETRY.get_earth_incidence_angles()
+        eia = self.viewing_geometry.get_earth_incidence_angles()
         eia = eia[j_start:j_end]
         weights = calculate_interpolation_weights(eia, self.angles)
         eia = np.repeat(eia.reshape(1, -1), height, axis=0)
@@ -1275,15 +1178,20 @@ class CrossTrackScanner(Sensor):
         """
         if augment:
             p_x = rng.random()
+            p_y = rng.random()
         else:
             p_x = 0.5
-
-        c = MHS_GEOMETRY.get_window_center(p_x, 32, 128)
-        i = c[0, 0, 0]
-        j = c[0, 0, 0]
+            p_y = 0.5
 
         width = 32
         height = 128
+
+        n_scans = SCANS_PER_SAMPLE
+        n_pixels = self.viewing_geometry.pixels_per_scan
+
+        i = height // 2 + (n_scans - height) * p_y
+        j = ((SCANS_PER_SAMPLE - n_pixels + width) // 2 +
+             (n_pixels - width) * p_x - n_pixels // 2)
 
         i_start = int(i - height // 2)
         i_end = int(i + height // 2)
@@ -1357,6 +1265,8 @@ class CrossTrackScanner(Sensor):
             "brightness_temperature_biases",
             "earth_incidence_angle",
             "source",
+            "latitude",
+            "longitude"
         ]
         if "surface_precip" not in targets:
             vs += ["surface_precip"]
@@ -1378,6 +1288,39 @@ class CrossTrackScanner(Sensor):
 
         return x, y
 
+###############################################################################
+# Platforms
+###############################################################################
+
+
+class Platform:
+    """
+    The platform class contains bundles the satellite-specific information
+    related to a sensor.
+    """
+    def __init__(self,
+                 name,
+                 l1c_file_path,
+                 l1c_file_prefix):
+        self.name = name
+        self.l1c_file_path = l1c_file_path
+        self.l1c_file_prefix = l1c_file_prefix
+
+    def __str__(self):
+        return f"Platform(name={self.name})"
+
+    def __repr__(self):
+        return f"Platform(name={self.name})"
+
+NOAA19 = Platform("NOAA-19",
+                  "/pdata4/archive/GPM/1C_NOAA19/",
+                  "1C.NOAA19.MHS")
+
+# Increased altitude because it seems to more realistic result for the
+# observation remapping.
+GPM = Platform("GMP-CO",
+               "/pdata4/archive/GPM/1CR_GMI/",
+               "1C-R.GPM.GMI")
 
 ###############################################################################
 # GMI
@@ -1403,16 +1346,29 @@ GMI_CHANNELS = [
 
 GMI_ANGLES = [52.8]
 
+GMI_VIEWING_GEOMETRY = Conical(
+    altitude=455e3,
+    earth_incidence_angle=53.0,
+    scan_range=140.0,
+    pixels_per_scan=221,
+    scan_offset=13.4e3
+)
+
+
 GMI = ConicalScanner(
     "GMI",
     GMI_CHANNELS,
     GMI_ANGLES,
-    "1C-R.GPM.GMI",
-    "/pdata4/archive/GPM/1CR_GMI",
+    GPM,
+    GMI_VIEWING_GEOMETRY,
     "/pdata4/veljko/GMI2MRMS_match2019/db_mrms4GMI/",
     "GMI.dbsatTb.??????{day}.??????.sim",
     "/qdata1/pbrown/dbaseV7/simV7"
 )
+
+###############################################################################
+# MHS
+###############################################################################
 
 MHS_ANGLES = np.array(
     [59.798, 53.311, 46.095, 39.222, 32.562, 26.043, 19.619, 13.257, 6.934, 0.0]
@@ -1428,20 +1384,24 @@ MHS_CHANNELS = [
 
 MHS_NEDT = np.array([1.0, 1.0, 4.0, 2.0, 2.0])
 
+MHS_VIEWING_GEOMETRY =  CrossTrack(
+    altitude=855e3,
+    scan_range=2.0 * 49.5,
+    pixels_per_scan=90,
+    scan_offset=17e3
+)
 
 MHS = CrossTrackScanner(
     "MHS",
     MHS_CHANNELS,
     MHS_NEDT,
     MHS_ANGLES,
-    "1C.*.MHS.",
-    "/pdata4/archive/GPM/1C_NOAA19",
+    NOAA19,
+    MHS_VIEWING_GEOMETRY,
     "/pdata4/veljko/MHS2MRMS_match2019/monthly_2021/",
     "MHS.dbsatTb.??????{day}.??????.sim",
     "/qdata1/pbrown/dbaseV7/simV7x",
 )
 
+MHS_NOA19 = MHS
 
-###############################################################################
-# MHS
-###############################################################################

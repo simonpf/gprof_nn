@@ -27,9 +27,7 @@ from gprof_nn.data.utils import expand_pixels
 from gprof_nn.data.preprocessor import PreprocessorFile
 from gprof_nn.augmentation import (
     extract_domain,
-    get_transformation_coordinates,
-    GMI_GEOMETRY,
-    MHS_GEOMETRY,
+    get_transformation_coordinates
 )
 
 LOGGER = logging.getLogger(__name__)
@@ -871,7 +869,7 @@ class SimulatorDataset(GPROF_NN_2D_Dataset):
         x = []
         y = {}
 
-        vs = []
+        vs = ["latitude", "longitude"]
         if sensor != sensors.GMI:
             vs += ["brightness_temperatures_gmi"]
 
@@ -888,8 +886,10 @@ class SimulatorDataset(GPROF_NN_2D_Dataset):
                 p_x_i = 0.0
                 p_y = 0.0
 
+            lats = scene.latitude.data
+            lons = scene.longitude.data
             coords = get_transformation_coordinates(
-                GMI_GEOMETRY, 96, 128, p_x_i, p_x_o, p_y
+                lats, lons, sensor.viewing_geometry, 96, 128, p_x_i, p_x_o, p_y
             )
 
             scene = remap_scene(scene, coords, targets + vs)

@@ -1,9 +1,14 @@
 """
 Tests for the data augmentation methods in gprof_nn.augmentation.
 """
+from pathlib import Path
+
 import numpy as np
+import xarray as xr
+
 from gprof_nn import sensors
-from gprof_nn.augmentation import (GMI_GEOMETRY,
+from gprof_nn.augmentation import (Swath,
+                                   GMI_GEOMETRY,
                                    MHS_GEOMETRY,
                                    get_center_pixels,
                                    get_transformation_coordinates,
@@ -38,6 +43,29 @@ def test_mhs_geometry():
     ij_r = MHS_GEOMETRY.euclidean_to_pixel_coordinates(xy)
     assert np.all(np.isclose(ij, ij_r))
 
+def test_swath_geometry():
+    """
+    Assert that coordinate transformation function for GMI viewing
+    geometry are reversible.
+    """
+    path = Path(__file__).parent
+    input_file = path / "data" / "gprof_nn_mhs_era5_5.nc"
+    input_data = xr.load_dataset(input_file)
+
+    lats = input_data.latitude.data[0]
+    lons = input_data.longitude.data[0]
+
+    i = np.arange(0, 221, 10)
+    j = np.arange(0, 221, 10)
+    ij = np.stack(np.meshgrid(i, j))
+
+    swath = Swath(lats, lons)
+
+    xy = swath.pixel_coordinates_to_euclidean(ij)
+    ij_r = swath.euclidean_to_pixel_coordinates(xy)
+    assert np.all(np.isclose(ij, ij_r))
+
+
 
 def test_interpolation_weights():
     """
@@ -65,11 +93,18 @@ def test_transformation_coordinates():
     mapping for when input and output window are located at the
     center of the swath.
     """
-    c = get_transformation_coordinates(GMI_GEOMETRY,
+    path = Path(__file__).parent
+    input_file = path / "data" / "gprof_nn_mhs_era5_5.nc"
+    input_data = xr.load_dataset(input_file)
+
+    lats = input_data.latitude.data[0]
+    lons = input_data.longitude.data[0]
+    c = get_transformation_coordinates(lats,
+                                       lons,
+                                       GMI_GEOMETRY,
                                        64,
                                        64,
                                        0.5,
                                        0.5,
                                        0.5)
-    print(c[1, 0, :])
-    assert np.all(np.isclose(c[1, 0, :], np.arange(110 - 32, 110 + 32)))
+    assert np.all(np.isclose(c[1, 0, :], np.arange(110 - 32, 110 + 32), atol=0.5))

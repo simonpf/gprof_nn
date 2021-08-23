@@ -323,3 +323,59 @@ def get_sim_file_record(n_chans, n_angles, n_layers, kind):
             ]
         )
     return dtype
+
+
+def get_mrms_file_record(n_chans, n_angles, kind):
+    if kind == CONICAL:
+        dtype = np.dtype([
+            ("latitude", "f4"),
+            ("longitude", "f4"),
+            ("scan_time", f"5i4"),
+            ("quality_flag", f"f4"),
+            ("surface_precip", "f4"),
+            ("surface_rain", "f4"),
+            ("convective_rain", "f4"),
+            ("stratiform_rain", "f4"),
+            ("snow", "f4"),
+            ("quality_index", "f4"),
+            ("gauge_fraction", "f4"),
+            ("standard_deviation", "f4"),
+            ("n_stratiform", "i4"),
+            ("n_convective", "i4"),
+            ("n_rain", "i4"),
+            ("n_snow", "i4"),
+            ("fraction_missing", "f4"),
+            ("brightness_temperatures", f"{n_chans}f4"),
+        ])
+    else:
+        dtype = np.dtype([
+                ("datasetnum", "i4"),
+                ("latitude", "f4"),
+                ("longitude", "f4"),
+                ("orbitnum", "i4"),
+                ("n_pixels", "i4"),
+                ("n_scans", "i4"),
+                ("scan_time", f"5i4"),
+                ("skin_temperature", f"i4"),
+                ("total_column_water_vapor", f"i4"),
+                ("surface_type", f"i4"),
+                ("quality_flag", f"f4"),
+                ("two_meter_temperature", "f4"),
+                ("wet_bulb_temperature", "f4"),
+                ("lapse_rate", "f4"),
+                ("surface_precip", "f4"),
+                ("surface_rain", "f4"),
+                ("convective_rain", "f4"),
+                ("stratiform_rain", "f4"),
+                ("snow", "f4"),
+                ("quality_index", "f4"),
+                ("gauge_fraction", "f4"),
+                ("standard_deviation", "f4"),
+                ("n_stratiform", "i4"),
+                ("n_convective", "i4"),
+                ("n_rain", "i4"),
+                ("n_snow", "i4"),
+                ("fraction_missing", "f4"),
+                ("brightness_temperatures", f"{n_chans}f4"),
+            ])
+    return dtype
