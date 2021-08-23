@@ -635,7 +635,10 @@ class NetcdfLoader2D(NetcdfLoader):
                 "pixels": slice(self.padding[2], -self.padding[3]),
             }
         ]
-        return data.transpose("samples", "scans", "pixels", "layers")
+        if "layers"  in data.dims:
+            dims = ["samples", "scans", "pixels", "layers"]
+            data = data.transpose(dims)
+        return data
 
 
 ###############################################################################
@@ -756,12 +759,15 @@ class PreprocessorLoader0D:
         names = ("scans", "pixels")
         index = pd.MultiIndex.from_product((scans, pixels), names=names)
         data = data.assign(samples=index).unstack("samples")
-        data = data.transpose("scans", "pixels", "layers")
+        if "layers"  in data.dims:
+            dims = ["samples", "scans", "pixels", "layers"]
+            data = data.transpose(dims)
 
         tbs = self.data["brightness_temperatures"].data
         invalid = np.all(tbs < 0, axis=-1)
         for v in ALL_TARGETS:
-            data[v].data[invalid] = np.nan
+            if v in data.variables:
+                data[v].data[invalid] = np.nan
 
         return data
 
@@ -849,7 +855,10 @@ class PreprocessorLoader2D:
                 "pixels": slice(self.padding[0], -self.padding[1]),
             }
         ]
-        return data.transpose("scans", "pixels", "layers")
+        if "layers"  in data.dims:
+            dims = ["scans", "pixels", "layers"]
+            data = data.transpose(dims)
+        return data
 
     def write_retrieval_results(self, output_path, results, ancillary_data=None):
         """
