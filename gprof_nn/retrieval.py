@@ -760,7 +760,7 @@ class PreprocessorLoader0D:
         index = pd.MultiIndex.from_product((scans, pixels), names=names)
         data = data.assign(samples=index).unstack("samples")
         if "layers"  in data.dims:
-            dims = ["samples", "scans", "pixels", "layers"]
+            dims = ["scans", "pixels", "layers"]
             data = data.transpose(*dims)
 
         tbs = self.data["brightness_temperatures"].data
@@ -808,11 +808,11 @@ class PreprocessorLoader2D:
         self.normalizer = normalizer
 
         preprocessor_file = PreprocessorFile(filename)
-        data = preprocessor_file.to_xarray_dataset()
-        self.n_scans = data.scans.size
-        self.n_pixels = data.pixels.size
+        self.data = preprocessor_file.to_xarray_dataset()
+        self.n_scans = self.data.scans.size
+        self.n_pixels = self.data.pixels.size
 
-        input_data = combine_input_data_2d(data)
+        input_data = combine_input_data_2d(self.data)
         self.input_data = self.normalizer(input_data)
         self.padding = calculate_padding_dimensions(input_data)
 
