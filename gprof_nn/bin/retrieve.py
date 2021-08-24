@@ -68,6 +68,7 @@ def add_parser(subparsers):
 def process_file(input_file,
                  output_file,
                  model,
+                 targets,
                  normalizer,
                  gradients,
                  log_queue):
@@ -78,6 +79,7 @@ def process_file(input_file,
 
     LOGGER.info("Processing file %s.", input_file)
     xrnn = QRNN.load(model)
+    xrnn.set_targets(targets)
     driver = RetrievalDriver
     if gradients:
         driver = RetrievalGradientDriver
@@ -149,8 +151,8 @@ def run(args):
     xrnn = QRNN.load(model)
     if args.no_profiles:
         targets = [t for t in ALL_TARGETS if not t in PROFILE_NAMES]
-        xrnn.set_targets(targets)
-
+    else:
+        targets = ALL_TARGETS
 
     # Try to load the normalizer.
     normalizer = Normalizer.load(normalizer)
@@ -167,6 +169,7 @@ def run(args):
                               input_file,
                               output_file,
                               model,
+                              targets,
                               normalizer,
                               gradients,
                               log_queue)]
