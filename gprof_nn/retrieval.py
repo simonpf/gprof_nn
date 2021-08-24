@@ -637,7 +637,7 @@ class NetcdfLoader2D(NetcdfLoader):
         ]
         if "layers"  in data.dims:
             dims = ["samples", "scans", "pixels", "layers"]
-            data = data.transpose(dims)
+            data = data.transpose(*dims)
         return data
 
 
@@ -761,7 +761,7 @@ class PreprocessorLoader0D:
         data = data.assign(samples=index).unstack("samples")
         if "layers"  in data.dims:
             dims = ["samples", "scans", "pixels", "layers"]
-            data = data.transpose(dims)
+            data = data.transpose(*dims)
 
         tbs = self.data["brightness_temperatures"].data
         invalid = np.all(tbs < 0, axis=-1)
@@ -857,7 +857,7 @@ class PreprocessorLoader2D:
         ]
         if "layers"  in data.dims:
             dims = ["scans", "pixels", "layers"]
-            data = data.transpose(dims)
+            data = data.transpose(*dims)
         return data
 
     def write_retrieval_results(self, output_path, results, ancillary_data=None):
