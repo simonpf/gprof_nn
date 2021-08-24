@@ -1,10 +1,11 @@
 """
-=====================
-gprof_nn.bin.retrieve
-=====================
+=======================
+gprof_nn.bin.statistics
+=======================
 
-This sub-module implements the command line interface to apply the GPROF-NN
-to input data.
+This sub-module implements the 'calculate_statistics' sub-command of the
+'gprof_nn' command line application, which can be used to calculate
+relevant statistics from training and retrieval data.
 """
 import argparse
 import logging
