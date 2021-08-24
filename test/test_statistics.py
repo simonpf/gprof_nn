@@ -276,7 +276,7 @@ def test_bin_statistics_mhs_sea_ice(tmpdir):
     assert np.all(np.isclose(counts, 2.0 * counts_ref))
 
     # Ensure two-meter-temperature distributions match.
-    bins = np.linspace(240, 330, 201)
+    bins = np.linspace(239.5, 339.5, 101)
     i_st = (input_data.surface_type == st).data
     x = input_data["two_meter_temperature"].data[i_st]
     counts_ref, _ = np.histogram(x, bins=bins)
@@ -339,7 +339,7 @@ def test_bin_statistics_mhs_ocean(tmpdir):
     assert np.all(np.isclose(counts, 2.0 * counts_ref))
 
     # Ensure two-meter-temperature distributions match.
-    bins = np.linspace(240, 330, 201)
+    bins = np.linspace(239.5, 339.5, 101)
     i_st = (input_data.surface_type == st).data
     x = input_data["two_meter_temperature"].data[i_st]
     counts_ref, _ = np.histogram(x, bins=bins)

@@ -1238,8 +1238,8 @@ class BinFileStatistics(Statistic):
             t2m = dataset["two_meter_temperature"].data
             tcwv = dataset["total_column_water_vapor"].data
             if v.ndim > t2m.ndim:
-                t2m = np.repeat(t2m.reshape(-1, 1), 28, axis=-1)
-                tcwv = np.repeat(tcwv.reshape(-1, 1), 28, axis=-1)
+                t2m = np.repeat(t2m.reshape(-1, 1), v.shape[1], axis=-1)
+                tcwv = np.repeat(tcwv.reshape(-1, 1), v.shape[1], axis=-1)
 
             # Conditional mean
             self.sums_t2m[k][st - 1] += np.histogram(
@@ -1329,6 +1329,14 @@ class BinFileStatistics(Statistic):
             data[k + "_mean_tcwv"] = (
                 ("surface_type", "tcwv_bins"),
                 self.sums_tcwv[k] / self.counts_tcwv[k]
+            )
+            data[k + "_sums_tcwv"] = (
+                ("surface_type", "tcwv_bins"),
+                self.sums_tcwv[k]
+            )
+            data[k + "_counts_tcwv"] = (
+                ("surface_type", "tcwv_bins"),
+                self.counts_tcwv[k]
             )
             data[k + "_mean_t2m"] = (
                 ("surface_type", "t2m_bins"),
@@ -1714,9 +1722,25 @@ class RetrievalStatistics(Statistic):
                 ("surface_type", "tcwv_bins"),
                 self.sums_tcwv[k] / self.counts_tcwv[k]
             )
+            data[k + "_sums_tcwv"] = (
+                ("surface_type", "tcwv_bins"),
+                self.sums_tcwv[k]
+            )
+            data[k + "_counts_tcwv"] = (
+                ("surface_type", "tcwv_bins"),
+                self.counts_tcwv[k]
+            )
             data[k + "_mean_t2m"] = (
                 ("surface_type", "t2m_bins"),
                 self.sums_t2m[k] / self.counts_t2m[k]
+            )
+            data[k + "_sums_t2m"] = (
+                ("surface_type", "t2m_bins"),
+                self.sums_t2m[k]
+            )
+            data[k + "_counts_t2m"] = (
+                ("surface_type", "t2m_bins"),
+                self.counts_t2m[k]
             )
 
         data = xr.Dataset(data)
