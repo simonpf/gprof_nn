@@ -23,6 +23,7 @@ def gprof_nn():
     from gprof_nn.bin import extract_data
     from gprof_nn.bin import retrieve
     from gprof_nn.bin import statistics
+    from gprof_nn.bin import  train
 
     set_log_level("INFO")
 
@@ -39,6 +40,7 @@ def gprof_nn():
     extract_data.add_parser(subparsers)
     retrieve.add_parser(subparsers)
     statistics.add_parser(subparsers)
+    train.add_parser(subparsers)
 
     if len(sys.argv)==1:
         parser.print_help(sys.stderr)

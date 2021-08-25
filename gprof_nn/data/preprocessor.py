@@ -22,7 +22,13 @@ import scipy.interpolate
 import torch
 import xarray as xr
 
-from gprof_nn.definitions import MISSING, TCWV_MIN, TCWV_MAX, T2M_MIN, T2M_MAX
+from gprof_nn.definitions import (MISSING,
+                                  TCWV_MIN,
+                                  TCWV_MAX,
+                                  T2M_MIN,
+                                  T2M_MAX,
+                                  ERA5,
+                                  GANAL)
 from gprof_nn import sensors
 from gprof_nn.data import retrieval
 from gprof_nn.data.profiles import ProfileClusters
@@ -624,9 +630,6 @@ def has_preprocessor():
 PREPROCESSOR_EXECUTABLES = {"GMI": "gprof2020pp_GMI_L1C", "MHS": "gprof2020pp_MHS_L1C"}
 
 
-# Constants to identify the two retrieval configurations.
-ERA5 = "ERA5"
-GANAL = "GANAL"
 
 
 def get_preprocessor_settings(configuration):

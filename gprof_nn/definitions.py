@@ -5,6 +5,7 @@ gprof_nn.definitions
 
 This module provides basic definitions that are used throughout the packages.
 """
+from pathlib import Path
 import numpy as np
 
 MASKED_OUTPUT = -9999
@@ -81,3 +82,11 @@ LIMITS = {
     "airmass_type": (0, 4),
     "earth_incidence_angle": (-90, 90),
 }
+
+GPROF_NN_DATA_PATH = Path(__file__).parent.parent / "data"
+
+
+# Constants to identify the two retrieval configurations.
+ERA5 = "ERA5"
+GANAL = "GANAL"
+CONFIGURATIONS = [ERA5, GANAL]
