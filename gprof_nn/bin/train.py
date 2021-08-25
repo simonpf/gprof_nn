@@ -28,9 +28,9 @@ from gprof_nn.retrieval import RetrievalDriver, RetrievalGradientDriver
 from gprof_nn.definitions import CONFIGURATIONS, GPROF_NN_DATA_PATH
 from gprof_nn.data.training_data import (GPROF_NN_0D_Dataset,
                                          GPROF_NN_2D_Dataset)
-from gprof_nn.models import (GPROF_NN_0D_QRNN,
-                             GPROF_NN_0D_DRNN,
-                             GPROF_NN_2D_QRNN,
+from gprof_nn.models import (GPROF_NN_0D_DRNN,
+                             GPROF_NN_0D_QRNN,
+                             GPROF_NN_2D_DRNN,
                              GPROF_NN_2D_QRNN)
 
 
@@ -119,8 +119,7 @@ def add_parser(subparsers):
         type=int,
         nargs=1,
         default=256,
-        help=("For GPROF-NN 0D: The number of neurons in the hidden layer of "
-              "the body.")
+        help=("For GPROF-NN 0D and 2D: The number of neurons in the body.")
     )
     parser.add_argument(
         '--n_layers_head',
@@ -136,7 +135,8 @@ def add_parser(subparsers):
         type=int,
         nargs=1,
         default=128,
-        help='For GPROF-NN 0D: How many neurons in each head of the model.'
+        help=('For GPROF-NN 0D and 2D: How many neurons in each head of the '
+              'model.')
     )
     parser.add_argument(
         '--activation',
@@ -216,7 +216,7 @@ def run(args):
     if configuration.upper() not in CONFIGURATIONS:
         LOGGER.error(
             "'configuration' should be one of $s.",
-            CONFIGUTATIONS
+            CONFIGURATIONS
         )
         return 1
 
@@ -434,6 +434,7 @@ def run_training_2d(sensor,
                     configuration,
                     training_data,
                     validation_data,
+                    output,
                     args):
     """
     Run training for GPROF-NN 2D algorithm.
@@ -451,9 +452,6 @@ def run_training_2d(sensor,
     n_features_body = args.n_features_body[0]
     n_layers_head = args.n_layers_head[0]
     n_features_head = args.n_features_head[0]
-
-    activation = args.activation[0]
-    residuals = args.residuals[0]
 
     device = args.device[0]
     targets = args.targets
@@ -476,10 +474,10 @@ def run_training_2d(sensor,
         training_data,
         dataset_factory,
         kwargs=kwargs,
-        n_workers=6)
+        n_workers=4)
 
     kwargs = {
-        "batch_size": 8 * batch_size,
+        "batch_size": 4 * batch_size,
         "normalizer": normalizer,
         "target": targets,
         "augment": False
@@ -532,7 +530,7 @@ def run_training_2d(sensor,
     # Run the training.
     ###############################################################################
 
-    n_epochs = 80
+    n_epochs = 55
     logger = TensorBoardLogger(n_epochs)
     logger.set_attributes({
         "n_blocks": n_blocks,
@@ -548,54 +546,56 @@ def run_training_2d(sensor,
     scatter_plot = ScatterPlot(log_scale=True)
     metrics.append(scatter_plot)
 
-    n_epochs = 20
+    n_epochs = 5
     optimizer = optim.Adam(model.parameters(), lr=0.001)
     scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, n_epochs)
     xrnn.train(training_data=training_data,
-            validation_data=validation_data,
-            n_epochs=n_epochs,
-            optimizer=optimizer,
-            scheduler=scheduler,
-            logger=logger,
-            metrics=metrics,
-            device=device,
-            mask=-9999)
+               validation_data=validation_data,
+               n_epochs=n_epochs,
+               optimizer=optimizer,
+               scheduler=scheduler,
+               logger=logger,
+               metrics=metrics,
+               device=device,
+               mask=-9999)
     xrnn.save(model_path / network_name)
-    n_epochs = 20
+
+    n_epochs = 10
     optimizer = optim.Adam(model.parameters(), lr=0.0005)
     scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, n_epochs)
     xrnn.train(training_data=training_data,
-            validation_data=validation_data,
-            n_epochs=n_epochs,
-            optimizer=optimizer,
-            scheduler=scheduler,
-            logger=logger,
-            metrics=metrics,
-            device=device,
-            mask=-9999)
+               validation_data=validation_data,
+               n_epochs=n_epochs,
+               optimizer=optimizer,
+               scheduler=scheduler,
+               logger=logger,
+               metrics=metrics,
+               device=device,
+               mask=-9999)
     xrnn.save(output)
     n_epochs = 20
     optimizer = optim.Adam(model.parameters(), lr=0.0005)
     scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, n_epochs)
     xrnn.train(training_data=training_data,
-            validation_data=validation_data,
-            n_epochs=n_epochs,
-            optimizer=optimizer,
-            scheduler=scheduler,
-            logger=logger,
-            metrics=metrics,
-            device=device,
-            mask=-9999)
+               validation_data=validation_data,
+               n_epochs=n_epochs,
+               optimizer=optimizer,
+               scheduler=scheduler,
+               logger=logger,
+               metrics=metrics,
+               device=device,
+               mask=-9999)
     xrnn.save(output)
+
     optimizer = optim.Adam(model.parameters(), lr=0.0001)
     scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, n_epochs)
     xrnn.train(training_data=training_data,
-            validation_data=validation_data,
-            n_epochs=n_epochs,
-            optimizer=optimizer,
-            scheduler=scheduler,
-            logger=logger,
-            metrics=metrics,
-            device=device,
-            mask=-9999)
+               validation_data=validation_data,
+               n_epochs=n_epochs,
+               optimizer=optimizer,
+               scheduler=scheduler,
+               logger=logger,
+               metrics=metrics,
+               device=device,
+               mask=-9999)
     xrnn.save(output)
