@@ -1826,7 +1826,11 @@ def process_files(sensor,
     gprof_nn.logging.configure_queue_logging(log_queue)
     for f in files:
         for s in statistics:
-            s.process_file(sensor, f)
+            try:
+                s.process_file(sensor, f)
+            except Exception as e:
+                LOGGER.error( "Error during processing of %s: %s", f, e)
+
     return statistics
 
 

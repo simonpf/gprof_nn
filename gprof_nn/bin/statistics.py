@@ -71,8 +71,8 @@ STATS = {
     ],
     "bin": [
         statistics.BinFileStatistics(),
-        statistics.ZonalDistribution(),
-        statistics.GlobalDistribution()
+        #statistics.ZonalDistribution(),
+        #statistics.GlobalDistribution()
     ],
     "observations": [statistics.ObservationStatistics(conditional=1)],
     "retrieval": [statistics.RetrievalStatistics()]
@@ -101,7 +101,8 @@ def run(args):
     sensor = getattr(sensors, args.sensor.upper(), None)
     if sensor is None:
         LOGGER.error(
-            "Sensor '%s' is not supported."
+            "Sensor '%s' is not supported.",
+            args.sensor
         )
         return 1
 

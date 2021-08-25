@@ -3,6 +3,11 @@ Training script for the GPROF-NN-0D retrieval.
 """
 import argparse
 from pathlib import Path
+import multiprocessing
+
+import torch
+torch.multiprocessing.set_sharing_strategy('file_system')
+torch.set_num_threads(1)
 
 from torch import nn
 from torch import optim
@@ -11,13 +16,15 @@ from quantnn import QRNN
 from quantnn.drnn import DRNN
 from quantnn.data import DataFolder
 from quantnn.normalizer import Normalizer
-from quantnn.models.pytorch.logging import TensorBoardLogger
+from quantnn.logging import TrainingLogger
 from quantnn.metrics import ScatterPlot
 from quantnn.transformations import LogLinear
 
 from gprof_nn import sensors
+from gprof_nn import logging
 from gprof_nn.data.training_data import GPROF_NN_0D_Dataset
 from gprof_nn.models import GPROF_NN_0D_QRNN, GPROF_NN_0D_DRNN
+
 
 ###############################################################################
 # Command line arguments.
@@ -101,6 +108,10 @@ parser.add_argument('--batch_size', metavar="n", type=int, nargs=1,
 parser.add_argument('--permute', metavar="feature_index", type=int,
                     help="If provided, the input feature with the given index"
                     "will be permuted.")
+parser.add_argument('--model_name',
+                    metavar="name",
+                    type=str,
+                    help="Name of the output model file.")
 
 args = parser.parse_args()
 
@@ -121,6 +132,7 @@ targets = args.targets
 network_type = args.type[0]
 batch_size = args.batch_size[0]
 permute = args.permute
+network_name = args.model_name
 
 
 #
@@ -140,9 +152,10 @@ if sensor is None:
 
 model_path = Path(args.model_path[0])
 model_path.mkdir(parents=False, exist_ok=True)
-network_name = (f"gprof_nn_0d_{sensor.name.lower()}_{network_type}_"
-                f"{n_layers_body}_{n_neurons_body}_{n_layers_head}_"
-                f"{n_neurons_head}_{activation}_{residuals}.pckl")
+if network_name is None:
+    network_name = (f"gprof_nn_0d_{sensor.name.lower()}_{network_type}_"
+                    f"{n_layers_body}_{n_neurons_body}_{n_layers_head}_"
+                    f"{n_neurons_head}_{activation}_{residuals}.pckl")
 
 #
 # Load the data.
@@ -160,14 +173,14 @@ kwargs = {
     "targets": targets,
     "augment": True,
     "permute": permute,
-    "equalizer": equalizer
+    "equalizer": None #equalizer
 }
 
 training_data = DataFolder(
     training_data,
     dataset_factory,
     kwargs=kwargs,
-    queue_size=16,
+    queue_size=256,
     n_workers=4)
 
 kwargs = {
@@ -177,7 +190,7 @@ kwargs = {
     "targets": targets,
     "augment": False,
     "permute": permute,
-    "equalizer": equalizer
+    "equalizer": None #equalizer
 }
 validation_data = DataFolder(
     validation_data,
@@ -228,7 +241,7 @@ xrnn.normalizer = normalizer
 #
 
 n_epochs = 60
-logger = TensorBoardLogger(n_epochs)
+logger = TrainingLogger(n_epochs)
 logger.set_attributes({
     "n_layers_body": n_layers_body,
     "n_neurons_body": n_neurons_body,
@@ -244,20 +257,7 @@ metrics = ["MeanSquaredError", "Bias", "CalibrationPlot", "CRPS"]
 scatter_plot = ScatterPlot(log_scale=True)
 metrics.append(scatter_plot)
 
-n_epochs = 2
-optimizer = optim.Adam(model.parameters(), lr=0.001)
-scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, n_epochs)
-xrnn.train(training_data=training_data,
-           validation_data=validation_data,
-           n_epochs=n_epochs,
-           optimizer=optimizer,
-           scheduler=scheduler,
-           logger=logger,
-           metrics=metrics,
-           device=device,
-           mask=-9999)
-xrnn.save(model_path / network_name)
-n_epochs = 8
+n_epochs = 10
 optimizer = optim.Adam(model.parameters(), lr=0.001)
 scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, n_epochs)
 xrnn.train(training_data=training_data,

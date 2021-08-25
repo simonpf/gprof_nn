@@ -744,7 +744,7 @@ class GPROF_NN_2D_QRNN(QRNN):
                 "'targets' must be a sub-set of the models targets."
             )
         self.targets = targets
-        self.model.targets = targets
+        self.model.target = targets
 
 class GPROF_NN_2D_DRNN(DRNN):
     """
@@ -802,7 +802,7 @@ class GPROF_NN_2D_DRNN(DRNN):
                 "'targets' must be a sub-set of the models targets."
             )
         self.targets = targets
-        self.model.targets = targets
+        self.model.target = target
 
 
 ###############################################################################

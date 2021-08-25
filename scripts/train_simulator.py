@@ -149,7 +149,7 @@ model = simulator.model
 # Run training
 #
 
-n_epochs = 60
+n_epochs = 120
 logger = TensorBoardLogger(n_epochs)
 logger.set_attributes({
     "n_features_body": n_features_body,
@@ -175,6 +175,32 @@ simulator.train(training_data=training_data,
            mask=-9999)
 simulator.save(model_path / network_name)
 n_epochs = 20
+optimizer = optim.Adam(model.parameters(), lr=0.0005)
+scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, n_epochs)
+simulator.train(training_data=training_data,
+           validation_data=validation_data,
+           n_epochs=n_epochs,
+           optimizer=optimizer,
+           scheduler=scheduler,
+           logger=logger,
+           metrics=metrics,
+           device=device,
+           mask=-9999)
+simulator.save(model_path / network_name)
+n_epochs = 30
+optimizer = optim.Adam(model.parameters(), lr=0.0005)
+scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, n_epochs)
+simulator.train(training_data=training_data,
+           validation_data=validation_data,
+           n_epochs=n_epochs,
+           optimizer=optimizer,
+           scheduler=scheduler,
+           logger=logger,
+           metrics=metrics,
+           device=device,
+           mask=-9999)
+simulator.save(model_path / network_name)
+n_epochs = 30
 optimizer = optim.Adam(model.parameters(), lr=0.0005)
 scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, n_epochs)
 simulator.train(training_data=training_data,

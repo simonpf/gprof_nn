@@ -132,19 +132,19 @@ normalizer = Normalizer.load("../data/normalizer_gprof_0d_gmi.pckl")
 kwargs = {
     "batch_size": batch_size,
     "normalizer": normalizer,
-    "target": targets,
+    "targets": targets,
     "augment": True
 }
 training_data = DataFolder(
     training_data,
     dataset_factory,
     kwargs=kwargs,
-    n_workers=6)
+    n_workers=4)
 
 kwargs = {
-    "batch_size": 8 * batch_size,
+    "batch_size": 2 * batch_size,
     "normalizer": normalizer,
-    "target": targets,
+    "targets": targets,
     "augment": False
 }
 validation_data = DataFolder(
@@ -173,7 +173,7 @@ if network_type == "drnn":
                             n_features_body,
                             n_layers_head,
                             n_features_head,
-                            target=targets)
+                            targets=targets)
 elif network_type == "qrnn_exp":
     transformation = {t: LogLinear() for t in targets}
     transformation["latent_heat"] = None
@@ -192,6 +192,7 @@ else:
                             n_features_head,
                             targets=targets)
 model = xrnn.model
+xrnn.normalizer = normalizer
 
 ###############################################################################
 # Run the training.
