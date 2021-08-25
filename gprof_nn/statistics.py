@@ -1697,7 +1697,7 @@ class RetrievalStatistics(Statistic):
                 else:
                     inds = i_s[:, i_start:i_end] * np.all(v > -999, axis=-1)
                 v = v[inds]
-                mask = v <= -999
+                mask = v > -999
                 v = v.copy()
                 v[~mask] = 0.0
                 t2m = dataset["two_meter_temperature"]
