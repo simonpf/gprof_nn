@@ -72,8 +72,7 @@ def calculate_smoothing_kernel(res_x_source,
     return w
 
 
-def calculate_smoothing_kernels(sensor,
-                                geometry):
+def calculate_smoothing_kernels(sensor):
     """
     Calculate smoothing kernels to average variables given on the GMI swath
     to a lower resolution.
@@ -86,6 +85,7 @@ def calculate_smoothing_kernels(sensor,
     Return:
         A list of 2D Gaussian convolution kernels.
     """
+    geometry = sensor.viewing_geometry
     res_x_source = 14.4e3
     res_a_source = 8.6e3
     angles = sensor.angles
@@ -295,17 +295,19 @@ class Sensor(ABC):
             self.kind
         )
 
+    @property
     def l1c_file_prefix(self):
         """
         The prefix used for L1C files of this sensor.
         """
-        self.platform.l1c_file_prefix
+        return self.platform.l1c_file_prefix
 
+    @property
     def l1c_file_path(self):
         """
         The default file path on the CSU system.
         """
-        self.platform.l1c_file_path
+        return self.platform.l1c_file_path
 
     @abstractproperty
     def mrms_file_path(self):
@@ -541,10 +543,6 @@ class ConicalScanner(Sensor):
     @property
     def mrms_file_path(self):
         return self._mrms_file_path
-
-    @property
-    def mrms_file_record(self):
-        return self._mrms_file_record
 
     @property
     def sim_file_pattern(self):
@@ -812,8 +810,7 @@ class CrossTrackScanner(Sensor):
         self.nedt = nedt
         n_chans = len(channels)
         n_angles = len(angles)
-        self.kernels = calculate_smoothing_kernels(self,
-                                                   self.viewing_geometry)
+        self.kernels = calculate_smoothing_kernels(self)
 
         self._mrms_file_path = mrms_file_path
         self._sim_file_pattern = sim_file_pattern
@@ -828,20 +825,8 @@ class CrossTrackScanner(Sensor):
         return self.n_chans + 3 + 18 + 4
 
     @property
-    def l1c_file_prefix(self):
-        return self._l1c_file_prefix
-
-    @property
-    def l1c_file_path(self):
-        return self._l1c_file_path
-
-    @property
     def mrms_file_path(self):
         return self._mrms_file_path
-
-    @property
-    def mrms_file_record(self):
-        return self._mrms_file_record
 
     @property
     def sim_file_pattern(self):
@@ -1191,7 +1176,7 @@ class CrossTrackScanner(Sensor):
 
         i = height // 2 + (n_scans - height) * p_y
         j = ((SCANS_PER_SAMPLE - n_pixels + width) // 2 +
-             (n_pixels - width) * p_x - n_pixels // 2)
+             (n_pixels - width) * p_x)
 
         i_start = int(i - height // 2)
         i_end = int(i + height // 2)
@@ -1275,7 +1260,10 @@ class CrossTrackScanner(Sensor):
             scene = decompress_scene(dataset[{"samples": i}], targets + vs)
             source = scene.source
             if source == 0:
-                x_i, y_i = self._load_training_data_2d_sim(scene, targets, augment, rng)
+                x_i, y_i = self._load_training_data_2d_sim(scene,
+                                                           targets,
+                                                           augment,
+                                                           rng)
             else:
                 x_i, y_i = self._load_training_data_2d_other(
                     scene, targets, augment, rng

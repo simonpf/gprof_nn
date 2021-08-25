@@ -39,6 +39,11 @@ def test_to_xarray_dataset_0d():
         shuffle=False,
         targets=["surface_precip", "rain_water_content"]
     )
+
+    #
+    # Conversion using datasets 'x' attribute.
+    #
+
     data = dataset.to_xarray_dataset()
     x, y = dataset[0]
     x = x.numpy()
@@ -61,6 +66,33 @@ def test_to_xarray_dataset_0d():
     assert np.all(np.isclose(st[inds], st_ref + 1))
 
     at = data.airmass_type.data[:x.shape[0]]
+    inds, at_ref = np.where(x[:, -4:])
+    assert np.all(np.isclose(at[inds], at_ref))
+
+    #
+    # Conversion using only first batch
+    #
+
+    data = dataset.to_xarray_dataset(batch=(x, y))
+
+    tbs = data.brightness_temperatures.data
+    tbs_ref = x[:, :15]
+    valid = np.isfinite(tbs_ref)
+    assert np.all(np.isclose(tbs[valid], tbs_ref[valid]))
+
+    t2m = data.two_meter_temperature.data
+    t2m_ref = x[:, 15]
+    assert np.all(np.isclose(t2m, t2m_ref))
+
+    tcwv = data.total_column_water_vapor.data
+    tcwv_ref = x[:, 16]
+    assert np.all(np.isclose(tcwv, tcwv_ref))
+
+    st = data.surface_type.data
+    inds, st_ref = np.where(x[:, -22:-4])
+    assert np.all(np.isclose(st[inds], st_ref + 1))
+
+    at = data.airmass_type.data
     inds, at_ref = np.where(x[:, -4:])
     assert np.all(np.isclose(at[inds], at_ref))
 
@@ -628,8 +660,10 @@ def test_simulator_dataset_mhs():
     tbs = tbs[np.isfinite(tbs)]
     assert np.all((tbs > 30) * (tbs < 400))
     t2m = x[:, 15]
+    t2m = t2m[np.isfinite(t2m)]
     assert np.all((t2m > 180) * (t2m < 350))
     tcwv = x[:, 16]
+    tcwv = tcwv[np.isfinite(tcwv)]
     assert np.all((tcwv > 0) * (tcwv < 100))
 
     assert np.all(np.isfinite(y["brightness_temperature_biases"].numpy()))

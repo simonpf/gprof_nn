@@ -360,7 +360,9 @@ class GPROF_NN_0D_Dataset(Dataset0DBase):
         Loads the data from the file into the ``x`` and ``y`` attributes.
         """
 
-    def to_xarray_dataset(self, mask=None):
+    def to_xarray_dataset(self,
+                          mask=None,
+                          batch=None):
         """
         Convert training data to xarray dataset.
 
@@ -371,12 +373,19 @@ class GPROF_NN_0D_Dataset(Dataset0DBase):
             An 'xarray.Dataset' containing the training data but converted
             back to the original format.
         """
+        if batch is None:
+            x = self.x
+            y = self.y
+        else:
+            x, y = batch
+
         if mask is None:
             mask = slice(0, None)
+
         if self.normalize:
-            x = self.normalizer.invert(self.x[mask])
+            x = self.normalizer.invert(x[mask])
         else:
-            x = self.x[mask]
+            x = x[mask]
         sensor = self.sensor
 
         n_samples = x.shape[0]
@@ -408,7 +417,7 @@ class GPROF_NN_0D_Dataset(Dataset0DBase):
             new_dataset["earth_incidence_angle"] = (dims[:2], eia)
 
         dims = ("samples", "levels")
-        for k, v in self.y.items():
+        for k, v in y.items():
             n_dims = v.ndim
             new_dataset[k] = (dims[:n_dims], v)
 

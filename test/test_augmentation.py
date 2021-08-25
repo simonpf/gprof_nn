@@ -8,8 +8,6 @@ import xarray as xr
 
 from gprof_nn import sensors
 from gprof_nn.augmentation import (Swath,
-                                   GMI_GEOMETRY,
-                                   MHS_GEOMETRY,
                                    get_center_pixels,
                                    get_transformation_coordinates,
                                    offset_x,
@@ -26,8 +24,9 @@ def test_gmi_geometry():
     i = np.arange(0, 221, 10)
     j = np.arange(0, 221, 10)
     ij = np.stack(np.meshgrid(i, j))
-    xy = GMI_GEOMETRY.pixel_coordinates_to_euclidean(ij)
-    ij_r = GMI_GEOMETRY.euclidean_to_pixel_coordinates(xy)
+    geometry = sensors.GMI.viewing_geometry
+    xy = geometry.pixel_coordinates_to_euclidean(ij)
+    ij_r = geometry.euclidean_to_pixel_coordinates(xy)
     assert np.all(np.isclose(ij, ij_r))
 
 
@@ -39,9 +38,11 @@ def test_mhs_geometry():
     i = np.arange(0, 90, 10)
     j = np.arange(0, 90, 10)
     ij = np.stack(np.meshgrid(i, j))
-    xy = MHS_GEOMETRY.pixel_coordinates_to_euclidean(ij)
-    ij_r = MHS_GEOMETRY.euclidean_to_pixel_coordinates(xy)
+    geometry = sensors.MHS.viewing_geometry
+    xy = geometry.pixel_coordinates_to_euclidean(ij)
+    ij_r = geometry.euclidean_to_pixel_coordinates(xy)
     assert np.all(np.isclose(ij, ij_r))
+
 
 def test_swath_geometry():
     """
@@ -71,7 +72,8 @@ def test_interpolation_weights():
     """
     Ensure that all interpolation weights are positive and sum to 1.
     """
-    weights = MHS_GEOMETRY.get_interpolation_weights(sensors.MHS.angles)
+    geometry = sensors.MHS.viewing_geometry
+    weights = geometry.get_interpolation_weights(sensors.MHS.angles)
     assert np.all(weights.sum(-1) == 1.0)
     assert np.all(weights >= 0)
 
@@ -99,12 +101,9 @@ def test_transformation_coordinates():
 
     lats = input_data.latitude.data[0]
     lons = input_data.longitude.data[0]
-    c = get_transformation_coordinates(lats,
-                                       lons,
-                                       GMI_GEOMETRY,
-                                       64,
-                                       64,
-                                       0.5,
-                                       0.5,
-                                       0.5)
+    geometry = sensors.GMI.viewing_geometry
+    c = get_transformation_coordinates(
+        lats, lons, geometry, 64,
+        64, 0.5, 0.5, 0.5
+    )
     assert np.all(np.isclose(c[1, 0, :], np.arange(110 - 32, 110 + 32), atol=0.5))

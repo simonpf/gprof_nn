@@ -7,7 +7,6 @@ import numpy as np
 import xarray as xr
 
 from gprof_nn import sensors
-from gprof_nn.augmentation import MHS_GEOMETRY
 
 TEST_FILE_GMI = Path("gmi") / "gprof_nn_gmi_era5.nc"
 TEST_FILE_MHS = "gprof_nn_mhs_era5_5.nc"
@@ -32,8 +31,7 @@ def test_calculate_smoothing_kernels():
     Ensure that 'calculate_smoothing_kernels' returns one kernel for each
     viewing angle and that the kernels have the expected shape.
     """
-    kernels = sensors.calculate_smoothing_kernels(sensors.MHS,
-                                                  MHS_GEOMETRY)
+    kernels = sensors.calculate_smoothing_kernels(sensors.MHS)
     assert len(kernels) == sensors.MHS.n_angles
     assert kernels[0].shape == (11, 11)
 
@@ -46,8 +44,7 @@ def test_smooth_gmi_field():
     field = np.zeros((32, 32, 4))
     field[15, 15] = 1.0
 
-    kernels = sensors.calculate_smoothing_kernels(sensors.MHS,
-                                                  MHS_GEOMETRY)
+    kernels = sensors.calculate_smoothing_kernels(sensors.MHS)
     kernels = [kernels[0]] * 10
     field_s = sensors.smooth_gmi_field(field, kernels)
 

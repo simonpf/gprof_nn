@@ -362,7 +362,6 @@ class CrossTrack(ViewingGeometry):
         i = SCANS_PER_SAMPLE // 2
         j = ((self.pixels_per_scan + width) / 2
              + (self.pixels_per_scan / 2 - width) * p_x) - 1.0
-        print("j", j)
         return np.array([i, j]).reshape(2, 1, 1)
 
     def get_interpolation_weights(self, earth_incidence_angles):

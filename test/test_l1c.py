@@ -28,13 +28,13 @@ def test_open_granule_mhs():
     Test finding of specific MHS L1C file and reading data into
     xarray.Dataset.
     """
-    l1c_path = Path(__file__).parent / "data"
+    l1c_path = Path(__file__).parent / "data" / "mhs"
 
-    l1c_file = L1CFile.open_granule(32624, l1c_path, sensors.MHS)
+    l1c_file = L1CFile.open_granule(51010, l1c_path, sensors.MHS)
     l1c_data = l1c_file.to_xarray_dataset()
 
     assert l1c_data.pixels.size == 90
-    assert l1c_data.scans.size == 2280
+    assert l1c_data.scans.size == 2295
 
 
 def test_find_file_gmi():
@@ -52,8 +52,8 @@ def test_find_file_mhs():
     """
     Tests finding an MHS file for a given date.
     """
-    l1c_path = Path(__file__).parent / "data"
-    date = np.datetime64("2019-01-01T01:30:00")
+    l1c_path = Path(__file__).parent / "data" / "mhs"
+    date = np.datetime64("2019-01-01T01:33:00")
     l1c_file = L1CFile.find_file(date, l1c_path, sensor=sensors.MHS)
     data = l1c_file.to_xarray_dataset()
 
