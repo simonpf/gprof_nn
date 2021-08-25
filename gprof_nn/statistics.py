@@ -1241,18 +1241,20 @@ class BinFileStatistics(Statistic):
                 t2m = np.repeat(t2m.reshape(-1, 1), v.shape[1], axis=-1)
                 tcwv = np.repeat(tcwv.reshape(-1, 1), v.shape[1], axis=-1)
 
+            inds = v > -999
+
             # Conditional mean
             self.sums_t2m[k][st - 1] += np.histogram(
-                t2m, bins=self.t2m_bins, weights=v
+                t2m[inds], bins=self.t2m_bins, weights=v[inds]
             )[0]
             self.counts_t2m[k][st - 1] += np.histogram(
-                t2m, bins=self.t2m_bins
+                t2m[inds], bins=self.t2m_bins
             )[0]
             self.sums_tcwv[k][st - 1] += np.histogram(
-                tcwv, bins=self.tcwv_bins, weights=v
+                tcwv[inds], bins=self.tcwv_bins, weights=v[inds]
             )[0]
             self.counts_tcwv[k][st - 1] += np.histogram(
-                tcwv, bins=self.tcwv_bins
+                tcwv[inds], bins=self.tcwv_bins
             )[0]
 
         # Ancillary data
@@ -1584,6 +1586,8 @@ class RetrievalStatistics(Statistic):
         self.counts_t2m = {}
         self.sums_tcwv = {}
         self.counts_tcwv = {}
+        self.sums_tcwv_center = {}
+        self.counts_tcwv_center = {}
 
         self.bins = {}
         self.t2m_bins = np.linspace(239.5, 339.5, 101)
@@ -1617,6 +1621,8 @@ class RetrievalStatistics(Statistic):
                 self.counts_t2m[k] = np.zeros((18, 100))
                 self.sums_tcwv[k] = np.zeros((18, 100))
                 self.counts_tcwv[k] = np.zeros((18, 100))
+                self.sums_tcwv_center[k] = np.zeros((18, 100))
+                self.counts_tcwv_center[k] = np.zeros((18, 100))
 
     def process_file(self,
                      sensor,
@@ -1661,17 +1667,50 @@ class RetrievalStatistics(Statistic):
                     tcwv = np.repeat(tcwv.reshape(-1, 1), 28, axis=-1)
 
                 # Conditional mean
+                mask = v > -999
+                v = v.copy()
+                v[~mask] = 0.0
+
                 self.sums_t2m[k][i] += np.histogram(
                     t2m, bins=self.t2m_bins, weights=v
                 )[0]
                 self.counts_t2m[k][i] += np.histogram(
-                    t2m, bins=self.t2m_bins
+                    t2m, bins=self.t2m_bins, weights=mask.astype(np.float64),
                 )[0]
                 self.sums_tcwv[k][i] += np.histogram(
                     tcwv, bins=self.tcwv_bins, weights=v
                 )[0]
                 self.counts_tcwv[k][i] += np.histogram(
-                    tcwv, bins=self.tcwv_bins
+                    tcwv, bins=self.tcwv_bins, weights=mask.astype(np.float64)
+                )[0]
+
+
+                #
+                # Swath center
+                #
+
+                i_start = 110 - 12
+                i_end = 110 + 13
+                v = dataset[k].data[:, i_start:i_end]
+                if v.ndim <= 2:
+                    inds = i_s[:, i_start:i_end] * (v > -999)
+                else:
+                    inds = i_s[:, i_start:i_end] * np.all(v > -999, axis=-1)
+                v = v[inds]
+                mask = v <= -999
+                v = v.copy()
+                v[~mask] = 0.0
+                t2m = dataset["two_meter_temperature"]
+                t2m = t2m.data[:, i_start:i_end][inds]
+                tcwv = dataset["total_column_water_vapor"]
+                tcwv = tcwv.data[:, i_start:i_end][inds]
+                if v.ndim > t2m.ndim:
+                    tcwv = np.repeat(tcwv.reshape(-1, 1), 28, axis=-1)
+                self.sums_tcwv_center[k][i] += np.histogram(
+                    tcwv, bins=self.tcwv_bins, weights=v
+                )[0]
+                self.counts_tcwv_center[k][i] += np.histogram(
+                    tcwv, bins=self.tcwv_bins, weights=mask.astype(np.float64)
                 )[0]
 
     def merge(self, other):
@@ -1729,6 +1768,18 @@ class RetrievalStatistics(Statistic):
             data[k + "_counts_tcwv"] = (
                 ("surface_type", "tcwv_bins"),
                 self.counts_tcwv[k]
+            )
+            data[k + "_mean_tcwv_center"] = (
+                ("surface_type", "tcwv_bins"),
+                self.sums_tcwv_center[k] / self.counts_tcwv_center[k]
+            )
+            data[k + "_sums_tcwv_center"] = (
+                ("surface_type", "tcwv_bins"),
+                self.sums_tcwv_center[k]
+            )
+            data[k + "_counts_tcwv_center"] = (
+                ("surface_type", "tcwv_bins"),
+                self.counts_tcwv_center[k]
             )
             data[k + "_mean_t2m"] = (
                 ("surface_type", "t2m_bins"),
