@@ -687,7 +687,7 @@ def run_preprocessor(
 
     except subprocess.CalledProcessError as error:
         if robust:
-            LOGGER.warning(
+            LOGGER.error(
                 "Running the preprocessor for file %s failed with the following"
                 " error: %s",
                 l1c_file,
