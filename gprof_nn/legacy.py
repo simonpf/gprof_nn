@@ -51,7 +51,7 @@ Sfccode    10V    10H    19V    19H    22V    22H    37V    37H    89V    89H   
 
 
 DEFAULT_SENSITIVITIES = np.load(
-    Path(__file__).parent / "data" / "gmi_era5_sensitivities.npy"
+    Path(__file__).parent / "files" / "gmi_era5_sensitivities.npy"
 )
 
 
