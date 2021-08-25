@@ -71,11 +71,14 @@ STATS = {
     ],
     "bin": [
         statistics.BinFileStatistics(),
-        #statistics.ZonalDistribution(),
         #statistics.GlobalDistribution()
     ],
     "observations": [statistics.ObservationStatistics(conditional=1)],
-    "retrieval": [statistics.RetrievalStatistics()]
+    "retrieval": [
+        statistics.RetrievalStatistics(),
+        statistics.ZonalDistribution(),
+        statistics.ScanPositionMean()
+        ]
 }
 
 ENDINGS = {

@@ -10,6 +10,7 @@ import logging
 import subprocess
 import tempfile
 from pathlib import Path
+import shutil
 
 import numpy as np
 
@@ -55,6 +56,14 @@ DEFAULT_SENSITIVITIES = np.load(
 )
 
 
+def has_gprof():
+    """
+    Determin whether the legacy GPROF algorithm is available
+    on the system.
+    """
+    return shutil.which(EXECUTABLES["STANDARD"]) is not None
+
+
 def write_sensitivity_file(filename,
                            nedts=None):
     """
@@ -66,9 +75,10 @@ def write_sensitivity_file(filename,
 
 
 def execute_gprof(working_directory,
+                  input_file,
                   mode,
                   profiles,
-                  nedts=nedts,
+                  nedts=None,
                   robust=False):
     """
     Execute legacy GPROF algorithm.
@@ -90,9 +100,11 @@ def execute_gprof(working_directory,
             "'mode' must be one of 'STANDARD', 'SENSITIVITY' or 'PROFILES'"
         )
     executable = EXECUTABLES[mode]
-    input_file = working_directory / "input.pp"
     output_file = working_directory / "output.bin"
     log_file = working_directory / "log"
+
+    sensitivity_file = working_directory / "channel_sensitivities.txt"
+    write_sensitivity_file(sensitivity_file, nedts=nedts)
 
     if profiles:
         profiles = "1"

@@ -49,7 +49,7 @@ _THRESHOLDS = {
 }
 
 
-def write_preprocessor_file(input_data, output_file, template=None):
+def write_preprocessor_file(input_data, output_file):
     """
     Extract samples from training dataset and write to a preprocessor
     file.
@@ -138,6 +138,11 @@ def write_preprocessor_file(input_data, output_file, template=None):
 
     sensor = getattr(sensors, data.attrs["sensor"])
     new_data = xr.Dataset(new_dataset)
+
+    template_path = (Path(__file__).parent / ".." /
+                     "files" / "preprocessor_template.pp")
+    template = PreprocessorFile(template_path)
+
     PreprocessorFile.write(output_file, new_data, sensor, template=template)
 
 

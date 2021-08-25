@@ -1,10 +1,21 @@
 """
 Tests for the gprof_nn.legacy module.
 """
-import numpy as np
+from pathlib import Path
 
+import numpy as np
+import pytest
+
+from gprof_nn.data.training_data import (GPROF_NN_0D_Dataset,
+                                         write_preprocessor_file)
 from gprof_nn.legacy  import (write_sensitivity_file,
-                              DEFAULT_SENSITIVITIES)
+                              DEFAULT_SENSITIVITIES,
+                              execute_gprof,
+                              has_gprof)
+from gprof_nn.data.preprocessor import PreprocessorFile
+
+
+HAS_GPROF = has_gprof()
 
 
 def test_write_sensitivity_file(tmp_path):
@@ -22,3 +33,15 @@ def test_write_sensitivity_file(tmp_path):
         print(f.read())
 
 
+@pytest.mark.skipif(not HAS_GPROF, reason="GPROF executable missing.")
+def test_run_gprof(tmp_path):
+    path = Path(__file__).parent
+    input_file = path / "data" / "gmi" / "gprof_nn_gmi_era5.nc"
+    dataset = GPROF_NN_0D_Dataset(input_file).to_xarray_dataset()
+
+    write_preprocessor_file(dataset, tmp_path / "input.pp")
+
+    execute_gprof(tmp_path,
+                  tmp_path / "input.pp",
+                  "STANDARD",
+                  False)
