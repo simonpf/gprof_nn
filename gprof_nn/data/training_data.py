@@ -80,8 +80,12 @@ def write_preprocessor_file(input_data, output_file, template=None):
         data = input_data
 
     if "pixels" not in data.dims or "scans" not in data.dims:
-        n_pixels = 256
-        n_scans = data.samples.size // n_pixels
+        if data.samples.size < 256:
+            n_pixels = data.samples.size
+            n_scans = 1
+        else:
+            n_pixels = 256
+            n_scans = data.samples.size // n_pixels
         n_scenes = 1
         dim_offset = -1
     else:
