@@ -463,11 +463,13 @@ def run_training_2d(sensor,
     #
 
     dataset_factory = GPROF_NN_2D_Dataset
-    normalizer = Normalizer.load("../data/normalizer_gprof_0d_gmi.pckl")
+    normalizer_path = (GPROF_NN_DATA_PATH /
+                       f"normalizer_{sensor.name.lower()}.pckl")
+    normalizer = Normalizer.load(normalizer_path)
     kwargs = {
         "batch_size": batch_size,
         "normalizer": normalizer,
-        "target": targets,
+        "targets": targets,
         "augment": True
     }
     training_data = DataFolder(
@@ -479,7 +481,7 @@ def run_training_2d(sensor,
     kwargs = {
         "batch_size": 4 * batch_size,
         "normalizer": normalizer,
-        "target": targets,
+        "targets": targets,
         "augment": False
     }
     validation_data = DataFolder(
@@ -488,9 +490,6 @@ def run_training_2d(sensor,
         kwargs=kwargs,
         n_workers=2
     )
-
-    network_name = (f"gprof_nn_2d_gmi_{network_type}_{n_blocks}_{n_features_body}"
-                    "_{n_layers_head}_{n_features_head}.pt")
 
     ###############################################################################
     # Prepare in- and output.
@@ -506,7 +505,7 @@ def run_training_2d(sensor,
                                 n_features_body,
                                 n_layers_head,
                                 n_features_head,
-                                target=targets)
+                                targets=targets)
     elif network_type == "qrnn_exp":
         transformation = {t: LogLinear() for t in targets}
         transformation["latent_heat"] = None
@@ -525,6 +524,7 @@ def run_training_2d(sensor,
                                 n_features_head,
                                 targets=targets)
     model = xrnn.model
+    model.normalizer = normalizer
 
     ###############################################################################
     # Run the training.
@@ -558,7 +558,7 @@ def run_training_2d(sensor,
                metrics=metrics,
                device=device,
                mask=-9999)
-    xrnn.save(model_path / network_name)
+    xrnn.save(output)
 
     n_epochs = 10
     optimizer = optim.Adam(model.parameters(), lr=0.0005)
@@ -573,6 +573,7 @@ def run_training_2d(sensor,
                device=device,
                mask=-9999)
     xrnn.save(output)
+
     n_epochs = 20
     optimizer = optim.Adam(model.parameters(), lr=0.0005)
     scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, n_epochs)

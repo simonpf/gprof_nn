@@ -310,10 +310,13 @@ class MultiHeadMLP(nn.Module):
         n_neurons_head,
         n_outputs,
         residuals="none",
-        target="surface_precip",
+        targets=None,
         activation="ReLU"
     ):
-        self.target = target
+        if targets is None:
+            self.targets = ["surface_precip"]
+        else:
+            self.targets = targets
         self.profile_shape = (-1, n_outputs, 28)
         self.n_layers_body = n_layers_body
         self.n_neurons_body = n_neurons_body
@@ -339,10 +342,7 @@ class MultiHeadMLP(nn.Module):
             internal=True
         )
 
-        if not isinstance(self.target, list):
-            targets = [self.target]
-        else:
-            targets = self.target
+        targets = self.targets
         if n_layers_body > 0:
             n_in = n_neurons_body
         else:
@@ -379,10 +379,7 @@ class MultiHeadMLP(nn.Module):
             In the case of a single-target network a single tensor. In
             the case of a multi-target network a dictionary of tensors.
         """
-        if not isinstance(self.target, list):
-            targets = [self.target]
-        else:
-            targets = self.target
+        targets = self.targets
 
         y, acc = self.body(x, None)
         results = {}
@@ -390,8 +387,6 @@ class MultiHeadMLP(nn.Module):
             results[k], _ = self.heads[k](y, acc, self.n_layers_body + 1)
             if k in PROFILE_NAMES:
                 results[k] = results[k].reshape(self.profile_shape)
-        if not isinstance(self.target, list):
-            return results[self.target]
         return results
 
 
@@ -435,7 +430,7 @@ class GPROF_NN_0D_QRNN(QRNN):
                              n_layers_head,
                              n_neurons_head,
                              64,
-                             target=targets,
+                             targets=targets,
                              residuals=residuals,
                              activation=activation)
 
@@ -493,7 +488,7 @@ class GPROF_NN_0D_DRNN(DRNN):
                              n_layers_head,
                              n_neurons_head,
                              128,
-                             target=targets,
+                             targets=targets,
                              residuals=residuals,
                              activation=activation)
 
@@ -519,7 +514,7 @@ class GPROF_NN_0D_DRNN(DRNN):
                 "'targets' must be a sub-set of the models targets."
             )
         self.targets = targets
-        self.model.target = targets
+        self.model.targets = targets
 
 ###############################################################################
 # GPROF-NN 2D
@@ -571,7 +566,7 @@ class XceptionFPN(nn.Module):
                  n_layers_head,
                  n_features_head,
                  ancillary=True,
-                 target=None):
+                 targets=None):
         """
         Args:
             n_outputs: The number of output channels,
@@ -590,10 +585,10 @@ class XceptionFPN(nn.Module):
         n_anc = sensor.n_inputs - n_channels
 
         self.ancillary = ancillary
-        if target is None:
-            self.target = ["surface_precip"]
+        if targets is None:
+            self.targets = ["surface_precip"]
         else:
-            self.target = target
+            self.targets = targets
         self.n_outputs = n_outputs
 
         if isinstance(n_blocks, int):
@@ -617,9 +612,8 @@ class XceptionFPN(nn.Module):
         if self.ancillary:
             n_inputs += n_anc
 
-        targets = self.target
-        if not isinstance(targets, list):
-            targets = [targets]
+        targets = self.targets
+
         self.heads = nn.ModuleDict()
         for k in targets:
             if k in PROFILE_NAMES:
@@ -658,10 +652,7 @@ class XceptionFPN(nn.Module):
         else:
             x = torch.cat([x_in, x_u], 1)
 
-        if not isinstance(self.target, list):
-            targets = [self.target]
-        else:
-            targets = self.target
+        targets = self.targets
 
         results = {}
         for k in targets:
@@ -673,8 +664,6 @@ class XceptionFPN(nn.Module):
                 results[k] = y.reshape(profile_shape)
             else:
                 results[k] = y
-        if not isinstance(self.target, list):
-            return results[self.target]
         return results
 
 
@@ -722,7 +711,7 @@ class GPROF_NN_2D_QRNN(QRNN):
                             n_features_body,
                             n_layers_head,
                             n_features_head,
-                            target=targets)
+                            targets=targets)
 
         super().__init__(n_inputs=sensor.n_inputs,
                          quantiles=QUANTILES,
@@ -744,7 +733,7 @@ class GPROF_NN_2D_QRNN(QRNN):
                 "'targets' must be a sub-set of the models targets."
             )
         self.targets = targets
-        self.model.target = targets
+        self.model.targets = targets
 
 class GPROF_NN_2D_DRNN(DRNN):
     """
@@ -781,7 +770,7 @@ class GPROF_NN_2D_DRNN(DRNN):
                             n_features_body,
                             n_layers_head,
                             n_features_head,
-                            target=targets)
+                            targets=targets)
 
         super().__init__(n_inputs=sensor.n_inputs,
                          bins=BINS,
@@ -802,7 +791,7 @@ class GPROF_NN_2D_DRNN(DRNN):
                 "'targets' must be a sub-set of the models targets."
             )
         self.targets = targets
-        self.model.target = target
+        self.model.targets = targets
 
 
 ###############################################################################
