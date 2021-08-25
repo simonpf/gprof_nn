@@ -1733,6 +1733,8 @@ class RetrievalStatistics(Statistic):
                 self.counts_t2m[k] += other.counts_t2m[k]
                 self.sums_tcwv[k] += other.sums_tcwv[k]
                 self.counts_tcwv[k] += other.counts_tcwv[k]
+                self.sums_tcwv_center[k] += other.sums_tcwv_center[k]
+                self.counts_tcwv_center[k] += other.counts_tcwv_center[k]
 
     def save(self, destination):
         """
