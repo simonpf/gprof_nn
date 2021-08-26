@@ -24,7 +24,7 @@ from gprof_nn.data.training_data import (
 )
 
 
-def test_to_xarray_dataset_0d():
+def test_to_xarray_dataset_0d_gmi():
     """
     Ensure that converting training data to 'xarray.Dataset' yield same
     Tbs as the ones found in the first batch of the training data when
@@ -93,6 +93,47 @@ def test_to_xarray_dataset_0d():
     assert np.all(np.isclose(st[inds], st_ref + 1))
 
     at = data.airmass_type.data
+    inds, at_ref = np.where(x[:, -4:])
+    assert np.all(np.isclose(at[inds], at_ref))
+
+
+def test_to_xarray_dataset_0d_mhs():
+    """
+    Ensure that converting training data to 'xarray.Dataset' yield same
+    Tbs as the ones found in the first batch of the training data when
+    data is not shuffled.
+    """
+    path = Path(__file__).parent
+    input_file = path / "data" / "mhs" / "gprof_nn_mhs_era5.nc"
+    dataset = GPROF_NN_0D_Dataset(
+        input_file,
+        batch_size=64,
+        normalize=False,
+        shuffle=False,
+        targets=["surface_precip", "rain_water_content"]
+    )
+
+    #
+    # Conversion using datasets 'x' attribute.
+    #
+
+    data = dataset.to_xarray_dataset()
+    x, y = dataset[0]
+    x = x.numpy()
+
+    t2m = data.two_meter_temperature.data[:x.shape[0]]
+    t2m_ref = x[:, 6]
+    assert np.all(np.isclose(t2m, t2m_ref))
+
+    tcwv = data.total_column_water_vapor.data[:x.shape[0]]
+    tcwv_ref = x[:, 7]
+    assert np.all(np.isclose(tcwv, tcwv_ref))
+
+    st = data.surface_type.data[:x.shape[0]]
+    inds, st_ref = np.where(x[:, -22:-4])
+    assert np.all(np.isclose(st[inds], st_ref + 1))
+
+    at = data.airmass_type.data[:x.shape[0]]
     inds, at_ref = np.where(x[:, -4:])
     assert np.all(np.isclose(at[inds], at_ref))
 

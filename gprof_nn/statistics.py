@@ -23,6 +23,8 @@ from gprof_nn.definitions import ALL_TARGETS
 from gprof_nn.data.retrieval import RetrievalFile
 from gprof_nn.data.bin import BinFile
 from gprof_nn.data.preprocessor import PreprocessorFile
+from gprof_nn.data.training_data import (GPROF_NN_0D_Dataset,
+                                         GPROF_NN_2D_Dataset)
 
 
 LOGGER = logging.getLogger(__name__)
@@ -30,6 +32,22 @@ LOGGER = logging.getLogger(__name__)
 ###############################################################################
 # Statistics
 ###############################################################################
+
+
+def calculate_angle_bins(angles):
+    """
+    Helper function to create sequence of angle bins from a sensors
+    simulated viewing angles.
+
+    Args:
+        angles: 1D array containing the viewing angles in ascending
+            order.
+    """
+    angle_bins = np.zeros(angles.size + 1)
+    angle_bins[1:-1] = 0.5 * (angles[1:] + angles[:-1])
+    angle_bins[0] = 2.0 * angle_bins[1] - angle_bins[2]
+    angle_bins[-1] = 2.0 * angle_bins[-2] - angle_bins[-3]
+    return angle_bins
 
 
 def open_file(filename):
@@ -616,13 +634,13 @@ class TrainingDataStatistics(Statistic):
     as well as ancillary data.
     """
     def __init__(self,
-                 conditional=None):
+                 kind="0D"):
         """
         Args:
-            conditional: If provided should identify a channel for which
-                conditional of all other channels will be calculated.
+            kind: The kind of dataset to use to load the data: '0D' or
+                '2D'.
         """
-        self.conditional = conditional
+        self.kind = kind.upper()
 
         self.tbs = None
         self.tbs_sim = None
@@ -633,12 +651,15 @@ class TrainingDataStatistics(Statistic):
 
         self.targets = {}
         self.bins = {}
-        self.t2m = np.zeros((18, 200), dtype=np.float32)
-        self.t2m_bins = np.linspace(240, 330, 201)
-        self.tcwv = np.zeros((18, 200), dtype=np.float32)
-        self.tcwv_bins = np.linspace(0, 100, 201)
+        self.t2m = np.zeros((18, 100), dtype=np.float32)
+        self.t2m_bins = np.linspace(239.5, 339.5, 101)
+        self.tcwv = np.zeros((18, 100), dtype=np.float32)
+        self.tcwv_bins = np.linspace(-0.5, 99.5, 101)
         self.st = np.zeros(18, dtype=np.float32)
         self.at = np.zeros(4, dtype=np.float32)
+
+        self.sums_tcwv = {}
+        self.counts_tcwv = {}
 
     def _initialize_data(self,
                          sensor,
@@ -655,49 +676,25 @@ class TrainingDataStatistics(Statistic):
         self.has_angles = sensor.n_angles > 1
         if self.has_angles:
             n_angles = sensor.n_angles
-            self.angle_bins = np.zeros(sensor.angles.size + 1)
-            self.angle_bins[1:-1] = 0.5 * (sensor.angles[1:] +
-                                           sensor.angles[:-1])
-            self.angle_bins[0] = 2.0 * self.angle_bins[1] - self.angle_bins[2]
-            self.angle_bins[-1] = (2.0 * self.angle_bins[-2] -
-                                   self.angle_bins[-3])
+            self.angle_bins = calculate_angle_bins(sensor.angles[::-1])
             self.tbs = np.zeros((18, n_chans, n_angles, self.tb_bins.size - 1),
                                 dtype=np.float32)
-            self.tbs_sim = np.zeros((18, n_chans, n_angles, self.tb_bins.size - 1),
-                                    dtype=np.float32)
-            if self.conditional is not None:
-                self.tbs_cond = np.zeros(
-                    (18, n_chans, n_angles,) + (self.tb_bins.size - 1,) * 2,
-                    dtype=np.float32
-                )
-
         else:
             self.tbs = np.zeros((18, n_chans, self.tb_bins.size - 1),
                                 dtype=np.float32)
-            if self.conditional is not None:
-                self.tbs_cond = np.zeros(
-                    (18, n_chans,) + (self.tb_bins.size - 1,) * 2,
-                    dtype=np.float32
-                )
-        self.bias_bins = np.linspace(-100, 100, 201)
-        self.tbs_bias = np.zeros((18, n_chans, self.bias_bins.size - 1),
-                                 dtype=np.float32)
 
         for k in ALL_TARGETS:
             if k in data.variables:
                 # Surface and convective precip have angle depen
-                if (k in ["surface_precip", "convective_precip"] and
-                    self.has_angles):
-                    self.targets[k] = np.zeros((18, n_angles, 200),
-                                               dtype=np.float32)
-                else:
-                    self.targets[k] = np.zeros((18, 200),
-                                               dtype=np.float32)
+                self.targets[k] = np.zeros((18, 200), dtype=np.float32)
                 l, h = LIMITS[k]
                 if l > 0:
                     self.bins[k] = np.logspace(np.log10(l), np.log10(h), 201)
                 else:
                     self.bins[k] = np.linspace(l, h, 201)
+
+                self.sums_tcwv[k] = np.zeros((18, 100))
+                self.counts_tcwv[k] = np.zeros((18, 100))
 
     def process_file(self,
                      sensor,
@@ -708,118 +705,56 @@ class TrainingDataStatistics(Statistic):
         Args:
             filename: The path of the data to process.
         """
+        print(sensor, filename)
+        if self.kind == "0D":
+            dataset = GPROF_NN_0D_Dataset(filename,
+                                          targets=ALL_TARGETS,
+                                          normalize=False,
+                                          shuffle=False,
+                                          augment=False)
+            dataset = dataset.to_xarray_dataset()
+        else:
+            dataset = GPROF_NN_2D_Dataset(filename,
+                                          targets=ALL_TARGETS,
+                                          normalize=False,
+                                          shuffle=False,
+                                          augment=False)
+            dataset = dataset.to_xarray_dataset()
+
         self.sensor = sensor
-        dataset = xr.open_dataset(filename)
+
         if self.tbs is None:
             self._initialize_data(sensor, dataset)
 
         st = dataset["surface_type"]
         sp = dataset["surface_precip"]
+
         for i in range(18):
             # Select only TBs that are actually used for training.
-            if self.has_angles:
-                i_st = ((st == i + 1) * (sp[..., 0] >= 0)).data
-            else:
-                i_st = ((st == i + 1) * (sp >= 0)).data
+            i_st = ((st == i + 1) * (sp >= 0)).data
 
-
-            # Sensor with varying EIA (cross track).
-            tbs = (dataset["brightness_temperatures"] .data[i_st.data])
-            if self.has_angles:
-                eia = dataset["earth_incidence_angle"].data[i_st, 0]
-
-                # For samples with real observations (snow + sea ice)
-                # observations must be selected based on earth incidence
-                # angle variable.
-                if (i + 1) in [2, 8, 9, 10, 11, 16]:
-                    for j in range(sensor.n_angles):
-                        lower = self.angle_bins[j + 1]
-                        upper = self.angle_bins[j]
-                        i_a = (eia >= lower) * (eia < upper)
-                        for k in range(sensor.n_chans):
-                            cs, _ = np.histogram(tbs[i_a, k],
-                                                 bins=self.tb_bins)
-                            self.tbs[i, k, j] += cs
-                            if self.conditional is not None:
-                                cs, _, _ = np.histogram2d(
-                                    tbs[i_a, self.conditional],
-                                    tbs[i_a, k],
-                                    bins=self.tb_bins
-                                )
-                                self.tbs_cond[i, k, j] += cs
-
-
-                # For samples with simulated observations, values are already
-                # binned but bias correction must be applied.
+            tbs = dataset["brightness_temperatures"].data[i_st.data]
+            for i_c in range(sensor.n_chans):
+                if self.has_angles:
+                    eia = dataset["earth_incidence_angle"].data[i_st]
+                    cs, _, _ = np.histogram2d(
+                        eia,
+                        tbs[..., i_c],
+                        bins=(self.angle_bins, self.tb_bins)
+                    )
+                    self.tbs[i, i_c] += cs
                 else:
-                    tbs = (dataset["simulated_brightness_temperatures"]
-                           .data[i_st[:, :, 90:-90].data])
-                    b = (dataset["brightness_temperature_biases"]
-                         .data[i_st[:, :, 90:-90]])
-
-                    for k in range(sensor.n_chans):
-                        cs, _ = np.histogram(b[:, k], bins=self.bias_bins)
-                        self.tbs_bias[i, k] += cs
-
-                    for j in range(sensor.n_angles):
-                        for k in range(sensor.n_chans):
-                            # Simulated observations
-                            cs, _ = np.histogram(tbs[:, j, k],
-                                                 bins=self.tb_bins)
-                            self.tbs_sim[i, k, j] += cs
-
-                            # Corrected observations
-                            x = tbs[:, j, k] - b[:, k]
-                            cs, _ = np.histogram(x, bins=self.tb_bins)
-                            self.tbs[i, k, j] += cs
-
-                            if self.conditional is not None:
-                                x_0 = (tbs[:, j, self.conditional] -
-                                       b[:, self.conditional])
-                                cs, _, _ = np.histogram2d(
-                                    x_0,
-                                    x,
-                                    bins=self.tb_bins
-                                )
-                                self.tbs_cond[i, k, j] += cs
-            # Sensor with constant EIA
-            else:
-                for j in range(sensor.n_chans):
-                    cs, _ = np.histogram(tbs[:, j], bins=self.tb_bins)
-                    self.tbs[i, j] += cs
-                    if self.conditional is not None:
-                        cs, _, _ = np.histogram2d(tbs[:, self.conditional],
-                                                  tbs[:, j],
-                                                  bins=self.tb_bins)
-                        self.tbs_cond[i, j] += cs
+                    cs, _ = np.histogram(tbs[..., i_c], bins=self.tb_bins)
+                    self.tbs[i, i_c] += cs
 
             # Retrieval targets
             for k in self.bins:
-                v = dataset[k].data
-                if v.shape[2] < i_st.shape[2]:
-                    inds = i_st[:, :, 90:-90]
-                else:
-                    inds = i_st
-                v = v[inds]
+                v = dataset[k].data[i_st]
                 # Surface precip and convective precip must be treated
                 # separately.
-                if ((k in ["surface_precip", "convective_precip"]) and
-                    self.has_angles):
-                    if (i + 1) in [2, 8, 9, 10, 11, 16]:
-                        for j in range(sensor.n_angles):
-                            lower = self.angle_bins[j + 1]
-                            upper = self.angle_bins[j]
-                            i_a = (eia >= lower) * (eia < upper)
-                            cs, _ = np.histogram(v[i_a, 0],
-                                                 bins=self.bins[k])
-                            self.targets[k][i, j] += cs
-                    else:
-                        for j in range(sensor.n_angles):
-                            cs, _ = np.histogram(v[:, j], bins=self.bins[k])
-                            self.targets[k][i, j] += cs
-                else:
-                    cs, _ = np.histogram(v, bins=self.bins[k])
-                    self.targets[k][i] += cs
+                cs, _ = np.histogram(v, bins=self.bins[k])
+                self.targets[k][i] += cs
+
 
             # Ancillary data
             v = dataset["two_meter_temperature"].data[i_st]
@@ -828,6 +763,19 @@ class TrainingDataStatistics(Statistic):
             v = dataset["total_column_water_vapor"].data[i_st]
             cs, _ = np.histogram(v, bins=self.tcwv_bins)
             self.tcwv[i] += cs
+
+            # Conditional mean
+            tcwv = dataset["total_column_water_vapor"][i_st]
+            mask = v > -999
+            v = v.copy()
+            v[~mask] = 0.0
+
+            self.sums_tcwv[k][i] += np.histogram(
+                tcwv, bins=self.tcwv_bins, weights=v
+            )[0]
+            self.counts_tcwv[k][i] += np.histogram(
+                tcwv, bins=self.tcwv_bins, weights=mask.astype(np.float64)
+            )[0]
 
         bins = np.arange(0, 19) + 0.5
         cs, _ = np.histogram(st, bins=bins)
@@ -844,23 +792,20 @@ class TrainingDataStatistics(Statistic):
         """
         if self.tbs is None:
             self.tbs = other.tbs
-            self.tbs_cond = other.tbs_cond
-            self.tbs_sim = other.tbs_sim
-            self.tbs_bias = other.tbs_bias
             self.targets = other.targets
             self.t2m = other.t2m
             self.tcwv = other.tcwv
             self.st = other.st
             self.at = other.at
+            self.sums_tcwv = other.sums_tcwv
+            self.counts_tcwv = other.counts_tcwv
+
         elif other.tbs is not None:
             self.tbs += other.tbs
-            if self.tbs_sim is not None:
-                self.tbs_sim += other.tbs_sim
-                self.tbs_bias += other.tbs_bias
-            if self.conditional is not None and other.conditional is not None:
-                self.tbs_cond += other.tbs_cond
             for k in self.targets:
                 self.targets[k] += other.targets[k]
+                self.sums_tcwv[k] += other.sums_tcwv[k]
+                self.counts_tcwv[k] += other.counts_tcwv[k]
             self.t2m += other.t2m
             self.tcwv += other.tcwv
             self.st += other.st
@@ -885,23 +830,6 @@ class TrainingDataStatistics(Statistic):
                  "brightness_temperature_bins"),
                 self.tbs
             )
-            data["simulated_brightness_temperatures"] = (
-                ("surface_type_bins",
-                 "channels",
-                 "angles",
-                 "brightness_temperature_bins"),
-                self.tbs_sim
-            )
-            if self.conditional is not None:
-                data["conditional_brightness_temperatures"] = (
-                    ("surface_type_bins",
-                     "channels",
-                     "angles",
-                     "brightness_temperature_bins",
-                     "brightness_temperature_bins"),
-                    self.tbs_cond
-                )
-
         else:
             data["brightness_temperatures"] = (
                 ("surface_type_bins",
@@ -909,44 +837,25 @@ class TrainingDataStatistics(Statistic):
                  "brightness_temperature_bins"),
                 self.tbs
             )
-            if self.tbs_sim is not None:
-                if self.tbs_sim is not None:
-                    data["simulated_brightness_temperatures"] = (
-                        ("surface_type_bins",
-                        "channels",
-                        "brightness_temperature_bins"),
-                        self.tbs_sim
-                    )
-            if self.conditional is not None:
-                data["conditional_brightness_temperatures"] = (
-                    ("surface_type_bins",
-                     "channels",
-                     "brightness_temperature_bins",
-                     "brightness_temperature_bins"),
-                    self.tbs_cond
-                )
-
-        bias_bins = 0.5 * (self.bias_bins[1:] + self.bias_bins[:-1])
-        data["bias_bins"] = (
-            ("bias_bins",),
-            bias_bins
-        )
-        data["brightness_temperatures_biases"] = (
-            ("surface_type_bins",
-             "channels",
-             "bias_bins"),
-            self.tbs_bias
-        )
 
         for k in self.targets:
             bins = 0.5 * (self.bins[k][1:] + self.bins[k][:-1])
             bin_dim = k + "_bins"
             data[bin_dim] = (bin_dim,), bins
-            if (self.has_angles
-                and k in ["surface_precip", "convective_precip"]):
-                data[k] = ("surface_type", "angles", bin_dim), self.targets[k]
-            else:
-                data[k] = ("surface_type", bin_dim), self.targets[k]
+            data[k] = ("surface_type", bin_dim), self.targets[k]
+
+            data[k + "_mean_tcwv"] = (
+                ("surface_type", "tcwv_bins"),
+                self.sums_tcwv[k] / self.counts_tcwv[k]
+            )
+            data[k + "_sums_tcwv"] = (
+                ("surface_type", "tcwv_bins"),
+                self.sums_tcwv[k]
+            )
+            data[k + "_counts_tcwv"] = (
+                ("surface_type", "tcwv_bins"),
+                self.counts_tcwv[k]
+            )
 
         bins = 0.5 * (self.t2m_bins[1:] + self.t2m_bins[:-1])
         bin_dim = "two_meter_temperature_bins"
@@ -1722,9 +1631,9 @@ class RetrievalStatistics(Statistic):
             self.targets = other.targets
             self.bins = other.bins
             self.sums_t2m = other.sums_t2m
-            self.counts_t2m = other.tums_t2m
+            self.counts_t2m = other.counts_t2m
             self.sums_tcwv = other.sums_tcwv
-            self.counts_tcwv = other.tums_tcwv
+            self.counts_tcwv = other.counts_tcwv
 
         elif len(self.targets):
             for k in self.targets:

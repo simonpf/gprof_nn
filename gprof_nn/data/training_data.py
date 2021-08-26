@@ -402,7 +402,7 @@ class GPROF_NN_0D_Dataset(Dataset0DBase):
 
         tbs = x[:, : sensor.n_chans]
         if sensor.n_angles > 1:
-            eia = x[:, self.n_chans]
+            eia = x[:, sensor.n_chans]
         else:
             eia = None
         t2m = x[:, -24]
@@ -423,7 +423,7 @@ class GPROF_NN_0D_Dataset(Dataset0DBase):
             "airmass_type": (dims[:-1], at),
         }
         if eia is not None:
-            new_dataset["earth_incidence_angle"] = (dims[:2], eia)
+            new_dataset["earth_incidence_angle"] = (dims[:1], eia)
 
         dims = ("samples", "levels")
         for k, v in y.items():
@@ -743,7 +743,7 @@ class GPROF_NN_2D_Dataset:
 
         tbs = np.transpose(x[:, : sensor.n_chans], (0, 2, 3, 1))
         if sensor.n_angles > 1:
-            eia = x[:, self.n_chans]
+            eia = x[:, sensor.n_chans]
         else:
             eia = None
         t2m = x[:, -24]
@@ -768,7 +768,7 @@ class GPROF_NN_2D_Dataset:
             "airmass_type": (dims[:-1], at),
         }
         if eia is not None:
-            new_dataset["earth_incidence_angle"] = (dims[:2], eia)
+            new_dataset["earth_incidence_angle"] = (dims[:1], eia)
 
         dims = ("samples", "scans", "pixels", "levels")
         for k, v in self.y.items():
