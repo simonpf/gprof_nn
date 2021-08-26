@@ -705,7 +705,6 @@ class TrainingDataStatistics(Statistic):
         Args:
             filename: The path of the data to process.
         """
-        print(sensor, filename)
         if self.kind == "0D":
             dataset = GPROF_NN_0D_Dataset(filename,
                                           targets=ALL_TARGETS,
@@ -756,6 +755,23 @@ class TrainingDataStatistics(Statistic):
                 self.targets[k][i] += cs
 
 
+                # Conditional mean
+                tcwv = dataset["total_column_water_vapor"][i_st].data
+                if v.ndim > tcwv.ndim:
+                    tcwv = np.repeat(tcwv.reshape(-1, 1), v.shape[-1], axis=-1)
+
+                mask = v > -999
+                v = v.copy()
+                v[~mask] = 0.0
+
+                self.sums_tcwv[k][i] += np.histogram(
+                    tcwv, bins=self.tcwv_bins, weights=v
+                )[0]
+                self.counts_tcwv[k][i] += np.histogram(
+                    tcwv, bins=self.tcwv_bins, weights=mask.astype(np.float64)
+                )[0]
+
+
             # Ancillary data
             v = dataset["two_meter_temperature"].data[i_st]
             cs, _ = np.histogram(v, bins=self.t2m_bins)
@@ -764,18 +780,6 @@ class TrainingDataStatistics(Statistic):
             cs, _ = np.histogram(v, bins=self.tcwv_bins)
             self.tcwv[i] += cs
 
-            # Conditional mean
-            tcwv = dataset["total_column_water_vapor"][i_st]
-            mask = v > -999
-            v = v.copy()
-            v[~mask] = 0.0
-
-            self.sums_tcwv[k][i] += np.histogram(
-                tcwv, bins=self.tcwv_bins, weights=v
-            )[0]
-            self.counts_tcwv[k][i] += np.histogram(
-                tcwv, bins=self.tcwv_bins, weights=mask.astype(np.float64)
-            )[0]
 
         bins = np.arange(0, 19) + 0.5
         cs, _ = np.histogram(st, bins=bins)

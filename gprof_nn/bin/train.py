@@ -139,6 +139,15 @@ def add_parser(subparsers):
               'model.')
     )
     parser.add_argument(
+        '--n_blocks',
+        metavar='N',
+        type=int,
+        nargs=1,
+        default=2,
+        help=('For GPROF-NN 2D: The number of Xception  block per '
+              ' downsampling stage of the model.')
+    )
+    parser.add_argument(
         '--activation',
         metavar='activation',
         type=str,
@@ -449,9 +458,9 @@ def run_training_2d(sensor,
         args: Namespace with the remaining command line arguments.
     """
     n_blocks = args.n_blocks[0]
-    n_features_body = args.n_features_body[0]
+    n_neurons_body = args.n_neurons_body[0]
     n_layers_head = args.n_layers_head[0]
-    n_features_head = args.n_features_head[0]
+    n_neurons_head = args.n_neurons_head[0]
 
     device = args.device[0]
     targets = args.targets
@@ -502,26 +511,26 @@ def run_training_2d(sensor,
     if network_type == "drnn":
         xrnn = GPROF_NN_2D_DRNN(sensor,
                                 n_blocks,
-                                n_features_body,
+                                n_neurons_body,
                                 n_layers_head,
-                                n_features_head,
+                                n_neurons_head,
                                 targets=targets)
     elif network_type == "qrnn_exp":
         transformation = {t: LogLinear() for t in targets}
         transformation["latent_heat"] = None
         xrnn = GPROF_NN_2D_QRNN(sensor,
                                 n_blocks,
-                                n_features_body,
+                                n_neurons_body,
                                 n_layers_head,
-                                n_features_head,
+                                n_neurons_head,
                                 transformation=transformation,
                                 targets=targets)
     else:
         xrnn = GPROF_NN_2D_QRNN(sensor,
                                 n_blocks,
-                                n_features_body,
+                                n_neurons_body,
                                 n_layers_head,
-                                n_features_head,
+                                n_neurons_head,
                                 targets=targets)
     model = xrnn.model
     model.normalizer = normalizer
@@ -534,9 +543,9 @@ def run_training_2d(sensor,
     logger = TensorBoardLogger(n_epochs)
     logger.set_attributes({
         "n_blocks": n_blocks,
-        "n_features_body": n_features_body,
+        "n_neurons_body": n_neurons_body,
         "n_layers_head": n_layers_head,
-        "n_features_head": n_features_head,
+        "n_neurons_head": n_neurons_head,
         "targets": ", ".join(targets),
         "type": network_type,
         "optimizer": "adam"

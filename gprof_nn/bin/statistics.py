@@ -65,7 +65,7 @@ def add_parser(subparsers):
 
 STATS = {
     "training": [
-        statistics.TrainingDataStatistics(conditional=1),
+        statistics.TrainingDataStatistics(kind="0d"),
         statistics.ZonalDistribution(),
         statistics.GlobalDistribution()
     ],
