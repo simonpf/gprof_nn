@@ -387,6 +387,8 @@ class GPROF_NN_0D_Dataset(Dataset0DBase):
             y = self.y
         else:
             x, y = batch
+            x = x.numpy()
+            y = {k: t.numpy() for k, t in y.items()}
 
         if mask is None:
             mask = slice(0, None)
