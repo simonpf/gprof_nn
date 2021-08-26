@@ -8,7 +8,7 @@ CSU systems.
 """
 import logging
 import subprocess
-import tempfile
+from tempfile import TemporaryDirectory
 from pathlib import Path
 import shutil
 
@@ -17,6 +17,8 @@ import numpy as np
 
 from gprof_nn.data.preprocessor import PreprocessorFile
 from gprof_nn.data.retrieval import RetrievalFile
+from gprof_nn.data.training_data import (GPROF_NN_0D_Dataset,
+                                         write_preprocessor_file)
 
 
 LOGGER = logging.getLogger(__name__)
@@ -111,6 +113,13 @@ def execute_gprof(working_directory,
     else:
         profiles = "0"
 
+    if mode.upper() == "SENSITIVITY":
+        has_sensitivity = True
+        has_profiles = False
+    elif mode.upper() == "PROFILES":
+        has_sensitivity = False
+        has_profiles = True
+
     args = [executable,
             input_file,
             output_file,
@@ -131,54 +140,86 @@ def execute_gprof(working_directory,
             return None
         else:
             raise error
-    data = RetrievalFile(output_file).to_xarray_dataset()
-    return data
+    results = RetrievalFile(output_file,
+                            has_profiles=has_profiles,
+                            has_sensitivity=has_sensitivity)
+    return results.to_xarray_dataset()
 
 
-def run_gprof(input_file,
-              profiles):
+def run_gprof_training_data(input_file,
+                            mode,
+                            profiles,
+                            nedts=None):
     """
+    Runs GPROF algorithm on training data in GPROF-NN format and includes
+    truth values in the results.
 
+    Args:
+        input_file: Path to the NetCDF file containing the validation
+            data.
+        mode: The mode in which to run GPROF ('STANDARD', 'SENSITIVITY'
+            or 'PROFILES')
+        profiles: Whether to retrieve profiles.
+        nedts: If provided should be an array containing the channel
+            sensitivities to use for the retrieval.
 
+    Return:
+        'xarray.Dataset' containing the retrieval results.
     """
-    input_data = xr.open_dataset(input_file)
-
-
-def run_gprof_validation(input_file,
-                         profiles):
-    """
-    Run GPROF on
-
-    """
-
     input_data = GPROF_NN_0D_Dataset(input_file,
                                      shuffle=False,
                                      batch_size=256 * 2048)
 
+    results = []
     with TemporaryDirectory() as tmp:
-        for x, y in input_data:
+        for batch in input_data:
 
             preprocessor_file = tmp / "input.pp"
-            result_file = tmp / "results.bin"
+            input_data = input_data.to_xarray_dataset(batch=batch)
+            write_preprocessor_file(input_data, preprocessor_file)
 
-            subprocess.run(["GPROF_2020_V1",
-                            str(preprocessor_file),
-                            str(retrieval_file),
-                            "log",
-                            "/qdata1/pbrown/gpm/ancillary/",
-                            profiles])
-            print("Storing results.")
-            retrieval = RetrievalFile(retrieval_file, has_profiles=profiles).to_xarray_dataset()
+            output_data = execute_gprof(tmp,
+                                        preprocessor_file,
+                                        mode,
+                                        profiles,
+                                        nedts,
+                                        robust=True)
 
-            x_in = input_data.to_xarray_dataset(x)
-            write_preprocessor_file(x_in,
-                                    preprocessor_file,
-                                    template=template_file)
+            for k in ALL_TARGETS:
+                if k in results.variables:
+                    output_data[k + "_true"] = input_data[k]
+
+            results += [output_data]
+
+    return xr.concatenate(results, dim="samples")
 
 
-
-def run_gprof_standard():
+def run_gprof_standard(input_file,
+                       mode,
+                       profiles,
+                       nedts=None):
     """
-    Run GPROF on preprocessor or L1C file.
+    Runs GPROF algorithm on input from preprocessor.
+
+    Args:
+        input_file: Path to the NetCDF file containing the validation
+            data.
+        mode: The mode in which to run GPROF ('STANDARD', 'SENSITIVITY'
+            or 'PROFILES')
+        profiles: Whether to retrieve profiles.
+        nedts: If provided should be an array containing the channel
+            sensitivities to use for the retrieval.
+
+    Return:
+        'xarray.Dataset' containing the retrieval results.
     """
-    pass
+    with TemporaryDirectory() as tmp:
+        results = execute_gprof(
+            tmp,
+            input_file,
+            mode,
+            profiles,
+            nedts,
+            robust=True
+        )
+    return results

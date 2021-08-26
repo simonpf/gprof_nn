@@ -8,10 +8,11 @@ import pytest
 
 from gprof_nn.data.training_data import (GPROF_NN_0D_Dataset,
                                          write_preprocessor_file)
-from gprof_nn.legacy  import (write_sensitivity_file,
-                              DEFAULT_SENSITIVITIES,
-                              execute_gprof,
-                              has_gprof)
+from gprof_nn.legacy import (has_gprof,
+                             write_sensitivity_file,
+                             DEFAULT_SENSITIVITIES,
+                             run_gprof_training_data,
+                             run_gprof_standard)
 from gprof_nn.data.preprocessor import PreprocessorFile
 
 
@@ -34,14 +35,22 @@ def test_write_sensitivity_file(tmp_path):
 
 
 @pytest.mark.skipif(not HAS_GPROF, reason="GPROF executable missing.")
-def test_run_gprof(tmp_path):
+def test_run_gprof_training_data(tmp_path):
     path = Path(__file__).parent
     input_file = path / "data" / "gmi" / "gprof_nn_gmi_era5.nc"
-    dataset = GPROF_NN_0D_Dataset(input_file).to_xarray_dataset()
 
-    write_preprocessor_file(dataset, tmp_path / "input.pp")
+    results = run_gprof_training_data(input_file,
+                                      "STANDARD",
+                                      False)
+    assert "surface_precip" in results.variables
+    assert "surface_precip_true" in results.variables
 
-    execute_gprof(tmp_path,
-                  tmp_path / "input.pp",
-                  "STANDARD",
-                  False)
+
+@pytest.mark.skipif(not HAS_GPROF, reason="GPROF executable missing.")
+def test_run_gprof_training_data(tmp_path):
+    path = Path(__file__).parent
+    input_file = path / "data" / "gmi" / "GMIERA5_190101_027510.pp"
+    results = run_gprof_standard(input_file,
+                                 "STANDARD",
+                                 False)
+    assert "surface_precip" in results.variables
