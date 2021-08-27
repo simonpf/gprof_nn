@@ -10,6 +10,7 @@ from torch import nn
 from torch.nn.functional import softplus
 from quantnn.qrnn import QRNN
 from quantnn.drnn import DRNN
+from quantnn.mrnn import MRNN, Mean, Quantiles, Density
 from quantnn.models.pytorch.xception import (UpsamplingBlock,
                                              DownsamplingBlock)
 
@@ -390,7 +391,7 @@ class MultiHeadMLP(nn.Module):
         return results
 
 
-class GPROF_NN_0D_QRNN(QRNN):
+class GPROF_NN_0D_QRNN(MRNN):
     """
     DRNN-based version of the GPROF-NN 0D algorithm.
     """
@@ -434,8 +435,15 @@ class GPROF_NN_0D_QRNN(QRNN):
                              residuals=residuals,
                              activation=activation)
 
+        losses = {}
+        for target in targets:
+            if target in PROFILE_NAMES:
+                losses[target] = Mean()
+            else:
+                losses[target] = Quantiles(QUANTILES)
+
         super().__init__(n_inputs=sensor.n_inputs,
-                         quantiles=QUANTILES,
+                         losses=losses,
                          model=model,
                          transformation=transformation)
 
@@ -457,7 +465,7 @@ class GPROF_NN_0D_QRNN(QRNN):
         self.model.target = targets
 
 
-class GPROF_NN_0D_DRNN(DRNN):
+class GPROF_NN_0D_DRNN(MRNN):
     """
     DRNN-based version of the GPROF-NN 0D algorithm.
     """
@@ -492,8 +500,15 @@ class GPROF_NN_0D_DRNN(DRNN):
                              residuals=residuals,
                              activation=activation)
 
+        losses = {}
+        for target in targets:
+            if target in PROFILE_NAMES:
+                losses[target] = Mean()
+            else:
+                losses[target] = Density(bins=BINS[target])
+
         super().__init__(n_inputs=sensor.n_inputs,
-                         bins=BINS,
+                         losses=losses,
                          model=model)
 
         self.preprocessor_class = PreprocessorLoader0D
@@ -667,7 +682,7 @@ class XceptionFPN(nn.Module):
         return results
 
 
-class GPROF_NN_2D_QRNN(QRNN):
+class GPROF_NN_2D_QRNN(MRNN):
     """
     QRNN-based version of the GPROF-NN 2D algorithm.
     """
@@ -713,8 +728,15 @@ class GPROF_NN_2D_QRNN(QRNN):
                             n_features_head,
                             targets=targets)
 
+        losses = {}
+        for target in targets:
+            if target in PROFILE_NAMES:
+                losses[target] = Mean()
+            else:
+                losses[target] = Quantiles(QUANTILES)
+
         super().__init__(n_inputs=sensor.n_inputs,
-                         quantiles=QUANTILES,
+                         losses=losses,
                          model=model,
                          transformation=transformation)
 
@@ -735,7 +757,8 @@ class GPROF_NN_2D_QRNN(QRNN):
         self.targets = targets
         self.model.targets = targets
 
-class GPROF_NN_2D_DRNN(DRNN):
+
+class GPROF_NN_2D_DRNN(MRNN):
     """
     QRNN-based version of the GPROF-NN 2D algorithm.
     """
@@ -772,8 +795,15 @@ class GPROF_NN_2D_DRNN(DRNN):
                             n_features_head,
                             targets=targets)
 
+        losses = {}
+        for target in targets:
+            if target in PROFILE_NAMES:
+                losses[target] = Mean()
+            else:
+                losses[target] = Density(BINS[target])
+
         super().__init__(n_inputs=sensor.n_inputs,
-                         bins=BINS,
+                         losses=losses,
                          model=model)
 
         self.preprocessor_class = PreprocessorLoader2D
