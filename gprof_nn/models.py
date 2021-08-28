@@ -318,7 +318,6 @@ class MultiHeadMLP(nn.Module):
             self.targets = ["surface_precip"]
         else:
             self.targets = targets
-        self.profile_shape = (-1, n_outputs, 28)
         self.n_layers_body = n_layers_body
         self.n_neurons_body = n_neurons_body
 
@@ -355,7 +354,7 @@ class MultiHeadMLP(nn.Module):
                 self.heads[t] = module_class(
                     n_in,
                     n_neurons_head,
-                    28 * n_outputs,
+                    28,
                     n_layers_head,
                     activation=activation
                 )
@@ -386,8 +385,6 @@ class MultiHeadMLP(nn.Module):
         results = {}
         for k in targets:
             results[k], _ = self.heads[k](y, acc, self.n_layers_body + 1)
-            if k in PROFILE_NAMES:
-                results[k] = results[k].reshape(self.profile_shape)
         return results
 
 
@@ -634,7 +631,7 @@ class XceptionFPN(nn.Module):
             if k in PROFILE_NAMES:
                 self.heads[k] = MLPHead(n_inputs,
                                         n_features_head,
-                                        28 * n_outputs,
+                                        28,
                                         n_layers_head)
             else:
                 self.heads[k] = MLPHead(n_inputs,
@@ -672,13 +669,7 @@ class XceptionFPN(nn.Module):
         results = {}
         for k in targets:
             y = self.heads[k](x)
-            if k in PROFILE_NAMES:
-                profile_shape = (y.shape[:1] +
-                                 (self.n_outputs, 28) +
-                                 y.shape[2:4])
-                results[k] = y.reshape(profile_shape)
-            else:
-                results[k] = y
+            results[k] = y
         return results
 
 
