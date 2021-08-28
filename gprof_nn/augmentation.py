@@ -107,10 +107,12 @@ class Swath(ViewingGeometry):
         lat_c = lats[m // 2, n // 2]
         lon_c = lons[m // 2, n // 2]
 
-        xyz = LATLON_TO_ECEF.transform(lons[m // 2: m // 2 + 2],
-                                       lats[m // 2: m // 2 + 2],
-                                       np.zeros((2, lats.shape[1])),
-                                       radians=False)
+        xyz = LATLON_TO_ECEF.transform(
+            lons[m // 2: m // 2 + 2],
+            lats[m // 2: m // 2 + 2],
+            np.zeros((2, lats.shape[1]), dtype=np.float32),
+            radians=False
+        )
         xyz = np.stack(xyz, axis=-1)
         c = xyz[0, n // 2]
         xyz = xyz - c

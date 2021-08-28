@@ -748,7 +748,9 @@ class ConicalScanner(Sensor):
                 st = np.transpose(st, (2, 0, 1))
                 am = self.load_airmass_type(scene)
                 am = np.transpose(am, (2, 0, 1))
-                x.append(np.concatenate([tbs, t2m, tcwv, st, am], axis=0))
+
+                x_i = np.concatenate([tbs, t2m, tcwv, st, am], axis=0)
+                x.append(x_i.astype(np.float32))
 
                 #
                 # Output data
@@ -761,7 +763,8 @@ class ConicalScanner(Sensor):
                     dims_sp = tuple(range(2))
                     dims_t = tuple(range(2, y_t.ndim))
 
-                    y.setdefault(t, []).append(np.transpose(y_t, dims_t + dims_sp))
+                    y_i = np.transpose(y_t, dims_t + dims_sp).astype(np.float32)
+                    y.setdefault(t, []).append(y_i)
 
                 # Also flip data if requested.
                 if augment:

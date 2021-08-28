@@ -48,7 +48,7 @@ def expand_pixels(data, axis=2):
     new_shape[axis] = 221
     i_start = CENTER - (N_PIXELS_CENTER // 2 + 1)
     i_end = CENTER + (N_PIXELS_CENTER // 2)
-    data_new = np.zeros(new_shape, dtype=data.dtype)
+    data_new = np.zeros(new_shape, dtype=np.float32)
     data_new[:] = np.nan
 
     selection = [slice(0, None)] * data_new.ndim
@@ -142,10 +142,12 @@ def remap_scene(scene, coords, targets):
 
             if v in ["surface_type", "airmass_type"]:
                 data_r = extract_domain(data_v, coords, order=0)
+                data_r = data_r.astype(np.int32)
             else:
                 if v in LIMITS:
                     data_v = apply_limits(data_v, *LIMITS[v])
                 data_r = extract_domain(data_v, coords, order=1)
+                data_r = data_r.astype(np.float32)
             data[v] = (dims + scene[v].dims[2:], data_r)
         else:
             data[v] = (scene[v].dims, scene[v].data)
