@@ -13,8 +13,9 @@ from pathlib import Path
 import shutil
 
 import numpy as np
+import xarray as xr
 
-
+from gprof_nn.definitions import ALL_TARGETS
 from gprof_nn.data.preprocessor import PreprocessorFile
 from gprof_nn.data.retrieval import RetrievalFile
 from gprof_nn.data.training_data import (GPROF_NN_0D_Dataset,
@@ -70,7 +71,8 @@ def write_sensitivity_file(filename,
     """
     if nedts is None:
         nedts = DEFAULT_SENSITIVITIES
-    np.savetxt(filename, nedts, fmt="%6.2f", header=SENSITIVITY_HEADER)
+    formats = ["%3d"] + 15 * ["%6.2f"]
+    np.savetxt(filename, nedts, fmt=formats, header=SENSITIVITY_HEADER)
 
 
 def execute_gprof(working_directory,
@@ -116,11 +118,14 @@ def execute_gprof(working_directory,
     elif mode.upper() == "PROFILES":
         has_sensitivity = False
         has_profiles = True
+    else:
+        has_sensitivity = False
+        has_profiles = False
 
     args = [executable,
-            input_file,
-            output_file,
-            log_file,
+            str(input_file),
+            str(output_file),
+            str(log_file),
             ANCILLARY_DATA,
             profiles]
     try:
@@ -165,11 +170,14 @@ def run_gprof_training_data(input_file,
     """
     input_data = GPROF_NN_0D_Dataset(input_file,
                                      shuffle=False,
+                                     normalize=False,
+                                     targets=ALL_TARGETS,
                                      batch_size=256 * 2048)
 
     results = []
     with TemporaryDirectory() as tmp:
-        print(tmp)
+        tmp = Path(tmp)
+
         for batch in input_data:
 
             preprocessor_file = tmp / "input.pp"
@@ -183,13 +191,17 @@ def run_gprof_training_data(input_file,
                                         nedts,
                                         robust=True)
 
+            if output_data is None:
+                continue
             for k in ALL_TARGETS:
-                if k in results.variables:
+                if k in output_data.variables:
                     output_data[k + "_true"] = input_data[k]
 
             results += [output_data]
 
-    return xr.concatenate(results, dim="samples")
+    if not results:
+        return None
+    return xr.concat(results, dim="samples")
 
 
 def run_gprof_standard(input_file,

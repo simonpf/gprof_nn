@@ -29,9 +29,6 @@ def test_write_sensitivity_file(tmp_path):
     write_sensitivity_file(sensitivity_file, nedts=nedts_ref)
     nedts = np.loadtxt(sensitivity_file)
     assert np.all(np.isclose(nedts_ref, nedts))
-    with open(sensitivity_file, "r") as f:
-        print("")
-        print(f.read())
 
 
 @pytest.mark.skipif(not HAS_GPROF, reason="GPROF executable missing.")
@@ -47,7 +44,7 @@ def test_run_gprof_training_data(tmp_path):
 
 
 @pytest.mark.skipif(not HAS_GPROF, reason="GPROF executable missing.")
-def test_run_gprof_training_data(tmp_path):
+def test_run_gprof_standard(tmp_path):
     path = Path(__file__).parent
     input_file = path / "data" / "gmi" / "GMIERA5_190101_027510.pp"
     results = run_gprof_standard(input_file,
