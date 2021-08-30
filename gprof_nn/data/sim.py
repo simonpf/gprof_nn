@@ -24,6 +24,7 @@ import xarray as xr
 
 import gprof_nn
 from gprof_nn import sensors
+from gprof_nn.definitions import N_LAYERS
 from gprof_nn.definitions import (
     ALL_TARGETS,
     LEVELS,
@@ -253,6 +254,32 @@ class SimFile:
                     )
 
         return input_data
+
+    def to_xarray_dataset(self):
+        """
+        Return data in sim file as 'xarray.Dataset.
+        """
+        results = {}
+        dim_dict = {
+            self.sensor.n_chans: "channels",
+            N_LAYERS: "layers",
+        }
+        if self.sensor.n_angles > 1:
+            dim_dict[self.sensor.n_angles] = "angles"
+
+        record_type = self.sensor.sim_file_record
+        for k, t, *shape in record_type.descr:
+            dims = ("samples",)
+            if shape:
+                dims = dims + tuple([dim_dict[s] for s in shape[0]])
+                results[k] = dims, self.data[k]
+
+        dataset = xr.Dataset(results)
+        return dataset
+
+
+
+
 
 
 ENHANCEMENT_FACTORS = {

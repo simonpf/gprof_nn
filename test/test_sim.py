@@ -23,6 +23,20 @@ from gprof_nn.data.preprocessor import PreprocessorFile
 HAS_ARCHIVES = Path(sensors.GMI.l1c_file_path).exists()
 
 
+def test_open_sim_file():
+    """
+    Tests reading a GMI L1C file and matching it to data in
+    a GMI .sim file.
+    """
+    data_path = Path(__file__).parent / "data"
+    sim_file = SimFile(data_path / "GMI.dbsatTb.20190101.027510.sim")
+    data = sim_file.to_xarray_dataset()
+
+    assert "latent_heat" in data.variables.keys()
+    assert "snow_water_content" in data.variables.keys()
+    assert "rain_water_content" in data.variables.keys()
+
+
 def test_match_l1c_gmi():
     """
     Tests reading a GMI L1C file and matching it to data in

@@ -358,6 +358,8 @@ class GPROF_NN_0D_Dataset(Dataset0DBase):
         else:
             y = {self.targets: self.y}
         for k, y_k in y.items():
+            if k not in _THRESHOLDS:
+                continue
             threshold = _THRESHOLDS[k]
             indices = (y_k <= threshold) * (y_k >= -threshold)
             if indices.sum() > 0:
@@ -657,6 +659,8 @@ class GPROF_NN_2D_Dataset:
         else:
             y = {self.target: self.y}
         for k, y_k in y.items():
+            if k not in _THRESHOLDS:
+                continue
             threshold = _THRESHOLDS[k]
             indices = (y_k <= threshold) * (y_k >= -threshold)
             if indices.sum() > 0:

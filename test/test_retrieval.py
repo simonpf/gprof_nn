@@ -168,8 +168,7 @@ def test_retrieval_netcdf_0d(tmp_path):
     output_file = driver.run()
     data = xr.load_dataset(output_file)
     assert "rain_water_content" in data.variables
-    assert "pixels" in data.dims.keys()
-    assert "scans" in data.dims.keys()
+    assert "rain_water_content_true" in data.variables
 
 
 def test_retrieval_netcdf_0d_gradients(tmp_path):

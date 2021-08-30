@@ -1082,6 +1082,19 @@ class BinFileStatistics(Statistic):
         self.st = np.zeros(18, dtype=np.float32)
         self.at = np.zeros(4, dtype=np.float32)
 
+    def open_file(self,
+                  filename):
+        """
+        Open input file with given name and returns data as 'xarray.Dataset'.
+
+        Args:
+            filename: The name of the input file.
+
+        Return:
+            'xarray.Dataset' containing the data in the file.
+        """
+        return BinFile(filename).to_xarray_dataset()
+
     def process_file(self,
                      sensor,
                      filename):
@@ -1092,6 +1105,7 @@ class BinFileStatistics(Statistic):
             filename: The path of the data to process.
         """
         self.sensor = sensor
+        dataset = self.open_file(filename)
         dataset = BinFile(filename).to_xarray_dataset()
         if not hasattr(self, "tb_bins"):
             self._initialize_data(sensor, dataset)
@@ -1278,6 +1292,28 @@ class BinFileStatistics(Statistic):
                        (f"bin_file_statistics_{self.sensor.name.lower()}"
                         ".nc"))
         data.to_netcdf(output_file)
+
+
+class SinFileStatistics(BinFileStatistics):
+    """
+    Class to calculate relevant statistics from training data files.
+    Calculates statistics of brightness temperatures, retrieval targets
+    as well as ancillary data.
+    """
+    def __init__(self):
+        super().__init__()
+    def open_file(self,
+                  filename):
+        """
+        Open input file with given name and returns data as 'xarray.Dataset'.
+
+        Args:
+            filename: The name of the input file.
+
+        Return:
+            'xarray.Dataset' containing the data in the file.
+        """
+        return SimFile(filename).to_xarray_dataset()
 
 
 class ObservationStatistics(Statistic):
