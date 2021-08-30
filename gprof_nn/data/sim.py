@@ -24,6 +24,7 @@ import xarray as xr
 
 import gprof_nn
 from gprof_nn import sensors
+from gprof_nn.definitions import N_LAYERS
 from gprof_nn.definitions import (
     ALL_TARGETS,
     LEVELS,
@@ -253,6 +254,32 @@ class SimFile:
                     )
 
         return input_data
+
+    def to_xarray_dataset(self):
+        """
+        Return data in sim file as 'xarray.Dataset.
+        """
+        results = {}
+        dim_dict = {
+            self.sensor.n_chans: "channels",
+            N_LAYERS: "layers",
+        }
+        if self.sensor.n_angles > 1:
+            dim_dict[self.sensor.n_angles] = "angles"
+
+        record_type = self.sensor.sim_file_record
+        for k, t, *shape in record_type.descr:
+            dims = ("samples",)
+            if shape:
+                dims = dims + tuple([dim_dict[s] for s in shape[0]])
+                results[k] = dims, self.data[k]
+
+        dataset = xr.Dataset(results)
+        return dataset
+
+
+
+
 
 
 ENHANCEMENT_FACTORS = {
@@ -933,6 +960,9 @@ class SimFileProcessor:
 
         # Retrieve extracted observations and concatenate into
         # single dataset.
+
+        n_tasks = len(tasks)
+
         with Progress(console=get_console()) as progress:
             bar = progress.add_task("Extracting data:", total=len(tasks))
             for task in tasks:
@@ -959,10 +989,17 @@ class SimFileProcessor:
             if dataset is not None:
                 dataset = add_brightness_temperatures(dataset, self.sensor)
                 datasets.append(dataset)
-        dataset = xr.concat(datasets, "samples")
+                if len(datasets) > n_tasks // 2:
+                    dataset = xr.concat(datasets, "samples")
+                    filename = output_path / (output_file + "_a.nc")
+                    dataset.attrs["sensor"] = self.sensor.name
+                    dataset.to_netcdf(filename)
+                    LOGGER.info(f"Writing file: {filename}")
+                    datasets = []
 
         # Store dataset with sensor name as attribute.
-        filename = output_path / (output_file + ".nc")
-        print(f"Writing file: {filename}")
+        dataset = xr.concat(datasets, "samples")
+        filename = output_path / (output_file + "_b.nc")
         dataset.attrs["sensor"] = self.sensor.name
+        LOGGER.info(f"Writing file: {filename}")
         dataset.to_netcdf(filename)

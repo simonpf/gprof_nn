@@ -74,7 +74,11 @@ def load_variable(data, variable, mask=None):
     v = data[variable].data
     if mask is not None:
         v = v[mask]
-    v_min, v_max = LIMITS[variable]
+    if variable in LIMITS:
+        v_min, v_max = LIMITS[variable]
+    else:
+        v_min = -999
+        v_max = None
     v = apply_limits(v, v_min, v_max)
     return v
 

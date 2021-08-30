@@ -499,12 +499,11 @@ class NetcdfLoader:
         return x
 
 
-class NetcdfLoader0D(NetcdfLoader):
+class NetcdfLoader0D(GPROF_NN_0D_Dataset):
     """
     Data loader for running the GPROF-NN 0D retrieval on input data
     in NetCDF data format.
     """
-
     def __init__(self, filename, normalizer, batch_size=16 * 1024):
         """
         Create loader for input data in NetCDF format that provides input
@@ -517,106 +516,50 @@ class NetcdfLoader0D(NetcdfLoader):
             batch_size: How many observations to combine into a single
                 input batch.
         """
-        super().__init__()
-        self.filename = filename
-        self.normalizer = normalizer
-        self.batch_size = batch_size
-
-        input_data = xr.open_dataset(self.filename)
-        sensor = input_data.attrs["sensor"]
-        sensor = getattr(sensors, sensor)
-        self.sensor = sensor
-
-        if "scans" in input_data.dims:
-            self.kind = "standard"
-        else:
-            self.kind = "bin"
-
-        self.input_data = sensor.load_data_0d(self.filename)
-        self.n_samples = self.input_data.shape[0]
-
+        targets = ALL_TARGETS + ["latitude", "longitude"]
+        super().__init__(filename,
+                         targets=targets,
+                         normalizer=normalizer,
+                         batch_size=batch_size,
+                         shuffle=False,
+                         augment=False)
+        self.n_samples = len(self)
         self.scalar_dimensions = ("samples",)
         self.profile_dimensions = ("samples", "layers")
         self.dimensions = {
             t: ("samples", "layers") if t in PROFILE_NAMES else ("samples")
             for t in ALL_TARGETS
         }
+        self.data = self.to_xarray_dataset()
 
-    def _load_data(self):
+    def __getitem__(self, i):
         """
-        Load data from training data NetCDF format into the
-        'input_data' attribute of the object.
+        Return batch of input data.
+
+        Args:
+            The batch index.
+
+        Return:
+            PyTorch tensor containing the batch of input data.
         """
-        dataset = xr.open_dataset(self.filename)
-
-        #
-        # Load data into input vector
-        #
-
-        bts = dataset["brightness_temperatures"][:].data
-        invalid = (bts > 500.0) + (bts < 0.0)
-        bts[invalid] = np.nan
-        # 2m temperature
-        t2m = dataset["two_meter_temperature"][:].data[..., np.newaxis]
-        # Total precipitable water.
-        tcwv = dataset["total_column_water_vapor"][:].data[..., np.newaxis]
-        # Surface type
-        st = dataset["surface_type"][:].data
-        n_types = 18
-        shape = bts.shape[:3]
-        st_1h = np.zeros(shape + (n_types,), dtype=np.float32)
-        for i in range(n_types):
-            indices = st == (i + 1)
-            st_1h[indices, i] = 1.0
-        # Airmass type
-        # Airmass type is defined slightly different from surface type in
-        # that there is a 0 type.
-        am = dataset["airmass_type"][:].data
-        n_types = 4
-        am_1h = np.zeros(shape + (n_types,), dtype=np.float32)
-        for i in range(n_types):
-            indices = am == i
-            am_1h[indices, i] = 1.0
-        am_1h[am < 0, 0] = 1.0
-
-        input_data = np.concatenate([bts, t2m, tcwv, st_1h, am_1h], axis=-1)
-        input_data = input_data.astype(np.float32)
-
-        if input_data.ndim > 2:
-            self.kind = "standard"
-        else:
-            self.kind = "bin"
-
-        input_data = self.normalizer(input_data.reshape(-1, 39))
-        self.input_data = input_data
+        i_start = i * self.batch_size
+        i_end = i_start + self.batch_size
+        x = torch.tensor(self.x[i_start:i_end])
+        return x
 
     def finalize(self, data):
         """
         Reshape retrieval results into shape of input data.
         """
-        if self.kind == "standard":
+        invalid = np.all(
+            self.x[:, : self.sensor.n_chans] <= -1.5, axis=-1
+        )
+        for v in ALL_TARGETS:
+            data[v].data[invalid] = np.nan
 
-            invalid = np.all(self.input_data[:, : self.sensor.n_chans] <= -1.5, axis=-1)
-            for v in ALL_TARGETS:
-                data[v].data[invalid] = np.nan
-
-            samples = np.arange(data.samples.size // (221 * 221))
-            scans = np.arange(221)
-            pixels = np.arange(221)
-            names = ("samples_t", "scans", "pixels")
-            index = pd.MultiIndex.from_product((samples, scans, pixels), names=names)
-            data = data.assign(samples=index).unstack("samples")
-            data = data.rename_dims({"samples_t": "samples"})
-
-            input_data = xr.open_dataset(self.filename)
-            vars = [
-                "latitude",
-                "longitude",
-                "total_column_water_vapor",
-                "two_meter_temperature"
-            ]
-            for var in vars:
-                data[var] = input_data[var]
+        vars = [target for target in ALL_TARGETS if target in data.variables]
+        for var in vars:
+            data[var + "_true"] = self.data[var]
 
         return data
 
