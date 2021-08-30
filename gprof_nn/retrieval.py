@@ -328,7 +328,7 @@ class RetrievalDriver:
         return self.output_file
 
 
-class RetrievalGradientDriver:
+class RetrievalGradientDriver(RetrievalDriver):
     """
     Speccialization of ``RetrievalDriver`` that retrieves only surface precipitation
     and its gradients with respect to the input variables.
@@ -388,30 +388,33 @@ class RetrievalGradientDriver:
             y_mean = xrnn.posterior_mean(y_pred=y_pred)
             grads = {}
             for k in y_pred:
-                xrnn.model.zero_grad()
-                y_mean.backward()
-                grads[k] = x.grad
+                if k not in PROFILE_NAMES:
+                    xrnn.model.zero_grad()
+                    y_mean[k].backward(torch.ones_like(y_mean[k]),
+                                       retain_graph=True)
+                    grads[k] = x.grad
 
             for k, y in y_pred.items():
                 means.setdefault(k, []).append(y_mean[k].cpu())
-                gradients.setdefault(k, []).append(grads[k].cpu())
+                if k in grads:
+                    gradients.setdefault(k, []).append(grads[k].cpu())
 
         dims = input_data.scalar_dimensions
         dims_p = input_data.profile_dimensions
 
         data = {}
         for k in means:
-            y = np.concatenate([t.numpy() for t in means[k]])
+            y = np.concatenate([t.detach().numpy() for t in means[k]])
             if k in PROFILE_NAMES:
                 data[k] = (dims_p, y)
             else:
                 data[k] = (dims, y)
-        for k in gradsd:
-            y = np.concatenate([t.numpy() for t in grads[k]])
+        for k in gradients:
+            y = np.concatenate([t.numpy() for t in gradients[k]])
             if k in PROFILE_NAMES:
-                data[k] = (dims_p + ("inputs",), y)
+                data[k + "_grad"] = (dims_p + ("inputs",), y)
             else:
-                data[k] = (dims + ("inputs",), y)
+                data[k + "_grad"] = (dims + ("inputs",), y)
         data = xr.Dataset(data)
         return input_data.finalize(data)
 
@@ -492,7 +495,7 @@ class NetcdfLoader0D(NetcdfLoader):
         self.input_data = sensor.load_data_0d(self.filename)
         self.n_samples = self.input_data.shape[0]
 
-        self.scalar_dimensions = "samples"
+        self.scalar_dimensions = ("samples",)
         self.profile_dimensions = ("samples", "layers")
         self.dimensions = {
             t: ("samples", "layers") if t in PROFILE_NAMES else ("samples")
@@ -672,7 +675,7 @@ class PreprocessorLoader0D:
         self.n_pixels = self.data.pixels.size
         self.scans_per_batch = batch_size // self.n_pixels
 
-        self.scalar_dimensions = "samples"
+        self.scalar_dimensions = ("samples",)
         self.profile_dimensions = ("samples", "layers")
         self.dimensions = {
             t: ("samples", "layers") if t in PROFILE_NAMES else ("samples",)

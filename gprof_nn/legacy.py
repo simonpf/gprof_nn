@@ -202,6 +202,8 @@ def run_gprof_training_data(input_file,
 
     if not results:
         return None
+
+    results = results.stack({"samples": ("scans", "pixels")})
     return xr.concat(results, dim="samples")
 
 

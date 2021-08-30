@@ -18,6 +18,7 @@ from gprof_nn.data.retrieval import (RetrievalFile,
                                      PROFILE_INFO_TYPES)
 from gprof_nn.retrieval import (calculate_padding_dimensions,
                                 RetrievalDriver,
+                                RetrievalGradientDriver,
                                 PreprocessorLoader0D,
                                 PreprocessorLoader2D,
                                 NetcdfLoader0D,
@@ -97,7 +98,7 @@ def test_retrieval_preprocessor_0d_gmi(tmp_path):
     data_path = Path(__file__).parent / "data"
     input_file = data_path / "gmi" / "GMIERA5_190101_027510.pp"
 
-    qrnn = QRNN.load(data_path / "gprof_nn_0d.pckl")
+    qrnn = QRNN.load(data_path / "gprof_nn_0d_gmi_era.pckl")
     normalizer = Normalizer.load(data_path / "normalizer.pckl")
     driver = RetrievalDriver(input_file,
                              normalizer,
@@ -155,7 +156,7 @@ def test_retrieval_netcdf_0d(tmp_path):
     data_path = Path(__file__).parent / "data"
     input_file = data_path / "gmi" / "gprof_nn_gmi_era5.nc"
 
-    qrnn = QRNN.load(data_path / "gprof_nn_0d.pckl")
+    qrnn = QRNN.load(data_path / "gprof_nn_0d_gmi_era5.pckl")
     qrnn.training_data_class = GPROF_NN_0D_Dataset
     qrnn.preprocessor_class = PreprocessorLoader0D
     normalizer = Normalizer.load(data_path / "normalizer.pckl")
@@ -169,6 +170,31 @@ def test_retrieval_netcdf_0d(tmp_path):
     assert "rain_water_content" in data.variables
     assert "pixels" in data.dims.keys()
     assert "scans" in data.dims.keys()
+
+
+def test_retrieval_netcdf_0d_gradients(tmp_path):
+    """
+    Ensure that GPROF-NN 0D retrieval with NetCDF input and gradients
+    works.
+    """
+    data_path = Path(__file__).parent / "data"
+    input_file = data_path / "gmi" / "gprof_nn_gmi_era5.nc"
+
+    qrnn = QRNN.load(data_path / "gprof_nn_0d_gmi_era5.pckl")
+    qrnn.training_data_class = GPROF_NN_0D_Dataset
+    qrnn.preprocessor_class = PreprocessorLoader0D
+    normalizer = Normalizer.load(data_path / "normalizer.pckl")
+    driver = RetrievalGradientDriver(input_file,
+                                     normalizer,
+                                     qrnn,
+                                     ancillary_data=data_path,
+                                     output_file=tmp_path)
+    output_file = driver.run()
+    data = xr.load_dataset(output_file)
+    assert "surface_precip_grad" in data.variables
+    assert "pixels" in data.dims.keys()
+    assert "scans" in data.dims.keys()
+
 
 
 def test_retrieval_netcdf_2d(tmp_path):
