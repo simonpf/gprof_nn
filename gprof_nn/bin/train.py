@@ -378,7 +378,7 @@ def run_training_0d(sensor,
     # Run training
     #
 
-    n_epochs = 60
+    n_epochs = 80
     logger = TensorBoardLogger(n_epochs)
     logger.set_attributes({
         "sensor": sensor.name,
@@ -397,8 +397,8 @@ def run_training_0d(sensor,
     scatter_plot = ScatterPlot(log_scale=True)
     metrics.append(scatter_plot)
 
-    n_epochs = 10
-    optimizer = optim.Adam(model.parameters(), lr=0.001)
+    n_epochs = 40
+    optimizer = optim.Adam(model.parameters(), lr=0.0005)
     scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, n_epochs)
     xrnn.train(training_data=training_data,
             validation_data=validation_data,
@@ -411,7 +411,7 @@ def run_training_0d(sensor,
             mask=-9999)
     xrnn.save(output)
     n_epochs = 20
-    optimizer = optim.Adam(model.parameters(), lr=0.001)
+    optimizer = optim.Adam(model.parameters(), lr=0.0005)
     scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, n_epochs)
     xrnn.train(training_data=training_data,
             validation_data=validation_data,
@@ -423,8 +423,7 @@ def run_training_0d(sensor,
             device=device,
             mask=-9999)
     xrnn.save(output)
-    n_epochs = 30
-    optimizer = optim.Adam(model.parameters(), lr=0.001)
+    optimizer = optim.Adam(model.parameters(), lr=0.0001)
     scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, n_epochs)
     xrnn.train(training_data=training_data,
             validation_data=validation_data,
