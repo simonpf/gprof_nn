@@ -15,7 +15,10 @@ from pathlib import Path
 from gprof_nn import sensors, statistics
 import gprof_nn.logging
 from gprof_nn.retrieval import RetrievalDriver, RetrievalGradientDriver
-from gprof_nn.definitions import CONFIGURATIONS, GPROF_NN_DATA_PATH
+from gprof_nn.definitions import (ALL_TARGETS,
+                                  PROFILE_NAMES,
+                                  CONFIGURATIONS,
+                                  GPROF_NN_DATA_PATH)
 from gprof_nn.data.training_data import (GPROF_NN_0D_Dataset,
                                          GPROF_NN_2D_Dataset)
 from gprof_nn.models import (GPROF_NN_0D_DRNN,
@@ -318,8 +321,8 @@ def run_training_0d(sensor,
         training_data,
         dataset_factory,
         kwargs=kwargs,
-        queue_size=256,
-        n_workers=4
+        queue_size=64,
+        n_workers=6
     )
 
     kwargs = {
@@ -334,6 +337,7 @@ def run_training_0d(sensor,
         validation_data,
         dataset_factory,
         kwargs=kwargs,
+        queue_size=64,
         n_workers=2
     )
 
@@ -351,8 +355,12 @@ def run_training_0d(sensor,
                                 residuals=residuals,
                                 targets=targets)
     elif network_type == "qrnn_exp":
-        transformation = {t: LogLinear() for t in targets}
-        transformation["latent_heat"] = None
+        transformation = {}
+        for target in ALL_TARGETS:
+            if target in PROFILE_NAMES:
+                transformation[target] = None
+            else:
+                transformation[target] = LogLinear()
         xrnn = GPROF_NN_0D_QRNN(sensor,
                                 n_layers_body,
                                 n_neurons_body,
@@ -378,7 +386,7 @@ def run_training_0d(sensor,
     # Run training
     #
 
-    n_epochs = 60
+    n_epochs = 70
     logger = TensorBoardLogger(n_epochs)
     logger.set_attributes({
         "sensor": sensor.name,
@@ -423,7 +431,20 @@ def run_training_0d(sensor,
             device=device,
             mask=-9999)
     xrnn.save(output)
-    n_epochs = 30
+    n_epochs = 20
+    optimizer = optim.Adam(model.parameters(), lr=0.001)
+    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, n_epochs)
+    xrnn.train(training_data=training_data,
+            validation_data=validation_data,
+            n_epochs=n_epochs,
+            optimizer=optimizer,
+            scheduler=scheduler,
+            logger=logger,
+            metrics=metrics,
+            device=device,
+            mask=-9999)
+    xrnn.save(output)
+    n_epochs = 20
     optimizer = optim.Adam(model.parameters(), lr=0.001)
     scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, n_epochs)
     xrnn.train(training_data=training_data,
@@ -492,8 +513,9 @@ def run_training_2d(sensor,
     training_data = DataFolder(
         training_data,
         dataset_factory,
+        queue_size=64,
         kwargs=kwargs,
-        n_workers=4)
+        n_workers=6)
 
     kwargs = {
         "batch_size": 4 * batch_size,
@@ -504,6 +526,7 @@ def run_training_2d(sensor,
     validation_data = DataFolder(
         validation_data,
         dataset_factory,
+        queue_size=64,
         kwargs=kwargs,
         n_workers=2
     )
@@ -524,8 +547,12 @@ def run_training_2d(sensor,
                                 n_neurons_head,
                                 targets=targets)
     elif network_type == "qrnn_exp":
-        transformation = {t: LogLinear() for t in targets}
-        transformation["latent_heat"] = None
+        transformation = {}
+        for target in ALL_TARGETS:
+            if target in PROFILE_NAMES:
+                transformation[target] = None
+            else:
+                transformation[target] = LogLinear()
         xrnn = GPROF_NN_2D_QRNN(sensor,
                                 n_blocks,
                                 n_neurons_body,
@@ -547,7 +574,7 @@ def run_training_2d(sensor,
     # Run the training.
     ###############################################################################
 
-    n_epochs = 55
+    n_epochs = 70
     logger = TensorBoardLogger(n_epochs)
     logger.set_attributes({
         "n_blocks": n_blocks,
@@ -563,7 +590,7 @@ def run_training_2d(sensor,
     scatter_plot = ScatterPlot(log_scale=True)
     metrics.append(scatter_plot)
 
-    n_epochs = 5
+    n_epochs = 10
     optimizer = optim.Adam(model.parameters(), lr=0.001)
     scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, n_epochs)
     xrnn.train(training_data=training_data,
@@ -577,7 +604,7 @@ def run_training_2d(sensor,
                mask=-9999)
     xrnn.save(output)
 
-    n_epochs = 10
+    n_epochs = 20
     optimizer = optim.Adam(model.parameters(), lr=0.0005)
     scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, n_epochs)
     xrnn.train(training_data=training_data,
@@ -605,6 +632,7 @@ def run_training_2d(sensor,
                mask=-9999)
     xrnn.save(output)
 
+    n_epochs = 20
     optimizer = optim.Adam(model.parameters(), lr=0.0001)
     scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, n_epochs)
     xrnn.train(training_data=training_data,
