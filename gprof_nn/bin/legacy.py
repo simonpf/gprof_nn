@@ -16,8 +16,8 @@ from quantnn.normalizer import Normalizer
 from rich.progress import track
 
 import gprof_nn.logging
-from gprof_nn.retrieval import RetrievalDriver, RetrievalGradientDriver
-from gprof_nn.definitions import ALL_TARGETS, PROFILE_NAMES
+from gprof_nn.legacy import (run_gprof_training_data,
+                             run_gprof_standard)
 
 
 LOGGER = logging.getLogger(__name__)
@@ -162,8 +162,9 @@ def run(args):
         tasks += [pool.submit(process_file,
                               input_file,
                               output_file,
+                              profiles,
                               mode,
-
+                              None,
                               log_queue)]
 
     for t in track(tasks, description="Processing files:"):

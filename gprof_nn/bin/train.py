@@ -12,16 +12,6 @@ import logging
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
-from quantnn.qrnn import QRNN
-from quantnn.normalizer import Normalizer
-from quantnn.data import DataFolder
-from quantnn.transformations import LogLinear
-from quantnn.models.pytorch.logging import TensorBoardLogger
-from quantnn.metrics import ScatterPlot
-
-import torch
-from torch import optim
-
 from gprof_nn import sensors, statistics
 import gprof_nn.logging
 from gprof_nn.retrieval import RetrievalDriver, RetrievalGradientDriver
@@ -284,6 +274,15 @@ def run_training_0d(sensor,
         output: Path to which to write the resulting model.
         args: Namespace with the remaining command line arguments.
     """
+    from quantnn.qrnn import QRNN
+    from quantnn.normalizer import Normalizer
+    from quantnn.data import DataFolder
+    from quantnn.transformations import LogLinear
+    from quantnn.models.pytorch.logging import TensorBoardLogger
+    from quantnn.metrics import ScatterPlot
+    import torch
+    from torch import optim
+
     n_layers_body = args.n_layers_body[0]
     n_neurons_body = args.n_neurons_body[0]
     n_layers_head = args.n_layers_head[0]
@@ -457,6 +456,15 @@ def run_training_2d(sensor,
         output: Path to which to write the resulting model.
         args: Namespace with the remaining command line arguments.
     """
+    from quantnn.qrnn import QRNN
+    from quantnn.normalizer import Normalizer
+    from quantnn.data import DataFolder
+    from quantnn.transformations import LogLinear
+    from quantnn.models.pytorch.logging import TensorBoardLogger
+    from quantnn.metrics import ScatterPlot
+    import torch
+    from torch import optim
+
     n_blocks = args.n_blocks[0]
     n_neurons_body = args.n_neurons_body[0]
     n_layers_head = args.n_layers_head[0]

@@ -357,6 +357,47 @@ class RetrievalGradientDriver(RetrievalDriver):
             output_file=output_file,
         )
 
+    def _load_input_data(self):
+        """
+        Load retrieval input data.
+
+        Return:
+            If the input data was successfully loaded the input data
+            object is returned. ``None`` otherwise.
+        """
+        # Load input data.
+        if self.input_format == GPROF_BINARY:
+            LOGGER.info("Loading preprocessor input data from %s.", self.input_file)
+            input_data = self.model.preprocessor_class(
+                self.input_file,
+                self.normalizer,
+                batch_size=1024
+            )
+        elif self.input_format == L1C:
+            sensor = getattr(self.model, "sensor", None)
+            if sensor is None:
+                sensor = sensors.GMI
+            _, file = tempfile.mkstemp()
+            try:
+                LOGGER.info("Running preprocessor for input file %s.", self.input_file)
+                run_preprocessor(
+                    self.input_file, sensor, output_file=file, robust=False
+                )
+                input_data = self.model.preprocessor_class(file, self.normalizer)
+            except subprocess.CalledProcessError:
+                LOGGER.warning(
+                    "Running the preprocessor failed. Skipping file %s.",
+                    self.input_file,
+                )
+                return None
+            finally:
+                Path(file).unlink()
+        else:
+            input_data = self.model.netcdf_class(
+                self.input_file, normalizer=self.normalizer, batch_size=1024
+            )
+        return input_data
+
     def _run(self, xrnn, input_data):
         """
         Batch-wise processing of retrieval input.
@@ -388,16 +429,15 @@ class RetrievalGradientDriver(RetrievalDriver):
             y_mean = xrnn.posterior_mean(y_pred=y_pred)
             grads = {}
             for k in y_pred:
-                if k not in PROFILE_NAMES:
+                if k == "surface_precip":
                     xrnn.model.zero_grad()
-                    y_mean[k].backward(torch.ones_like(y_mean[k]),
-                                       retain_graph=True)
+                    y_mean[k].backward(torch.ones_like(y_mean[k]))
                     grads[k] = x.grad
 
             for k, y in y_pred.items():
-                means.setdefault(k, []).append(y_mean[k].cpu())
+                means.setdefault(k, []).append(y_mean[k].detach().cpu())
                 if k in grads:
-                    gradients.setdefault(k, []).append(grads[k].cpu())
+                    gradients.setdefault(k, []).append(grads[k].detach().cpu())
 
         dims = input_data.scalar_dimensions
         dims_p = input_data.profile_dimensions
