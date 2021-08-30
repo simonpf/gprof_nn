@@ -32,7 +32,7 @@ def test_write_sensitivity_file(tmp_path):
 
 
 @pytest.mark.skipif(not HAS_GPROF, reason="GPROF executable missing.")
-def test_run_gprof_training_data(tmp_path):
+def test_run_gprof_training_data():
     path = Path(__file__).parent
     input_file = path / "data" / "gmi" / "gprof_nn_gmi_era5.nc"
 
@@ -44,7 +44,7 @@ def test_run_gprof_training_data(tmp_path):
 
 
 @pytest.mark.skipif(not HAS_GPROF, reason="GPROF executable missing.")
-def test_run_gprof_standard(tmp_path):
+def test_run_gprof_standard():
     path = Path(__file__).parent
     input_file = path / "data" / "gmi" / "GMIERA5_190101_027510.pp"
     results = run_gprof_standard(input_file,

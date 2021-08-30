@@ -23,7 +23,8 @@ def gprof_nn():
     from gprof_nn.bin import extract_data
     from gprof_nn.bin import retrieve
     from gprof_nn.bin import statistics
-    from gprof_nn.bin import  train
+    from gprof_nn.bin import train
+    from gprof_nn.bin import legacy
 
     set_log_level("INFO")
 
@@ -41,6 +42,7 @@ def gprof_nn():
     retrieve.add_parser(subparsers)
     statistics.add_parser(subparsers)
     train.add_parser(subparsers)
+    legacy.add_parser(subparsers)
 
     if len(sys.argv)==1:
         parser.print_help(sys.stderr)

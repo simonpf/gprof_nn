@@ -118,6 +118,7 @@ def execute_gprof(working_directory,
     elif mode.upper() == "PROFILES":
         has_sensitivity = False
         has_profiles = True
+        profiles = "1"
     else:
         has_sensitivity = False
         has_profiles = False
