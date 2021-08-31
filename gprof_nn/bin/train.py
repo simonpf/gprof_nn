@@ -252,8 +252,8 @@ def run(args):
         )
         return 1
     if output.is_dir():
-        network_name = (f"gprof_nn_{variant.lower()}_{configuration.lower()}_"
-                       f"{sensor.name.lower()}.pckl")
+        network_name = (f"gprof_nn_{variant.lower()}_{sensor.name.lower()}_"
+                       f"{configuration.lower()}.pckl")
         output = output / network_name
 
     training_data = args.training_data
@@ -346,7 +346,7 @@ def run_training_0d(sensor,
         training_data,
         dataset_factory,
         kwargs=kwargs,
-        queue_size=64,
+        queue_size=32,
         n_workers=4
     )
 
@@ -362,7 +362,7 @@ def run_training_0d(sensor,
         validation_data,
         dataset_factory,
         kwargs=kwargs,
-        queue_size=64,
+        queue_size=32,
         n_workers=2
     )
 
@@ -378,6 +378,8 @@ def run_training_0d(sensor,
             )
         except Exception:
             xrnn = None
+    else:
+        xrnn = None
 
     if xrnn is None:
         LOGGER.info(
@@ -522,7 +524,7 @@ def run_training_2d(sensor,
     training_data = DataFolder(
         training_data,
         dataset_factory,
-        queue_size=64,
+        queue_size=32,
         kwargs=kwargs,
         n_workers=4)
 
@@ -535,7 +537,7 @@ def run_training_2d(sensor,
     validation_data = DataFolder(
         validation_data,
         dataset_factory,
-        queue_size=64,
+        queue_size=32,
         kwargs=kwargs,
         n_workers=2
     )
@@ -556,7 +558,8 @@ def run_training_2d(sensor,
             )
         except Exception:
             xrnn = None
-
+    else:
+        xrnn = None
 
     if xrnn is None:
         if network_type == "drnn":

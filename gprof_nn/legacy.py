@@ -136,6 +136,7 @@ def execute_gprof(working_directory,
             str(log_file),
             ANCILLARY_DATA,
             profiles]
+    print(has_profiles, has_sensitivity)
     try:
         subprocess.run(args,
                        check=True,
@@ -146,8 +147,10 @@ def execute_gprof(working_directory,
             with open(log_file, "r") as log:
                 log = log.read()
             LOGGER.error(
-                "Running GPROF failed with the following log: %s",
-                log
+                "Running GPROF failed with the following log: %s\n%s\n%s",
+                log,
+                error.stdout,
+                error.stderr
             )
             return None
         else:
@@ -194,6 +197,11 @@ def run_gprof_training_data(input_file,
             batch_input = input_data.to_xarray_dataset(batch=batch)
             write_preprocessor_file(batch_input, preprocessor_file)
 
+            data = PreprocessorFile(preprocessor_file).to_xarray_dataset()
+            print(data["brightness_temperatures"])
+            print(data["surface_type"])
+            print(data["airmass_type"])
+
             output_data = execute_gprof(tmp,
                                         preprocessor_file,
                                         mode,
@@ -217,7 +225,7 @@ def run_gprof_training_data(input_file,
         return None
 
     results = xr.concat(results, dim="samples")
-    results.reset_index("samples")
+    results = results.reset_index("samples")
     return results
 
 
