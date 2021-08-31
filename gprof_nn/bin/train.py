@@ -497,6 +497,14 @@ def run_training_2d(sensor,
     network_type = args.type[0]
     batch_size = args.batch_size[0]
 
+    n_epochs = args.n_epochs
+    lr = args.learning_rate
+
+    if len(n_epochs) == 1:
+        n_epochs = n_epochs * len(lr)
+    if len(lr) == 1:
+        lr = lr * len(n_epochs)
+
     #
     # Load training data.
     #
@@ -516,7 +524,7 @@ def run_training_2d(sensor,
         dataset_factory,
         queue_size=64,
         kwargs=kwargs,
-        n_workers=6)
+        n_workers=4)
 
     kwargs = {
         "batch_size": 4 * batch_size,
@@ -540,34 +548,48 @@ def run_training_2d(sensor,
     # Create neural network model
     #
 
-    if network_type == "drnn":
-        xrnn = GPROF_NN_2D_DRNN(sensor,
-                                n_blocks,
-                                n_neurons_body,
-                                n_layers_head,
-                                n_neurons_head,
-                                targets=targets)
-    elif network_type == "qrnn_exp":
-        transformation = {}
-        for target in ALL_TARGETS:
-            if target in PROFILE_NAMES:
-                transformation[target] = None
-            else:
-                transformation[target] = LogLinear()
-        xrnn = GPROF_NN_2D_QRNN(sensor,
-                                n_blocks,
-                                n_neurons_body,
-                                n_layers_head,
-                                n_neurons_head,
-                                transformation=transformation,
-                                targets=targets)
-    else:
-        xrnn = GPROF_NN_2D_QRNN(sensor,
-                                n_blocks,
-                                n_neurons_body,
-                                n_layers_head,
-                                n_neurons_head,
-                                targets=targets)
+    if Path(output).exists():
+        try:
+            xrnn = QRNN.load(output)
+            LOGGER.info(
+                f"Continuing training of existing model {output}."
+            )
+        except Exception:
+            xrnn = None
+
+
+    if xrnn is None:
+        if network_type == "drnn":
+            LOGGER.info(
+                f"Creating new model of type {network_type}."
+            )
+            xrnn = GPROF_NN_2D_DRNN(sensor,
+                                    n_blocks,
+                                    n_neurons_body,
+                                    n_layers_head,
+                                    n_neurons_head,
+                                    targets=targets)
+        elif network_type == "qrnn_exp":
+            transformation = {}
+            for target in ALL_TARGETS:
+                if target in PROFILE_NAMES:
+                    transformation[target] = None
+                else:
+                    transformation[target] = LogLinear()
+            xrnn = GPROF_NN_2D_QRNN(sensor,
+                                    n_blocks,
+                                    n_neurons_body,
+                                    n_layers_head,
+                                    n_neurons_head,
+                                    transformation=transformation,
+                                    targets=targets)
+        else:
+            xrnn = GPROF_NN_2D_QRNN(sensor,
+                                    n_blocks,
+                                    n_neurons_body,
+                                    n_layers_head,
+                                    n_neurons_head,
+                                    targets=targets)
     model = xrnn.model
     model.normalizer = normalizer
 
@@ -575,7 +597,7 @@ def run_training_2d(sensor,
     # Run the training.
     ###############################################################################
 
-    n_epochs = 70
+    n_epochs_tot = sum(n_epochs)
     logger = TensorBoardLogger(n_epochs)
     logger.set_attributes({
         "n_blocks": n_blocks,
@@ -591,58 +613,22 @@ def run_training_2d(sensor,
     scatter_plot = ScatterPlot(log_scale=True)
     metrics.append(scatter_plot)
 
-    n_epochs = 10
-    optimizer = optim.Adam(model.parameters(), lr=0.001)
-    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, n_epochs)
-    xrnn.train(training_data=training_data,
-               validation_data=validation_data,
-               n_epochs=n_epochs,
-               optimizer=optimizer,
-               scheduler=scheduler,
-               logger=logger,
-               metrics=metrics,
-               device=device,
-               mask=-9999)
-    xrnn.save(output)
-
-    n_epochs = 20
-    optimizer = optim.Adam(model.parameters(), lr=0.0005)
-    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, n_epochs)
-    xrnn.train(training_data=training_data,
-               validation_data=validation_data,
-               n_epochs=n_epochs,
-               optimizer=optimizer,
-               scheduler=scheduler,
-               logger=logger,
-               metrics=metrics,
-               device=device,
-               mask=-9999)
-    xrnn.save(output)
-
-    n_epochs = 20
-    optimizer = optim.Adam(model.parameters(), lr=0.0005)
-    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, n_epochs)
-    xrnn.train(training_data=training_data,
-               validation_data=validation_data,
-               n_epochs=n_epochs,
-               optimizer=optimizer,
-               scheduler=scheduler,
-               logger=logger,
-               metrics=metrics,
-               device=device,
-               mask=-9999)
-    xrnn.save(output)
-
-    n_epochs = 20
-    optimizer = optim.Adam(model.parameters(), lr=0.0001)
-    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, n_epochs)
-    xrnn.train(training_data=training_data,
-               validation_data=validation_data,
-               n_epochs=n_epochs,
-               optimizer=optimizer,
-               scheduler=scheduler,
-               logger=logger,
-               metrics=metrics,
-               device=device,
-               mask=-9999)
-    xrnn.save(output)
+    for n, r in zip(n_epochs, lr):
+        LOGGER.info(
+            f"Starting training for {n} epochs with learning rate {r}"
+        )
+        optimizer = optim.Adam(model.parameters(), lr=r)
+        scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, n)
+        xrnn.train(training_data=training_data,
+                   validation_data=validation_data,
+                   n_epochs=n,
+                   optimizer=optimizer,
+                   scheduler=scheduler,
+                   logger=logger,
+                   metrics=metrics,
+                   device=device,
+                   mask=-9999)
+        LOGGER.info(
+            f"Saving training network to {output}."
+        )
+        xrnn.save(output)
