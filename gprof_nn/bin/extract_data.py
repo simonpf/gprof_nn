@@ -15,7 +15,6 @@ from gprof_nn import sensors
 from gprof_nn.definitions import (TRAINING_DAYS,
                                   VALIDATION_DAYS,
                                   TEST_DAYS)
-from gprof_nn.data.sim import SimFileProcessor
 
 os.environ["OMP_NUM_THREADS"] = "1"
 
@@ -60,6 +59,11 @@ def add_parser(subparsers):
                         type=str,
                         help='Folder to which to write the extracted data.',
                         default="/qdata2/archive/ERA5")
+    parser.add_argument('--n_processes',
+                        metavar="n",
+                        type=int,
+                        default=4,
+                        help='The number of processes to use for the processing.')
     parser.set_defaults(func=run)
 
 
@@ -71,6 +75,8 @@ def run(args):
     Args:
         args: The namespace object provided by the top-level parser.
     """
+    from gprof_nn.data.sim import SimFileProcessor
+
     # Check sensor
     sensor = getattr(sensors, args.sensor.strip().upper(), None)
     if sensor is None:
@@ -98,6 +104,7 @@ def run(args):
         return 1
 
     era5_path = args.era5_path
+    n_procs = args.n_processes
 
     if kind == "train":
         days = TRAINING_DAYS
@@ -115,6 +122,6 @@ def run(args):
                                      sensor,
                                      config.upper(),
                                      era5_path=era5_path,
-                                     n_workers=4,
+                                     n_workers=n_procs,
                                      day=d)
         processor.run()

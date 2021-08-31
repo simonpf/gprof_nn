@@ -98,7 +98,7 @@ def add_parser(subparsers):
 
     parser.add_argument(
         '--n_layers_body',
-        metavar='N',
+        metavar='n',
         type=int,
         nargs=1,
         default=6,
@@ -108,7 +108,7 @@ def add_parser(subparsers):
 
     parser.add_argument(
         "--n_neurons_body",
-        metavar='N',
+        metavar='n',
         type=int,
         nargs=1,
         default=256,
@@ -116,7 +116,7 @@ def add_parser(subparsers):
     )
     parser.add_argument(
         '--n_layers_head',
-        metavar='N',
+        metavar='n',
         type=int,
         nargs=1,
         default=2,
@@ -124,7 +124,7 @@ def add_parser(subparsers):
     )
     parser.add_argument(
         '--n_neurons_head',
-        metavar='N',
+        metavar='n',
         type=int,
         nargs=1,
         default=128,
@@ -156,6 +156,23 @@ def add_parser(subparsers):
         default='simple',
         help='For GPROF-NN 0D: The type of residual connections to apply.'
     )
+    parser.add_argument(
+        '--n_epochs',
+        metavar='n',
+        type=int,
+        nargs="*",
+        default=[20, 20, 20],
+        help=('For how many epochs to train the network. When multiple values '
+              'are given the network is trained multiple times (warm restart).')
+    )
+    parser.add_argument(
+        '--learning_rate',
+        metavar='lr',
+        type=float,
+        nargs="*",
+        default=[0.0005, 0.0005, 0.0001],
+        help='The learning rates to use during training.'
+    )
 
     # Other
     parser.add_argument(
@@ -172,7 +189,7 @@ def add_parser(subparsers):
     )
     parser.add_argument(
         '--permute', metavar="feature_index", type=int,
-        help=("If provided, the input feature with the given index"
+        help=("If provided, the input feature with the given index "
               "will be permuted.")
     )
     parser.set_defaults(func=run)
@@ -300,6 +317,14 @@ def run_training_0d(sensor,
     batch_size = args.batch_size[0]
     permute = args.permute
 
+    n_epochs = args.n_epochs
+    lr = args.learning_rate
+
+    if len(n_epochs) == 1:
+        n_epochs = n_epochs * len(lr)
+    if len(lr) == 1:
+        lr = lr * len(n_epochs)
+
     #
     # Load training data.
     #
@@ -322,7 +347,7 @@ def run_training_0d(sensor,
         dataset_factory,
         kwargs=kwargs,
         queue_size=64,
-        n_workers=6
+        n_workers=4
     )
 
     kwargs = {
@@ -345,40 +370,49 @@ def run_training_0d(sensor,
     # Create neural network model
     #
 
-    if network_type == "drnn":
-        xrnn = GPROF_NN_0D_DRNN(sensor,
-                                n_layers_body,
-                                n_neurons_body,
-                                n_layers_head,
-                                n_neurons_head,
-                                activation=activation,
-                                residuals=residuals,
-                                targets=targets)
-    elif network_type == "qrnn_exp":
-        transformation = {}
-        for target in ALL_TARGETS:
-            if target in PROFILE_NAMES:
-                transformation[target] = None
-            else:
-                transformation[target] = LogLinear()
-        xrnn = GPROF_NN_0D_QRNN(sensor,
-                                n_layers_body,
-                                n_neurons_body,
-                                n_layers_head,
-                                n_neurons_head,
-                                activation=activation,
-                                residuals=residuals,
-                                transformation=transformation,
-                                targets=targets)
-    else:
-        xrnn = GPROF_NN_0D_QRNN(sensor,
-                                n_layers_body,
-                                n_neurons_body,
-                                n_layers_head,
-                                n_neurons_head,
-                                activation=activation,
-                                residuals=residuals,
-                                targets=targets)
+    if Path(output).exists():
+        try:
+            xrnn = QRNN.load(output)
+            LOGGER.info(
+                f"Continuing training of existing model {output}."
+            )
+        except Exception:
+            xrnn = None
+
+    if xrnn is None:
+        LOGGER.info(
+            f"Creating new model of type {network_type}."
+        )
+        if network_type == "drnn":
+            xrnn = GPROF_NN_0D_DRNN(sensor,
+                                    n_layers_body,
+                                    n_neurons_body,
+                                    n_layers_head,
+                                    n_neurons_head,
+                                    activation=activation,
+                                    residuals=residuals,
+                                    targets=targets)
+        elif network_type == "qrnn_exp":
+            transformation = {t: LogLinear() for t in targets}
+            transformation["latent_heat"] = None
+            xrnn = GPROF_NN_0D_QRNN(sensor,
+                                    n_layers_body,
+                                    n_neurons_body,
+                                    n_layers_head,
+                                    n_neurons_head,
+                                    activation=activation,
+                                    residuals=residuals,
+                                    transformation=transformation,
+                                    targets=targets)
+        else:
+            xrnn = GPROF_NN_0D_QRNN(sensor,
+                                    n_layers_body,
+                                    n_neurons_body,
+                                    n_layers_head,
+                                    n_neurons_head,
+                                    activation=activation,
+                                    residuals=residuals,
+                                    targets=targets)
     model = xrnn.model
     xrnn.normalizer = normalizer
 
@@ -386,8 +420,8 @@ def run_training_0d(sensor,
     # Run training
     #
 
-    n_epochs = 70
-    logger = TensorBoardLogger(n_epochs)
+    n_epochs_tot = sum(n_epochs)
+    logger = TensorBoardLogger(n_epochs_tot)
     logger.set_attributes({
         "sensor": sensor.name,
         "configuration": configuration,
@@ -405,58 +439,25 @@ def run_training_0d(sensor,
     scatter_plot = ScatterPlot(log_scale=True)
     metrics.append(scatter_plot)
 
-    n_epochs = 10
-    optimizer = optim.Adam(model.parameters(), lr=0.001)
-    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, n_epochs)
-    xrnn.train(training_data=training_data,
-            validation_data=validation_data,
-            n_epochs=n_epochs,
-            optimizer=optimizer,
-            scheduler=scheduler,
-            logger=logger,
-            metrics=metrics,
-            device=device,
-            mask=-9999)
-    xrnn.save(output)
-    n_epochs = 20
-    optimizer = optim.Adam(model.parameters(), lr=0.001)
-    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, n_epochs)
-    xrnn.train(training_data=training_data,
-            validation_data=validation_data,
-            n_epochs=n_epochs,
-            optimizer=optimizer,
-            scheduler=scheduler,
-            logger=logger,
-            metrics=metrics,
-            device=device,
-            mask=-9999)
-    xrnn.save(output)
-    n_epochs = 20
-    optimizer = optim.Adam(model.parameters(), lr=0.001)
-    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, n_epochs)
-    xrnn.train(training_data=training_data,
-            validation_data=validation_data,
-            n_epochs=n_epochs,
-            optimizer=optimizer,
-            scheduler=scheduler,
-            logger=logger,
-            metrics=metrics,
-            device=device,
-            mask=-9999)
-    xrnn.save(output)
-    n_epochs = 20
-    optimizer = optim.Adam(model.parameters(), lr=0.001)
-    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, n_epochs)
-    xrnn.train(training_data=training_data,
-            validation_data=validation_data,
-            n_epochs=n_epochs,
-            optimizer=optimizer,
-            scheduler=scheduler,
-            logger=logger,
-            metrics=metrics,
-            device=device,
-            mask=-9999)
-    xrnn.save(output)
+    for n, r in zip(n_epochs, lr):
+        LOGGER.info(
+            f"Starting training for {n} epochs with learning rate {r}"
+        )
+        optimizer = optim.Adam(model.parameters(), lr=r)
+        scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, n)
+        xrnn.train(training_data=training_data,
+                   validation_data=validation_data,
+                   n_epochs=n,
+                   optimizer=optimizer,
+                   scheduler=scheduler,
+                   logger=logger,
+                   metrics=metrics,
+                   device=device,
+                   mask=-9999)
+        LOGGER.info(
+            f"Saving training network to {output}."
+        )
+        xrnn.save(output)
 
 
 def run_training_2d(sensor,
