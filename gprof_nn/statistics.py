@@ -674,7 +674,7 @@ class TrainingDataStatistics(Statistic):
         self.has_angles = sensor.n_angles > 1
         if self.has_angles:
             n_angles = sensor.n_angles
-            self.angle_bins = calculate_angle_bins(sensor.angles[::-1])
+            self.angle_bins = calculate_angle_bins(sensor.angles[::-1])[::-1]
             self.tbs = np.zeros((18, n_chans, n_angles, self.tb_bins.size - 1),
                                 dtype=np.float32)
             self.tbs_tcwv = np.zeros(
@@ -747,7 +747,7 @@ class TrainingDataStatistics(Statistic):
                         lower = self.angle_bins[j + 1]
                         upper = self.angle_bins[j]
                         i_a = (eia >= lower) * (eia < upper)
-
+                        print(lower, upper)
 
                         cs, _ = np.histogram(
                             tbs[i_a, i_c],
