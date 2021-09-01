@@ -364,6 +364,15 @@ def test_observation_statistics_gmi(tmpdir):
     counts = results["brightness_temperatures"][st - 1, 0].data
     assert np.all(np.isclose(counts, 2.0 * counts_ref))
 
+    bins_tcwv = np.linspace(-0.5, 99.5, 101)
+    inds = (input_data.surface_type == st).data
+    tcwv = input_data["total_column_water_vapor"].data[inds]
+    counts_ref, _, _ = np.histogram2d(
+        tcwv, tbs[:, 0], bins=(bins_tcwv, bins)
+    )
+    counts = results["brightness_temperatures_tcwv"][st - 1, 0].data
+    assert np.all(np.isclose(counts, 2.0 * counts_ref))
+
     # Ensure two-meter-temperature distributions match.
     bins = np.linspace(240, 330, 201)
     i_st = (input_data.surface_type == st).data
@@ -388,7 +397,7 @@ def test_observation_statistics_mhs(tmpdir):
     data_path = Path(__file__).parent / "data"
     files = [data_path / "mhs" / "MHS.pp"] * 2
 
-    stats = [ObservationStatistics(conditional=1),
+    stats = [ObservationStatistics(),
              ZonalDistribution(),
              GlobalDistribution()]
     processor = StatisticsProcessor(sensors.MHS,
@@ -410,14 +419,23 @@ def test_observation_statistics_mhs(tmpdir):
     angle_bins[1:-1] = 0.5 * (sensor.angles[1:] + sensor.angles[:-1])
     angle_bins[0] = 2.0 * angle_bins[1] - angle_bins[2]
     angle_bins[-1] = 2.0 * angle_bins[-2] - angle_bins[-3]
-    lower = angle_bins[1]
-    upper = angle_bins[0]
-    inds = ((input_data.surface_type == st) *
-            (input_data.earth_incidence_angle[..., 0] >= lower) *
-            (input_data.earth_incidence_angle[..., 0] < upper)).data
+    lower = angle_bins[3]
+    upper = angle_bins[2]
+    eia = np.abs(input_data.earth_incidence_angle.data)
+    inds = ((input_data.surface_type.data == st) *
+            (eia >= lower) *
+            (eia < upper))
     tbs = input_data["brightness_temperatures"].data[inds]
     counts_ref, _ = np.histogram(tbs[:, 0], bins=bins)
-    counts = results["brightness_temperatures"][st - 1, 0, 0].data
+    counts = results["brightness_temperatures"][st - 1, 0, 2].data
+    assert np.all(np.isclose(counts, 2.0 * counts_ref))
+
+    bins_tcwv = np.linspace(-0.5, 99.5, 101)
+    tcwv = input_data["total_column_water_vapor"].data[inds]
+    counts_ref, _, _ = np.histogram2d(
+        tcwv, tbs[:, 0], bins=(bins_tcwv, bins)
+    )
+    counts = results["brightness_temperatures_tcwv"][st - 1, 0, 2].data
     assert np.all(np.isclose(counts, 2.0 * counts_ref))
 
     # Ensure two-meter-temperature distributions match.

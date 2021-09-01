@@ -1327,8 +1327,6 @@ class ObservationStatistics(Statistic):
             conditional: If provided should identify a channel for which
                 conditional of all other channels will be calculated.
         """
-        self.conditional = conditional
-
         self.angle_bins = None
         self.has_angles = None
         self.tbs = None
@@ -1336,8 +1334,8 @@ class ObservationStatistics(Statistic):
 
         self.t2m = np.zeros((18, 200), dtype=np.float32)
         self.t2m_bins = np.linspace(240, 330, 201)
-        self.tcwv = np.zeros((18, 200), dtype=np.float32)
-        self.tcwv_bins = np.linspace(0, 100, 201)
+        self.tcwv = np.zeros((18, 100), dtype=np.float32)
+        self.tcwv_bins = np.linspace(-0.5, 99.5, 101)
         self.st = np.zeros(18, dtype=np.float32)
         self.at = np.zeros(4, dtype=np.float32)
 
@@ -1356,19 +1354,18 @@ class ObservationStatistics(Statistic):
                                    self.angle_bins[-3])
             self.tbs = np.zeros((18, n_chans, n_angles, self.tb_bins.size - 1),
                                 dtype=np.float32)
-            if self.conditional is not None:
-                self.tbs_cond = np.zeros(
-                    (18, n_chans, n_angles,) + (self.tb_bins.size - 1,) * 2,
-                    dtype=np.float32
-                )
+            self.tbs_tcwv = np.zeros(
+                (18, n_chans, n_angles, 100, self.tb_bins.size - 1,),
+                dtype=np.float32
+            )
+
         else:
             self.tbs = np.zeros((18, n_chans, self.tb_bins.size - 1),
                                 dtype=np.float32)
-            if self.conditional is not None:
-                self.tbs_cond = np.zeros(
-                    (18, n_chans,) + (self.tb_bins.size - 1,) * 2,
-                    dtype=np.float32
-                )
+            self.tbs_tcwv = np.zeros(
+                (18, n_chans, 100, self.tb_bins.size - 1,),
+                dtype=np.float32
+            )
 
     def process_file(self,
                      sensor,
@@ -1387,11 +1384,12 @@ class ObservationStatistics(Statistic):
         st = dataset["surface_type"]
         for i in range(18):
             i_st = (st == i + 1).data
+            tcwv = dataset["total_column_water_vapor"].data[i_st]
 
             # Sensor with varying EIA (cross track).
             tbs = (dataset["brightness_temperatures"] .data[i_st.data])
             if self.has_angles:
-                eia = dataset["earth_incidence_angle"].data[i_st]
+                eia = np.abs(dataset["earth_incidence_angle"].data[i_st])
                 for j in range(sensor.n_angles):
                     lower = self.angle_bins[j + 1]
                     upper = self.angle_bins[j]
@@ -1400,21 +1398,23 @@ class ObservationStatistics(Statistic):
                         cs, _ = np.histogram(tbs[i_a, k],
                                              bins=self.tb_bins)
                         self.tbs[i, k, j] += cs
-                        if self.conditional is not None:
-                            cs, _, _ = np.histogram2d(tbs[i_a, self.conditional],
-                                                      tbs[i_a, k],
-                                                      bins=self.tb_bins)
-                            self.tbs_cond[i, k, j] += cs
+
+                        cs, _, _ = np.histogram2d(
+                            tcwv[i_a], tbs[i_a, k],
+                            bins=(self.tcwv_bins, self.tb_bins)
+                        )
+                        self.tbs_tcwv[i, k, j] += cs
+
             # Sensor with constant EIA
             else:
                 for j in range(sensor.n_chans):
                     cs, _ = np.histogram(tbs[:, j], bins=self.tb_bins)
                     self.tbs[i, j] += cs
-                    if self.conditional is not None:
-                        cs, _, _ = np.histogram2d(tbs[:, self.conditional],
-                                                  tbs[:, j],
-                                                  bins=self.tb_bins)
-                        self.tbs_cond[i, j] += cs
+                    cs, _, _ = np.histogram2d(
+                        tcwv, tbs[:, j],
+                        bins=(self.tcwv_bins, self.tb_bins)
+                    )
+                    self.tbs_tcwv[i, j] += cs
 
             # Ancillary data
             v = dataset["two_meter_temperature"].data[i_st]
@@ -1439,15 +1439,14 @@ class ObservationStatistics(Statistic):
         """
         if self.tbs is None:
             self.tbs = other.tbs
-            self.tbs_cond = other.tbs_cond
+            self.tbs_tcwv = other.tbs_tcwv
             self.t2m = other.t2m
             self.tcwv = other.tcwv
             self.st = other.st
             self.at = other.at
         elif other.tbs is not None:
             self.tbs += other.tbs
-            if self.conditional is not None and other.conditional is not None:
-                self.tbs_cond += other.tbs_cond
+            self.tbs_tcwv += other.tbs_tcwv
             self.t2m += other.t2m
             self.tcwv += other.tcwv
             self.st += other.st
@@ -1473,14 +1472,13 @@ class ObservationStatistics(Statistic):
                  "brightness_temperature_bins"),
                 self.tbs
             )
-            if self.conditional is not None:
-                data["conditional_brightness_temperatures"] = (
-                    ("surface_type_bins",
-                     "channels",
-                     "angles",
-                     "brightness_temperature_bins",
-                     "brightness_temperature_bins"),
-                    self.tbs_cond
+            data["brightness_temperatures_tcwv"] = (
+                ("surface_type_bins",
+                 "channels",
+                 "angles",
+                 "total_column_water_vapor_bins",
+                 "brightness_temperature_bins"),
+                self.tbs_tcwv
                 )
         else:
             data["brightness_temperatures"] = (
@@ -1489,13 +1487,12 @@ class ObservationStatistics(Statistic):
                  "brightness_temperature_bins"),
                 self.tbs
             )
-            if self.conditional is not None:
-                data["conditional_brightness_temperatures"] = (
-                    ("surface_type_bins",
-                     "channels",
-                     "brightness_temperature_bins",
-                     "brightness_temperature_bins"),
-                    self.tbs_cond
+            data["brightness_temperatures_tcwv"] = (
+                ("surface_type_bins",
+                 "channels",
+                 "total_column_water_vapor_bins",
+                 "brightness_temperature_bins"),
+                self.tbs_tcwv
                 )
 
         bins = 0.5 * (self.t2m_bins[1:] + self.t2m_bins[:-1])
