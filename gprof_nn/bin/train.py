@@ -458,14 +458,14 @@ def run_training_0d(sensor,
         else:
             scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, n)
         xrnn.train(training_data=training_data,
-                validation_data=validation_data,
-                n_epochs=n,
-                optimizer=optimizer,
-                scheduler=scheduler,
-                logger=logger,
-                metrics=metrics,
-                device=device,
-                mask=-9999)
+                   validation_data=validation_data,
+                   n_epochs=n,
+                   optimizer=optimizer,
+                   scheduler=scheduler,
+                   logger=logger,
+                   metrics=metrics,
+                   device=device,
+                   mask=-9999)
         LOGGER.info(
             f"Saving training network to {output}."
         )
@@ -612,7 +612,7 @@ def run_training_2d(sensor,
     ###############################################################################
 
     n_epochs_tot = sum(n_epochs)
-    logger = TensorBoardLogger(n_epochs)
+    logger = TensorBoardLogger(n_epochs_tot)
     logger.set_attributes({
         "n_blocks": n_blocks,
         "n_neurons_body": n_neurons_body,
