@@ -174,6 +174,12 @@ def add_parser(subparsers):
         help='The learning rates to use during training.'
     )
 
+    parser.add_argument(
+        '--no_lr_schedule',
+        action="store_false"
+        help='Disable learning rate schedule.'
+    )
+
     # Other
     parser.add_argument(
         '--device', metavar="device", type=str, nargs=1,
@@ -319,6 +325,7 @@ def run_training_0d(sensor,
 
     n_epochs = args.n_epochs
     lr = args.learning_rate
+    no_schedule = args.no_lr_schedule
 
     if len(n_epochs) == 1:
         n_epochs = n_epochs * len(lr)
@@ -444,16 +451,19 @@ def run_training_0d(sensor,
             f"Starting training for {n} epochs with learning rate {r}"
         )
         optimizer = optim.Adam(model.parameters(), lr=r)
-        scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, n)
+        if no_schedule:
+            scheduler = None
+        else:
+            scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, n)
         xrnn.train(training_data=training_data,
-                   validation_data=validation_data,
-                   n_epochs=n,
-                   optimizer=optimizer,
-                   scheduler=scheduler,
-                   logger=logger,
-                   metrics=metrics,
-                   device=device,
-                   mask=-9999)
+                validation_data=validation_data,
+                n_epochs=n,
+                optimizer=optimizer,
+                scheduler=scheduler,
+                logger=logger,
+                metrics=metrics,
+                device=device,
+                mask=-9999)
         LOGGER.info(
             f"Saving training network to {output}."
         )
@@ -499,6 +509,7 @@ def run_training_2d(sensor,
 
     n_epochs = args.n_epochs
     lr = args.learning_rate
+    no_schedule = args.no_lr_schedule
 
     if len(n_epochs) == 1:
         n_epochs = n_epochs * len(lr)
@@ -618,7 +629,10 @@ def run_training_2d(sensor,
             f"Starting training for {n} epochs with learning rate {r}"
         )
         optimizer = optim.Adam(model.parameters(), lr=r)
-        scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, n)
+        if no_schedule:
+            scheduler = None
+        else:
+            scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, n)
         xrnn.train(training_data=training_data,
                    validation_data=validation_data,
                    n_epochs=n,
