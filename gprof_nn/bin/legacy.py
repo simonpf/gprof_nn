@@ -89,7 +89,9 @@ def process_file(input_file,
                                      profiles,
                                      nedts=nedts)
 
-    results.to_netcdf(output_file)
+    print(output_file, type(output_file))
+
+    results.to_netcdf(str(output_file))
 
 
 def run(args):
@@ -110,7 +112,7 @@ def run(args):
     if not input.exists():
         LOGGER.error("Input must be an existing file or folder.")
 
-    if not output.exists():
+    if input.is_dir() and not output.exists():
         output.mkdir(parents=True, exist_ok=True)
 
     if args.gradients:
