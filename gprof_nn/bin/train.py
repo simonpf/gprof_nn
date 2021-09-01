@@ -176,7 +176,7 @@ def add_parser(subparsers):
 
     parser.add_argument(
         '--no_lr_schedule',
-        action="store_false"
+        action="store_true",
         help='Disable learning rate schedule.'
     )
 
