@@ -73,7 +73,7 @@ STATS = {
         statistics.BinFileStatistics(),
         #statistics.GlobalDistribution()
     ],
-    "observations": [statistics.ObservationStatistics(conditional=1)],
+    "observations": [statistics.ObservationStatistics()],
     "retrieval": [
         statistics.RetrievalStatistics(),
         statistics.ZonalDistribution(),
