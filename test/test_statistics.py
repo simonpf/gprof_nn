@@ -61,6 +61,15 @@ def test_training_statistics_gmi(tmpdir):
         counts = results["brightness_temperatures"][st - 1, 0].data
         assert np.all(np.isclose(counts, 2.0 * counts_ref))
 
+        tcwv = input_data["total_column_water_vapor"].data[i_st]
+        bins_tcwv = np.linspace(-0.5, 99.5, 101)
+        counts_ref, _, _ = np.histogram2d(
+            tcwv, tbs[:, 0],
+            bins=(bins_tcwv, bins)
+        )
+        counts = results["brightness_temperatures_tcwv"][st - 1, 0].data
+        assert np.all(np.isclose(counts, 2.0 * counts_ref))
+
         # Ensure surface_precip dists match.
         bins = np.logspace(-3, np.log10(2e2), 201)
         x = input_data["surface_precip"].data[i_st]

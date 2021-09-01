@@ -644,8 +644,6 @@ class TrainingDataStatistics(Statistic):
 
         self.tbs = None
         self.tbs_sim = None
-        self.tbs_bias = None
-        self.tbs_cond = None
         self.angle_bins = None
         self.tb_bins = np.linspace(0, 400, 401)
 
@@ -679,9 +677,17 @@ class TrainingDataStatistics(Statistic):
             self.angle_bins = calculate_angle_bins(sensor.angles[::-1])
             self.tbs = np.zeros((18, n_chans, n_angles, self.tb_bins.size - 1),
                                 dtype=np.float32)
+            self.tbs_tcwv = np.zeros(
+                (18, n_chans, n_angles, 100, self.tb_bins.size - 1,),
+                dtype=np.float32
+            )
         else:
             self.tbs = np.zeros((18, n_chans, self.tb_bins.size - 1),
                                 dtype=np.float32)
+            self.tbs_tcwv = np.zeros(
+                (18, n_chans, 100, self.tb_bins.size - 1,),
+                dtype=np.float32
+            )
 
         for k in ALL_TARGETS:
             if k in data.variables:
@@ -731,20 +737,37 @@ class TrainingDataStatistics(Statistic):
         for i in range(18):
             # Select only TBs that are actually used for training.
             i_st = ((st == i + 1) * (sp >= 0)).data
+            tcwv = dataset["total_column_water_vapor"].data[i_st]
+            tbs = dataset["brightness_temperatures"].data[i_st]
 
-            tbs = dataset["brightness_temperatures"].data[i_st.data]
             for i_c in range(sensor.n_chans):
                 if self.has_angles:
-                    eia = dataset["earth_incidence_angle"].data[i_st]
-                    cs, _, _ = np.histogram2d(
-                        eia,
-                        tbs[..., i_c],
-                        bins=(self.angle_bins, self.tb_bins)
-                    )
-                    self.tbs[i, i_c] += cs
+                    eia = np.abs(dataset["earth_incidence_angle"].data[i_st])
+                    for j in range(sensor.n_angles):
+                        lower = self.angle_bins[j + 1]
+                        upper = self.angle_bins[j]
+                        i_a = (eia >= lower) * (eia < upper)
+
+
+                        cs, _ = np.histogram(
+                            tbs[i_a, i_c],
+                            bins=self.tb_bins
+                        )
+                        self.tbs[i, i_c, j] += cs
+
+                        cs, _, _ = np.histogram2d(
+                            tcwv[i_a], tbs[i_a, i_c],
+                            bins=(self.tcwv_bins, self.tb_bins)
+                        )
+                        self.tbs_tcwv[i, i_c, j] += cs
                 else:
                     cs, _ = np.histogram(tbs[..., i_c], bins=self.tb_bins)
                     self.tbs[i, i_c] += cs
+                    cs, _, _ = np.histogram2d(
+                        tcwv, tbs[..., i_c],
+                        bins=(self.tcwv_bins, self.tb_bins)
+                    )
+                    self.tbs_tcwv[i, i_c] += cs
 
             # Retrieval targets
             for k in self.bins:
@@ -796,6 +819,7 @@ class TrainingDataStatistics(Statistic):
         """
         if self.tbs is None:
             self.tbs = other.tbs
+            self.tbs_tcwv = other.tbs_tcwv
             self.targets = other.targets
             self.t2m = other.t2m
             self.tcwv = other.tcwv
@@ -806,6 +830,7 @@ class TrainingDataStatistics(Statistic):
 
         elif other.tbs is not None:
             self.tbs += other.tbs
+            self.tbs_tcwv += other.tbs_tcwv
             for k in self.targets:
                 self.targets[k] += other.targets[k]
                 self.sums_tcwv[k] += other.sums_tcwv[k]
@@ -834,6 +859,14 @@ class TrainingDataStatistics(Statistic):
                  "brightness_temperature_bins"),
                 self.tbs
             )
+            data["brightness_temperatures_tcwv"] = (
+                ("surface_type_bins",
+                 "channels",
+                 "angles",
+                 "total_column_water_vapor_bins",
+                 "brightness_temperature_bins"),
+                self.tbs_tcwv
+                )
         else:
             data["brightness_temperatures"] = (
                 ("surface_type_bins",
@@ -841,6 +874,13 @@ class TrainingDataStatistics(Statistic):
                  "brightness_temperature_bins"),
                 self.tbs
             )
+            data["brightness_temperatures_tcwv"] = (
+                ("surface_type_bins",
+                 "channels",
+                 "total_column_water_vapor_bins",
+                 "brightness_temperature_bins"),
+                self.tbs_tcwv
+                )
 
         for k in self.targets:
             bins = 0.5 * (self.bins[k][1:] + self.bins[k][:-1])
