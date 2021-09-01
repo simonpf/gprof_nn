@@ -134,12 +134,74 @@ def execute_gprof(working_directory,
             str(log_file),
             ANCILLARY_DATA,
             profiles]
-    output_data = execute_gprof(tmp,
-                                preprocessor_file,
-                                mode,
-                                profiles,
-                                nedts,
-                                robust=True)
+    try:
+        subprocess.run(args,
+                       check=True,
+                       capture_output=True,
+                       cwd=working_directory)
+    except subprocess.CalledProcessError as error:
+        if robust:
+            with open(log_file, "r") as log:
+                log = log.read()
+            LOGGER.error(
+                "Running GPROF failed with the following log: %s\n%s\n%s",
+                log,
+                error.stdout,
+                error.stderr
+            )
+            return None
+        else:
+            raise error
+    results = RetrievalFile(output_file,
+                            has_profiles=has_profiles,
+                            has_sensitivity=has_sensitivity)
+    return results.to_xarray_dataset()
+
+
+def run_gprof_training_data(input_file,
+                            mode,
+                            profiles,
+                            nedts=None):
+    """
+    Runs GPROF algorithm on training data in GPROF-NN format and includes
+    truth values in the results.
+
+    Args:
+        input_file: Path to the NetCDF file containing the validation
+            data.
+        mode: The mode in which to run GPROF ('STANDARD', 'SENSITIVITY'
+            or 'PROFILES')
+        profiles: Whether to retrieve profiles.
+        nedts: If provided should be an array containing the channel
+            sensitivities to use for the retrieval.
+
+    Return:
+        'xarray.Dataset' containing the retrieval results.
+    """
+    input_data = GPROF_NN_0D_Dataset(input_file,
+                                     shuffle=False,
+                                     normalize=False,
+                                     augment=False,
+                                     targets=ALL_TARGETS,
+                                     batch_size=256 * 2048)
+
+    results = []
+    with TemporaryDirectory() as tmp:
+        tmp = Path(tmp)
+
+        for batch in input_data:
+
+            preprocessor_file = tmp / "input.pp"
+            batch_input = input_data.to_xarray_dataset(batch=batch)
+            write_preprocessor_file(batch_input, preprocessor_file)
+
+            data = PreprocessorFile(preprocessor_file).to_xarray_dataset()
+            output_data = execute_gprof(tmp,
+                                        preprocessor_file,
+                                        mode,
+                                        profiles,
+                                        nedts,
+                                        robust=True)
 
             if output_data is None:
                 continue
