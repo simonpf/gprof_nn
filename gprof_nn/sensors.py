@@ -688,7 +688,14 @@ class ConicalScanner(Sensor):
 
             return np.stack(x)
 
-    def load_training_data_2d(self, dataset, targets, augment, rng):
+    def load_training_data_2d(
+            self,
+            dataset,
+            targets,
+            augment,
+            rng,
+            width=96,
+            height=128):
         """
         Load training data for GPROF-NN 2D retrieval. This function extracts
         scenes of 128 x 96 pixels from each training data sample and arranges
@@ -700,6 +707,8 @@ class ConicalScanner(Sensor):
             targets: List of the targets to load.
             augment: Whether or not to augment the training data.
             rng: Numpy random number generator to use for augmentation.
+            width: The width of each input image.
+            height: The height of each input image.
 
         Return:
             Tuple ``(x, y)`` containing the un-batched, un-shuffled training
@@ -726,7 +735,7 @@ class ConicalScanner(Sensor):
                 lats = scene.latitude.data
                 lons = scene.longitude.data
                 coords = get_transformation_coordinates(
-                        lats, lons, self.viewing_geometry, 96, 128, p_x_i, p_x_o, p_y
+                        lats, lons, self.viewing_geometry, width, height, p_x_i, p_x_o, p_y
                    )
 
                 scene = remap_scene(scene, coords, targets)
@@ -1059,7 +1068,15 @@ class CrossTrackScanner(Sensor):
     def load_data_2d(self, filename, targets, augment, rng):
         pass
 
-    def _load_training_data_2d_sim(self, scene, targets, augment, rng):
+    def _load_training_data_2d_sim(
+            self,
+            scene,
+            targets,
+            augment,
+            rng,
+            width=32,
+            height=128
+    ):
         """
         Load training data for scene extracted from a sim file. Since
         these scenes are located on the GMI swath, they need to remapped
@@ -1071,6 +1088,8 @@ class CrossTrackScanner(Sensor):
             targets: List of the retrieval targets to load as output data.
             augment: Whether or not to augment the training data.
             rng: 'numpy.random.Generator' to use to generate random numbers.
+            width: The width of each input image.
+            height: The height of each input image.
 
         Returns:
             Tuple ``x, y`` containing one sample of training data for the
@@ -1084,9 +1103,6 @@ class CrossTrackScanner(Sensor):
             p_x_o = 0.5
             p_x_i = 0.5
             p_y = 0.5
-
-        width = 32
-        height = 128
 
         lats = scene.latitude.data
         lons = scene.longitude.data
@@ -1148,7 +1164,15 @@ class CrossTrackScanner(Sensor):
                     y[k] = np.flip(y[k], -1)
         return x, y
 
-    def _load_training_data_2d_other(self, scene, targets, augment, rng):
+    def _load_training_data_2d_other(
+            self,
+            scene,
+            targets,
+            augment,
+            rng,
+            width=32,
+            height=128
+    ):
         """
         Load training data for sea ice or snow surfaces. These observations
         were extracted directly from L1C files and are on the original MHS
@@ -1160,6 +1184,8 @@ class CrossTrackScanner(Sensor):
             targets: List of the retrieval targets to load as output data.
             augment: Whether or not to augment the training data.
             rng: 'numpy.random.Generator' to use to generate random numbers.
+            width: The width of each input image.
+            height: The height of each input image.
 
         Returns:
             Tuple ``x, y`` containing one sample of training data for the
@@ -1171,9 +1197,6 @@ class CrossTrackScanner(Sensor):
         else:
             p_x = 0.5
             p_y = 0.5
-
-        width = 32
-        height = 128
 
         n_scans = SCANS_PER_SAMPLE
         n_pixels = self.viewing_geometry.pixels_per_scan
@@ -1238,7 +1261,13 @@ class CrossTrackScanner(Sensor):
 
         return x, y
 
-    def load_training_data_2d(self, dataset, targets, augment, rng):
+    def load_training_data_2d(self,
+                              dataset,
+                              targets,
+                              augment,
+                              rng,
+                              width=32,
+                              height=128):
 
         if isinstance(dataset, (str, Path)):
             dataset = xr.open_dataset(dataset)
@@ -1267,10 +1296,12 @@ class CrossTrackScanner(Sensor):
                 x_i, y_i = self._load_training_data_2d_sim(scene,
                                                            targets,
                                                            augment,
-                                                           rng)
+                                                           rng,
+                                                           width=width,
+                                                           height=height)
             else:
                 x_i, y_i = self._load_training_data_2d_other(
-                    scene, targets, augment, rng
+                    scene, targets, augment, rng, width=width, height=height
                 )
             x.append(x_i)
             y.append(y_i)

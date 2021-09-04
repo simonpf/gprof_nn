@@ -48,6 +48,11 @@ _THRESHOLDS = {
     "latent_heat": -99999,
 }
 
+_INPUT_DIMENSIONS = {
+    "GMI": (96, 128),
+    "MHS": (32, 128)
+}
+
 
 def write_preprocessor_file(input_data, output_file):
     """
@@ -403,8 +408,9 @@ class GPROF_NN_0D_Dataset(Dataset0DBase):
             y = self.y
         else:
             x, y = batch
-            x = x.numpy()
-            y = {k: t.numpy() for k, t in y.items()}
+            if isinstance(x, torch.Tensor):
+                x = x.numpy()
+                y = {k: t.numpy() for k, t in y.items()}
 
         if mask is None:
             mask = slice(0, None)
@@ -416,7 +422,7 @@ class GPROF_NN_0D_Dataset(Dataset0DBase):
         sensor = self.sensor
 
         n_samples = x.shape[0]
-        n_levels = 28
+        n_layers = 28
 
         tbs = x[:, : sensor.n_chans]
         if sensor.n_angles > 1:
@@ -443,7 +449,7 @@ class GPROF_NN_0D_Dataset(Dataset0DBase):
         if eia is not None:
             new_dataset["earth_incidence_angle"] = (dims[:1], eia)
 
-        dims = ("samples", "levels")
+        dims = ("samples", "layers")
         for k, v in y.items():
             n_dims = v.ndim
             new_dataset[k] = (dims[:n_dims], v)
@@ -593,6 +599,7 @@ class GPROF_NN_2D_Dataset:
         transform_zeros=True,
         shuffle=True,
         augment=True,
+        input_dimensions=None
     ):
         """
         Args:
@@ -610,6 +617,9 @@ class GPROF_NN_2D_Dataset:
                 zero to small random values.
             shuffle: Whether or not to shuffle the data.
             augment: Whether or not to augment the training data.
+            input_dimensions: Tuple ``(width, height)`` specifying the width
+                and height of the input data. If ``None`` default setting for
+                each sensor are used.
         """
         self.filename = Path(filename)
         if targets is None:
@@ -627,7 +637,16 @@ class GPROF_NN_2D_Dataset:
 
         sensor = xr.open_dataset(filename).attrs["sensor"]
         sensor = getattr(sensors, sensor)
-        x, y = sensor.load_training_data_2d(filename, self.targets, augment, self._rng)
+
+
+        if input_dimensions is None:
+            width, height = _INPUT_DIMENSIONS[sensor.name.upper()]
+        else:
+            width, height = input_dimensions
+        x, y = sensor.load_training_data_2d(
+            filename, self.targets, augment, self._rng,
+            width=width, height=height
+        )
         self.sensor = sensor
 
         indices_1h = list(range(17, 39))
@@ -759,7 +778,7 @@ class GPROF_NN_2D_Dataset:
         sensor = self.sensor
 
         n_samples = x.shape[0]
-        n_levels = 28
+        n_layers = 28
 
         tbs = np.transpose(x[:, : sensor.n_chans], (0, 2, 3, 1))
         if sensor.n_angles > 1:
@@ -790,7 +809,7 @@ class GPROF_NN_2D_Dataset:
         if eia is not None:
             new_dataset["earth_incidence_angle"] = (dims[:1], eia)
 
-        dims = ("samples", "scans", "pixels", "levels")
+        dims = ("samples", "scans", "pixels", "layers")
         for k, v in self.y.items():
             n_dims = v.ndim
             if n_dims > 3:

@@ -22,7 +22,9 @@ import pandas as pd
 from gprof_nn import sensors
 import gprof_nn.logging
 from gprof_nn.definitions import PROFILE_NAMES, ALL_TARGETS
-from gprof_nn.data.training_data import GPROF_NN_0D_Dataset
+from gprof_nn.data.training_data import (GPROF_NN_0D_Dataset,
+                                         GPROF_NN_2D_Dataset)
+
 from gprof_nn.data.preprocessor import PreprocessorFile, run_preprocessor
 
 
@@ -564,39 +566,46 @@ class NetcdfLoader0D(GPROF_NN_0D_Dataset):
         return data
 
 
-class NetcdfLoader2D(NetcdfLoader):
+class NetcdfLoader2D(GPROF_NN_2D_Dataset):
     """
     Data loader for running the GPROF-NN 2D retrieval on input data
     in NetCDF data format.
     """
-
-    def __init__(self, filename, normalizer, batch_size=8):
-        super().__init__()
-        self.filename = filename
-        self.normalizer = normalizer
-        self.batch_size = batch_size
-
-        self._load_data()
-        self.n_samples = self.input_data.shape[0]
-
-        self.scalar_dimensions = ("samples", "scans", "pixels")
-        self.profile_dimensions = ("samples", "layers", "scans", "pixels")
-        self.dimensions = {
-            t: ("samples", "layers", "scans", "pixels")
-            if t in PROFILE_NAMES
-            else ("samples", "scans", "pixels")
-            for t in ALL_TARGETS
-        }
-
-    def _load_data(self):
+    def __init__(self,
+                 filename,
+                 normalizer,
+                 batch_size=32):
         """
-        Load data from training data NetCDF format into 'input' data
-        attribute.
+        Create loader for input data in NetCDF format that provides input
+        data for the GPROF-NN 2D retrieval.
+
+        Args:
+            filename: The name of the NetCDF file containing the input data.
+            normalizer: The normalizer object to use to normalize the input
+                data.
+            batch_size: How many observations to combine into a single
+                input batch.
         """
-        dataset = xr.open_dataset(self.filename)
-        input_data = combine_input_data_2d(dataset)
-        self.input_data = input_data
-        self.padding = calculate_padding_dimensions(input_data)
+        targets = ALL_TARGETS + ["latitude", "longitude"]
+        super().__init__(filename,
+                         targets=targets,
+                         normalizer=normalizer,
+                         batch_size=batch_size,
+                         shuffle=False,
+                         augment=False,
+                         input_dimensions=(64, 221))
+        self.n_samples = len(self)
+        self.scalar_dimensions = ("samples",)
+        self.profile_dimensions = ("samples", "layers")
+        dimensions = {}
+        for t in ALL_TARGETS:
+            if t in PROFILE_NAMES:
+                dimensions[t] = ("samples", "layers", "scans", "pixels")
+            else:
+                dimensions[t] = ("samples", "scans", "pixels")
+        self.dimensions = dimensions
+        self.data = self.to_xarray_dataset()
+        self.padding = calculate_padding_dimensions(self.x[0])
 
     def __getitem__(self, i):
         """
@@ -608,23 +617,96 @@ class NetcdfLoader2D(NetcdfLoader):
         Return:
             PyTorch tensor containing the batch of input data.
         """
-        x = super().__getitem__(i)
-        return torch.nn.functional.pad(x, self.padding, mode="replicate")
+        i_start = i * self.batch_size
+        i_end = i_start + self.batch_size
+        x = torch.tensor(self.x[i_start:i_end])
+        x = torch.nn.functional.pad(x, self.padding, mode="replicate")
+        return x
 
     def finalize(self, data):
         """
         Reshape retrieval results into shape of input data.
         """
+        dims = {}
+        n_pixels = data.pixels.size
+        n_scans = data.scans.size
         data = data[
             {
-                "scans": slice(self.padding[0], -self.padding[1]),
-                "pixels": slice(self.padding[2], -self.padding[3]),
+                "pixels": slice(self.padding[0], n_pixels - self.padding[1]),
+                "scans": slice(self.padding[2], n_scans - self.padding[3]),
             }
         ]
         if "layers"  in data.dims:
             dims = ["samples", "scans", "pixels", "layers"]
             data = data.transpose(*dims)
+
+        vars = [target for target in ALL_TARGETS if target in data.variables]
+        for var in vars:
+            data[var + "_true"] = self.data[var]
+
         return data
+
+#class NetcdfLoader2D(NetcdfLoader):
+#    """
+#    Data loader for running the GPROF-NN 2D retrieval on input data
+#    in NetCDF data format.
+#    """
+#
+#    def __init__(self, filename, normalizer, batch_size=8):
+#        super().__init__()
+#        self.filename = filename
+#        self.normalizer = normalizer
+#        self.batch_size = batch_size
+#
+#        self._load_data()
+#        self.n_samples = self.input_data.shape[0]
+#
+#        self.scalar_dimensions = ("samples", "scans", "pixels")
+#        self.profile_dimensions = ("samples", "layers", "scans", "pixels")
+#        self.dimensions = {
+#            t: ("samples", "layers", "scans", "pixels")
+#            if t in PROFILE_NAMES
+#            else ("samples", "scans", "pixels")
+#            for t in ALL_TARGETS
+#        }
+#
+#    def _load_data(self):
+#        """
+#        Load data from training data NetCDF format into 'input' data
+#        attribute.
+#        """
+#        dataset = xr.open_dataset(self.filename)
+#        input_data = combine_input_data_2d(dataset)
+#        self.input_data = input_data
+#        self.padding = calculate_padding_dimensions(input_data)
+#
+#    def __getitem__(self, i):
+#        """
+#        Return batch of input data.
+#
+#        Args:
+#            The batch index.
+#
+#        Return:
+#            PyTorch tensor containing the batch of input data.
+#        """
+#        x = super().__getitem__(i)
+#        return torch.nn.functional.pad(x, self.padding, mode="replicate")
+#
+#    def finalize(self, data):
+#        """
+#        Reshape retrieval results into shape of input data.
+#        """
+#        data = data[
+#            {
+#                "scans": slice(self.padding[0], -self.padding[1]),
+#                "pixels": slice(self.padding[2], -self.padding[3]),
+#            }
+#        ]
+#        if "layers"  in data.dims:
+#            dims = ["samples", "scans", "pixels", "layers"]
+#            data = data.transpose(*dims)
+#        return data
 
 
 ###############################################################################
@@ -841,6 +923,7 @@ class PreprocessorLoader2D:
                 "pixels": slice(self.padding[0], -self.padding[1]),
             }
         ]
+
         if "layers"  in data.dims:
             dims = ["scans", "pixels", "layers"]
             data = data.transpose(*dims)
