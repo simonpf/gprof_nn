@@ -440,6 +440,15 @@ class RetrievalGradientDriver(RetrievalDriver):
                 means.setdefault(k, []).append(y_mean[k].detach().cpu())
                 if k in grads:
                     gradients.setdefault(k, []).append(grads[k].detach().cpu())
+                if k == "surface_precip":
+                    y = y.detach()
+                    t = xrnn.posterior_quantiles(
+                        y_pred=y, quantiles=[0.333, 0.667], key=k
+                    )
+                    precip_1st_tercile.append(t[:, 0].cpu())
+                    precip_3rd_tercile.append(t[:, 1].cpu())
+                    p = xrnn.probability_larger_than(y_pred=y, y=1e-4, key=k)
+                    pop.append(p.cpu())
 
         dims = input_data.scalar_dimensions
         dims_p = input_data.profile_dimensions
@@ -451,12 +460,29 @@ class RetrievalGradientDriver(RetrievalDriver):
                 data[k] = (dims_p, y)
             else:
                 data[k] = (dims, y)
+
         for k in gradients:
             y = np.concatenate([t.numpy() for t in gradients[k]])
             if k in PROFILE_NAMES:
                 data[k + "_grad"] = (dims_p + ("inputs",), y)
             else:
                 data[k + "_grad"] = (dims + ("inputs",), y)
+
+        if len(precip_1st_tercile) > 0:
+            dims = input_data.dimensions["surface_precip"]
+            data["precip_1st_tercile"] = (
+                dims,
+                np.concatenate([t.numpy() for t in precip_1st_tercile]),
+            )
+            data["precip_3rd_tercile"] = (
+                dims,
+                np.concatenate([t.numpy() for t in precip_3rd_tercile]),
+            )
+            pop = np.concatenate([t.numpy() for t in pop])
+            data["pop"] = (dims, pop)
+            data["most_likely_precip"] = data["surface_precip"]
+            data["precip_flag"] = (dims, pop > 0.5)
+
         data = xr.Dataset(data)
         return input_data.finalize(data)
 
