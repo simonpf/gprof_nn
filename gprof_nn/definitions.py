@@ -90,3 +90,27 @@ GPROF_NN_DATA_PATH = Path(__file__).parent.parent / "data"
 ERA5 = "ERA5"
 GANAL = "GANAL"
 CONFIGURATIONS = [ERA5, GANAL]
+
+TARGET_NAMES = {
+    "surface_precip": "Surface precipitation",
+    "convective_precip": "Convective precipitation",
+    "rain_water_path": "Rain water path",
+    "ice_water_path": "Ice water path",
+    "cloud_water_content": "Cloud water content",
+    "rain_water_content": "Rain water content",
+    "snow_water_content": "Snow water content",
+    "cloud_water_content": "Cloud water content",
+    "latent_heat": "Latent heat"
+}
+
+UNITS = {
+    "surface_precip": r"$\si{\milli \meter \per \hour}$",
+    "convective_precip": r"$\si{\milli \meter \per \hour}$",
+    "rain_water_content": r"$\si{\gram \per \meter \cubed}$",
+    "ice_water_content": "$\si{\gram \per \meter \cubed}$",
+    "cloud_water_content": "$\si{\gram \per \meter \cubed}$",
+    "rain_water_content": "$\si{\gram \per \meter \cubed}$",
+    "snow_water_content": "$\si{\gram \per \meter \cubed}$",
+    "cloud_water_content": "$\si{\gram \per \meter \cubed}$",
+    "latent_heat": "$\si{\kelvin \per \hour}$"
+}
