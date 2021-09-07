@@ -247,6 +247,7 @@ class RetrievalDriver:
         precip_1st_tercile = []
         precip_3rd_tercile = []
         pop = []
+        samples = []
 
         with torch.no_grad():
             device = next(iter(xrnn.model.parameters())).device
@@ -268,6 +269,10 @@ class RetrievalDriver:
                         precip_3rd_tercile.append(t[:, 1].cpu())
                         p = xrnn.probability_larger_than(y_pred=y, y=1e-4, key=k)
                         pop.append(p.cpu())
+                        s = xrnn.sample_posterior(y_pred=y,
+                                                  n_samples=1,
+                                                  key="surface_precip")[:, 0]
+                        samples.append(s.cpu())
 
         data = {}
         for k in means:
@@ -288,6 +293,8 @@ class RetrievalDriver:
             data["pop"] = (dims, pop)
             data["most_likely_precip"] = data["surface_precip"]
             data["precip_flag"] = (dims, pop > 0.5)
+            samples = np.concatenate([t.numpy() for t in samples])
+            data["surface_precip_samples"] = (dims, samples)
         data = xr.Dataset(data)
 
         return input_data.finalize(data)
@@ -418,6 +425,7 @@ class RetrievalGradientDriver(RetrievalDriver):
         precip_1st_tercile = []
         precip_3rd_tercile = []
         pop = []
+        samples = []
 
         device = next(iter(xrnn.model.parameters())).device
         for i in range(len(input_data)):
@@ -449,6 +457,10 @@ class RetrievalGradientDriver(RetrievalDriver):
                     precip_3rd_tercile.append(t[:, 1].cpu())
                     p = xrnn.probability_larger_than(y_pred=y, y=1e-4, key=k)
                     pop.append(p.cpu())
+                    s = xrnn.sample_posterior(y_pred=y,
+                                                n_samples=1,
+                                                key="surface_precip")[:, 0]
+                    samples.append(s.cpu())
 
         dims = input_data.scalar_dimensions
         dims_p = input_data.profile_dimensions
@@ -482,6 +494,8 @@ class RetrievalGradientDriver(RetrievalDriver):
             data["pop"] = (dims, pop)
             data["most_likely_precip"] = data["surface_precip"]
             data["precip_flag"] = (dims, pop > 0.5)
+            samples = np.concatenate([t.numpy() for t in samples])
+            data["surface_precip_samples"] = (dims, samples)
 
         data = xr.Dataset(data)
         return input_data.finalize(data)

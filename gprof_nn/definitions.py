@@ -106,9 +106,9 @@ TARGET_NAMES = {
 UNITS = {
     "surface_precip": r"$\si{\milli \meter \per \hour}$",
     "convective_precip": r"$\si{\milli \meter \per \hour}$",
-    "rain_water_content": r"$\si{\gram \per \meter \cubed}$",
-    "ice_water_content": "$\si{\gram \per \meter \cubed}$",
-    "cloud_water_content": "$\si{\gram \per \meter \cubed}$",
+    "rain_water_path": r"$\si{\kilogram \per \meter \squared}$",
+    "ice_water_path": "$\si{\kilo \gram \per \meter \squared}$",
+    "cloud_water_path": "$\si{\kilo \gram \per \meter \squared}$",
     "rain_water_content": "$\si{\gram \per \meter \cubed}$",
     "snow_water_content": "$\si{\gram \per \meter \cubed}$",
     "cloud_water_content": "$\si{\gram \per \meter \cubed}$",
