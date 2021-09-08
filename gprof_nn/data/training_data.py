@@ -134,7 +134,7 @@ def write_preprocessor_file(input_data, output_file):
             if elements.dtype in [np.float32, np.float64]:
                 elements = np.nan_to_num(elements, nan=-9999.9)
             if k == "airmass_type":
-                elements[elements == 0] = 1
+                elements[elements <= 0] = 1
             new_dataset[k] = (dims, elements.reshape(new_shape))
 
     if "nominal_eia" in data.attrs:
@@ -152,6 +152,16 @@ def write_preprocessor_file(input_data, output_file):
         )
     if "quality_flag" not in new_dataset:
         new_dataset["quality_flag"] = (
+            ("scans", "pixels"),
+            np.zeros_like(new_dataset["surface_type"][1])
+        )
+    if "latitude" not in new_dataset:
+        new_dataset["latitude"] = (
+            ("scans", "pixels"),
+            np.zeros_like(new_dataset["surface_type"][1])
+        )
+    if "longitude" not in new_dataset:
+        new_dataset["longitude"] = (
             ("scans", "pixels"),
             np.zeros_like(new_dataset["surface_type"][1])
         )

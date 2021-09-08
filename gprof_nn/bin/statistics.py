@@ -66,8 +66,8 @@ def add_parser(subparsers):
 STATS = {
     "training": [
         statistics.TrainingDataStatistics(kind="0d"),
-        statistics.ZonalDistribution(),
-        statistics.GlobalDistribution()
+        #statistics.ZonalDistribution(),
+        #statistics.GlobalDistribution()
     ],
     "bin": [
         statistics.BinFileStatistics(),
