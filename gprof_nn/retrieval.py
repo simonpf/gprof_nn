@@ -216,10 +216,11 @@ class RetrievalDriver:
                     self.input_file, sensor, output_file=file, robust=False
                 )
                 input_data = self.model.preprocessor_class(file, self.normalizer)
-            except subprocess.CalledProcessError:
+            except subprocess.CalledProcessError as e:
                 LOGGER.warning(
-                    "Running the preprocessor failed. Skipping file %s.",
-                    self.input_file,
+                    ("Running the preprocessor for file %s failed with the "
+                     "following error failed.\n%s\n%s"),
+                    self.input_file, e.stdout, e.stderr
                 )
                 return None
             finally:

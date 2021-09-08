@@ -47,6 +47,7 @@ for k in BINS:
         BINS[k][0] == 0.0
 
 QUANTILES = np.linspace(0.0, 1.0, 66)[1:-1]
+PROFILE_QUANTILES = np.linspace(0.0, 1.0, 18)[1:-1]
 
 RESIDUALS = ["none", "simple", "hyper"]
 
@@ -354,7 +355,7 @@ class MultiHeadMLP(nn.Module):
                 self.heads[t] = module_class(
                     n_in,
                     n_neurons_head,
-                    28,
+                    16 * 28,
                     n_layers_head,
                     activation=activation
                 )
@@ -383,8 +384,12 @@ class MultiHeadMLP(nn.Module):
 
         y, acc = self.body(x, None)
         results = {}
+        profile_shape = (x.shape[0], 16, 28)
         for k in targets:
             results[k], _ = self.heads[k](y, acc, self.n_layers_body + 1)
+            if k in PROFILE_NAMES:
+                y_k = results[k]
+                results[k] = y_k.reshape(profile_shape)
         return results
 
 
@@ -435,7 +440,7 @@ class GPROF_NN_0D_QRNN(MRNN):
         losses = {}
         for target in targets:
             if target in PROFILE_NAMES:
-                losses[target] = Mean()
+                losses[target] = Quantiles(PROFILE_QUANTILES)
             else:
                 losses[target] = Quantiles(QUANTILES)
 
