@@ -215,13 +215,11 @@ class RetrievalFile:
             with open(filename, "rb") as file:
                 self.data = file.read()
         self.orbit_header = np.frombuffer(self.data, ORBIT_HEADER_TYPES, count=1)
-        print(self.orbit_header)
         self.profile_info = np.frombuffer(
             self.data, PROFILE_INFO_TYPES, count=1, offset=ORBIT_HEADER_TYPES.itemsize
         )
         self.n_scans = self.orbit_header["number_of_scans"][0]
         self.n_pixels = self.orbit_header["number_of_pixels"][0]
-        print(self.n_scans, self.n_pixels)
 
         np.random.seed(self.orbit_header["granule_number"])
         self.scan_indices = np.random.permutation(np.arange(self.n_scans))
