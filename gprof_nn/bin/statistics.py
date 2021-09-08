@@ -78,14 +78,16 @@ STATS = {
         statistics.RetrievalStatistics(),
         statistics.ZonalDistribution(),
         statistics.ScanPositionMean()
-        ]
+        ],
+    "combined": [statistics.GPMCMBStatistics(monthly=False)]
 }
 
-ENDINGS = {
+PATTERNS = {
     "training": "**/*.nc",
     "bin": "**/*.bin",
     "observations": "**/*.nc",
-    "retrieval": "**/*.nc"
+    "retrieval": "**/*.nc",
+    "combined": "**/2B.GPM*.HDF5"
 }
 
 
@@ -110,10 +112,9 @@ def run(args):
         return 1
 
     kind = args.kind.lower()
-    if not kind in ["training", "bin", "observations", "retrieval"]:
+    if not kind in STATS.keys():
         LOGGER.error(
-            "'kind' argument must be one of 'training', 'bin', "
-            "'observations' or 'retrieval'."
+            "'kind' argument must be one of {list(STATS.keys())}."
         )
         return 1
 
@@ -134,7 +135,7 @@ def run(args):
 
     n_procs = args.n_processes
 
-    endings = ENDINGS[kind]
+    endings = PATTERNS[kind]
 
     input_files = []
     for path in inputs:

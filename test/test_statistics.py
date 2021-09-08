@@ -13,6 +13,7 @@ from gprof_nn.equalizer import QuantileEqualizer
 from gprof_nn.data.preprocessor import PreprocessorFile
 from gprof_nn.data.retrieval import RetrievalFile
 from gprof_nn.data.training_data import GPROF_NN_0D_Dataset
+from gprof_nn.data.combined import GPMCMBFile
 from gprof_nn.statistics import (StatisticsProcessor,
                                  TrainingDataStatistics,
                                  BinFileStatistics,
@@ -20,7 +21,8 @@ from gprof_nn.statistics import (StatisticsProcessor,
                                  GlobalDistribution,
                                  ZonalDistribution,
                                  CorrectedObservations,
-                                 RetrievalStatistics)
+                                 RetrievalStatistics,
+                                 GPMCMBStatistics)
 
 
 def test_training_statistics_gmi(tmpdir):
@@ -33,7 +35,7 @@ def test_training_statistics_gmi(tmpdir):
 
 
     stats = [TrainingDataStatistics(kind="0d"),
-             ZonalDistribution(),
+             ZonalDistribution(monthly=False),
              GlobalDistribution()]
     processor = StatisticsProcessor(sensors.GMI,
                                     files,
@@ -97,6 +99,24 @@ def test_training_statistics_gmi(tmpdir):
     counts_ref, _ = np.histogram(x, bins=bins)
     counts = results["surface_type"].data
     assert np.all(np.isclose(counts, 2.0 * counts_ref))
+
+    #
+    # Zonal distributions
+    #
+
+    input_data = xr.open_dataset(files[0])
+    results = xr.open_dataset(str(tmpdir / "zonal_distribution_gmi.nc"))
+    lat_bins = np.linspace(-90, 90, 181)
+    sp_bins = np.logspace(-2, 2.5, 201)
+    bins = (lat_bins, sp_bins)
+    sp = input_data["surface_precip"].data
+    lats = input_data["latitude"].data
+    valid = sp >= 0.0
+    sp = sp[valid]
+    lats = lats[valid]
+    cs_ref, _, _ = np.histogram2d(lats, sp, bins=bins)
+    cs = results["surface_precip_mean"].data
+    assert np.all(np.isclose(2.0 * cs_ref, cs))
 
 
 def test_training_statistics_mhs(tmpdir):
@@ -522,6 +542,30 @@ def test_retrieval_statistics(tmpdir):
     assert np.isclose(mean_sp_ref, mean_sp)
 
 
+def test_gpm_cmb_statistics(tmpdir):
+    data_path = Path(__file__).parent / "data" / "gmi"
+    input_file = data_path / ("2B.GPM.DPRGMI.CORRA2018.20210829-S205206"
+                              "-E222439.042628.V06A.HDF5")
+    files = [input_file] * 2
+    stats = [GPMCMBStatistics()]
+    processor = StatisticsProcessor(sensors.GMI,
+                                    files,
+                                    stats)
+    processor.run(2, str(tmpdir))
+    results = xr.load_dataset(str(tmpdir / "gpm_combined_statistics.nc"))
 
+    input_data = GPMCMBFile(input_file).to_xarray_dataset(smooth=True)
+    surface_precip = input_data.surface_precip.data
+    lats = input_data.latitude.data
+    latitude_bins = np.linspace(-90, 90, 181)
+    sp_bins = np.logspace(-2, 2.5, 201)
+    bins = (latitude_bins, sp_bins)
 
+    cs_ref, _, _ = np.histogram2d(
+        lats.ravel(),
+        surface_precip.ravel(),
+        bins=bins
+    )
+    cs = results["surface_precip"].data
 
+    assert np.all(np.isclose(cs, 2.0 * cs_ref))

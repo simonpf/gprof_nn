@@ -54,4 +54,3 @@ def test_smoothing_kernels():
     assert np.isclose(k[3, 2] / k_max, 0.5)
     assert np.isclose(k[4, 3] / k_max, 0.5)
     assert np.isclose(k[2, 3] / k_max, 0.5)
-
