@@ -32,13 +32,13 @@ def calculate_smoothing_kernels(
     """
     d_a = 4.9e3
     d_x = 5.09e3
-    n_a = int(3 * fwhm_a / d_a)
-    n_x = int(3 * fwhm_x / d_x)
+    n_a = int(0.5 * fwhm_a / d_a)
+    n_x = int(0.5 * fwhm_x / d_x)
 
     k = np.ones((2 * n_a + 1, 2 * n_x + 1), dtype=np.float32)
     x_a = np.arange(-n_a, n_a + 1).reshape(-1, 1) * d_a
     x_x = np.arange(-n_x, n_x + 1).reshape(1, -1) * d_x
-    r = np.sqrt((x_a / fwhm_a) ** 2 + (x_x / fwhm_x) ** 2)
+    r = np.sqrt((2.0 * x_a / fwhm_a) ** 2 + (2.0 * x_x / fwhm_x) ** 2)
     k = np.exp(np.log(0.5) * r ** 2)
     k /= k.sum()
     return k

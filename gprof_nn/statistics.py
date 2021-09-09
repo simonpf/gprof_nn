@@ -291,9 +291,9 @@ class ZonalDistribution(Statistic):
                             )
                             self.surface_precip_mean[month] += cs
 
-                if "surface_precip_sample" in data.variables:
+                if "surface_precip_samples" in data.variables:
                     lats = data.latitude[indices].data
-                    v = data["surface_precip_sample"][indices].data
+                    v = data["surface_precip_samples"][indices].data
                     bins = (self.latitude_bins,
                             self.surface_precip_bins)
                     cs, _, _ = np.histogram2d(
@@ -352,9 +352,9 @@ class ZonalDistribution(Statistic):
                         )
                         self.surface_precip_mean += cs
 
-            if "surface_precip_sample" in data.variables:
-                lats = data.latitude[indices].data
-                v = data["surface_precip_sample"][indices].data
+            if "surface_precip_samples" in data.variables:
+                lats = data.latitude.data
+                v = data["surface_precip_samples"].data
                 bins = (self.latitude_bins,
                         self.surface_precip_bins)
                 cs, _, _ = np.histogram2d(
