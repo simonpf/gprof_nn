@@ -433,13 +433,16 @@ class GPMCMBStatistics(Statistic):
     Calculates surface precipitation distributions from GPM combined
     files.
     """
-    def __init__(self, monthly=False):
+    def __init__(self,
+                 monthly=False,
+                 resolution=5.0):
         """
         Args:
             Name of the retrieval variable for which to compute the
             scan position mean.
         """
-        self.latitude_bins = np.linspace(-90, 90, 181)
+        self.latitude_bins = np.arange(-90, 90 + 1e-3, resolution)
+        self.longitude_bins = np.arange(-180, 180 + 1e-3, resolution)
         self.surface_precip_bins = np.logspace(-2, 2.5, 201)
         self.has_time = monthly
         self.surface_precip_sums = None
@@ -449,20 +452,32 @@ class GPMCMBStatistics(Statistic):
         self.has_time = self.has_time and "scan_time" in data.variables
 
         n_lats = self.latitude_bins.size - 1
+        n_lons = self.longitude_bins.size - 1
         n_sp = self.surface_precip_bins.size - 1
         if self.has_time:
-            self.surface_precip_sums = np.zeros((12, n_lats), dtype=np.float32)
-            self.surface_precip_counts = np.zeros((12, n_lats),
-                                                  dtype=np.float32)
+            self.surface_precip_sums = np.zeros(
+                (12, n_lats, n_lons),
+                dtype=np.float32
+            )
+            self.surface_precip_counts = np.zeros(
+                (12, n_lats, n_lons),
+                dtype=np.float32
+            )
             self.surface_precip = np.zeros(
-                (12, n_lats, n_sp),
+                (12, n_lats, n_lons, n_sp),
                 dtype=np.float32
             )
         else:
-            self.surface_precip_sums = np.zeros(n_lats, dtype=np.float32)
-            self.surface_precip_counts = np.zeros(n_lats, dtype=np.float32)
+            self.surface_precip_sums = np.zeros(
+                (n_lats, n_lons),
+                dtype=np.float32
+            )
+            self.surface_precip_counts = np.zeros(
+                (n_lats, n_lons),
+                dtype=np.float32
+            )
             self.surface_precip = np.zeros(
-                (n_lats, n_sp),
+                (n_lats, n_lons, n_sp),
                 dtype=np.float32
             )
 
@@ -486,35 +501,55 @@ class GPMCMBStatistics(Statistic):
                 data.latitude.load()
 
                 lats = data.latitude.data[indices]
+                lons = data.longitude.data[indices]
                 sp = data.surface_precip.data[indices]
                 valid = sp >= 0
                 lats = lats[valid]
+                lons = lons[valid]
                 sp = sp[valid]
 
-                bins = self.latitude_bins
-                cs, _ = np.histogram(lats, bins=bins, weights=sp)
+                bins = (self.latitude_bins, self.longitude_bins)
+                cs, _ = np.histogram2d(lats, lons, bins=bins, weights=sp)
                 self.surface_precip_sums[month] += cs
-                cs, _ = np.histogram(lats, bins=bins)
+                cs, _ = np.histogram(lats, lons, bins=bins)
                 self.surface_precip_counts[month] += cs
 
-                bins = (self.latitude_bins, self.surface_precip_bins)
-                cs, _, _ = np.histogram2d(lats, sp, bins=bins)
+                bins = (
+                    self.latitude_bins,
+                    self.longidue_bins,
+                    self.surface_precip_bins
+                )
+                vals = np.stack(
+                    [lats, lons, sp],
+                    axis=-1
+                )
+                cs, _ = np.histogramdd(vals, bins=bins)
                 self.surface_precip[month] += cs
         else:
             lats = data.latitude.data
+            lons = data.longitude.data
             sp = data.surface_precip.data
             valid = (sp >= 0).data
             lats = lats[valid]
+            lons = lons[valid]
             sp = sp[valid]
 
-            bins = self.latitude_bins
-            cs, _ = np.histogram(lats, bins=bins, weights=sp)
+            bins = (self.latitude_bins, self.longitude_bins)
+            cs, _, _ = np.histogram2d(lats, lons, bins=bins, weights=sp)
             self.surface_precip_sums += cs
-            cs, _ = np.histogram(lats, bins=bins)
+            cs, _, _ = np.histogram2d(lats, lons, bins=bins)
             self.surface_precip_counts += cs
 
-            bins = (self.latitude_bins, self.surface_precip_bins)
-            cs, _, _ = np.histogram2d(lats, sp, bins=bins)
+            bins = (
+                self.latitude_bins,
+                self.longitude_bins,
+                self.surface_precip_bins
+            )
+            vals = np.stack(
+                [lats, lons, sp],
+                axis=-1
+            )
+            cs, _ = np.histogramdd(vals, bins=bins)
             self.surface_precip += cs
 
     def merge(self, other):
@@ -536,45 +571,47 @@ class GPMCMBStatistics(Statistic):
         Save results to file in NetCDF format.
         """
         lats = 0.5 * (self.latitude_bins[1:] + self.latitude_bins[:-1])
+        lons = 0.5 * (self.longitude_bins[1:] + self.longitude_bins[:-1])
         sp = 0.5 * (self.surface_precip_bins[1:] +
                     self.surface_precip_bins[:-1])
         data = xr.Dataset({
             "latitude": (("latitude",), lats),
+            "longitude": (("longitude",), lons),
             "surface_precip_bins": (("surface_precip_bins"), sp)
         })
         if self.has_time:
             data["months"] = (("months"), np.arange(1, 13))
             data["mean_surface_precip"] = (
-                ("months", "latitude"),
+                ("months", "latitude", "longitude"),
                 self.surface_precip_sums / self.surface_precip_counts
             )
             data["surface_precip_sums"] = (
-                ("months", "latitude"),
+                ("months", "latitude", "longitude"),
                 self.surface_precip_sums
             )
             data["surface_precip_counts"] = (
-                ("months", "latitude"),
+                ("months", "latitude", "longitude"),
                 self.surface_precip_counts
             )
             data["surface_precip"] = (
-                ("months", "latitude", "surface_precip_bins"),
+                ("months", "latitude", "longitude", "surface_precip_bins"),
                 self.surface_precip
             )
         else:
             data["mean_surface_precip"] = (
-                ("latitude"),
+                ("latitude", "longitude"),
                 self.surface_precip_sums / self.surface_precip_counts
             )
             data["surface_precip_sums"] = (
-                ("latitude",),
+                ("latitude", "longitude"),
                 self.surface_precip_sums
             )
             data["surface_precip_counts"] = (
-                ("latitude",),
+                ("latitude", "longitude"),
                 self.surface_precip_counts
             )
             data["surface_precip"] = (
-                ("latitude", "surface_precip_bins"),
+                ("latitude", "longitude", "surface_precip_bins"),
                 self.surface_precip
             )
 
@@ -589,14 +626,19 @@ class GlobalDistribution(Statistic):
     Calculates global distributions of retrieval targets on a 1-degree
     latitude and longitude grid.
     """
-    def __init__(self):
+    def __init__(self,
+                 monthly=False,
+                 resolution=5.0):
         """
         Args:
-            Name of the retrieval variable for which to compute the
-            scan position mean.
+            monthly: If set to True and input data contains time stamps,
+                global distributions for each month will be calculated.
+            resolution: The resolution of the longitude and latitude grids.
         """
-        self.latitude_bins = np.linspace(-90, 90, 181)
-        self.longitude_bins = np.linspace(-180, 180, 361)
+        self.resolution = resolution
+        self.latitude_bins = np.arange(-90, 90 + 1e-3, resolution)
+        self.longitude_bins = np.arange(-180, 180 + 1e-3, resolution)
+        self.surface_precip_bins = np.logspace(-2, 2.5, 201)
         self.has_time = None
         self.counts = None
         self.sums = None
@@ -605,29 +647,37 @@ class GlobalDistribution(Statistic):
     def _initialize(self, data):
         self.counts = {}
         self.sums = {}
-        if "scan_time" in data.variables:
-            self.has_time = True
-            for k in ALL_TARGETS:
-                if k in data.variables:
-                    self.sums[k] = np.zeros(
-                        (12,
-                         self.latitude_bins.size - 1,
-                         self.longitude_bins.size - 1)
-                    )
-                    self.counts[k] = np.zeros(
-                        (12,
-                         self.latitude_bins.size - 1,
-                         self.longitude_bins.size - 1)
-                    )
-        else:
-            self.has_time = False
-            for k in ALL_TARGETS:
-                if k in data.variables:
-                    self.counts[k] = np.zeros((self.latitude_bins.size - 1,
-                                               self.longitude_bins.size - 1))
-                    self.sums[k] = np.zeros((self.latitude_bins.size - 1,
-                                             self.longitude_bins.size - 1))
+        n_lats = self.latitude_bins.size - 1
+        n_lons = self.longitude_bins.size - 1
+        n_sp = self.surface_precip_bins.size - 1
 
+        self.has_time = self.has_time and "scan_time" in data.variables
+        if self.has_time:
+            for k in ALL_TARGETS:
+                if k in data.variables:
+                    self.sums[k] = np.zeros((12, n_lons, n_lats))
+                    self.counts[k] = np.zeros((12, n_lons, n_lats))
+            self.surface_precip_mean = np.zeros(
+                (12, n_lats, n_lons, n_sp),
+                dtype=np.float32
+            )
+            self.surface_precip_samples = np.zeros(
+                (12, n_lats, n_lons, n_sp),
+                dtype=np.float32
+            )
+        else:
+            for k in ALL_TARGETS:
+                if k in data.variables:
+                    self.counts[k] = np.zeros((n_lats, n_lons))
+                    self.sums[k] = np.zeros((n_lats, n_lons))
+            self.surface_precip_mean = np.zeros(
+                (n_lats, n_lons, n_sp),
+                dtype=np.float32
+            )
+            self.surface_precip_samples = np.zeros(
+                (n_lats, n_lons, n_sp),
+                dtype=np.float32
+            )
 
     def process_file(self, sensor, filename):
         """
@@ -694,6 +744,34 @@ class GlobalDistribution(Statistic):
                                                         self.longitude_bins),
                                                   weights=weights.ravel())
                         self.sums[k][month] += cs
+
+                        if k == "surface_precip":
+                            bins = (self.latitude_bins,
+                                    self.longitude.bins,
+                                    self.surface_precip_bins)
+                            vals = np.stack(
+                                [lats_v.ravel(), lons_v.ravel(), v.ravel()],
+                                bins=bins
+                            )
+                            cs, _ = np.histogramdd(vals, bins=bins)
+                            self.surface_precip_mean[month] += cs
+
+                if "surface_precip_samples" in data.variables:
+                    lons = data.longitude[indices].data
+                    lats = data.latitude[indices].data
+                    v = data["surface_precip_samples"][indices].data
+                    bins = (self.latitude_bins,
+                            self.longitude_bins,
+                            self.surface_precip_bins)
+                    vals = np.stack(
+                        [lats.ravel(), lons.ravel(), v.ravel()],
+                        bins=bins
+                    )
+                    cs, _ = np.histogramdd(
+                        vals,
+                        bins=bins
+                    )
+                    self.surface_precip_samples[month] += cs
         else:
             data.latitude.load()
             data.longitude.load()
@@ -710,7 +788,7 @@ class GlobalDistribution(Statistic):
                         n_v = v.shape[i]
                         d_n = (n_lats - n_v) // 2
                         if d_n > 0:
-                            selection.append(slice(d_n, -dn))
+                            selection.append(slice(d_n, -d_n))
                         else:
                             selection.append(slice(0, None))
                     lats = lats[tuple(selection)]
@@ -743,6 +821,31 @@ class GlobalDistribution(Statistic):
                                               weights=weights.ravel())
                     self.sums[k] += cs
 
+                    if k == "surface_precip":
+                        bins = (self.latitude_bins,
+                                self.longitude_bins,
+                                self.surface_precip_bins)
+                        vals = np.stack(
+                            [lats_v.ravel(), lons_v.ravel(), v.ravel()],
+                            axis=1
+                        )
+                        cs, _, = np.histogramdd(vals, bins=bins)
+                        self.surface_precip_mean += cs
+
+            if "surface_precip_samples" in data.variables:
+                lats = data.latitude.data
+                lons = data.longitude.data
+                v = data["surface_precip_samples"].data
+                bins = (self.latitude_bins,
+                        self.longitude_bins,
+                        self.surface_precip_bins)
+                vals = np.stack(
+                    [lats.ravel(), lons.ravel(), v.ravel()],
+                    axis=1
+                )
+                cs, _, = np.histogramdd(vals, bins=bins)
+                self.surface_precip_samples += cs
+
     def merge(self, other):
         """
         Merge the data of this statistic with that calculated in a different
@@ -751,10 +854,14 @@ class GlobalDistribution(Statistic):
         if self.counts is None:
             self.sums = other.sums
             self.counts = other.counts
+            self.surface_precip_mean = other.surface_precip_mean
+            self.surface_precip_samples = other.surface_precip_samples
         elif other.counts is not None:
             for k in self.counts:
                 self.sums[k] += other.sums[k]
                 self.counts[k] += other.counts[k]
+            self.surface_precip_mean += other.surface_precip_mean
+            self.surface_precip_samples += other.surface_precip_samples
 
     def save(self, destination):
         """
@@ -773,13 +880,28 @@ class GlobalDistribution(Statistic):
                            self.sums[k] / self.counts[k])
                 data[k + "_counts"] = (("months", "latitude", "longitude"),
                                        self.counts[k])
+                data["surface_precip_mean"] = (
+                    ("months", "latitude", "longitude", "surface_precip_bins"),
+                    self.surface_precip_mean
+                )
+                data["surface_precip_samples"] = (
+                    ("months", "latitude", "longitude", "surface_precip_bins"),
+                    self.surface_precip_samples
+                )
         else:
             for k in self.counts:
                 data[k] = (("latitude", "longitude"),
                            self.sums[k] / self.counts[k])
                 data[k + "_counts"] = (("latitude", "longitude"),
                                        self.counts[k])
-
+                data["surface_precip_mean"] = (
+                    ("latitude", "longitude", "surface_precip_bins"),
+                    self.surface_precip_mean
+                )
+                data["surface_precip_samples"] = (
+                    ("latitude", "longitude", "surface_precip_bins"),
+                    self.surface_precip_samples
+                )
         destination = Path(destination)
         output_file = (destination /
                        f"global_distribution_{self.sensor.name.lower()}.nc")

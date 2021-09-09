@@ -118,6 +118,29 @@ def test_training_statistics_gmi(tmpdir):
     cs = results["surface_precip_mean"].data
     assert np.all(np.isclose(2.0 * cs_ref, cs))
 
+    #
+    # Global distributions
+    #
+
+    input_data = xr.open_dataset(files[0])
+    results = xr.open_dataset(str(tmpdir / "global_distribution_gmi.nc"))
+    lat_bins = np.arange(-90, 90 + 1e-3, 5)
+    lon_bins = np.arange(-180, 180 + 1e-3, 5)
+    sp_bins = np.logspace(-2, 2.5, 201)
+    sp = input_data["surface_precip"].data
+    lons = input_data["longitude"].data
+    lats = input_data["latitude"].data
+    valid = sp >= 0.0
+    sp = sp[valid]
+    lats = lats[valid]
+    lons = lons[valid]
+    bins = (lat_bins, lon_bins, sp_bins)
+    vals = np.stack([lats, lons, sp], axis=-1)
+    cs_ref, _ = np.histogramdd(vals, bins=bins)
+    cs = results["surface_precip_mean"].data
+    print((2 * cs_ref - cs).max())
+    assert np.all(np.isclose(2.0 * cs_ref, cs))
+
 
 def test_training_statistics_mhs(tmpdir):
     """
@@ -557,7 +580,7 @@ def test_gpm_cmb_statistics(tmpdir):
     input_data = GPMCMBFile(input_file).to_xarray_dataset(smooth=True)
     surface_precip = input_data.surface_precip.data
     lats = input_data.latitude.data
-    latitude_bins = np.linspace(-90, 90, 181)
+    latitude_bins = np.arange(-90, 90 + 1e-3, 5)
     sp_bins = np.logspace(-2, 2.5, 201)
     bins = (latitude_bins, sp_bins)
 
@@ -566,6 +589,6 @@ def test_gpm_cmb_statistics(tmpdir):
         surface_precip.ravel(),
         bins=bins
     )
-    cs = results["surface_precip"].data
+    cs = results["surface_precip"].data.sum(axis=1)
 
     assert np.all(np.isclose(cs, 2.0 * cs_ref))
