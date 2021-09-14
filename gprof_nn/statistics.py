@@ -2039,29 +2039,31 @@ class RetrievalStatistics(Statistic):
                 # Swath center
                 #
 
-                i_start = 110 - 12
-                i_end = 110 + 13
-                v = dataset[k].data[:, i_start:i_end]
-                if v.ndim <= 2:
-                    inds = i_s[:, i_start:i_end] * (v > -999)
-                else:
-                    inds = i_s[:, i_start:i_end] * np.all(v > -999, axis=-1)
-                v = v[inds]
-                mask = v > -999
-                v = v.copy()
-                v[~mask] = 0.0
-                t2m = dataset["two_meter_temperature"]
-                t2m = t2m.data[:, i_start:i_end][inds]
-                tcwv = dataset["total_column_water_vapor"]
-                tcwv = tcwv.data[:, i_start:i_end][inds]
-                if v.ndim > t2m.ndim:
-                    tcwv = np.repeat(tcwv.reshape(-1, 1), 28, axis=-1)
-                self.sums_tcwv_center[k][i] += np.histogram(
-                    tcwv, bins=self.tcwv_bins, weights=v
-                )[0]
-                self.counts_tcwv_center[k][i] += np.histogram(
-                    tcwv, bins=self.tcwv_bins, weights=mask.astype(np.float64)
-                )[0]
+                # Make sure we are dealing with 2D data.
+                if dataset["two_meter_temperature"].data.ndim > 1:
+                    i_start = 110 - 12
+                    i_end = 110 + 13
+                    v = dataset[k].data[:, i_start:i_end]
+                    if v.ndim <= 2:
+                        inds = i_s[:, i_start:i_end] * (v > -999)
+                    else:
+                        inds = i_s[:, i_start:i_end] * np.all(v > -999, axis=-1)
+                    v = v[inds]
+                    mask = v > -999
+                    v = v.copy()
+                    v[~mask] = 0.0
+                    t2m = dataset["two_meter_temperature"]
+                    t2m = t2m.data[:, i_start:i_end][inds]
+                    tcwv = dataset["total_column_water_vapor"]
+                    tcwv = tcwv.data[:, i_start:i_end][inds]
+                    if v.ndim > t2m.ndim:
+                        tcwv = np.repeat(tcwv.reshape(-1, 1), 28, axis=-1)
+                    self.sums_tcwv_center[k][i] += np.histogram(
+                        tcwv, bins=self.tcwv_bins, weights=v
+                    )[0]
+                    self.counts_tcwv_center[k][i] += np.histogram(
+                        tcwv, bins=self.tcwv_bins, weights=mask.astype(np.float64)
+                    )[0]
 
     def merge(self, other):
         """

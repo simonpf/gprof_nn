@@ -32,8 +32,8 @@ def calculate_smoothing_kernels(
     """
     d_a = 4.9e3
     d_x = 5.09e3
-    n_a = int(0.5 * fwhm_a / d_a)
-    n_x = int(0.5 * fwhm_x / d_x)
+    n_a = int(fwhm_a / d_a)
+    n_x = int(fwhm_x / d_x)
 
     k = np.ones((2 * n_a + 1, 2 * n_x + 1), dtype=np.float32)
     x_a = np.arange(-n_a, n_a + 1).reshape(-1, 1) * d_a
@@ -49,15 +49,24 @@ def smooth_field(field, kernel):
     Smooth field using a given convolution kernel.
 
     Args:
-        field: A 2D array containing a variable to smooth.
+        field: A 2D or 3D array containing a variable to smooth along
+            the first dimension.
         kernel: The smoothing kernel to use to smooth the field.
 
     Return:
         The smoothed field.
     """
-    field_s = convolve(field, kernel, mode="same")
-    weights = convolve(np.ones_like(field), kernel, mode="same")
+    shape = kernel.shape + (1,) * (field.ndim - 2)
+    kernel = kernel.reshape(shape)
+
+    field_m = np.nan_to_num(field, nan=0.0)
+    field_m[field < -1000] = 0.0
+    field_s = convolve(field_m, kernel, mode="same")
+
+    mask = (field > -1000).astype(np.float)
+    weights = convolve(mask, kernel, mode="same")
     field_s /= weights
+    field_s[weights < 1e-6] = np.nan
     return field_s
 
 
@@ -80,8 +89,8 @@ class GPMCMBFile:
             "%Y%m%d-S%H%M%S"
         )
 
-    def to_xarray_dataset(self,
-                          smooth=False,
+    def to_xarray_dataset(self, smooth=False,
+                          profiles=False,
                           roi=None):
         """
         Load data in file into 'xarray.Dataset'.
@@ -132,10 +141,48 @@ class GPMCMBFile:
                 k = calculate_smoothing_kernels(16e3, 10e3)
                 surface_precip = smooth_field(surface_precip, k)
 
-            dataset = xr.Dataset({
+            dataset = {
                 "scan_time": (("scans",), date),
                 "latitude": (("scans", "pixels"), latitude),
                 "longitude": (("scans", "pixels"), longitude),
                 "surface_precip": (("scans", "pixels"), surface_precip)
-            })
-            return dataset
+            }
+
+            if profiles:
+                twc = data['precipTotWaterCont'][i_start:i_end]
+                lf = data['liqMassFracTrans'][i_start:i_end]
+                lf[lf < 0] = 1.0
+                levels = (np.arange(88) + 1).reshape(1, 1, -1)
+                phases = data["phaseBinNodes"][i_start:i_end]
+                print(phases[0, 0])
+                top = np.expand_dims(phases[..., 1], 2)
+
+                rwc = twc.copy()
+                indices = (levels < top)
+                rwc[indices] = 0.0
+                indices = (levels >= top) * (levels < top + 10)
+                rwc[indices] *= lf.ravel()
+                rwc[twc < -1000] = np.nan
+
+                swc = twc - rwc
+                swc[twc < -1000] = np.nan
+
+                if smooth:
+                    swc = smooth_field(swc, k)
+                    rwc = smooth_field(rwc, k)
+                    twc = smooth_field(twc, k)
+
+                dataset["layers"] = (("layers"), np.arange(0.125e3, 22e3, 0.25e3))
+                dataset["rain_water_content"] = (
+                    ("scans", "pixels", "layers"),
+                    rwc[..., ::-1]
+                )
+                dataset["snow_water_content"] = (
+                    ("scans", "pixels", "layers"),
+                    swc[..., ::-1]
+                )
+                dataset["total_water_content"] = (
+                    ("scans", "pixels", "layers"),
+                    twc[..., ::-1]
+                )
+            return xr.Dataset(dataset)
