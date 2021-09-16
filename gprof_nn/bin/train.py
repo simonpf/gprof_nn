@@ -173,11 +173,15 @@ def add_parser(subparsers):
         default=[0.0005, 0.0005, 0.0001],
         help='The learning rates to use during training.'
     )
-
     parser.add_argument(
         '--no_lr_schedule',
         action="store_true",
         help='Disable learning rate schedule.'
+    )
+    parser.add_argument(
+        '--no_ancillary',
+        action="store_false",
+        help="Don't use acillary data in retrieval."
     )
 
     # Other
@@ -322,6 +326,7 @@ def run_training_0d(sensor,
     network_type = args.type[0]
     batch_size = args.batch_size[0]
     permute = args.permute
+    ancillary = args.no_ancillary
 
     n_epochs = args.n_epochs
     lr = args.learning_rate
@@ -400,7 +405,8 @@ def run_training_0d(sensor,
                                     n_neurons_head,
                                     activation=activation,
                                     residuals=residuals,
-                                    targets=targets)
+                                    targets=targets,
+                                    ancillary=ancillary)
         elif network_type == "qrnn_exp":
             transformation = {t: LogLinear() for t in targets}
             transformation["latent_heat"] = None
@@ -412,7 +418,8 @@ def run_training_0d(sensor,
                                     activation=activation,
                                     residuals=residuals,
                                     transformation=transformation,
-                                    targets=targets)
+                                    targets=targets,
+                                    ancillary=ancillary)
         else:
             xrnn = GPROF_NN_0D_QRNN(sensor,
                                     n_layers_body,
@@ -421,7 +428,8 @@ def run_training_0d(sensor,
                                     n_neurons_head,
                                     activation=activation,
                                     residuals=residuals,
-                                    targets=targets)
+                                    targets=targets,
+                                    ancillary=ancillary)
     model = xrnn.model
     xrnn.normalizer = normalizer
 
@@ -512,6 +520,7 @@ def run_training_2d(sensor,
     n_epochs = args.n_epochs
     lr = args.learning_rate
     no_schedule = args.no_lr_schedule
+    ancillary = args.no_ancillary
 
     if len(n_epochs) == 1:
         n_epochs = n_epochs * len(lr)
@@ -582,7 +591,8 @@ def run_training_2d(sensor,
                                     n_neurons_body,
                                     n_layers_head,
                                     n_neurons_head,
-                                    targets=targets)
+                                    targets=targets,
+                                    ancillary=ancillary)
         elif network_type == "qrnn_exp":
             transformation = {}
             for target in ALL_TARGETS:
@@ -596,14 +606,16 @@ def run_training_2d(sensor,
                                     n_layers_head,
                                     n_neurons_head,
                                     transformation=transformation,
-                                    targets=targets)
+                                    targets=targets,
+                                    ancillary=ancillary)
         else:
             xrnn = GPROF_NN_2D_QRNN(sensor,
                                     n_blocks,
                                     n_neurons_body,
                                     n_layers_head,
                                     n_neurons_head,
-                                    targets=targets)
+                                    targets=targets,
+                                    ancillary=ancillary)
     model = xrnn.model
     model.normalizer = normalizer
 

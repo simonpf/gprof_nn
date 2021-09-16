@@ -117,7 +117,7 @@ def run(args):
     if not input.exists():
         LOGGER.error("Input must be an existing file or folder.")
 
-    if not output.exists():
+    if not input.is_dir() and not output.exists():
         output.mkdir(parents=True, exist_ok=True)
 
     gradients = args.gradients

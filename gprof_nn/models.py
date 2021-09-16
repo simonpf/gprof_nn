@@ -313,7 +313,8 @@ class MultiHeadMLP(nn.Module):
         n_outputs,
         residuals="none",
         targets=None,
-        activation="ReLU"
+        activation="ReLU",
+        ancillary=True
     ):
         if targets is None:
             self.targets = ["surface_precip"]
@@ -332,6 +333,10 @@ class MultiHeadMLP(nn.Module):
             module_class = HyperResidualMLP
         else:
             module_class = ResidualMLP
+
+        self.ancillary = ancillary
+        if not ancillary:
+            n_inputs = n_inputs - 24
 
         super().__init__()
         self.body = module_class(
@@ -381,6 +386,8 @@ class MultiHeadMLP(nn.Module):
             the case of a multi-target network a dictionary of tensors.
         """
         targets = self.targets
+        if not self.ancillary:
+            x = x[..., :-24]
 
         y, acc = self.body(x, None)
         results = {}
@@ -406,7 +413,8 @@ class GPROF_NN_0D_QRNN(MRNN):
                  activation="ReLU",
                  residuals="simple",
                  targets=None,
-                 transformation=None
+                 transformation=None,
+                 ancillary=True
     ):
         self.sensor = sensor
         residuals = residuals.lower()
@@ -435,7 +443,8 @@ class GPROF_NN_0D_QRNN(MRNN):
                              64,
                              targets=targets,
                              residuals=residuals,
-                             activation=activation)
+                             activation=activation,
+                             ancillary=ancillary)
 
         losses = {}
         for target in targets:
@@ -479,7 +488,8 @@ class GPROF_NN_0D_DRNN(MRNN):
                  n_neurons_head,
                  activation="ReLU",
                  residuals="simple",
-                 targets=None
+                 targets=None,
+                 ancillary=True
     ):
         self.sensor = sensor
         residuals = residuals.lower()
@@ -500,7 +510,8 @@ class GPROF_NN_0D_DRNN(MRNN):
                              128,
                              targets=targets,
                              residuals=residuals,
-                             activation=activation)
+                             activation=activation,
+                             ancillary=ancillary)
 
         losses = {}
         for target in targets:
@@ -553,7 +564,7 @@ class MLPHead(nn.Module):
             self.layers.append(nn.Sequential(
                 nn.Conv2d(n_inputs, n_hidden, 1),
                 nn.GroupNorm(1, n_hidden),
-                nn.ReLU()
+                nn.GELU()
             ))
             n_inputs = n_hidden
         self.layers.append(nn.Sequential(
@@ -690,7 +701,8 @@ class GPROF_NN_2D_QRNN(MRNN):
                  n_features_head,
                  activation="ReLU",
                  targets=None,
-                 transformation=None
+                 transformation=None,
+                 ancillary=True
     ):
         """
         Args:
@@ -703,6 +715,7 @@ class GPROF_NN_2D_QRNN(MRNN):
             activation: The activation to use in the network.
             targets: List of retrieval targets to retrieve.
             transformation: Transformation to apply to outputs.
+            ancillary: Whether to use ancillary data in head.
         """
         if targets is None:
             targets = ALL_TARGETS
@@ -722,7 +735,8 @@ class GPROF_NN_2D_QRNN(MRNN):
                             n_features_body,
                             n_layers_head,
                             n_features_head,
-                            targets=targets)
+                            targets=targets,
+                            ancillary=ancillary)
 
         losses = {}
         for target in targets:
@@ -766,6 +780,7 @@ class GPROF_NN_2D_DRNN(MRNN):
                  n_features_head,
                  activation="ReLU",
                  targets=None,
+                 ancillary=True
     ):
         """
         Args:
@@ -777,6 +792,7 @@ class GPROF_NN_2D_DRNN(MRNN):
             n_features_head: The number of features in each head.
             activation: The activation to use in the network.
             targets: List of retrieval targets to retrieve.
+            ancillary: Whether to use ancillary data in head.
         """
         self.sensor = sensor
         if targets is None:
@@ -789,7 +805,8 @@ class GPROF_NN_2D_DRNN(MRNN):
                             n_features_body,
                             n_layers_head,
                             n_features_head,
-                            targets=targets)
+                            targets=targets,
+                            ancillary=True)
 
         losses = {}
         for target in targets:

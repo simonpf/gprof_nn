@@ -66,18 +66,19 @@ def add_parser(subparsers):
 STATS = {
     "training": [
         statistics.TrainingDataStatistics(kind="0d"),
-        #statistics.ZonalDistribution(),
-        #statistics.GlobalDistribution()
+        statistics.ZonalDistribution(),
+        statistics.GlobalDistribution()
     ],
     "bin": [
         statistics.BinFileStatistics(),
-        #statistics.GlobalDistribution()
+        statistics.GlobalDistribution()
     ],
     "observations": [statistics.ObservationStatistics()],
     "retrieval": [
-        statistics.RetrievalStatistics(),
+        #statistics.RetrievalStatistics(),
         statistics.ZonalDistribution(),
-        statistics.ScanPositionMean()
+        statistics.GlobalDistribution(),
+        #statistics.ScanPositionMean()
         ],
     "combined": [statistics.GPMCMBStatistics(monthly=False)]
 }

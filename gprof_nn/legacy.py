@@ -16,8 +16,9 @@ import numpy as np
 import xarray as xr
 
 import gprof_nn.logging
+from gprof_nn import sensors
 from gprof_nn.definitions import ALL_TARGETS
-from gprof_nn.data.preprocessor import PreprocessorFile
+from gprof_nn.data.preprocessor import PreprocessorFile, run_preprocessor
 from gprof_nn.data.retrieval import RetrievalFile
 from gprof_nn.data.training_data import (GPROF_NN_0D_Dataset,
                                          write_preprocessor_file)
@@ -244,6 +245,18 @@ def run_gprof_standard(input_file,
         'xarray.Dataset' containing the retrieval results.
     """
     with TemporaryDirectory() as tmp:
+
+        if Path(input_file).suffix == ".HDF5":
+            output_file = Path(tmp) / "input.pp"
+            run_preprocessor(
+                    input_file,
+                    sensors.GMI,
+                    output_file=output_file,
+                    robust=False
+                    )
+            input_file = output_file
+
+
         results = execute_gprof(
             tmp,
             input_file,
