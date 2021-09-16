@@ -603,6 +603,8 @@ class NetcdfLoader0D(GPROF_NN_0D_Dataset):
         vars = [target for target in ALL_TARGETS if target in data.variables]
         for var in vars:
             data[var + "_true"] = self.data[var]
+        data["latitude"] = self.data["latitude"]
+        data["longitude"] = self.data["longitude"]
 
         return data
 
@@ -684,6 +686,8 @@ class NetcdfLoader2D(GPROF_NN_2D_Dataset):
         vars = [target for target in ALL_TARGETS if target in data.variables]
         for var in vars:
             data[var + "_true"] = self.data[var]
+        data["latitude"] = self.data["latitude"]
+        data["longitude"] = self.data["longitude"]
 
         return data
 

@@ -178,11 +178,12 @@ def run_gprof_training_data(input_file,
     Return:
         'xarray.Dataset' containing the retrieval results.
     """
+    targets = ALL_TARGETS + ["latitude", "longitude"]
     input_data = GPROF_NN_0D_Dataset(input_file,
                                      shuffle=False,
                                      normalize=False,
                                      augment=False,
-                                     targets=ALL_TARGETS,
+                                     targets=targets,
                                      batch_size=256 * 2048)
 
     results = []
