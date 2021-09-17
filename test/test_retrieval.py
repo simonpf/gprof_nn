@@ -98,7 +98,27 @@ def test_retrieval_preprocessor_0d_gmi(tmp_path):
     data_path = Path(__file__).parent / "data"
     input_file = data_path / "gmi" / "GMIERA5_190101_027510.pp"
 
-    qrnn = QRNN.load(data_path / "gprof_nn_0d_gmi_era.pckl")
+    qrnn = QRNN.load(data_path / "gmi" / "gprof_nn_0d_gmi_era5.pckl")
+    normalizer = Normalizer.load(data_path / "normalizer.pckl")
+    driver = RetrievalDriver(input_file,
+                             normalizer,
+                             qrnn,
+                             ancillary_data=data_path,
+                             output_file=tmp_path)
+    output_file = driver.run()
+    data = RetrievalFile(output_file).to_xarray_dataset()
+    assert "rain_water_content" in data.variables
+
+def test_retrieval_l1c_0d_gmi_na(tmp_path):
+    """
+    Ensure that GPROF-NN 0D retrieval works with preprocessor input.
+    """
+    data_path = Path(__file__).parent / "data"
+    input_file = (
+        data_path / "gmi" /
+        "2B.GPM.DPRGMI.CORRA2018.20210829-S205206-E222439.042628.V06A.HDF5"
+    )
+    qrnn = QRNN.load(data_path / "gmi" / "gprof_nn_0d_gmi_era5_na.pckl")
     normalizer = Normalizer.load(data_path / "normalizer.pckl")
     driver = RetrievalDriver(input_file,
                              normalizer,

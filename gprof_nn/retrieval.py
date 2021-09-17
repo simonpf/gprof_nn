@@ -9,7 +9,7 @@ of the retrieval.
 import logging
 import math
 import subprocess
-import tempfile
+from tempfile import TemporaryDirectory
 from pathlib import Path
 
 import numpy as np
@@ -24,6 +24,7 @@ import gprof_nn.logging
 from gprof_nn.definitions import PROFILE_NAMES, ALL_TARGETS
 from gprof_nn.data.training_data import (GPROF_NN_0D_Dataset,
                                          GPROF_NN_2D_Dataset)
+from gprof_nn.data.l1c import L1CFile
 
 from gprof_nn.data.preprocessor import PreprocessorFile, run_preprocessor
 
@@ -64,6 +65,107 @@ def calculate_padding_dimensions(t):
     return (p_l_n, p_r_n, p_l_m, p_r_m)
 
 
+def combine_input_data_0d(dataset, sensor):
+    """
+    Combine retrieval input data into input matrix for the single-pixel
+    retrieval.
+
+    Args:
+        dataset: ``xarray.Dataset`` containing the input variables.
+        v_tbs: Name of the variable to load the brightness temperatures
+            from.
+        sensor: The sensor object representing the sensor from which the
+            data stems.
+
+    Return:
+        Rank-4 input tensor containing the input data with features oriented
+        along the first axis.
+    """
+    n_chans = sensor.n_chans
+    n_inputs = sensor.n_inputs
+
+    tbs = dataset["brightness_temperatures"].data
+    tbs = tbs.reshape(-1, n_chans)
+    invalid = (tbs > 500.0) + (tbs < 0.0)
+    tbs[invalid] = np.nan
+    features = [tbs]
+
+    if "two_meter_temperature" in dataset.variables:
+        t2m = dataset["two_meter_temperature"].data
+        t2m = t2m.reshape(-1, 1)
+        tcwv = dataset["total_column_water_vapor"].data
+        tcwv = tcwv.reshape(-1, 1)
+
+        st = dataset["surface_type"].data.ravel()
+        n_types = 18
+        st_1h = np.zeros((st.shape[0], n_types), dtype=np.float32)
+        for j in range(18):
+            st_1h[:, j][st == j + 1] = 1.0
+
+        at = np.maximum(dataset["airmass_type"].data, 0.0)
+        at = at.ravel()
+        n_types = 4
+        at_1h = np.zeros((st.shape[0], n_types), dtype=np.float32)
+        for j in range(4):
+            at_1h[:, j][at == j] = 1.0
+
+        features += [t2m, tcwv, st_1h, at_1h]
+
+    if isinstance(sensor, sensors.CrossTrackScanner):
+        va = dataset["earth_incidence_angle"].data
+        features.insert(3, va.reshape(-1, 1))
+
+    x = np.concatenate(features, axis=1)
+    x[:, :n_chans][x[:, :n_chans] < 0] = np.nan
+    return x
+
+
+def combine_input_data_2d(dataset, v_tbs="brightness_temperatures"):
+    """
+    Combine retrieval input data into input tensor format for convolutional
+    retrieval.
+
+    Args:
+        dataset: ``xarray.Dataset`` containing the input variables.
+        v_tbs: Name of the variable to load the brightness temperatures
+            from.
+
+    Return:
+        Rank-4 input tensor containing the input data with features oriented
+        along the first axis.
+    """
+    bts = dataset[v_tbs][:].data
+    invalid = (bts > 500.0) + (bts < 0.0)
+    bts[invalid] = np.nan
+    # 2m temperature
+    t2m = dataset["two_meter_temperature"][:].data[..., np.newaxis]
+    # Total precipitable water.
+    tcwv = dataset["total_column_water_vapor"][:].data[..., np.newaxis]
+    # Surface type
+    st = dataset["surface_type"][:].data
+    n_types = 18
+    shape = bts.shape[:-1]
+    st_1h = np.zeros(shape + (n_types,), dtype=np.float32)
+    for i in range(n_types):
+        indices = st == (i + 1)
+        st_1h[indices, i] = 1.0
+    # Airmass type
+    # Airmass type is defined slightly different from surface type in
+    # that there is a 0 type.
+    am = dataset["airmass_type"][:].data
+    n_types = 4
+    am_1h = np.zeros(shape + (n_types,), dtype=np.float32)
+    for i in range(n_types):
+        indices = am == i
+        am_1h[indices, i] = 1.0
+    am_1h[am < 0, 0] = 1.0
+
+    input_data = np.concatenate([bts, t2m, tcwv, st_1h, am_1h], axis=-1)
+    input_data = input_data.astype(np.float32)
+    if input_data.ndim < 4:
+        input_data = np.expand_dims(input_data, 0)
+    input_data = np.transpose(input_data, (0, 3, 1, 2))
+    return input_data
 def combine_input_data_2d(dataset, v_tbs="brightness_temperatures"):
     """
     Combine retrieval input data into input tensor format for convolutional
@@ -148,6 +250,10 @@ class RetrievalDriver:
             normalizer_file: The normalizer object to use to normalize the
                 input data.
             model: The neural network to use for the retrieval.
+            ancillary_data: Path pointing to the folder containing the profile
+                clusters.
+            output_file: If given and output format is not 'GPROF_BINARY' the
+                retrieval results will be written to this file.
         """
         from gprof_nn.data.preprocessor import PreprocessorFile
 
@@ -202,29 +308,8 @@ class RetrievalDriver:
             object is returned. ``None`` otherwise.
         """
         # Load input data.
-        if self.input_format == GPROF_BINARY:
-            LOGGER.info("Loading preprocessor input data from %s.", self.input_file)
+        if self.input_format in [GPROF_BINARY, L1C]:
             input_data = self.model.preprocessor_class(self.input_file, self.normalizer)
-        elif self.input_format == L1C:
-            sensor = getattr(self.model, "sensor", None)
-            if sensor is None:
-                sensor = sensors.GMI
-            _, file = tempfile.mkstemp()
-            try:
-                LOGGER.info("Running preprocessor for input file %s.", self.input_file)
-                run_preprocessor(
-                    self.input_file, sensor, output_file=file, robust=False
-                )
-                input_data = self.model.preprocessor_class(file, self.normalizer)
-            except subprocess.CalledProcessError as e:
-                LOGGER.warning(
-                    ("Running the preprocessor for file %s failed with the "
-                     "following error failed.\n%s\n%s"),
-                    self.input_file, e.stdout, e.stderr
-                )
-                return None
-            finally:
-                Path(file).unlink()
         else:
             input_data = self.model.netcdf_class(
                 self.input_file, normalizer=self.normalizer
@@ -691,95 +776,39 @@ class NetcdfLoader2D(GPROF_NN_2D_Dataset):
 
         return data
 
-#class NetcdfLoader2D(NetcdfLoader):
-#    """
-#    Data loader for running the GPROF-NN 2D retrieval on input data
-#    in NetCDF data format.
-#    """
-#
-#    def __init__(self, filename, normalizer, batch_size=8):
-#        super().__init__()
-#        self.filename = filename
-#        self.normalizer = normalizer
-#        self.batch_size = batch_size
-#
-#        self._load_data()
-#        self.n_samples = self.input_data.shape[0]
-#
-#        self.scalar_dimensions = ("samples", "scans", "pixels")
-#        self.profile_dimensions = ("samples", "layers", "scans", "pixels")
-#        self.dimensions = {
-#            t: ("samples", "layers", "scans", "pixels")
-#            if t in PROFILE_NAMES
-#            else ("samples", "scans", "pixels")
-#            for t in ALL_TARGETS
-#        }
-#
-#    def _load_data(self):
-#        """
-#        Load data from training data NetCDF format into 'input' data
-#        attribute.
-#        """
-#        dataset = xr.open_dataset(self.filename)
-#        input_data = combine_input_data_2d(dataset)
-#        self.input_data = input_data
-#        self.padding = calculate_padding_dimensions(input_data)
-#
-#    def __getitem__(self, i):
-#        """
-#        Return batch of input data.
-#
-#        Args:
-#            The batch index.
-#
-#        Return:
-#            PyTorch tensor containing the batch of input data.
-#        """
-#        x = super().__getitem__(i)
-#        return torch.nn.functional.pad(x, self.padding, mode="replicate")
-#
-#    def finalize(self, data):
-#        """
-#        Reshape retrieval results into shape of input data.
-#        """
-#        data = data[
-#            {
-#                "scans": slice(self.padding[0], -self.padding[1]),
-#                "pixels": slice(self.padding[2], -self.padding[3]),
-#            }
-#        ]
-#        if "layers"  in data.dims:
-#            dims = ["samples", "scans", "pixels", "layers"]
-#            data = data.transpose(*dims)
-#        return data
-
 
 ###############################################################################
 # Preprocessor format
 ###############################################################################
 
 
-class PreprocessorLoader0D:
+class ObservationLoader0D:
     """
-    Interface class to run the GPROF-NN retrieval on preprocessor files.
+    Generic class to load input data either from an L1C file or a
+    preprocessor file.
     """
-
-    def __init__(self, filename, normalizer, batch_size=1024 * 8):
+    def __init__(
+            self,
+            filename,
+            file_class,
+            normalizer,
+            batch_size=1024 * 8):
         """
-        Create preprocessor loader.
+        Create observation loader.
 
         Args:
             filename: Path to the preprocessor file from which to load the
                 input data.
+            file_class: The class to use to load the observations.
             normalizer: The normalizer object to use to normalize the input
                 data.
             scans_per_batch: How scans should be combined into a single
                 batch.
         """
         self.filename = filename
-        preprocessor_file = PreprocessorFile(filename)
-        self.sensor = preprocessor_file.sensor
-        self.data = preprocessor_file.to_xarray_dataset()
+        input_file = file_class(filename)
+        self.sensor = input_file.sensor
+        self.data = input_file.to_xarray_dataset()
         self.normalizer = normalizer
         self.n_scans = self.data.scans.size
         self.n_pixels = self.data.pixels.size
@@ -791,6 +820,9 @@ class PreprocessorLoader0D:
             t: ("samples", "layers") if t in PROFILE_NAMES else ("samples",)
             for t in ALL_TARGETS
         }
+
+        x = combine_input_data_0d(self.data, self.sensor)
+        self.x = torch.tensor(self.normalizer(x))
 
     def __len__(self):
         """
@@ -808,49 +840,9 @@ class PreprocessorLoader0D:
         Return:
             PyTorch Tensor ``x`` containing the normalized inputs.
         """
-        n_chans = self.sensor.n_chans
-        n_inputs = self.sensor.n_inputs
-
-        i_start = i * self.scans_per_batch
-        i_end = min(i_start + self.scans_per_batch, self.n_scans)
-
-        n = (i_end - i_start) * self.data.pixels.size
-        x = np.zeros((n, n_inputs), dtype=np.float32)
-
-        tbs = self.data["brightness_temperatures"].data[i_start:i_end]
-        tbs = tbs.reshape(-1, n_chans)
-        t2m = self.data["two_meter_temperature"].data[i_start:i_end]
-        t2m = t2m.reshape(-1)
-        tcwv = self.data["total_column_water_vapor"].data[i_start:i_end]
-        tcwv = tcwv.reshape(-1)
-        st = self.data["surface_type"].data[i_start:i_end]
-        st = st.reshape(-1)
-        at = np.maximum(self.data["airmass_type"].data[i_start:i_end], 0.0)
-        at = at.reshape(-1)
-
-        x[:, :n_chans] = tbs
-        x[:, :n_chans][x[:, :n_chans] < 0] = np.nan
-
-        i_anc = n_chans
-        if isinstance(self.sensor, sensors.CrossTrackScanner):
-            va = self.data["earth_incidence_angle"].data[i_start:i_end]
-            x[:, n_chans] = va.ravel()
-            i_anc = n_chans + 1
-
-        x[:, i_anc] = t2m
-        x[:, i_anc][t2m < 0] = np.nan
-
-        x[:, i_anc + 1] = tcwv
-        x[:, i_anc + 1][tcwv < 0] = np.nan
-
-        for j in range(18):
-            x[:, i_anc + 2 + j][st == j + 1] = 1.0
-
-        for j in range(4):
-            x[:, i_anc + 2 + 18 + j][at == j] = 1.0
-
-        x = self.normalizer(x)
-        return torch.tensor(x)
+        i_start = i * self.scans_per_batch * self.n_pixels
+        i_end = i_start + self.scans_per_batch * self.n_pixels
+        return self.x[i_start:i_end]
 
     def finalize(self, data):
         """
@@ -883,6 +875,108 @@ class PreprocessorLoader0D:
                 data[v].data[invalid] = np.nan
 
         return data
+
+    def write_retrieval_results(self, output_path, results, ancillary_data=None):
+        """
+        Write retrieval results to file.
+
+        Args:
+            output_path: The folder to which to write the output.
+            results: ``xarray.Dataset`` containing the retrieval results.
+            ancillary_data: The folder containing the profile clusters.
+
+        Return:
+            The filename of the retrieval output file.
+        """
+        preprocessor_file = PreprocessorFile(self.filename)
+        return preprocessor_file.write_retrieval_results(
+            output_path, results, ancillary_data=ancillary_data
+        )
+
+
+class PreprocessorLoader0D(ObservationLoader0D):
+    """
+    Interface class to load retrieval input data for retrieval models
+    that require ancillary data from the preprocessor.
+
+    If the provided file is an HDF5 file, this loader will try to run
+    the preprocessor on it in order to convert it to a preprocessor file.
+    """
+    @staticmethod
+    def run_preprocessor(l1c_file, output_file):
+        sensor = L1CFile(l1c_file).sensor
+        try:
+            LOGGER.info("Running preprocessor for input file %s.", l1c_file)
+            run_preprocessor(
+                l1c_file, sensor, output_file=output_file, robust=False
+            )
+        except subprocess.CalledProcessError as e:
+            LOGGER.error(
+                ("Running the preprocessor for file %s failed with the "
+                 "following error failed.\n%s\n%s"),
+                l1c_file, e.stdout, e.stderr
+            )
+            raise e
+
+    def __init__(self, filename, normalizer, batch_size=1024 * 8):
+        """
+        Create preprocessor loader.
+
+        Args:
+            filename: Path to the preprocessor file from which to load the
+                input data.
+            normalizer: The normalizer object to use to normalize the input
+                data.
+            scans_per_batch: How scans should be combined into a single
+                batch.
+        """
+        suffix = filename.suffix
+        if suffix.endswith("HDF5"):
+            with TemporaryDirectory as tmp:
+                output_file = Path(tmp) / "input.pp"
+                PreprocessorLoader0D.run_preprocessor(filename, output_file)
+                super().__init__(
+                    output_file,
+                    PreprocessorFile,
+                    normalizer,
+                    batch_size=batch_size
+                )
+        else:
+            LOGGER.info(
+                "Loading preprocessor input data from %s.",
+                filename
+            )
+            super().__init__(
+                filename,
+                PreprocessorFile,
+                normalizer,
+                batch_size=batch_size
+            )
+
+
+class L1CLoader0D(ObservationLoader0D):
+    """
+    Interface class to run the GPROF-NN retrieval on preprocessor files.
+    """
+
+    def __init__(self, filename, normalizer, batch_size=1024 * 8):
+        """
+        Create preprocessor loader.
+
+        Args:
+            filename: Path to the preprocessor file from which to load the
+                input data.
+            normalizer: The normalizer object to use to normalize the input
+                data.
+            scans_per_batch: How scans should be combined into a single
+                batch.
+        """
+        super().__init__(
+            filename,
+            L1CFile,
+            normalizer,
+            batch_size=batch_size
+        )
 
     def write_retrieval_results(self, output_path, results, ancillary_data=None):
         """
@@ -990,6 +1084,9 @@ class PreprocessorLoader2D:
         return preprocessor_file.write_retrieval_results(
             output_path, results, ancillary_data=ancillary_data
         )
+
+
+
 
 
 ###############################################################################

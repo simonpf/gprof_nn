@@ -1428,3 +1428,8 @@ MHS = CrossTrackScanner(
 
 MHS_NOA19 = MHS
 
+
+def get_sensor(platform, sensor):
+    key = sensor.upper()
+    return globals()[key]
+

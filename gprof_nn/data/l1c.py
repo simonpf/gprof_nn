@@ -188,6 +188,13 @@ class L1CFile:
         self.filename = path
         self.path = Path(path)
 
+        with h5py.File(self.path, "r") as data:
+            header = data.attrs["FileHeader"].decode().split()[6:8]
+            satellite = header[0].split("=")[1][:-1]
+            sensor = header[1].split("=")[1][:-1]
+            self.sensor = sensors.get_sensor(satellite, sensor)
+
+
     @property
     def start_time(self):
         with h5py.File(self.path, "r") as input:

@@ -21,6 +21,7 @@ def test_open_granule_gmi():
 
     assert l1c_data.pixels.size == 221
     assert l1c_data.scans.size == 2962
+    assert l1c_file.sensor == sensors.GMI
 
 
 def test_open_granule_mhs():
@@ -35,6 +36,7 @@ def test_open_granule_mhs():
 
     assert l1c_data.pixels.size == 90
     assert l1c_data.scans.size == 2295
+    assert l1c_file.sensor == sensors.MHS
 
 
 def test_find_file_gmi():
@@ -43,9 +45,11 @@ def test_find_file_gmi():
     """
     l1c_path = Path(__file__).parent / "data"
     date = np.datetime64("2019-01-01T00:30:00")
-    l1c_file = L1CFile.find_file(date, l1c_path).to_xarray_dataset()
-    assert date > l1c_file.scan_time[0]
-    assert date < l1c_file.scan_time[-1]
+    l1c_file = L1CFile.find_file(date, l1c_path)
+    l1c_data = l1c_file.to_xarray_dataset()
+    assert date > l1c_data.scan_time[0]
+    assert date < l1c_data.scan_time[-1]
+    assert l1c_file.sensor == sensors.GMI
 
 
 def test_find_file_mhs():
@@ -59,6 +63,7 @@ def test_find_file_mhs():
 
     assert date > data.scan_time[0]
     assert date < data.scan_time[-1]
+    assert l1c_file.sensor == sensors.MHS
     assert "incidence_angle" in data.variables
 
 
