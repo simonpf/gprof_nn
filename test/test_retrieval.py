@@ -99,9 +99,7 @@ def test_retrieval_preprocessor_0d_gmi(tmp_path):
     input_file = data_path / "gmi" / "GMIERA5_190101_027510.pp"
 
     qrnn = QRNN.load(data_path / "gmi" / "gprof_nn_0d_gmi_era5.pckl")
-    normalizer = Normalizer.load(data_path / "normalizer.pckl")
     driver = RetrievalDriver(input_file,
-                             normalizer,
                              qrnn,
                              ancillary_data=data_path,
                              output_file=tmp_path)
@@ -116,12 +114,10 @@ def test_retrieval_l1c_0d_gmi_na(tmp_path):
     data_path = Path(__file__).parent / "data"
     input_file = (
         data_path / "gmi" /
-        "2B.GPM.DPRGMI.CORRA2018.20210829-S205206-E222439.042628.V06A.HDF5"
+        "1C-R.GPM.GMI.XCAL2016-C.20180124-S000358-E013632.022190.V05A.HDF5"
     )
     qrnn = QRNN.load(data_path / "gmi" / "gprof_nn_0d_gmi_era5_na.pckl")
-    normalizer = Normalizer.load(data_path / "normalizer.pckl")
     driver = RetrievalDriver(input_file,
-                             normalizer,
                              qrnn,
                              ancillary_data=data_path,
                              output_file=tmp_path)
@@ -138,9 +134,7 @@ def test_retrieval_preprocessor_0d_mhs(tmp_path):
     input_file = data_path / "mhs" / "MHS.pp"
 
     qrnn = QRNN.load(data_path / "gprof_nn_0d_mhs.pckl")
-    normalizer = Normalizer.load(data_path / "normalizer_mhs.pckl")
     driver = RetrievalDriver(input_file,
-                             normalizer,
                              qrnn,
                              ancillary_data=data_path,
                              output_file=tmp_path)
@@ -154,13 +148,32 @@ def test_retrieval_preprocessor_2d(tmp_path):
     Ensure that GPROF-NN 0D retrieval works with preprocessor input.
     """
     data_path = Path(__file__).parent / "data"
+    input_file = (
+        data_path / "gmi" /
+        "1C-R.GPM.GMI.XCAL2016-C.20180124-S000358-E013632.022190.V05A.HDF5"
+    )
+
+    qrnn = QRNN.load(data_path / "gmi" / "gprof_nn_2d_gmi_era5_na.pckl")
+    qrnn.model.sensor = sensors.GMI
+    driver = RetrievalDriver(input_file,
+                             qrnn,
+                             ancillary_data=data_path,
+                             output_file=tmp_path)
+    output_file = driver.run()
+    data = RetrievalFile(output_file).to_xarray_dataset()
+    assert "rain_water_content" in data.variables
+
+
+def test_retrieval_l1c_2d(tmp_path):
+    """
+    Ensure that GPROF-NN 0D retrieval works with preprocessor input.
+    """
+    data_path = Path(__file__).parent / "data"
     input_file = data_path / "gmi" / "GMIERA5_190101_027510.pp"
 
-    qrnn = QRNN.load(data_path / "gmi" / "gprof_nn_2d_gmi_mhs.pckl")
+    qrnn = QRNN.load(data_path / "gmi" / "gprof_nn_2d_gmi_era5_na.pckl")
     qrnn.model.sensor = sensors.GMI
-    normalizer = Normalizer.load(data_path / "normalizer.pckl")
     driver = RetrievalDriver(input_file,
-                             normalizer,
                              qrnn,
                              ancillary_data=data_path,
                              output_file=tmp_path)
@@ -176,12 +189,10 @@ def test_retrieval_netcdf_0d(tmp_path):
     data_path = Path(__file__).parent / "data"
     input_file = data_path / "gmi" / "gprof_nn_gmi_era5.nc"
 
-    qrnn = QRNN.load(data_path / "gprof_nn_0d_gmi_era5.pckl")
+    qrnn = QRNN.load(data_path / "gmi" / "gprof_nn_0d_gmi_era5.pckl")
     qrnn.training_data_class = GPROF_NN_0D_Dataset
     qrnn.preprocessor_class = PreprocessorLoader0D
-    normalizer = Normalizer.load(data_path / "normalizer.pckl")
     driver = RetrievalDriver(input_file,
-                             normalizer,
                              qrnn,
                              ancillary_data=data_path,
                              output_file=tmp_path)
@@ -202,9 +213,7 @@ def test_retrieval_netcdf_0d_gradients(tmp_path):
     qrnn = QRNN.load(data_path / "gprof_nn_0d_gmi_era5.pckl")
     qrnn.training_data_class = GPROF_NN_0D_Dataset
     qrnn.preprocessor_class = PreprocessorLoader0D
-    normalizer = Normalizer.load(data_path / "normalizer.pckl")
     driver = RetrievalGradientDriver(input_file,
-                                     normalizer,
                                      qrnn,
                                      ancillary_data=data_path,
                                      output_file=tmp_path)
@@ -222,9 +231,7 @@ def test_retrieval_netcdf_2d(tmp_path):
 
     qrnn = QRNN.load(data_path / "gmi" / "gprof_nn_2d_gmi_era5.pckl")
     qrnn.model.sensor = sensors.GMI
-    normalizer = Normalizer.load(data_path / "normalizer.pckl")
     driver = RetrievalDriver(input_file,
-                             normalizer,
                              qrnn,
                              ancillary_data=data_path,
                              output_file=tmp_path)
@@ -244,9 +251,7 @@ def test_simulator_gmi(tmp_path):
 
     qrnn = QRNN.load(data_path / "gmi" / "simulator_gmi.pckl")
     qrnn.netcdf_class = SimulatorLoader
-    normalizer = Normalizer.load(data_path / "normalizer_gmi.pckl")
     driver = RetrievalDriver(input_file,
-                             normalizer,
                              qrnn,
                              ancillary_data=data_path,
                              output_file=tmp_path)
@@ -269,9 +274,7 @@ def test_simulator_mhs(tmp_path):
     input_file = data_path / "gprof_nn_mhs_era5_5.nc"
 
     qrnn = QRNN.load(data_path / "mhs" / "simulator_mhs.pckl")
-    normalizer = Normalizer.load(data_path / "normalizer_gmi.pckl")
     driver = RetrievalDriver(input_file,
-                             normalizer,
                              qrnn,
                              ancillary_data=data_path,
                              output_file=tmp_path)

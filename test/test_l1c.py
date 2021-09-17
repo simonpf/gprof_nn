@@ -14,7 +14,7 @@ def test_open_granule_gmi():
     Test finding of specific GMI L1C file and reading data into
     xarray.Dataset.
     """
-    l1c_path = Path(__file__).parent / "data"
+    l1c_path = Path(__file__).parent / "data" / "gmi"
 
     l1c_file = L1CFile.open_granule(27510, l1c_path, sensors.GMI)
     l1c_data = l1c_file.to_xarray_dataset()
@@ -43,7 +43,7 @@ def test_find_file_gmi():
     """
     Tests finding a GMI L1C file for a given date.
     """
-    l1c_path = Path(__file__).parent / "data"
+    l1c_path = Path(__file__).parent / "data" / "gmi"
     date = np.datetime64("2019-01-01T00:30:00")
     l1c_file = L1CFile.find_file(date, l1c_path)
     l1c_data = l1c_file.to_xarray_dataset()

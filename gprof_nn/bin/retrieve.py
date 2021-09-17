@@ -12,7 +12,6 @@ from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
 from quantnn.qrnn import QRNN
-from quantnn.normalizer import Normalizer
 from rich.progress import track
 
 import gprof_nn.logging
@@ -46,9 +45,6 @@ def add_parser(subparsers):
     )
     parser.add_argument('model', metavar="model", type=str,
                         help="The GPROF-NN model to use for the retrieval.")
-    parser.add_argument('normalizer', metavar="normalizer", type=str,
-                        help="Path to normalizer to use to normalize the input "
-                        "data.")
     parser.add_argument('input', metavar="input", type=str,
                         help='Folder or file containing the input data.')
     parser.add_argument('output',
@@ -69,7 +65,6 @@ def process_file(input_file,
                  output_file,
                  model,
                  targets,
-                 normalizer,
                  gradients,
                  log_queue):
     """
@@ -84,7 +79,6 @@ def process_file(input_file,
     if gradients:
         driver = RetrievalGradientDriver
     retrieval = driver(input_file,
-                       normalizer,
                        xrnn,
                        output_file=output_file)
     retrieval.run()
@@ -106,11 +100,6 @@ def run(args):
     if not model.exists():
         LOGGER.error("Given model is not an existing file.")
 
-    normalizer = Path(args.normalizer)
-    if not normalizer.exists():
-        LOGGER.error("Given normalizer is not an existing file.")
-
-    normalizer = args.normalizer
     input = Path(args.input)
     output = Path(args.output)
 
@@ -154,9 +143,6 @@ def run(args):
     else:
         targets = ALL_TARGETS
 
-    # Try to load the normalizer.
-    normalizer = Normalizer.load(normalizer)
-
     #
     # Run retrieval.
     #
@@ -170,7 +156,6 @@ def run(args):
                               output_file,
                               model,
                               targets,
-                              normalizer,
                               gradients,
                               log_queue)]
 

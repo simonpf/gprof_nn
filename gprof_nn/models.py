@@ -20,6 +20,8 @@ from gprof_nn.retrieval import (NetcdfLoader0D,
                                 NetcdfLoader2D,
                                 PreprocessorLoader0D,
                                 PreprocessorLoader2D,
+                                L1CLoader0D,
+                                L1CLoader2D,
                                 SimulatorLoader)
 from gprof_nn.data.training_data import (GPROF_NN_0D_Dataset,
                                          GPROF_NN_2D_Dataset)
@@ -347,6 +349,7 @@ class MultiHeadMLP(nn.Module):
             activation=activation,
             internal=True
         )
+        self.n_inputs_body = n_inputs
 
         targets = self.targets
         if n_layers_body > 0:
@@ -387,7 +390,7 @@ class MultiHeadMLP(nn.Module):
         """
         targets = self.targets
         if not self.ancillary:
-            x = x[..., :-24]
+            x = x[..., :self.n_inputs_body]
 
         y, acc = self.body(x, None)
         results = {}
@@ -458,7 +461,10 @@ class GPROF_NN_0D_QRNN(MRNN):
                          model=model,
                          transformation=transformation)
 
-        self.preprocessor_class = PreprocessorLoader0D
+        if ancillary:
+            self.preprocessor_class = PreprocessorLoader0D
+        else:
+            self.preprocessor_class = L1CLoader0D
         self.netcdf_class = NetcdfLoader0D
 
     def set_targets(self, targets):
@@ -524,10 +530,10 @@ class GPROF_NN_0D_DRNN(MRNN):
                          losses=losses,
                          model=model)
 
-        self.preprocessor_class = PreprocessorLoader0D
-        self.training_data_class = GPROF_NN_0D_Dataset
-
-        self.preprocessor_class = PreprocessorLoader0D
+        if ancillary:
+            self.preprocessor_class = PreprocessorLoader0D
+        else:
+            self.preprocessor_class = L1CLoader0D
         self.netcdf_class = NetcdfLoader0D
 
     def set_targets(self, targets):
@@ -750,7 +756,10 @@ class GPROF_NN_2D_QRNN(MRNN):
                          model=model,
                          transformation=transformation)
 
-        self.preprocessor_class = PreprocessorLoader2D
+        if ancillary:
+            self.preprocessor_class = PreprocessorLoader2D
+        else:
+            self.preprocessor_class = L1CLoader2D
         self.netcdf_class = NetcdfLoader2D
 
     def set_targets(self, targets):
@@ -819,7 +828,11 @@ class GPROF_NN_2D_DRNN(MRNN):
                          losses=losses,
                          model=model)
 
-        self.preprocessor_class = PreprocessorLoader2D
+        if ancillary:
+            self.preprocessor_class = PreprocessorLoader2D
+        else:
+            self.preprocessor_class = L1CLoader2D
+
         self.netcdf_class = NetcdfLoader2D
 
     def set_targets(self, targets):
