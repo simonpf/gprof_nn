@@ -36,27 +36,90 @@
 
 
 \section{Introduction}
+
+The Goddard Profiling Algorithm (GPROF, \authorcite{kummerow14},
+\yearcite{kummerow14}) is the operational precipitation retrieval algorithm for
+the passive microwave (PMW) observations from the satellites of the Global
+Precipitation Measurement (GPM, \authorcite{hou14}, \yearcite{hou14}) mission.
+The aim of GPM is to provide global measurements of precipitation at a temporal
+resolution of 3 hours. It is thus an essential component of the system of global
+observations that enables monitoring of the hydrological cycle for the benefit
+of science and society.
+
+The development of GPROF was originally motivated by the Tropical Rainfall
+Measurement Mission (TRMM,), the precursor of the GPM mission, and thus dates
+back almost 30 years \citep{kummerow94, kummerow96}. Since then, the algorithm
+has undergone several improvements. Methodologically, the most fundamental
+modification has been presented already in \citet{kummerow96}, which introduced
+the Bayesian retrieval scheme that is based on a database of observations and
+known, corresponding precipitation rates and forms the basis of the algorithm
+until today. Following that, improvements were mostly related to and driven by
+improvements of the database. While the first version of GPROF still used hand
+crafted hydrometeor profiles to generate the database, these were replaced by
+profiles from a meso-scale weather model \citep{kummerow96}. An important
+improvement was the replacement of the model-based database by an
+observationally-generated database for the GPROF 2010 algorithm
+\citep{kummerow11, kummerow15}, which helped reduce errors caused by
+misrepresentation of atmospheric states in the database. The 2014 version
+of GPROF \citet{kummerow15} introduced the first fully-parametric version
+of the algorithm that was designed to be applicable to all sensors of
+the GPM constellation and became the first version of the operational
+PMW precipitation retrieval.
+
+This study revisits the actual retrieval method that forms the basis of the
+current GPROF algorithm, which was first introduced in \citet{kummerow96}.
+Throughout its evolution, the retrieval database of GPROF has grown to a
+considerable size and currently contains around $10^9$ observations. This makes
+it ideally suited as training data for a machine-learning based retrieval.
+However, most common machine-learning regression techniques are incompatible
+with the Bayesian formulation of inverse problems \citep{rodgers00} upon which
+the current algorithm is based. \citet{pfreundschuh18} proposed quantile
+regression neural networks (QRNNs) as a simple approach to reconcile
+inverse-problem theory with neural-network retrievals.
+
+This study presents two novel, neural-network-based implementations of the GPROF
+algorithm. The first algorithm, referred to as GPROF-NN 0D, is designed to be
+functionally identical to the original GPROF algorithm. Similar to GPROF,
+it processes observations pixel-by-pixel and  uses the same inputs and
+produces the same outputs as GPROF. The second algorithm, referred GPROF-NN 2D,
+also produces the same outputs as GPROF, but processes all observations
+simultaneously, thus allowing it to make use of structural information in
+the observations. The aim of this study is thus to investigate (1) to
+what extent a switching to a functionally equivalent neural-network based
+retrieval (GPROF-NN 0D) can help to improve retrievals of precipitation
+and the 3D structure of hydrometeors and (2) to what extent structural
+information in the retrieval can help improve retrieval accuracy.
+
 \section{Methods and data}
 
-This section describes the original GPROF algorithm as well as the two newly
-developed neural-network-based versions.
+Since its conception, the GPROF algorithm has made use of a retrieval
+database consisting of satellite observations and corresponding known
+precipitation rates. In this sense, the retrieval method alone may be
+viewed as a machine learning method. However, since the distribution
+and structure of precipitation was unknown and remains affected by
+significant uncertainties, the focus of improvements of the GPROF
+algorithm has been generation and representativeness of the database.
+
+
+This section presents the retrieval database that forms the basis of the
+original and the novel GPROF algorithms as well as the data that is used
+to test the methods. This is followed by a description of the original
+algorithm and the two novel GPROF-NN 0D and GPROF-NN 2D algorithms.
 
 \subsection{The original GPROF algorithm}
 
-The original GPROF algorithm, here referred to simply as GPROF, is based on a
-Bayesian formulation of the retrieval problem. Given an observation
-$\mathbf{y}$, the result of the retrieval is defined as the posterior
-distribution $P(\mathbf{x} | \mathbf{y})$ over the values $\mathbf{x}$ of a
-numerical representation of the atmospheric state.
-
- The posterior distribution $P(\mathbf{x} | \mathbf{y})$ is calculated using
-a database consisting of pairs
-$(\mathbf{y}_1, \mathbf{x}_1), \ldots (\mathbf{y}_N, \mathbf{x}_N)$
-of observations $\mathbf{y}_i$ and corresponding atmospheric states
-$\mathbf{x}_i$. Assuming that the database describes the true a priori
-distribution $P(\mathbf{x})$ sufficiently well, the expected
-value w.r.t to the posterior distribution $P(\mathbf{x} | \mathbf{x})$ of the
-atmospheric state $\mathbf{x}$ can be approximated using
+The original GPROF algorithm, here referred to simply as GPROF, is a Bayesian
+method in the sense that it formulates the retrieval as the task of finding the
+posterior distribution $P(\mathbf{x} | \mathbf{y})$ of the precipitation given
+an observation vector $\mathbf{y}$. As mentioned above, the posterior
+distribution $P(\mathbf{x} | \mathbf{y})$ is calculated using a database
+consisting of pairs $(\mathbf{y}_1, \mathbf{x}_1), \ldots (\mathbf{y}_N,
+\mathbf{x}_N)$ of observations $\mathbf{y}_i$ and corresponding atmospheric
+states $\mathbf{x}_i$. Assuming that the database describes the true a priori
+$P(\mathbf{x})$, i.e. the climatological distribution of surface precipitation,
+sufficiently well, the expected value w.r.t to the posterior distribution
+$P(\mathbf{x} | \mathbf{x})$ of the atmospheric state $\mathbf{x}$ can be
+approximated using
 \begin{align}\label{eq:gprof_retrieval}
   \int_{\mathbf{x} } \mathbf{x}\: dP(\mathbf{x} | \mathbf{y}) =
   \int_{\mathbf{x} } \mathbf{x}\: \frac{P(\mathbf{y} | \mathbf{x})}{P(\mathbf{y})} dP(\mathbf{x}) \approx
@@ -219,7 +282,7 @@ makes it functionally equivalent to that algorithm.
 
 \begin{figure}[hbpt]
   \centering
-    \includegraphics[width=\textwidth]{../figures/gprof_nn_0d}
+    \includegraphics[width=\textwidth]{../figures/gprof_nn_0d_cdf}
     \caption{Illustration of the neural network architecture used in the
       GPROF-NN 0D algorithm. The network consists of a common body and
       one head for each retrieval variable. Each block in body and head
@@ -274,7 +337,26 @@ connection. The decoder stages contain only a single of those blocks per layer.
 Additional skip connections are inserted to provide a short cut between
 respective stages of the encoder and decoder.
 
+\begin{figure}[hbpt]
+  \centering
+  \includegraphics[width=0.8\textwidth]{../plots/gprof_nn_2d_arch}
+  \caption{
+    The neural network architecture employed by the GPROF-NN 2D retrieval.
+  }
+  \label{fig:data_augmenation}
+\end{figure}
+
 \subsubsection{Data augmentation}
+
+
+\begin{figure}[hbpt]
+  \centering
+    \includegraphics[width=\textwidth]{../figures/data_augmentation}
+    \caption{
+      Illustration of the data augmentation applied for the training of the GPROF-NN 2D algorithm.
+    }
+  \label{fig:data_augmenation}
+\end{figure}
 
 Two properties make the application of a convolutional neural network to the GMI
 observations peculiar: First, ground truth data is available only at the center
@@ -297,6 +379,435 @@ effects the outer edges of the GMI swath.
 
 
 \section{Results}
+
+This section presents the results of the experiments that were performed to
+asses the characteristics of the GPROF, GPROF-NN 0D and GPROF-NN 2D retrieval
+algorithms. 
+
+\subsection{Results on test dataset}
+
+We begin be assessing the retrieval performance on the test data set, which
+consists of the database observations from the first three days of every month.
+Since the training data used to train the neural-network retrievals stems from
+the same time period, this allows assessing the inherent capabilities of the
+retrieval algorithms while minimizing potential aliasing effects caused by the
+inter-annual variability of precipitation.
+
+
+
+\subsubsection{Scalar retrieval variables}
+
+Retrieval results for scalar retrieval targets are scattered against their
+reference values in Fig~\ref{fig:results_scalar}. It should be noted that
+frequencies have been normalized column-wise since results for high rain rates
+would otherwise not be visible in the plots. As these results show, there is a
+consistent, gradual improvement between the GPROF, GPROF-NN 0D and GPROF-NN 2D
+algorithms for all retrieval targets. 
+
+The neural-network algorithms generally show the largest improvements for small
+values where for surface precipitation and convective precipitation systematic
+deviations from the reference distribution are observed. Although improvements
+at larger values are generally smaller, they are still consistent across the
+examined ranges. The most significant improvement is observed for convective
+precipitation. Here the distributions of the GPROF and GPROF-NN 0D algorithms
+deviate notably from the diagonal but that of GPROF-NN 2D is located correctly
+over the diagonal.
+
+
+\begin{figure}[hbpt]
+  \centering
+  \includegraphics[width=\textwidth]{../plots/results_scatter}
+  \caption{
+    Scatter plots of scalar retrieval targets for the
+    three retrieval algorithms. The columns display the results
+    for the GPROF, GPROF-NN 0D and GPROF-NN 2D algoriths, while
+    rows display the results for different retrieval targets. Frequencies
+    in the plots have been normalized column-wise, i.e. per bin of
+    the reference value.
+  }
+  \label{fig:data_augmenation}
+\end{figure}
+
+Since the surface type has a strong effect on the lower-frequency observations
+used in the retrieval, its impact on the retrieval of surface precipitation is
+assessed in Fig.~\ref{fig:results_surface}. The figure displays the Bias, RMSE
+and MAPE for the different surface classes that are distinguished in the
+retrieval for each of the three algorithms.
+
+Also when considered separately for different surface types the results of the
+surface precipitation retrieval show the same overall pattern as observed in
+the scatter plots in Fig.~\ref{fig:results_scalar}: The results of the GPROF-NN 0D
+retrieval are more accurate than those of the GPROF algorithm and the results
+of the GPROF-NN 2D algorithm are in-turn better than those of the GPROF-NN 0D
+algorithm. These results are observed consistently across all surface types
+and considered metric.
+
+
+\begin{figure}[hbpt]
+  \centering
+  \includegraphics[width=\textwidth]{../plots/results_surface_types}
+  \caption{
+    Bias, root-mean squared error (RMSE), and maximum absolute percentage error (MAPE) for
+    the three retrieval algorithms and different surface types.
+  }
+  \label{fig:data_augmenation}
+\end{figure}
+
+In addition to quantitative precipitation estimates, the GPROF algorithm also provides a
+probabilistic classification of pixels into raining and non-raining pixels by predicting
+a probability of precipitation. As described in ~\ref{sec:method}, a similar quantity can
+be derived from the probabilistic prediction of the QRNN-NN algorithms. To assess the quality
+of these predictions, the calibration of the predicted probability and the receiver-operating
+characteristic curve are displayed in Fig.~\ref{fig:pop}.
+
+The calibration curves show, that predictions from all algorithms are fairly
+well calibrated, i.e. the predicted probabilities agree well with those observed
+on the independent test data. Although all algorithms exhibit small deviations from the 
+diagonal, the GPROF-NN algorithms provide slightly better calibrated predictions.
+
+For the ROC curve, the results are more conclusive and show a clear improvement in classification
+skill for the GPROF-NN 0D algorithm compared to GPROF. The GPROF-NN 2D algorithm further improves
+the classification slightly compared to the GPROF-NN 0D algorithm.
+
+
+\begin{figure}[hbpt]
+  \centering
+  \includegraphics[width=\textwidth]{../plots/results_pop}
+  \caption{
+    Calibration (Panel (a)) and receiver-operating characteristic (ROC, Panel(b)) for
+    the predicted probability of precipitation.
+  }
+  \label{fig:roc}
+\end{figure}
+
+\subsubsection{Profile retrieval variables}
+
+Finally, we also assess the retrieval performance of profile retrievals.
+Profiles of Bias and RMSE for the three retrieved profile quantities are
+displayed in Fig.~\ref{fig:profiles}. The results show a significant improvement
+in bias and RMSE for the GPROF-NN retrievals for all three quantities.
+However, there is only a small difference between the GPROF-NN 0D and
+GPROF-NN 2D algorithms.
+
+
+\subsubsection{Probabilistic precipitation retrievals}
+
+The error statistics for the quantitative retrieval targets presented above all
+used the mean of the a posteriori distribution to compare against the GPROF
+algorithm. Traditionally, GPROF produces only 4 output values that make use of
+information from the posterior distribution exceeding the posterior mean: The
+estimated probability of precipitation, the precipitation flag, the 1st and 3rd
+terciles of the surface precipitation (provided as a measure of uncertainty) and
+the most likely precipitation. The neural-network version of GPROF predict the
+full posterior distribution for the scalar retrieval variables, and so storing
+only the posterior mean discards a large part of this information.
+
+Since storing the full posterior distribution would require excessive amounts
+of storage space, we here aim to explore the benefits of providing a random
+sample from the posterior distribution as retrieval result. Although the
+sampling neglects spatial correlation results, the results should be
+able to truthfully reproduce the distribution of precipitation values in the
+test data when averaged over multiple orbits.
+
+To illustrate the statistical benefits of randomly-sampled retrieval estimates
+we begin by examining the zonal distributions of surface precipitation on
+$1^\circ$-degree bins. Fig.~\ref{fig:results_zonal} displays the reference
+distribution of the test data (filled contours) together with the quantiles of
+the retrieved distributions (shaded lines) for the case when the posterior mean
+is used as the retrieval estimate (1st row) and for the case when a random
+sample is used as retrieval estimate (2nd row). Note that the color scaling
+has been chosen so that if the retrieved and reference distribution were similar,
+the shaded lines would lie on top of the boundaries between the filled contours
+in the background.
+
+As the first row of panels shows, the retrieved distribution does not match the
+corresponding distribution of the test data. Especially the high quantiles of
+the reference distribution are strongly underestimated by the retrieved
+distributions. However, when instead of the posterior mean random samples are
+used as precipitation estimates, the agreement between the retrieved and the
+test distribution is significantly improved. Although some discrepancies remain
+for the lower quantiles of the distribution, very good agreement is found between
+the high quantiles of the distribution.
+
+  \begin{figure}[hbpt]
+    \centering
+    \includegraphics[width=\textwidth]{../plots/zonal_distributions}
+    \caption{
+      Zonal distributions of test data and corresponding retrieved values. Colored, filled contours
+      in the background show the CDFs of the zonal distribution of precipitation in the test data.
+      Grey-shaded line display the quantiles of the corresponding retrieved distributions based on
+      the posterior mean (Row 1) and random samples from the posterior distribution (Row 2).
+    }
+    \label{fig:results_zonal}
+  \end{figure}
+
+  For a different perspective on these results, we have also considered the
+  ability of the retrieval to reproduce specific percentiles of the test data on
+  a spatial grid of size $\SI{5}{\degree}\times\SI{5}{\degree}$. When the
+  distribution of percentiles derived from the retrieved values are plotted
+  against the percentiles of the test data (Fig.\ \ref{fig:scatter_percentiles})
+  it becomes evident that using the posterior mean (grey-shaded, filled
+  contours) leads to systematic underestimation of the true value. However, when
+  random samples are used these systematic deviations are corrected and the
+  percentiles of the retrieved distributions scatter symmetrically around the
+  line of equality.
+
+  \begin{figure}[hbpt]
+    \centering
+    \includegraphics[width=\textwidth]{../plots/scatter_percentiles}
+    \caption{
+      95th (Row 1) and 99th (Row 2) percentiles of the distribution
+      of surface precipitation in $5^\circ \times 5^\circ$ boxes in the
+      test data scattered against the corresponding retrieved values. Filled
+      contours in the background show the distribution obtained by using the
+      posterior mean as retrieved value and colored contours the distribution
+      that is obtained when a random sample from the posterior distribution
+      is used as retrieval value. The columns show the results for the
+      GPROF-NN 0D (Column 1) and the GPROF-NN 2D algorithm  (Column 2).
+    }
+    \label{fig:scatter_percentiles}
+  \end{figure}
+
+\begin{figure}[hbpt]
+  \centering
+  \includegraphics[width=\textwidth]{../plots/results_spatial}
+  \caption{
+    Spatial distributions of Bias (Column 1), RMSE (Column 2) and MAPE (Column 3) error statistics for the
+    GPROF (Row 1), GPROF-NN 0D (Row 2), GPROF-NN 2D (Row 3) algorithms.
+  }
+    \label{fig:results_spatial}
+\end{figure}
+
+
+\subsection{Case study: Hurricane Dorian}
+
+To conclude this investigation into the retrieval performance of the newly
+developed GPROF retrievals, we consider a overpass of the GPM Core Observatory
+over Hurricane Dorian that occurred on September, 1st 2019 at 20:20 UTC.
+Since. This allows us to compare the results of the GPROF retrieval to the
+GPM combined product at the center of the swath, which has been averaged using
+a Gaussian kernel corresponding to a footprint with a full-width at half-maximum
+of $\SI{18}{\kilo \meter}$ in along-track and $\SI{10}{\kilo \meter}$ in
+across-track direction.
+
+To allow for a detailed comparison, Fig.~\ref{fig:hurricane_precip} displays the
+retrieved surface precipitation on a log-scale over a region of $\SI{2000}{\kilo
+  \meter}$ as well as on a linear scale on a smaller region close to the
+hurricane. When considered at log-scale, obvious structural differences in the
+retrieved precipitation are visible: The GPROF retrieval produces large swaths
+of low precipitation that cover most of the scene, which are not present in the
+combined retrieval. They are clearly reduced in the results of the GPROF-NN 0D
+retrieval and even more so in the results of the GPROF-NN 2D retrieval which
+agrees well with the results from the combined retrieval.
+
+The two rightmost panels of Fig.~\ref{fig:hurricane_precip} display the the
+regions of high precipitation around the eye of the hurricane in more detail.
+The most salient features in the surface precipitation from the combined
+algorithm is the eye wall and the concentric rain band situated south-west of
+the eye. Both the high precipitation withing the eyewall as well as the rainband
+are visible in the results of the neural-network versions of GPROF. While the
+surface precipitation in the outer rain band is retrieved accurately both
+retrievals overestimate the precipitation in the righter flank of the eyewall.
+However, compared to the standard GPROF algorithm, the results agree
+considerably better with those of the combined algorithm.
+
+
+\begin{figure}[hbpt]
+  \centering
+  \includegraphics[width=\textwidth]{../plots/hurricane_surface_precip}
+  \caption{
+    Retrieved surface precipitation from the GPM combined product (Panels (a),
+    (c)), the GPROF algorithm (Panels (b), (d)), and the neural network versions
+    GPROF-NN 0D (Panels (e), (g)) and GPROF-NN 2D (Panels (f), (h)) around
+    Hurricane Dorian on 2019-09-01 21:23:00 UTC. Panels (a), (b), (e), (f)
+    display the precipitation on a logarithmic scale over an area
+    spanning $20\ 000\ \unit{km}$ in zonal and meridional directions. Panels (c),
+    (d), (g), (f) display the surface precipitation on a linear color scale in
+    an enlarged area spanning $5\ 000\ \unit{km}$ around the Hurricane. In the
+    background the closest true-color composite from GOES 16 is shown.
+  }
+  }
+  \label{fig:hurricane_precip}
+\end{figure}
+
+Figure~\ref{fig:hurricane_3d} displays the retrieved RWC and SWC for the same
+observation of Hurricane Dorian. The four panels show isosurfaces the retrieved
+water contents from the combined retrieval, GPROF and the GPROF-NN 0D and 2D
+algorithms. Also here, the agreement with the results from the combined retrieval
+is better for the GPROF-NN retrievals than for GPROF. Especially, the GPROF-NN 2D
+agrees well with the combined results.
+
+
+\begin{figure}[hbpt]
+  \centeringn
+  \includegraphics[width=\textwidth]{../plots/dorian.r4.0548.png}
+  \caption{
+    3D isosurfaces of retrieved rain water content (RWC, red) and snow water
+    content (SWC, blue) for the same scene as depicted in
+    Fig.~\ref{fig:hurricane_precip}. Different panels display the results from
+    the GPM combined product, GPROF and the GPROF-NN 0D and 2D algorithms.
+  }
+    \label{fig:hurricane_3d}
+\end{figure}
+
+
+\section{Discussion}
+
+Above we have presented two neural network based implementations of the GPROF
+algorithm. Both algorithms were designed to be functionally equivalent to the
+current implementation which means that they can potentially replace the current
+method in an upcoming version. We have assessed the performance of the three
+algorithms on test data that was not seen by any of the neural network based
+retrieval methods before the evaluation. Here we have seen a significant and
+consistent improvements of the retrieval accuracy across all considered metrics
+and outputs. Similar tendencies were found when comparing retrieval results from
+a Hurricane overpass outside the database period to the GPM combined retrieval.
+
+\subsection{Retrieval performance}
+
+Our results show a consistent improvement of the GPROF-NN retrievals over the
+original GPROF algorithm. This is of course an encouraging result considering
+that all three retrievals are based on exactly the same retrieval database,
+indicating that the GPROF retrievals can be improved simply by switching to a
+more powerful method.
+
+But why do the neural-network-based retrievals perform better than the
+traditional approach? To investigate this, we have calculated the gradients of
+the retrieved surface precipitation with respect to the brightness temperatures
+for the GPROF and GPROF-NN 0D retrievals. Comparison of the mean gradients and
+their component-wise standard deviation reveals that the GPROF-NN 0D retrieval
+exhibits larger gradients with more variation than the GPROF retrieval. This
+indicates that the retrieval manifold that describes the relation between input
+observations and retrieved surface precipitation exhibits more structure for the
+neural network retrieval than it does for standard GPROF.
+
+Based on the formulation of the standard GPROF retrieval, the retrieval may be
+viewed as nearest-neighbor regression with a Gaussian kernel and a diagonal
+covariance matrix. Although the theoretical formulation of the retrieval assumes
+the elements of the covariance matrix to correspond to the standard deviations
+of the random errors in the observations, these errors are in practice inflated
+to account for sparsity of the retrieval database. Our results suggest that this
+may limit the ability of the method to reproduce structure of the retrieval
+manifold leading to a loss of sensitivity.
+
+We find additional improvements in retrieval accuracy when structural
+information is included in the retrieval by means of processing scenes of
+observations simultaneously instead of pixel-by-pixel. Intuitively, this makes
+sense since a human observer with some experience with microwave imagery can
+identify characteristic rain structures. An interesting continuation of
+this work would be to investigate, which structural patterns the neural
+network has learned, which we aim to pursue in a follow-up study.
+
+\subsection{The importance of ancillary data}
+
+An operational aspect that considerably complicates the GPROF algorithm is
+the required ancillary data. Currently two version of GPROF exist: The
+near real time version, which uses forecasts from the GANAL model as source
+for the ancillary data, and a climate version, which uses ERA5 data from
+\citep{era5}. For the development of the GPROF-NN algorithms, we have
+investigated how much the inclusion of ancillary actually improves the
+retrieval. The results are presented in the appendix. Although omitting
+the ancillary data has a negative impact on the retrieval performance,
+both retrievals still perform better than the original GPROF
+implementation. Moreover, the GPROF-NN 2D retrieval without ancillary
+data performs only marginally worse than the retrieval with ancillary
+data and better than both variants of the GPROF-NN 0D retrieval.
+
+Although this may not have any direct consequences on the operational
+application of GPROF, it still has interesting consequences for the development
+of future retrievals. For one, this obviously means that incorporating spatial
+information into a MW precipitation retrieval improves the retrieval to a larger
+extent than adding ancillary information from secondary sources without adding
+latency due to data availability constraints. But, this also opens up the
+possibility of distributing the retrieval algorithm instead of the retrieval.
+The neural network model for the GPROF-NN 2D algorithm has a size of about
+$\SI{70}{\mega \byte}$, which makes it roughly as large as the level 1C file
+required to run the retrieval. This use case may be interesting for the
+development of specialized retrievals that have a lower general interest but
+could in this way be made available to the community without the need to set up
+an operational processing pipline. An example would be a high-resolution
+hydrometeor profile, which may be of interest for case studies but whose output
+would be too large to archive operationally.
+
+\subsection{Limitations}
+
+Our main finding is that the accuracy of the GPROF retrieval can be
+significantly improved by replacing the retrieval method with a more expressive
+one. However, The majority of the experiments on which this finding is based use
+data from the time period covered by the retrieval database. Based on these
+results alone it is therefor not possible conclude that these models will
+generalize to other time periods. This is why, as a next step, we will test the
+both neural-network based retrieval algorithms in an operational setting to see
+how they perform along side the standard GPROF retrieval.
+
+Another aspect that has been neglected in this study is the accuracy of the
+retrieval database that is used both in standard GPROF and the neural-network
+version. The database is derived from the GPM combined product combined with
+MIRS, ERA5 and MRMS. Its accuracy will thus always be limited by the accuracy of
+those products. To what degree the improvements in the GPROF retrieval translate
+to independent validation data thus remains to be analyzed in a future study.
+
+Finally, another point that should be mentioned here is that although both
+GPROF-NN are porbabilistic in the sense that they provide an estimate of
+the postior distribution, they model the distributions of the output values
+as independent distributions. This means that, although uncertainties are
+well calibrated on average, they may not be on the scale of single
+precipitation systems. However, the is also the case for the standard
+GPROF retrieval and the authors are note aware of any method that could solve
+this issue in ana operational context.
+
+\section{Conclusions}
+
+The GPROF-NN algorithms and their performance assessments that were presented in
+this study constitute a first step towards a neural network based implementation
+of the passive precipitation retrievals for the GPM constellation. Although it
+has to be taken into account that our experiments neglect relevant errors
+sources that will ultimately add to the full retrieval uncertainty, our results
+remain encouraging: Simply by replacing the retrieval with a neural network
+based method the accuracy of the retrieval can be increased at the same time as
+the computational complexity of the retrieval is decreased. This potentially
+makes the upgrade of the retrieval implementation a very simple and cheap way
+of improving global precipitation measurements.
+
+As a next step we will run extend the implementation of the GPROF-NN 0D and
+GPROF-NN 2D algorithms to the other sensors of the GPM constellation and run
+them operationally along side standard GPROF. The three methods will then
+be validated and assessed using gauge-corrected gound-based radar measurements
+in a follow up study. This is to ensure that the upgrade of the retrieval method
+doesn't degrade the quality of the operational GPM PMW retrievals.
+
+In addition to potential improvements in retrieval accuracy through an upgrade
+of the retrieval method, we presented two novel applications that would be
+enabled by the neural-network based retrievals:
+
+\begin{enumerate}
+\item The inclusion of random samples from the posterior distribution in the
+  retrieval output: We have presented this as an efficient way of representing
+  retrieval uncertainties that helps to improve the representation of extreme
+  events in the retrieval results.
+\item Running retrieval 'on the edge': Our results show that incorporating
+  structural information into the retrieval yields larger performance benefits
+  than incorporating ancillary information. This allows simplifying the
+  retrieval pipeline to the point that only observations are required as input,
+  which, together with the availability of high-performance machine learning
+  software, opens up the possibility letting the user run the retrieval on his
+  own computer, i.e. to perform the inference 'on the edge'. This may be
+  beneficial for retrievals with very high resolution, i.e. whose storage
+  requirement are much larger than those of the L1C data, and which may be
+  interesting to users on a case-by-case basis.
+\end{enumerate}
+
+Building on the approach proposed in \citet{pfreundschuh18}, this work presents
+a way of integrating and reconciling machine learning methods with retrieval
+pipelines built on Bayesian retrieval algorithms. We find that the machine
+learning based retrieval, which is built on readily available, high-performance
+machine learning libraries, is easiert to implement, runs faster and performs
+better than the hand-crafted retrieval algorithm. Although it remains to be seen
+to which extent this will improve retrievals with respect to independent
+validation data, it seems reasonable to expect at least incremental improvements
+in global precipitation measurements as well as interesting opportunities for
+the novel retrieval applications.
+
 
 \bibliographystyle{alpha}
 \bibliography{research}
