@@ -1,7 +1,12 @@
-#!/bin/bash
-
 export OMP_NUM_THREADS=4
-INPUT=/qdata1/pbrown/gpm/GMIbins_ERA5_V7/
-OUTPUT=/gdata/simon/gprof_nn
-
-python extract_data_0d.py $INPUT $OUTPUT/gprof_gmi_era5_bin.nc --start 0.0 --end 0.05 -n 4
+for DAY in {01..03}
+do
+    python extract_data_sim.py GMI ${DAY} /gdata/simon/gprof_nn/test_data/gmi/era5/gprof_nn_gmi_era5_${DAY}.nc
+done
+for DAY in {04..05}
+do
+    python extract_data_sim.py GMI ${DAY} /gdata/simon/gprof_nn/validation_data/gmi/era5/gprof_nn_gmi_era5_${DAY}.nc
+done
+for DAY in {06..30}
+do
+    python extract_data_sim.py GMI ${DAY} /gdata/simon/gprof_nn/training_data/gmi/era5/gprof_nn_gmi_era5_${DAY}.nc

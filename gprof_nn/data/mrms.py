@@ -3,7 +3,7 @@
 gprof_nn.data.mrms
 ==================
 
-Interface class to read GMI-MRMS match ups used over snow surfaces.
+Interface class to read GPROF MRMS match ups used over snow surfaces.
 """
 import gzip
 from pathlib import Path
@@ -13,31 +13,9 @@ import xarray as xr
 import pandas as pd
 from pykdtree.kdtree import KDTree
 
+from gprof_nn import sensors
 from gprof_nn.coordinates import latlon_to_ecef
 
-
-DATA_RECORD_TYPES = np.dtype(
-    [
-        ("latitude", "f4"),
-        ("longitude", "f4"),
-        ("scan_time", f"5i4"),
-        ("quality_flag", f"f4"),
-        ("surface_precip", "f4"),
-        ("surface_rain", "f4"),
-        ("convective_rain", "f4"),
-        ("stratiform_rain", "f4"),
-        ("snow", "f4"),
-        ("quality_index", "f4"),
-        ("gauge_fraction", "f4"),
-        ("standard_deviation", "f4"),
-        ("n_stratiform", "i4"),
-        ("n_convective", "i4"),
-        ("n_rain", "i4"),
-        ("n_snow", "i4"),
-        ("fraction_missing", "f4"),
-        ("brightness_temperatures", "15f4"),
-    ]
-)
 
 class MRMSMatchFile:
     """
@@ -51,10 +29,10 @@ class MRMSMatchFile:
         month: The month from which the observations stem.
     """
 
-    file_pattern = "????_MRMS2GMI_gprof_db_??all.bin.gz"
+    file_pattern = "????_MRMS2{sensor}_*.bin.gz"
 
     @classmethod
-    def find_files(cls, path):
+    def find_files(cls, path, sensor=sensors.GMI):
         """
         Generator providing access to all files that match the naming scheme
         for GMI-MRMS match file in a give folder.
@@ -67,18 +45,31 @@ class MRMSMatchFile:
             files in the given directory.
         """
         path = Path(path)
-        return list(path.glob(cls.file_pattern))
+        return list(path.glob(cls.file_pattern.format(sensor=sensor.name)))
 
-    def __init__(self, filename):
+    def __init__(self, filename, sensor=None):
         """
         Reads gzipped matchup file.
 
         Args:
             filename: The name of the file to read.
         """
+        filename = Path(filename)
+        if sensor is None:
+            if "GMI" in filename.name:
+                sensor = sensors.GMI
+            elif "MHS" in filename.name:
+                sensor = sensors.MHS
+            else:
+                raise ValueError(
+                    "Could not infer sensor from filename. Consider passing "
+                    "the sensor argument explicitly."
+                )
+        self.sensor = sensor
+
         with open(filename, "rb") as source:
             buffer = gzip.decompress(source.read())
-        self.data = np.frombuffer(buffer, DATA_RECORD_TYPES)
+        self.data = np.frombuffer(buffer, sensor.mrms_file_record)
         self.n_obs = self.data.size
 
         self.scan_time = np.zeros(self.n_obs, dtype="datetime64[ns]")
@@ -118,7 +109,7 @@ class MRMSMatchFile:
         data = self.data[indices]
         dims = ("samples",)
         dataset = {}
-        for k in DATA_RECORD_TYPES.names:
+        for k in self.sensor.mrms_file_record.names:
             if k == "brightness_temperatures":
                 ds = dims + ("channel",)
             elif k == "scan_time":
@@ -149,17 +140,14 @@ class MRMSMatchFile:
         data = self.data[indices]
 
         n_scans = input_data.scans.size
-        n_pixels = 221
+        n_pixels = input_data.pixels.size
 
         if indices.sum() <= 0:
             surface_precip = np.zeros((n_scans, n_pixels))
             surface_precip[:] = np.nan
-            input_data["surface_precip"] = (("scans", "pixels"),
-                                            surface_precip)
+            input_data["surface_precip"] = (("scans", "pixels"), surface_precip)
 
-
-            input_data["convective_precip"] = (("scans", "pixels"),
-                                               surface_precip)
+            input_data["convective_precip"] = (("scans", "pixels"), surface_precip)
             return input_data
 
         lats_1c = input_data["latitude"].data.reshape(-1, 1)
@@ -172,14 +160,6 @@ class MRMSMatchFile:
         coords_sim = latlon_to_ecef(lons, lats)
         coords_sim = np.concatenate(coords_sim, 1)
 
-        surface_types = get_surface_type_map(start_time)
-        surface_types = surface_types.interp(
-            latitude=input_data["latitude"],
-            longitude=input_data["longitude"],
-            method="nearest"
-        )
-        input_data["surface_type"].data[:] = surface_types.data
-
         kdtree = KDTree(coords_1c)
         dists, indices = kdtree.query(coords_sim)
 
@@ -190,11 +170,9 @@ class MRMSMatchFile:
         mrms_ratios = get_mrms_ratios()
         ratios = mrms_ratios.interp(
             latitude=xr.DataArray(lats.ravel(), dims="samples"),
-            longitude=xr.DataArray(lons.ravel(), dims="samples")
+            longitude=xr.DataArray(lons.ravel(), dims="samples"),
         )
-        corrected = (data["surface_precip"] -
-                     data["snow"] +
-                     data["snow"] * ratios)
+        corrected = data["surface_precip"] - data["snow"] + data["snow"] * ratios
         corrected[ratios == 1.0] = np.nan
 
         matched[indices] = corrected
@@ -211,15 +189,27 @@ class MRMSMatchFile:
 
         return input_data
 
+
 ################################################################################
 # MRMS / snodas correction factors
 ################################################################################
 
-_RATIO_FILE = ("/qdata1/pbrown/dbaseV7/mrms_snow_scale_factors/"
-              "201710-201805_10km_snodas_mrms_ratio_scale.asc."
-              "bin")
+_RATIO_FILE = (
+    "/qdata1/pbrown/dbaseV7/mrms_snow_scale_factors/"
+    "201710-201805_10km_snodas_mrms_ratio_scale.asc."
+    "bin"
+)
 
 _MRMS_RATIOS = None
+
+
+def has_snowdas_ratios():
+    """
+    Simple test function to determine whether snowdas ratio files are
+    present on system.
+    """
+    return Path(_RATIO_FILE).exists()
+
 
 def get_mrms_ratios():
     """
@@ -245,114 +235,15 @@ def get_mrms_ratios():
             lats = lat_ll + d_lat * np.arange(n_lat)
 
             offset = 2 * 2 + 4 * 8 + 4
-            array = np.frombuffer(buffer,
-                                  dtype="f4",
-                                  offset=offset,
-                                  count=n_lon * n_lat)
+            array = np.frombuffer(
+                buffer, dtype="f4", offset=offset, count=n_lon * n_lat
+            )
             ratios = array.reshape((n_lat, n_lon)).copy()
             ratios[ratios < 0] = np.nan
 
             _MRMS_RATIOS = xr.DataArray(
                 data=ratios,
                 dims=["latitude", "longitude"],
-                coords={
-                    "latitude": lats,
-                    "longitude": lons
-                }
+                coords={"latitude": lats, "longitude": lons},
             ).fillna(1.0)
     return _MRMS_RATIOS
-
-
-def get_surface_type_map(time,
-                         sensor="GMI"):
-    """
-    Return dataset contining global surface types for a given
-    data.
-
-    Args:
-        time: datetime object specifying the date for which
-            to load the surface type.
-        sensor: Name of the sensor for which to load the surface type.
-
-    Rerturn:
-        xarray.DataArray containing the global surface types.
-    """
-    time = pd.to_datetime(time)
-    year = time.year - 2000
-    month = time.month
-    day = time.day
-
-    filename = (f"/xdata/drandel/gpm/surfdat/{sensor}_surfmap_{year:02}"
-                f"{month:02}_V7.dat")
-
-    N_LON = 32 * 360
-    N_LAT = 32 * 180
-
-    LATS = np.arange(-90, 90, 1.0 / 32)
-    LONS = np.arange(-180, 180, 1.0 / 32)
-
-    offset = (day - 1) * (20 + N_LON * N_LAT) + 20
-    count = N_LON * N_LAT
-    data = np.fromfile(filename, count=count, offset=offset, dtype="u1")
-    data = data.reshape((N_LAT, N_LON))
-    data = data[::-1]
-
-    attrs = np.fromfile(filename, count=5, offset=offset - 20, dtype="i4")
-
-    arr = xr.DataArray(
-        data=data,
-        dims=["latitude", "longitude"],
-        coords={
-            "latitude": LATS,
-            "longitude": LONS
-        }
-    )
-    arr.attrs["header"] = attrs
-    return arr
-
-
-def get_surface_type_map_legacy(time,
-                                sensor="GMI"):
-    """
-    Return dataset contining pre GPROF V6 global surface types for given
-    data.
-
-    Args:
-        time: datetime object specifying the date for which
-            to load the surface type.
-        sensor: Name of the sensor for which to load the surface type.
-
-    Rerturn:
-        xarray.DataArray containing the global surface types.
-    """
-    time = pd.to_datetime(time)
-    year = time.year - 2000
-    month = time.month
-    day = time.day
-
-    filename = (f"/xdata/drandel/gpm/surfdat/{sensor}_surfmap_{year:02}"
-                f"{month:02}_V3.dat")
-
-    N_LON = 16 * 360
-    N_LAT = 16 * 180
-
-    LATS = np.arange(-90, 90, 1.0 / 16)
-    LONS = np.arange(-180, 180, 1.0 / 16)
-
-    offset = (day - 1) * (20 + N_LON * N_LAT) + 20
-    count = N_LON * N_LAT
-    data = np.fromfile(filename, count=count, offset=offset, dtype="u1")
-    data = data.reshape((N_LAT, N_LON))
-    data = data[::-1]
-    attrs = np.fromfile(filename, count=5, offset=offset - 20, dtype="i4")
-
-    arr = xr.DataArray(
-        data=data,
-        dims=["latitude", "longitude"],
-        coords={
-            "latitude": LATS,
-            "longitude": LONS
-        }
-    )
-    arr.attrs["header"] = attrs
-    return arr

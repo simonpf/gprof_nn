@@ -10,11 +10,14 @@ setup(
     version="0.0",
     description="Neural network version of Goddard Profiling Algorithm (GPROF)",
     long_description=long_description,
-    long_description_content_type="text/markdown",  # Optional (see note above)
-    url="https://github.com/simonpf/gprof_nn",  # Optional
+    long_description_content_type="text/markdown",
+    url="https://github.com/simonpf/gprof_nn",
     author="Simon Pfreundschuh",
     author_email="simon.pfreundschuh@chalmers.se",
     install_requires=["numpy", "xarray", "torch"],
+    entry_points = {
+        'console_scripts': ['gprof_nn=gprof_nn.bin:gprof_nn'],
+    },
     packages=["gprof_nn"],
     python_requires=">=3.6",
     project_urls={

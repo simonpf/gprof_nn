@@ -14,6 +14,10 @@ import numpy as np
 from quantnn.normalizer import Normalizer
 import torch
 import xarray
+import scipy as sp
+import scipy.interpolate
+
+from gprof_nn.definitions import MISSING
 
 LOGGER = logging.getLogger(__name__)
 
@@ -51,8 +55,8 @@ ORBIT_HEADER_TYPES = np.dtype(
         ("sensor", "a12"),
         ("preprocessor", "a12"),
         ("algorithm", "a12"),
-        ("profile_database_file", "a128"),
         ("radiometer_file", "a128"),
+        ("profile_database_file", "a128"),
         ("creation_date", DATE6_TYPE),
         ("granule_start_date", DATE6_TYPE),
         ("granule_end_date", DATE6_TYPE),
@@ -92,12 +96,12 @@ DATA_RECORD_TYPES = np.dtype(
         ("pixel_status", "i1"),
         ("quality_flag", "i1"),
         ("l1c_quality_flag", "i1"),
-        ("surface_type_index", "i1"),
-        ("tcwv_index", "i1"),
-        ("pop_index", "i1"),
-        ("t2m_index", "i2"),
-        ("airmass_index", "i2"),
-        ("sun_glint_angle", "i1"),
+        ("surface_type", "i1"),
+        ("total_column_water_vapor", "i1"),
+        ("pop", "i1"),
+        ("two_meter_temperature", "i2"),
+        ("airmass_type", "i2"),
+        ("sunglint_angle", "i1"),
         ("precip_flag", "i1"),
         ("latitude", "f4"),
         ("longitude", "f4"),
@@ -108,11 +112,41 @@ DATA_RECORD_TYPES = np.dtype(
         ("cloud_water_path", "f4"),
         ("ice_water_path", "f4"),
         ("most_likely_precip", "f4"),
-        ("precip_1st_tertial", "f4"),
-        ("precip_3rd_tertial", "f4"),
+        ("precip_1st_tercile", "f4"),
+        ("precip_3rd_tercile", "f4"),
         ("profile_t2m_index", "i2"),
-        ("profile_number", f"{N_SPECIES}i2"),
+        ("profile_index", f"{N_SPECIES}i2"),
         ("profile_scale", f"{N_SPECIES}f4"),
+    ]
+)
+
+DATA_RECORD_TYPES_PROFILES = np.dtype(
+    [
+        ("pixel_status", "i1"),
+        ("quality_flag", "i1"),
+        ("l1c_quality_flag", "i1"),
+        ("surface_type", "i1"),
+        ("total_column_water_vapor", "i1"),
+        ("pop", "i1"),
+        ("two_meter_temperature", "i2"),
+        ("airmass_type", "i2"),
+        ("sunglint_angle", "i1"),
+        ("precip_flag", "i1"),
+        ("latitude", "f4"),
+        ("longitude", "f4"),
+        ("surface_precip", "f4"),
+        ("frozen_precip", "f4"),
+        ("convective_precip", "f4"),
+        ("rain_water_path", "f4"),
+        ("cloud_water_path", "f4"),
+        ("ice_water_path", "f4"),
+        ("most_likely_precip", "f4"),
+        ("precip_1st_tercile", "f4"),
+        ("precip_3rd_tercile", "f4"),
+        ("profile_t2m_index", "i2"),
+        ("profile_index", f"{N_SPECIES}i2"),
+        ("profile_scale", f"{N_SPECIES}f4"),
+        ("profiles", f"{4 * N_LAYERS}f4"),
     ]
 )
 
@@ -121,11 +155,11 @@ DATA_RECORD_TYPES_SENSITIVITY = np.dtype(
         ("pixel_status", "i1"),
         ("quality_flag", "i1"),
         ("l1c_quality_flag", "i1"),
-        ("surface_type_index", "i1"),
-        ("tcwv_index", "i1"),
-        ("pop_index", "i1"),
-        ("t2m_index", "i2"),
-        ("airmass_index", "i2"),
+        ("surface_type", "i1"),
+        ("total_column_water_vapor", "i1"),
+        ("pop", "i1"),
+        ("two_meter_temperature", "i2"),
+        ("airmass_type", "i2"),
         ("sun_glint_angle", "i1"),
         ("precip_flag", "i1"),
         ("latitude", "f4"),
@@ -140,10 +174,10 @@ DATA_RECORD_TYPES_SENSITIVITY = np.dtype(
         ("cloud_water_path", "f4"),
         ("ice_water_path", "f4"),
         ("most_likely_precip", "f4"),
-        ("precip_1st_tertial", "f4"),
-        ("precip_3rd_tertial", "f4"),
+        ("precip_1st_tercile", "f4"),
+        ("precip_3rd_tercile", "f4"),
         ("profile_t2m_index", "i2"),
-        ("profile_number", f"{N_SPECIES}i2"),
+        ("profile_index", f"{N_SPECIES}i2"),
         ("profile_scale", f"{N_SPECIES}f4"),
     ]
 )
@@ -154,7 +188,7 @@ class RetrievalFile:
     Class to read binary retrieval results from the GPROF 7 algorithm.
     """
 
-    def __init__(self, filename, has_sensitivity=False):
+    def __init__(self, filename, has_sensitivity=False, has_profiles=False):
         """
         Read retrieval results.
 
@@ -164,7 +198,14 @@ class RetrievalFile:
                 gradients of the surface precip retrieval. This special
                 is only produced by a customized version of the GPROF
                 retrieval.
+            has_profiles: Flag indicating whether the file contains full
+                profile output.
         """
+        if has_sensitivity and has_profiles:
+            raise ValueError(
+                "Retrieval file can only include either sensitivity data or "
+                "profile data. Not both."
+            )
         filename = Path(filename)
         self.filename = filename
         if filename.suffix == ".gz":
@@ -174,6 +215,9 @@ class RetrievalFile:
             with open(filename, "rb") as file:
                 self.data = file.read()
         self.orbit_header = np.frombuffer(self.data, ORBIT_HEADER_TYPES, count=1)
+        self.profile_info = np.frombuffer(
+            self.data, PROFILE_INFO_TYPES, count=1, offset=ORBIT_HEADER_TYPES.itemsize
+        )
         self.n_scans = self.orbit_header["number_of_scans"][0]
         self.n_pixels = self.orbit_header["number_of_pixels"][0]
 
@@ -183,6 +227,8 @@ class RetrievalFile:
 
         if has_sensitivity:
             self.data_record_types = DATA_RECORD_TYPES_SENSITIVITY
+        elif has_profiles:
+            self.data_record_types = DATA_RECORD_TYPES_PROFILES
         else:
             self.data_record_types = DATA_RECORD_TYPES
 
@@ -237,134 +283,84 @@ class RetrievalFile:
         )
         return np.frombuffer(self.data, SCAN_HEADER_TYPES, count=1, offset=offset)
 
-    def to_xarray_dataset(self):
+    def to_xarray_dataset(self, full_profiles=True):
         """
         Return retrieval results as xarray dataset.
+
+        Args:
+            full_profiles: If 'True' the full profile variables will be
+                read in when available. If 'False' the compressed profiles
+                will be loaded even if full profiles are available.
+
+        Return:
+            'xarray.Dataset' containing all variables in the retrieval file.
         """
-        data = {
-            k: np.zeros((self.n_scans, self.n_pixels) + d[0].shape)
-            for k, d in self.data_record_types.fields.items()
-        }
-        for i, s in enumerate(self.scans):
-            for k, d in data.items():
-                d[i] = s[k]
-
-        dims = ["scans", "pixels", "channels"]
-        data = {
-            k: (dims[: len(d.shape)], d)
-            for k, d in data.items()
-            if not k.startswith("profile")
-        }
-        return xarray.Dataset(data)
-
-
-class Retrieval:
-    N_CHANNELS = 15
-
-    def __init__(self, preprocessor_file, normalizer_file, model, scans_per_batch=128):
-        from gprof_nn.data.preprocessor import PreprocessorFile
-
-        self.preprocessor_file = preprocessor_file
-        self.normalizer_file = normalizer_file
-        self.input_data = PreprocessorFile(preprocessor_file).to_xarray_dataset()
-        self.normalizer = Normalizer.load(normalizer_file)
-        self.model = model
-
-        self.n_scans = self.input_data.scans.size
-        self.n_pixels = self.input_data.pixels.size
-        self.scans_per_batch = scans_per_batch
-        self.n_batches = self.n_scans // scans_per_batch
-        remainder = self.n_scans % scans_per_batch
-        if remainder > 0:
-            self.n_batches += 1
-
-    def __len__(self):
-        return self.n_batches
-
-    def __getitem__(self, i):
-        if i > self.n_batches:
-            raise IndexError()
-        return self._get_batch_0d(i)
-
-    def _get_batch_0d(self, i):
-
-        i_start = i * self.scans_per_batch
-        i_end = (i + 1) * self.scans_per_batch
-
-        bts = self.input_data["brightness_temperatures"][i_start:i_end, :, :].data
-        bts = bts.reshape(-1, Retrieval.N_CHANNELS).copy()
-        bts[bts < 0] = np.nan
-
-        # 2m temperature
-        t2m = self.input_data["two_meter_temperature"][i_start:i_end, :].data
-        t2m = t2m.reshape(-1, 1)
-        # Total precipitable water.
-        tcwv = self.input_data["total_column_water_vapor"][i_start:i_end, :].data
-        tcwv = tcwv.reshape(-1, 1)
-
-        # Surface type
-        n = bts.shape[0]
-        st = self.input_data["surface_type"][i_start:i_end, :].data
-        st = st.reshape(-1, 1).astype(int)
-        n_types = 19
-        st_1h = np.zeros((n, n_types), dtype=np.float32)
-        st_1h[np.arange(n), st.ravel()] = 1.0
-
-        # Airmass type
-        am = self.input_data["airmass_type"][i_start:i_end, :].data
-        am = np.maximum(am.reshape(-1, 1).astype(int), 0)
-        n_types = 4
-        am_1h = np.zeros((n, n_types), dtype=np.float32)
-        am_1h[np.arange(n), am.ravel()] = 1.0
-
-        x = np.concatenate([bts, t2m, tcwv, st_1h, am_1h], axis=1)
-        return self.normalizer(x)
-
-    def run_retrieval(self):
-
-        means = {}
-        precip_1st_tercile = []
-        precip_3rd_tercile = []
-        pop = []
-
-        with torch.no_grad():
-            for i in range(len(self)):
-                x = self[i]
-
-                y_pred = self.model.predict(x)
-                if not isinstance(y_pred, dict):
-                    y_pred = {"surface_precip": y_pred}
-
-                y_mean = self.model.posterior_mean(y_pred=y_pred)
-                for k, y in y_pred.items():
-                    means.setdefault(k, []).append(y_mean[k].cpu())
-                    if k == "surface_precip":
-                        t = self.model.posterior_quantiles(
-                            y_pred=y, quantiles=[0.333, 0.667], key=k
-                        )
-                        precip_1st_tercile.append(t[:, :1].cpu())
-                        precip_3rd_tercile.append(t[:, 1:].cpu())
-                        p = self.model.probability_larger_than(y_pred=y, y=1e-4, key=k)
-                        pop.append(p.cpu())
-
-        dims = ["scans", "pixels", "levels"]
         data = {}
-        for k in means:
-            y = np.concatenate(means[k].numpy())
-            if y.ndim == 1:
-                y = y.reshape(-1, 221)
-            else:
-                y = y.reshape(-1, 221, 28)
-            data[k] = (dims[: y.ndim], y)
+        for s in self.scans:
+            for k in self.data_record_types.fields:
+                data.setdefault(k, []).append(s[k])
 
-        data["precip_1st_tercile"] = (
-            dims[:2],
-            np.concatenate(precip_1st_tercile.numpy()).reshape(-1, 221),
-        )
-        data["precip_3rd_tercile"] = (
-            dims[:2],
-            np.concatenate(precip_3rd_tercile.numpy()).reshape(-1, 221),
-        )
-        data["precip_pip"] = (dims[:2], np.concatenate(pop.numpy()).reshape(-1, 221))
+        for k in data:
+            data[k] = np.stack(data[k], axis=0)
 
-        return xarray.Dataset(data)
+        if "profiles" in data and full_profiles:
+            species = [
+                "rain_water_content",
+                "cloud_water_content",
+                "snow_water_content",
+                "latent_heat",
+            ]
+            dataset = {}
+            dims = ("scans", "pixels", "levels")
+            for i, s in enumerate(species):
+                i_start = i * 28
+                i_end = i_start + 28
+                dataset[s] = (dims, data["profiles"][..., i_start:i_end])
+        elif "profile_scale" in data:
+            shape = (N_SPECIES, N_TEMPERATURES, N_LAYERS, N_PROFILES)
+            profiles = self.profile_info["profiles"].reshape(shape, order="f")
+
+            profile_indices = data["profile_index"]
+            temperature_indices = data["profile_t2m_index"]
+            factors = data["profile_scale"]
+
+            invalid = profile_indices <= 0
+            profile_indices[invalid] = 1
+            profile_indices = np.clip(profile_indices, 1, 12)
+            temperature_indices = np.clip(temperature_indices, 1, 12)
+
+            rwc = (
+                profiles[0, temperature_indices - 1, :, profile_indices[..., 0] - 1]
+                * factors[..., np.newaxis, 0]
+            )
+            rwc[invalid[..., 0]] = MISSING
+            cwc = (
+                profiles[1, temperature_indices - 1, :, profile_indices[..., 1] - 1]
+                * factors[..., np.newaxis, 1]
+            )
+            cwc[invalid[..., 1]] = MISSING
+            swc = (
+                profiles[2, temperature_indices - 1, :, profile_indices[..., 2] - 1]
+                * factors[..., np.newaxis, 2]
+            )
+            swc[invalid[..., 2]] = MISSING
+            lh = (
+                profiles[4, temperature_indices - 1, :, profile_indices[..., 4] - 1]
+                * factors[..., np.newaxis, 4]
+            )
+            lh[invalid[..., 4]] = MISSING
+            dataset = {
+                "rain_water_content": (("scans", "pixels", "levels"), rwc),
+                "cloud_water_content": (("scans", "pixels", "levels"), cwc),
+                "snow_water_content": (("scans", "pixels", "levels"), swc),
+                "latent_heat": (("scans", "pixels", "levels"), lh),
+            }
+        else:
+            dataset = {}
+
+        dims = ["scans", "pixels", "channels", "levels"]
+        for k, d in data.items():
+            if "profile" not in k:
+                dataset[k] = (dims[: len(d.shape)], d)
+
+        return xarray.Dataset(dataset)

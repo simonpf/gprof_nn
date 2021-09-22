@@ -1,30 +1,59 @@
 """
-Extracts training data from GPROF GMI bin files.
+Extracts training data for the GPROF-NN algorithm from sim files and
+MRMS match ups.
 """
 import argparse
-from gprof_nn.data.bin import FileProcessor
 
-# Parse arguments
-parser = argparse.ArgumentParser(description="Extract data from GPROF files.")
-parser.add_argument('input_path', metavar='path', type=str, nargs=1,
-                    help='Path to folder containing input data.')
-parser.add_argument('output_file', metavar="output_file", type=str, nargs=1,
-                    help='Filename to store extracted data to.')
-parser.add_argument('--start', metavar='start_fraction', type=float, nargs=1,
-                    help='Fractional start of sample range to extract from each bin file.')
-parser.add_argument('--end', metavar='start_fraction', type=float, nargs=1,
-                    help='Fractional end of sample range to extract from each bin file.')
-parser.add_argument('-n', metavar='n_procs', type=int, nargs=1,
-                    help='Number of processes to use.')
+import gprof_nn.logging
+from gprof_nn import sensors
+from gprof_nn.data.sim import SimFileProcessor
+
+#
+# Command line arguments
+#
+
+parser = argparse.ArgumentParser(
+    description=(
+        "Extracts training data for the GPROF-NN 2D algorithm from sim files "
+        " and MRMS match ups."
+        )
+)
+parser.add_argument('sensor',
+                    metavar='sensor',
+                    type=str,
+                    help=('Name of the sensor for which to generate the'
+                         'training data'))
+parser.add_argument('day',
+                    metavar="day",
+                    type=int,
+                    nargs=1,
+                    help='The day of the month for which to extract the data')
+parser.add_argument('output_file',
+                    metavar="output_file",
+                    type=str,
+                    nargs=1,
+                    help='File to which to write the extracted data.')
+
 args = parser.parse_args()
-input_path = args.input_path[0]
+sensor = args.sensor
+day = args.day[0]
 output_file = args.output_file[0]
-start = args.start[0]
-end = args.end[0]
-n  = args.n[0]
 
-# Run processing.
-processor = FileProcessor(input_path, include_profiles=True)
-print(f"\nFound {len(processor.files)} matching files in {input_path}.\n")
-print(f"Starting extraction of data:")
-processor.run_async(output_file, start, end, n)
+sensor = getattr(sensors, sensor.strip().upper(), None)
+if sensor is None:
+    raise ValueError(f"The sensor '{args.sensor}' is not supported yet.")
+
+
+SIM_PATH = "/qdata1/pbrown/dbaseV7/simV7"
+L1C_PATH = "/pdata4/archive/GPM/1CR_GMI"
+MRMS_PATH = "/pdata4/veljko/GMI2MRMS_match2019/db_mrms4GMI/"
+ERA5_PATH = "/qdata2/archive/ERA5/"
+
+of = output_file
+print("Running processor: ", of)
+processor = SimFileProcessor(of,
+                             sensor,
+                             era5_path=ERA5_PATH,
+                             n_workers=4,
+                             day=day)
+processor.run()

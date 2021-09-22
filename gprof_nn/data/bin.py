@@ -3,8 +3,8 @@
 gprof_nn.data.bin
 =================
 
-This module contains functions to read and convert the .bin files containing
-the non-clustered database observations for GPROF V7.
+This module contains interfaces to read the binned database database
+format of GPROF V7.
 """
 import asyncio
 import logging
@@ -12,60 +12,29 @@ from pathlib import Path
 from concurrent.futures import ProcessPoolExecutor
 import re
 
-from netCDF4 import Dataset
 import numpy as np
+import pandas as pd
 import xarray as xr
 import tqdm.asyncio
 
-LOGGER = logging.getLogger(__name__)
+from gprof_nn import sensors
+from gprof_nn.definitions import PROFILE_NAMES
 
+LOGGER = logging.getLogger(__name__)
 N_LAYERS = 28
-N_FREQS = 15
-GMI_BIN_HEADER_TYPES = np.dtype(
+GENERIC_HEADER = np.dtype(
     [
         ("satellite_code", "a5"),
         ("sensor", "a5"),
-        ("frequencies", [(f"f_{i:02}", np.float32) for i in range(N_FREQS)]),
-        ("nominal_eia", [(f"f_{i:02}", np.float32) for i in range(N_FREQS)]),
     ]
 )
-
-
-GMI_BIN_RECORD_TYPES = np.dtype(
-    [
-        ("dataset_number", "i4"),
-        ("surface_precip", np.float32),
-        ("convective_precip", np.float32),
-        (
-            "brightness_temperatures",
-            [(f"tb_{i:02}", np.float32) for i in range(N_FREQS)],
-        ),
-        ("delta_tb", [(f"tb_{i:02}", np.float32) for i in range(N_FREQS)]),
-        ("rain_water_path", np.float32),
-        ("cloud_water_path", np.float32),
-        ("ice_water_path", np.float32),
-        ("total_column_water_vapor", np.float32),
-        ("two_meter_temperature", np.float32),
-        ("rain_water_content", [(f"l_{i:02}", np.float32) for i in range(N_LAYERS)]),
-        ("cloud_water_content", [(f"l_{i:02}", np.float32) for i in range(N_LAYERS)]),
-        ("snow_water_content", [(f"l_{i:02}", np.float32) for i in range(N_LAYERS)]),
-        ("latent_heat", [(f"l_{i:02}", np.float32) for i in range(N_LAYERS)]),
-    ]
-)
-
-PROFILE_NAMES = [
-    "rain_water_content",
-    "cloud_water_content",
-    "snow_water_content",
-    "latent_heat",
-]
 
 ###############################################################################
 # Input file.
 ###############################################################################
 
 
-class GPROFGMIBinFile:
+class BinFile:
     """
     This class can be used to read a GPROF v7 .bin file.
 
@@ -102,15 +71,20 @@ class GPROFGMIBinFile:
         elif len(parts) == 5:
             self.airmass_type = int(parts[-2])
         else:
-            raise Exception(
-                f"Filename {filename} does not match expected format!"
-            )
+            raise Exception(f"Filename {filename} does not match expected format!")
 
         # Read the header
-        self.header = np.fromfile(self.filename, GMI_BIN_HEADER_TYPES, count=1)
-
+        header = np.fromfile(self.filename, GENERIC_HEADER, count=1)
+        sensor = header["sensor"][0].decode().strip()
+        try:
+            self.sensor = getattr(sensors, sensor)
+        except AttributeError:
+            raise Exception(f"The sensor '{sensor}' is not yet supported.")
+        self.header = np.fromfile(self.filename, self.sensor.bin_file_header, count=1)
         self.handle = np.fromfile(
-            self.filename, GMI_BIN_RECORD_TYPES, offset=GMI_BIN_HEADER_TYPES.itemsize
+            self.filename,
+            self.sensor.get_bin_file_record(self.surface_type),
+            offset=self.sensor.bin_file_header.itemsize,
         )
         self.n_profiles = self.handle.shape[0]
 
@@ -130,8 +104,9 @@ class GPROFGMIBinFile:
             angles in this file.
         """
         attributes = {
-            "frequencies": self.header["frequencies"].view("15f4"),
-            "nominal_eia": self.header["nominal_eia"].view("15f4"),
+            "frequencies": self.header["frequencies"][0],
+            "nominal_eia": self.header["nominal_eia"][0],
+            "sensor": self.sensor.name,
         }
         return attributes
 
@@ -153,26 +128,43 @@ class GPROFGMIBinFile:
         """
         if start is None or end is None:
             indices = np.arange(self.n_profiles)
+            n_samples = self.n_profiles
         else:
             n_start = int(start * self.n_profiles)
             n_end = int(end * self.n_profiles)
             n_samples = n_end - n_start
             indices = self.indices[n_start:n_end]
 
+        # Parse variable from structured array and sort into
+        # dictionary.
         results = {}
-        for k, t in GMI_BIN_RECORD_TYPES.descr:
+        dim_dict = {
+            self.sensor.n_chans: "channels",
+            N_LAYERS: "layers",
+        }
+        if self.sensor.n_angles > 1:
+            dim_dict[self.sensor.n_angles] = "angles"
 
-            if (not self.include_profiles) and k in PROFILE_NAMES:
-                continue
-            if type(t) is str:
-                view = self.handle[k].view(t)
-                results[k] = ("samples",), view[indices]
+        record_type = self.sensor.get_bin_file_record(self.surface_type)
+        for k, t, *shape in record_type.descr:
+            if k == "scan_time":
+                data = self.handle[k]
+                date = pd.DataFrame(
+                    {
+                        "year": data[:, 0],
+                        "month": data[:, 1],
+                        "day": data[:, 2],
+                        "hour": data[:, 3],
+                        "minute": data[:, 4],
+                        "second": data[:, 5],
+                    }
+                )
+                results[k] = (("samples",), pd.to_datetime(date, errors="coerce"))
             else:
-                view = self.handle[k].view(f"{len(t)}{t[0][1]}")
-                if len(t) == 15:
-                    results[k] = (("samples", "channel"), view[indices])
-                else:
-                    results[k] = (("samples", "layer"), view[indices])
+                dims = ("samples",)
+                if shape:
+                    dims = dims + tuple([dim_dict[s] for s in shape[0]])
+                results[k] = dims, self.handle[k][indices]
 
         results["surface_type"] = (
             ("samples",),
@@ -182,10 +174,22 @@ class GPROFGMIBinFile:
             ("samples",),
             self.airmass_type * np.ones(n_samples, dtype=np.int),
         )
+        source = 0
+        if self.surface_type in [8, 9, 10, 11]:
+            source = 1
+        elif self.surface_type in [2, 16]:
+            source = 2
+        results["source"] = (
+            ("samples",),
+            source * np.ones(n_samples, dtype=np.int),
+        )
+
         results["tpw"] = (("samples"), self.tpw * np.ones(n_samples, dtype=np.float))
         results["temperature"] = (("samples",), self.temperature * np.ones(n_samples))
 
-        return xr.Dataset(results)
+        dataset = xr.Dataset(results)
+        dataset.attrs.update(self.get_attributes())
+        return dataset
 
 
 def load_data(filename, start=0.0, end=1.0, include_profiles=False):
@@ -200,7 +204,7 @@ def load_data(filename, start=0.0, end=1.0, include_profiles=False):
     Returns:
         Dictionary containing each database variables as numpy array.
     """
-    input_file = GPROFGMIBinFile(filename, include_profiles=include_profiles)
+    input_file = BinFile(filename, include_profiles=include_profiles)
     return input_file.to_xarray_dataset(start, end)
 
 
@@ -212,10 +216,7 @@ GPM_FILE_REGEXP = re.compile(r"gpm_(\d\d\d)_(\d\d)(_(\d\d))?_(\d\d).bin")
 
 
 def process_input(input_filename, start=1.0, end=1.0, include_profiles=False):
-    data = load_data(input_filename,
-                     start,
-                     end,
-                     include_profiles=include_profiles)
+    data = load_data(input_filename, start, end, include_profiles=include_profiles)
     return data
 
 
