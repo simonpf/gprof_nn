@@ -32,8 +32,8 @@ def calculate_smoothing_kernels(
     """
     d_a = 4.9e3
     d_x = 5.09e3
-    n_a = int(fwhm_a / d_a)
-    n_x = int(fwhm_x / d_x)
+    n_a = int(2.0 * fwhm_a / d_a)
+    n_x = int(2.0 * fwhm_x / d_x)
 
     k = np.ones((2 * n_a + 1, 2 * n_x + 1), dtype=np.float32)
     x_a = np.arange(-n_a, n_a + 1).reshape(-1, 1) * d_a
@@ -185,4 +185,82 @@ class GPMCMBFile:
                     ("scans", "pixels", "layers"),
                     twc[..., ::-1]
                 )
+            return xr.Dataset(dataset)
+
+
+class GPMLHFile:
+    """
+    Class to read in DPR spectral latent heating files.
+    """
+    def __init__(self, filename):
+        """
+        Create GPMCMB object to read a given file.
+
+        Args:
+            filename: Path pointing to the file to read.
+
+        """
+        self.filename = Path(filename)
+        time = self.filename.stem.split(".")[4][:-8]
+        self.start_time = datetime.strptime(
+            time,
+            "%Y%m%d-S%H%M%S"
+        )
+
+    def to_xarray_dataset(self, smooth=False,
+                          profiles=False,
+                          roi=None):
+        """
+        Load data in file into 'xarray.Dataset'.
+
+        Args:
+            smooth: If set to true the 'surface_precip' field will be smoothed
+                to match the footprint of the GMI 23.8 GHz channels.
+            roi: Optional bounding box given as list
+                 ``[lon_0, lat_0, lon_1, lat_1]`` specifying the longitude
+                 and latitude coordinates of the lower left
+                 (``lon_0, lat_0``) and upper right (``lon_1, lat_1``)
+                 corners. If given, only scans containing at least one pixel
+                 within the given bounding box will be returned.
+        """
+        with xr.open_dataset(str(self.filename)) as data:
+            latitude = data["Swath_Latitude"][:]
+            longitude = data["Swath_Longitude"][:]
+
+            if roi is not None:
+                lon_0, lat_0, lon_1, lat_1 = roi
+                inside = ((longitude >= lon_0) *
+                          (latitude >= lat_0) *
+                          (longitude < lon_1) *
+                          (latitude < lat_1))
+                inside = np.any(inside, axis=1)
+                i_start, i_end = np.where(inside)[0][[0, -1]]
+            else:
+                i_start = 0
+                i_end = latitude.shape[0]
+
+            latitude = latitude[i_start:i_end]
+            longitude = longitude[i_start:i_end]
+
+            date = {
+                "year": data["Swath_ScanTime_Year"].data[i_start:i_end],
+                "month": data["Swath_ScanTime_Month"].data[i_start:i_end],
+                "day": 1
+            }
+            date = np.array(pd.to_datetime(date))
+            date = date + data["Swath_ScanTime_DayOfMonth"].data[i_start:i_end]
+            date = date + data["Swath_ScanTime_Hour"].data[i_start:i_end]
+            date = date + data["Swath_ScanTime_Minute"].data[i_start:i_end]
+
+            latent_heat = data["Swath_latentHeating"][i_start:i_end]
+            if smooth:
+                k = calculate_smoothing_kernels(18e3, 10e3)
+                latent_heat = smooth_field(latent_heat, k)
+
+            dataset = {
+                "scan_time": (("scans",), date),
+                "latitude": (("scans", "pixels"), latitude),
+                "longitude": (("scans", "pixels"), longitude),
+                "latent_heat": (("scans", "pixels", "levels"), latent_heat)
+            }
             return xr.Dataset(dataset)
