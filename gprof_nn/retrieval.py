@@ -684,7 +684,7 @@ class NetcdfLoader2D(GPROF_NN_2D_Dataset):
                          batch_size=batch_size,
                          shuffle=False,
                          augment=False,
-                         input_dimensions=(64, 221))
+                         input_dimensions=(96, 192))
         self.n_samples = len(self)
         self.scalar_dimensions = ("samples",)
         self.profile_dimensions = ("samples", "layers")

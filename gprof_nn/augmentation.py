@@ -610,7 +610,7 @@ def get_transformation_coordinates(lats,
 
     y_min = coords_pixel_in[0].min()
     y_max = (SCANS_PER_SAMPLE - coords_pixel_in[0].max() - 1)
-    y = -y_min + 0.5 * (y + 1.0) * (y_max + y_min)
+    y = -y_min + y * (y_max + y_min)
     coords_pixel_in[0] += y
 
     return coords_pixel_in
