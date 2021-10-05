@@ -118,7 +118,10 @@ def run(args):
     # Loop over days.
     for d in days:
         LOGGER.info("Pocessing day %s.", d)
-        processor = SimFileProcessor(output,
+        output_file = (
+                output / f"gprof_nn_{sensor.name.lower()}_{config}_{d:02}"
+        )
+        processor = SimFileProcessor(output_file,
                                      sensor,
                                      config.upper(),
                                      era5_path=era5_path,
