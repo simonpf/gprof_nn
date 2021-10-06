@@ -515,7 +515,8 @@ def process_sim_file(sim_filename, configuration, era5_path, log_queue=None):
 
     LOGGER.debug("Running preprocessor for sim file %s.", sim_filename)
     data_pp = run_preprocessor(
-        l1c_file.filename, sensor=sensors.GMI, configuration=configuration
+        l1c_file.filename, sensor=sensors.GMI, configuration=configuration,
+        robust=False
     )
     if data_pp is None:
         return None
@@ -614,7 +615,8 @@ def process_mrms_file(mrms_filename, configuration, day, log_queue=None):
         try:
             f.extract_scans(CONUS, f_roi)
             data_pp = run_preprocessor(
-                f_roi, configuration=configuration, sensor=sensor
+                f_roi, configuration=configuration, sensor=sensor,
+                robust=False
             )
         finally:
             Path(f_roi).unlink()
@@ -663,7 +665,7 @@ def process_l1c_file(l1c_filename, sensor, configuration, era5_path, log_queue=N
     if log_queue is not None:
         gprof_nn.logging.configure_queue_logging(log_queue)
     LOGGER.info("Starting processing L1C file %s.", l1c_filename)
-    data_pp = run_preprocessor(l1c_filename, sensor=sensor, configuration=configuration)
+    data_pp = run_preprocessor(l1c_filename, sensor=sensor, configuration=configuration, robust=False)
     if data_pp is None:
         return None
     data_pp = add_targets(data_pp, sensor)
@@ -962,6 +964,8 @@ class SimFileProcessor:
         # single dataset.
 
         n_tasks = len(tasks)
+        n_chunks = 4
+        chunk = 1
 
         with Progress(console=get_console()) as progress:
             bar = progress.add_task("Extracting data:", total=len(tasks))
@@ -986,20 +990,21 @@ class SimFileProcessor:
                         task_done = True
                 progress.advance(bar)
 
-            if dataset is not None:
-                dataset = add_brightness_temperatures(dataset, self.sensor)
-                datasets.append(dataset)
-                if len(datasets) > n_tasks // 2:
-                    dataset = xr.concat(datasets, "samples")
-                    filename = output_path / (output_file + "_a.nc")
-                    dataset.attrs["sensor"] = self.sensor.name
-                    dataset.to_netcdf(filename)
-                    LOGGER.info(f"Writing file: {filename}")
-                    datasets = []
+                if dataset is not None:
+                    dataset = add_brightness_temperatures(dataset, self.sensor)
+                    datasets.append(dataset)
+                    if len(datasets) > n_tasks // n_chunks:
+                        dataset = xr.concat(datasets, "samples")
+                        filename = output_path / (output_file + f"_{chunk:02}.nc")
+                        dataset.attrs["sensor"] = self.sensor.name
+                        dataset.to_netcdf(filename)
+                        LOGGER.info(f"Writing file: {filename}")
+                        datasets = []
+                        chunk += 1
 
         # Store dataset with sensor name as attribute.
         dataset = xr.concat(datasets, "samples")
-        filename = output_path / (output_file + "_b.nc")
+        filename = output_path / (output_file + f"_{chunk:02}.nc")
         dataset.attrs["sensor"] = self.sensor.name
         LOGGER.info(f"Writing file: {filename}")
         dataset.to_netcdf(filename)
