@@ -490,7 +490,9 @@ class RetrievalGradientDriver(RetrievalDriver):
             for k in y_pred:
                 if k == "surface_precip":
                     xrnn.model.zero_grad()
-                    y_mean[k].backward(torch.ones_like(y_mean[k]))
+                    dims = list(range(2, y_mean[k].ndim))
+                    y_mean_sum = y_mean[k].sum(dims)
+                    y_mean_sum.backward(torch.ones_like(y_mean_sum))
                     grads[k] = x.grad
 
             for k, y in y_pred.items():
