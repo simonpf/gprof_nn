@@ -880,7 +880,7 @@ class PreprocessorLoader0D(ObservationLoader0D):
         """
         suffix = filename.suffix
         if suffix.endswith("HDF5"):
-            with TemporaryDirectory as tmp:
+            with TemporaryDirectory() as tmp:
                 output_file = Path(tmp) / "input.pp"
                 run_preprocessor_l1c(filename, output_file)
                 super().__init__(
@@ -1052,7 +1052,7 @@ class PreprocessorLoader2D(ObservationLoader2D):
         """
         suffix = filename.suffix
         if suffix.endswith("HDF5"):
-            with TemporaryDirectory as tmp:
+            with TemporaryDirectory() as tmp:
                 output_file = Path(tmp) / "input.pp"
                 run_preprocessor_l1c(filename, output_file)
                 super().__init__(
