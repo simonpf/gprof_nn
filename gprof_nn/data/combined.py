@@ -154,14 +154,16 @@ class GPMCMBFile:
                 lf[lf < 0] = 1.0
                 levels = (np.arange(88) + 1).reshape(1, 1, -1)
                 phases = data["phaseBinNodes"][i_start:i_end]
-                print(phases[0, 0])
                 top = np.expand_dims(phases[..., 1], 2)
 
                 rwc = twc.copy()
                 indices = (levels < top)
                 rwc[indices] = 0.0
-                indices = (levels >= top) * (levels < top + 10)
-                rwc[indices] *= lf.ravel()
+                indices = (levels >= top) * (levels < top + 10.0)
+
+                lf_mask = (np.arange(10)).reshape(1, 1, -1) + top
+                lf_mask = lf_mask <= 88
+                rwc[indices] *= lf[lf_mask].ravel()
                 rwc[twc < -1000] = np.nan
 
                 swc = twc - rwc

@@ -176,11 +176,11 @@ def write_preprocessor_file(input_data, output_file):
 
 
 ###############################################################################
-# GPROF-NN 0D
+# GPROF-NN 1D
 ###############################################################################
 
 
-class Dataset0DBase:
+class Dataset1DBase:
     """
     Base class for batched datasets providing generic implementations of batch
     access and shuffling.
@@ -250,9 +250,9 @@ class Dataset0DBase:
             return self.x.shape[0]
 
 
-class GPROF_NN_0D_Dataset(Dataset0DBase):
+class GPROF_NN_1D_Dataset(Dataset1DBase):
     """
-    Dataset class providing an interface for the single-pixel GPROF-NN 0D
+    Dataset class providing an interface for the single-pixel GPROF-NN 1D
     retrieval algorithm.
 
     Attributes:
@@ -283,7 +283,7 @@ class GPROF_NN_0D_Dataset(Dataset0DBase):
         equalizer=None,
     ):
         """
-        Create GPROF 0D dataset.
+        Create GPROF 1D dataset.
 
         Args:
             filename: Path to the NetCDF file containing the training data to
@@ -329,7 +329,7 @@ class GPROF_NN_0D_Dataset(Dataset0DBase):
                 raise Exception(f"Sensor {sensor_name} isn't supported yet")
         self.sensor = sensor
 
-        x, y = self.sensor.load_training_data_0d(
+        x, y = self.sensor.load_training_data_1d(
             filename, self.targets, self.augment, self._rng, equalizer=equalizer
         )
         self.x = x
@@ -373,10 +373,10 @@ class GPROF_NN_0D_Dataset(Dataset0DBase):
             self._shuffle()
 
     def __repr__(self):
-        return f"GPROF_NN_0D_Dataset({self.filename.name}, n_batches={len(self)})"
+        return f"GPROF_NN_1D_Dataset({self.filename.name}, n_batches={len(self)})"
 
     def __str__(self):
-        return f"GPROF_NN_0D_Dataset({self.filename.name}, n_batches={len(self)})"
+        return f"GPROF_NN_1D_Dataset({self.filename.name}, n_batches={len(self)})"
 
     def _transform_zeros(self):
         """
@@ -480,7 +480,7 @@ class GPROF_NN_0D_Dataset(Dataset0DBase):
         new_dataset.to_netcdf(filename)
 
 
-class TrainingObsDataset0D(GPROF_NN_0D_Dataset):
+class TrainingObsDataset1D(GPROF_NN_1D_Dataset):
     """
     Special training dataset that serves only the simulated brightness
     temperatures and ancillary data in order to train an observation
@@ -552,11 +552,11 @@ class TrainingObsDataset0D(GPROF_NN_0D_Dataset):
             self.y = self.normalizer_y(self.y)
 
     def __repr__(self):
-        s = f"TrainingObsDataset0D({self.filename.name}, " f"n_batches={len(self)})"
+        s = f"TrainingObsDataset1D({self.filename.name}, " f"n_batches={len(self)})"
         return s
 
     def __str__(self):
-        s = f"TrainingObsDataset0D({self.filename.name}, " f"n_batches={len(self)})"
+        s = f"TrainingObsDataset1D({self.filename.name}, " f"n_batches={len(self)})"
         return s
 
 
@@ -585,14 +585,14 @@ def _replace_randomly(x, p, rng=None):
 
 
 ###############################################################################
-# GPROF-NN 2D
+# GPROF-NN 3D
 ###############################################################################
 
 
-class GPROF_NN_2D_Dataset:
+class GPROF_NN_3D_Dataset:
     """
-    Base class for GPROF-NN 2D-retrieval training data in which training
-    samples consist of 2D scenes of input data and corresponding target
+    Base class for GPROF-NN 3D-retrieval training data in which training
+    samples consist of 3D scenes of input data and corresponding target
     fields.
 
     Objects of this class act as an iterator over batches in the training
@@ -653,7 +653,7 @@ class GPROF_NN_2D_Dataset:
             width, height = _INPUT_DIMENSIONS[sensor.name.upper()]
         else:
             width, height = input_dimensions
-        x, y = sensor.load_training_data_2d(
+        x, y = sensor.load_training_data_3d(
             filename, self.targets, augment, self._rng,
             width=width, height=height
         )
@@ -688,7 +688,7 @@ class GPROF_NN_2D_Dataset:
             self._shuffle()
 
     def __repr__(self):
-        return f"GPROF_NN_2D_Dataset({self.filename.name}, n_batches={len(self)})"
+        return f"GPROF_NN_3D_Dataset({self.filename.name}, n_batches={len(self)})"
 
     def __str__(self):
         return self.__repr__()
@@ -842,7 +842,7 @@ class GPROF_NN_2D_Dataset:
         new_dataset.to_netcdf(filename)
 
 
-class SimulatorDataset(GPROF_NN_2D_Dataset):
+class SimulatorDataset(GPROF_NN_3D_Dataset):
     """
     Dataset to train a simulator network to predict simulated brightness
     temperatures and brightness temperature biases.
@@ -879,7 +879,7 @@ class SimulatorDataset(GPROF_NN_2D_Dataset):
 
         dataset = xr.open_dataset(filename)
         dataset = dataset[{"samples": dataset.source == 0}]
-        x, y = self.load_training_data_2d(dataset, targets, augment, self._rng)
+        x, y = self.load_training_data_3d(dataset, targets, augment, self._rng)
         indices_1h = list(range(17, 39))
         if normalizer is None:
             self.normalizer = MinMaxNormalizer(x, exclude_indices=indices_1h)
@@ -905,7 +905,7 @@ class SimulatorDataset(GPROF_NN_2D_Dataset):
         if self.shuffle:
             self._shuffle()
 
-    def load_training_data_2d(self, dataset, targets, augment, rng):
+    def load_training_data_3d(self, dataset, targets, augment, rng):
         """
         Load data for training a simulator data.
 

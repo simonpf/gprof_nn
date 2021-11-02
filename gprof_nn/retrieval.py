@@ -22,8 +22,8 @@ import pandas as pd
 from gprof_nn import sensors
 import gprof_nn.logging
 from gprof_nn.definitions import PROFILE_NAMES, ALL_TARGETS
-from gprof_nn.data.training_data import (GPROF_NN_0D_Dataset,
-                                         GPROF_NN_2D_Dataset)
+from gprof_nn.data.training_data import (GPROF_NN_1D_Dataset,
+                                         GPROF_NN_3D_Dataset)
 from gprof_nn.data.l1c import L1CFile
 
 from gprof_nn.data.preprocessor import PreprocessorFile, run_preprocessor
@@ -592,15 +592,15 @@ class NetcdfLoader:
         return x
 
 
-class NetcdfLoader0D(GPROF_NN_0D_Dataset):
+class NetcdfLoader1D(GPROF_NN_1D_Dataset):
     """
-    Data loader for running the GPROF-NN 0D retrieval on input data
+    Data loader for running the GPROF-NN 1D retrieval on input data
     in NetCDF data format.
     """
     def __init__(self, filename, normalizer, batch_size=16 * 1024):
         """
         Create loader for input data in NetCDF format that provides input
-        data for the GPROF-NN 0D retrieval.
+        data for the GPROF-NN 1D retrieval.
 
         Args:
             filename: The name of the NetCDF file containing the input data.
@@ -659,9 +659,12 @@ class NetcdfLoader0D(GPROF_NN_0D_Dataset):
         return data
 
 
-class NetcdfLoader2D(GPROF_NN_2D_Dataset):
+NetcdfLoader0D = NetcdfLoader1D
+
+
+class NetcdfLoader3D(GPROF_NN_3D_Dataset):
     """
-    Data loader for running the GPROF-NN 2D retrieval on input data
+    Data loader for running the GPROF-NN 3D retrieval on input data
     in NetCDF data format.
     """
     def __init__(self,
@@ -670,7 +673,7 @@ class NetcdfLoader2D(GPROF_NN_2D_Dataset):
                  batch_size=32):
         """
         Create loader for input data in NetCDF format that provides input
-        data for the GPROF-NN 2D retrieval.
+        data for the GPROF-NN 3D retrieval.
 
         Args:
             filename: The name of the NetCDF file containing the input data.
@@ -742,12 +745,15 @@ class NetcdfLoader2D(GPROF_NN_2D_Dataset):
         return data
 
 
+NetcdfLoader2D = NetcdfLoader3D
+
+
 ###############################################################################
 # Preprocessor format
 ###############################################################################
 
 
-class ObservationLoader0D:
+class ObservationLoader1D:
     """
     Generic class to load input data either from an L1C file or a
     preprocessor file.
@@ -860,7 +866,7 @@ class ObservationLoader0D:
         )
 
 
-class PreprocessorLoader0D(ObservationLoader0D):
+class PreprocessorLoader1D(ObservationLoader1D):
     """
     Interface class to load retrieval input data for retrieval models
     that require ancillary data from the preprocessor.
@@ -904,7 +910,10 @@ class PreprocessorLoader0D(ObservationLoader0D):
             )
 
 
-class L1CLoader0D(ObservationLoader0D):
+PreprocessorLoader0D = PreprocessorLoader1D
+
+
+class L1CLoader1D(ObservationLoader1D):
     """
     Interface class to run the GPROF-NN retrieval on preprocessor files.
     """
@@ -946,9 +955,12 @@ class L1CLoader0D(ObservationLoader0D):
         )
 
 
-class ObservationLoader2D:
+L1CLoader0D = L1CLoader1D
+
+
+class ObservationLoader3D:
     """
-    Interface class to run the GPROF-NN 2D retrieval on preprocessor files.
+    Interface class to run the GPROF-NN 3D retrieval on preprocessor files.
     """
 
     def __init__(self, filename, file_class, normalizer):
@@ -1037,9 +1049,9 @@ class ObservationLoader2D:
         )
 
 
-class PreprocessorLoader2D(ObservationLoader2D):
+class PreprocessorLoader3D(ObservationLoader3D):
     """
-    Interface class to run the GPROF-NN 2D retrieval on preprocessor files.
+    Interface class to run the GPROF-NN 3D retrieval on preprocessor files.
     """
 
     def __init__(self, filename, normalizer):
@@ -1074,9 +1086,9 @@ class PreprocessorLoader2D(ObservationLoader2D):
             )
 
 
-class L1CLoader2D(ObservationLoader2D):
+class L1CLoader3D(ObservationLoader3D):
     """
-    Interface class to run the GPROF-NN 2D retrieval on preprocessor files.
+    Interface class to run the GPROF-NN 3D retrieval on preprocessor files.
     """
 
     def __init__(self, filename, normalizer):
@@ -1094,6 +1106,9 @@ class L1CLoader2D(ObservationLoader2D):
             L1CFile,
             normalizer
         )
+
+
+L1CLoader2D = L1CLoader3D
 
 
 ###############################################################################

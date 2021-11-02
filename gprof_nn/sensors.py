@@ -368,9 +368,9 @@ class Sensor(ABC):
         return self._preprocessor_pixel_record
 
     @abstractmethod
-    def load_data_0d(self, filename):
+    def load_data_1d(self, filename):
         """
-        Load input data for GPROF-NN 0D algorithm from NetCDF file.
+        Load input data for GPROF-NN 1D algorithm from NetCDF file.
 
         Args:
             filename: Path of the file from which to load the data.
@@ -387,9 +387,9 @@ class Sensor(ABC):
         pass
 
     @abstractmethod
-    def load_training_data_0d(self, filename, targets, augment, rng):
+    def load_training_data_1d(self, filename, targets, augment, rng):
         """
-        Load training data for GPROF-NN 0D algorithm from NetCDF file.
+        Load training data for GPROF-NN 1D algorithm from NetCDF file.
 
         Args:
             filename: Path of the file from which to load the data.
@@ -409,7 +409,7 @@ class Sensor(ABC):
 
     def load_data_2d(self, filename, targets):
         """
-        Load input data for GPROF-NN 2D algorithm from NetCDF file.
+        Load input data for GPROF-NN 3D algorithm from NetCDF file.
 
         Args:
             filename: Path of the file from which to load the data.
@@ -425,9 +425,9 @@ class Sensor(ABC):
             dimensions along the third and fourth, respectively.
         """
 
-    def load_training_data_2d(self, filename, targets):
+    def load_training_data_3d(self, filename, targets):
         """
-        Load training data for GPROF-NN 2D algorithm from NetCDF file.
+        Load training data for GPROF-NN 3D algorithm from NetCDF file.
 
         Args:
             filename: Path of the file from which to load the data.
@@ -555,9 +555,9 @@ class ConicalScanner(Sensor):
     def load_brightness_temperatures(self, data, angles=None, mask=None):
         return load_variable(data, "brightness_temperatures", mask=mask)
 
-    def load_data_0d(self, filename):
+    def load_data_1d(self, filename):
         """
-        Load all samples in training data as input for GPROF-NN 0D retrieval.
+        Load all samples in training data as input for GPROF-NN 1D retrieval.
 
         Args:
             filename: The filename of the NetCDF file containing the training
@@ -565,7 +565,7 @@ class ConicalScanner(Sensor):
 
         Return:
             Numpy array with two dimensions containing all samples in the give
-            file as input for the GPROF-NN 0D retrieval.
+            file as input for the GPROF-NN 1D retrieval.
         """
         x = []
         with xr.open_dataset(filename) as dataset:
@@ -584,12 +584,12 @@ class ConicalScanner(Sensor):
                 x.append(np.concatenate([tbs, t2m, tcwv, st, am], axis=1))
         return np.concatenate(x, axis=0)
 
-    def load_training_data_0d(self, filename, targets, augment, rng, equalizer=None):
+    def load_training_data_1d(self, filename, targets, augment, rng, equalizer=None):
         """
-        Load training data for GPROF-NN 0D retrieval. This function will
+        Load training data for GPROF-NN 1D retrieval. This function will
         only load pixels that with a finite surface precip value in order
         to avoid training on samples that don't provide any information to
-        the 0D retrieval.
+        the 1D retrieval.
 
         Output values that may be missing for a given pixel are masked using
         the 'MASKED_OUTPUT' value.
@@ -652,7 +652,7 @@ class ConicalScanner(Sensor):
 
     def load_data_2d(self, filename):
         """
-        Load all scenes in training data as input for GPROF-NN 0D retrieval.
+        Load all scenes in training data as input for GPROF-NN 1D retrieval.
 
         Args:
             filename: The filename of the NetCDF file containing the training
@@ -688,7 +688,7 @@ class ConicalScanner(Sensor):
 
             return np.stack(x)
 
-    def load_training_data_2d(
+    def load_training_data_3d(
             self,
             dataset,
             targets,
@@ -697,9 +697,9 @@ class ConicalScanner(Sensor):
             width=96,
             height=128):
         """
-        Load training data for GPROF-NN 2D retrieval. This function extracts
+        Load training data for GPROF-NN 3D retrieval. This function extracts
         scenes of 128 x 96 pixels from each training data sample and arranges
-        the data to match the expected format of the GPROF-NN 2D retrieval.
+        the data to match the expected format of the GPROF-NN 3D retrieval.
 
         Args:
             filename: The filename of the NetCDF file containing the training
@@ -901,9 +901,9 @@ class CrossTrackScanner(Sensor):
                 v = v[..., 0]
         return v
 
-    def load_data_0d(self, filename):
+    def load_data_1d(self, filename):
         """
-        Load all samples in training data as input for GPROF-NN 0D retrieval.
+        Load all samples in training data as input for GPROF-NN 1D retrieval.
 
         Args:
             filename: The filename of the NetCDF file containing the training
@@ -911,7 +911,7 @@ class CrossTrackScanner(Sensor):
 
         Return:
             Numpy array with two dimensions containing all samples in the give
-            file as input for the GPROF-NN 0D retrieval.
+            file as input for the GPROF-NN 1D retrieval.
         """
         with xr.open_dataset(filename) as dataset:
             n_samples = dataset.samples.size
@@ -957,12 +957,12 @@ class CrossTrackScanner(Sensor):
         x = np.concatenate(x, axis=0)
         return x
 
-    def load_training_data_0d(self, filename, targets, augment, rng, equalizer=None):
+    def load_training_data_1d(self, filename, targets, augment, rng, equalizer=None):
         """
-        Load training data for GPROF-NN 0D retrieval. This function will
+        Load training data for GPROF-NN 1D retrieval. This function will
         only load pixels that with a finite surface precip value in order
         to avoid training on samples that don't provide any information to
-        the 0D retrieval.
+        the 1D retrieval.
 
         Earth incidence angles are sampled uniformly from the range
         ``[-angle_max, angle_max]``, where ``angle_max`` is calculated by
@@ -1068,7 +1068,7 @@ class CrossTrackScanner(Sensor):
     def load_data_2d(self, filename, targets, augment, rng):
         pass
 
-    def _load_training_data_2d_sim(
+    def _load_training_data_3d_sim(
             self,
             scene,
             targets,
@@ -1093,7 +1093,7 @@ class CrossTrackScanner(Sensor):
 
         Returns:
             Tuple ``x, y`` containing one sample of training data for the
-            GPROF-NN 2D retrieval.
+            GPROF-NN 3D retrieval.
         """
         if augment:
             p_x_o = rng.random()
@@ -1164,7 +1164,7 @@ class CrossTrackScanner(Sensor):
                     y[k] = np.flip(y[k], -1)
         return x, y
 
-    def _load_training_data_2d_other(
+    def _load_training_data_3d_other(
             self,
             scene,
             targets,
@@ -1189,7 +1189,7 @@ class CrossTrackScanner(Sensor):
 
         Returns:
             Tuple ``x, y`` containing one sample of training data for the
-            GPROF-NN 2D retrieval.
+            GPROF-NN 3D retrieval.
         """
         if augment:
             p_x = rng.random()
@@ -1261,7 +1261,7 @@ class CrossTrackScanner(Sensor):
 
         return x, y
 
-    def load_training_data_2d(self,
+    def load_training_data_3d(self,
                               dataset,
                               targets,
                               augment,
@@ -1293,14 +1293,14 @@ class CrossTrackScanner(Sensor):
             scene = decompress_scene(dataset[{"samples": i}], targets + vs)
             source = scene.source
             if source == 0:
-                x_i, y_i = self._load_training_data_2d_sim(scene,
+                x_i, y_i = self._load_training_data_3d_sim(scene,
                                                            targets,
                                                            augment,
                                                            rng,
                                                            width=width,
                                                            height=height)
             else:
-                x_i, y_i = self._load_training_data_2d_other(
+                x_i, y_i = self._load_training_data_3d_other(
                     scene, targets, augment, rng, width=width, height=height
                 )
             x.append(x_i)

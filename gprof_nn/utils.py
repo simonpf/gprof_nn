@@ -45,15 +45,15 @@ def surface_type_to_name(surface_index):
     return SURFACE_TYPE_NAMES[int(surface_index) - 1]
 
 
-def load_retrieval_results(files_gprof, files_gprof_nn_0d, files_reference):
+def load_retrieval_results(files_gprof, files_gprof_nn_1d, files_reference):
     """
     Load and combine retrieval results from different algorithm.
 
     Args:
         files_gprof: List of files containing the results from the legacy GPROF
              algorithm.
-        files_gprof_nn_0d: List of files containing the results from the
-             GPROF-NN 0D algorithm.
+        files_gprof_nn_1d: List of files containing the results from the
+             GPROF-NN 1D algorithm.
         files_reference: List of files containing the reference results.
 
     Returns:
@@ -61,7 +61,7 @@ def load_retrieval_results(files_gprof, files_gprof_nn_0d, files_reference):
         retrieval results.
     """
     results_gprof = []
-    results_gprof_nn_0d = []
+    results_gprof_nn_1d = []
     reference = []
 
     for f in files_reference:
@@ -78,15 +78,15 @@ def load_retrieval_results(files_gprof, files_gprof_nn_0d, files_reference):
             data = reference[v].data
             reference[v + "_gprof"] = results_gprof[v]
 
-    for f in files_gprof_nn_0d:
-        results_gprof_nn_0d.append(xr.load_dataset(f))
-    if files_gprof_nn_0d:
-        results_gprof_nn_0d = xr.concat(results_gprof_nn_0d, "samples")
+    for f in files_gprof_nn_1d:
+        results_gprof_nn_1d.append(xr.load_dataset(f))
+    if files_gprof_nn_1d:
+        results_gprof_nn_1d = xr.concat(results_gprof_nn_1d, "samples")
         for v in reference.variables:
-            if not v in results_gprof_nn_0d.variables:
+            if not v in results_gprof_nn_1d.variables:
                 continue
             data = reference[v].data
-            reference[v + "_gprof_nn_0d"] = results_gprof_nn_0d[v]
+            reference[v + "_gprof_nn_1d"] = results_gprof_nn_1d[v]
 
     return reference
 

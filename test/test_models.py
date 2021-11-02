@@ -7,7 +7,7 @@ from quantnn.transformations import LogLinear
 from gprof_nn import sensors
 from gprof_nn.definitions import ALL_TARGETS
 from gprof_nn.data.training_data import (SimulatorDataset,
-                                         GPROF_NN_2D_Dataset)
+                                         GPROF_NN_3D_Dataset)
 from gprof_nn.models import (
     MLP,
     ResidualMLP,
@@ -15,7 +15,7 @@ from gprof_nn.models import (
     MultiHeadMLP,
     GPROF_NN_0D_QRNN,
     GPROF_NN_0D_DRNN,
-    GPROF_NN_2D_QRNN,
+    GPROF_NN_3D_QRNN,
     SimulatorNet
 )
 
@@ -102,13 +102,13 @@ def test_gprof_nn_0d():
 
 def test_gprof_nn_2d_gmi():
     """
-    Ensure that GPROF_NN_2D model is consistent with training data
+    Ensure that GPROF_NN_3D model is consistent with training data
     for GMI.
     """
     path = Path(__file__).parent
     input_file = path / "data" / "gmi" / "gprof_nn_gmi_era5.nc"
-    dataset = GPROF_NN_2D_Dataset(input_file)
-    network = GPROF_NN_2D_QRNN(sensors.GMI, 2, 128, 2, 64)
+    dataset = GPROF_NN_3D_Dataset(input_file)
+    network = GPROF_NN_3D_QRNN(sensors.GMI, 2, 128, 2, 64)
     x, y = dataset[0]
     y_pred = network.predict(x)
     assert all([t in y_pred for t in y])
@@ -116,13 +116,13 @@ def test_gprof_nn_2d_gmi():
 
 def test_gprof_nn_2d_mhs():
     """
-    Ensure that GPROF_NN_2D model is consistent with training data
+    Ensure that GPROF_NN_3D model is consistent with training data
     for MHS.
     """
     path = Path(__file__).parent
     input_file = path / "data" / "gprof_nn_mhs_era5.nc"
-    dataset = GPROF_NN_2D_Dataset(input_file)
-    network = GPROF_NN_2D_QRNN(sensors.MHS, 2, 128, 2, 64)
+    dataset = GPROF_NN_3D_Dataset(input_file)
+    network = GPROF_NN_3D_QRNN(sensors.MHS, 2, 128, 2, 64)
     x, y = dataset[0]
     y_pred = network.predict(x)
     assert all([t in y_pred for t in y])

@@ -59,12 +59,12 @@ def test_smoothing_kernels():
     k = calculate_smoothing_kernels(2.0 * 4.9e3, 2.0 * 5.09e3)
 
     # Assert kernel has expected shape and is normalized.
-    assert k.shape == (5, 5)
+    assert k.shape == (9, 9)
     assert np.isclose(k.sum(), 1.0)
 
     # Assert that full-width at half maximum is at the correct location.
-    k_max = k[2, 2]
-    assert np.isclose(k[2, 3] / k_max, 0.5)
-    assert np.isclose(k[2, 1] / k_max, 0.5)
-    assert np.isclose(k[3, 2] / k_max, 0.5)
-    assert np.isclose(k[1, 2] / k_max, 0.5)
+    k_max = k[4, 4]
+    assert np.isclose(k[4, 5] / k_max, 0.5)
+    assert np.isclose(k[4, 3] / k_max, 0.5)
+    assert np.isclose(k[5, 4] / k_max, 0.5)
+    assert np.isclose(k[3, 4] / k_max, 0.5)

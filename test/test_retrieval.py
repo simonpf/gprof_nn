@@ -11,7 +11,7 @@ from quantnn import QRNN
 from quantnn.normalizer import Normalizer
 
 from gprof_nn import sensors
-from gprof_nn.data.training_data import GPROF_NN_0D_Dataset
+from gprof_nn.data.training_data import GPROF_NN_1D_Dataset
 from gprof_nn.data.preprocessor import PreprocessorFile
 from gprof_nn.data.retrieval import (RetrievalFile,
                                      ORBIT_HEADER_TYPES,
@@ -19,10 +19,10 @@ from gprof_nn.data.retrieval import (RetrievalFile,
 from gprof_nn.retrieval import (calculate_padding_dimensions,
                                 RetrievalDriver,
                                 RetrievalGradientDriver,
-                                PreprocessorLoader0D,
-                                PreprocessorLoader2D,
-                                NetcdfLoader0D,
-                                NetcdfLoader2D,
+                                PreprocessorLoader1D,
+                                PreprocessorLoader3D,
+                                NetcdfLoader1D,
+                                NetcdfLoader3D,
                                 SimulatorLoader)
 
 def test_calculate_padding_dimensions():
@@ -93,7 +93,7 @@ def test_retrieval_read_and_write(tmp_path):
 
 def test_retrieval_preprocessor_0d_gmi(tmp_path):
     """
-    Ensure that GPROF-NN 0D retrieval works with preprocessor input.
+    Ensure that GPROF-NN 1D retrieval works with preprocessor input.
     """
     data_path = Path(__file__).parent / "data"
     input_file = data_path / "gmi" / "GMIERA5_190101_027510.pp"
@@ -109,7 +109,7 @@ def test_retrieval_preprocessor_0d_gmi(tmp_path):
 
 def test_retrieval_l1c_0d_gmi_na(tmp_path):
     """
-    Ensure that GPROF-NN 0D retrieval works with preprocessor input.
+    Ensure that GPROF-NN 1D retrieval works with preprocessor input.
     """
     data_path = Path(__file__).parent / "data"
     input_file = (
@@ -128,7 +128,7 @@ def test_retrieval_l1c_0d_gmi_na(tmp_path):
 
 def test_retrieval_preprocessor_0d_mhs(tmp_path):
     """
-    Ensure that GPROF-NN 0D retrieval works with preprocessor input.
+    Ensure that GPROF-NN 1D retrieval works with preprocessor input.
     """
     data_path = Path(__file__).parent / "data"
     input_file = data_path / "mhs" / "MHS.pp"
@@ -145,7 +145,7 @@ def test_retrieval_preprocessor_0d_mhs(tmp_path):
 
 def test_retrieval_preprocessor_2d(tmp_path):
     """
-    Ensure that GPROF-NN 0D retrieval works with preprocessor input.
+    Ensure that GPROF-NN 1D retrieval works with preprocessor input.
     """
     data_path = Path(__file__).parent / "data"
     input_file = (
@@ -166,7 +166,7 @@ def test_retrieval_preprocessor_2d(tmp_path):
 
 def test_retrieval_l1c_2d(tmp_path):
     """
-    Ensure that GPROF-NN 0D retrieval works with preprocessor input.
+    Ensure that GPROF-NN 1D retrieval works with preprocessor input.
     """
     data_path = Path(__file__).parent / "data"
     input_file = data_path / "gmi" / "GMIERA5_190101_027510.pp"
@@ -184,14 +184,14 @@ def test_retrieval_l1c_2d(tmp_path):
 
 def test_retrieval_netcdf_0d(tmp_path):
     """
-    Ensure that GPROF-NN 0D retrieval works with NetCDF input.
+    Ensure that GPROF-NN 1D retrieval works with NetCDF input.
     """
     data_path = Path(__file__).parent / "data"
     input_file = data_path / "gmi" / "gprof_nn_gmi_era5.nc"
 
     qrnn = QRNN.load(data_path / "gmi" / "gprof_nn_0d_gmi_era5.pckl")
-    qrnn.training_data_class = GPROF_NN_0D_Dataset
-    qrnn.preprocessor_class = PreprocessorLoader0D
+    qrnn.training_data_class = GPROF_NN_1D_Dataset
+    qrnn.preprocessor_class = PreprocessorLoader1D
     driver = RetrievalDriver(input_file,
                              qrnn,
                              ancillary_data=data_path,
@@ -204,15 +204,15 @@ def test_retrieval_netcdf_0d(tmp_path):
 
 def test_retrieval_netcdf_0d_gradients(tmp_path):
     """
-    Ensure that GPROF-NN 0D retrieval with NetCDF input and gradients
+    Ensure that GPROF-NN 1D retrieval with NetCDF input and gradients
     works.
     """
     data_path = Path(__file__).parent / "data"
     input_file = data_path / "gmi" / "gprof_nn_gmi_era5.nc"
 
     qrnn = QRNN.load(data_path / "gprof_nn_0d_gmi_era5.pckl")
-    qrnn.training_data_class = GPROF_NN_0D_Dataset
-    qrnn.preprocessor_class = PreprocessorLoader0D
+    qrnn.training_data_class = GPROF_NN_1D_Dataset
+    qrnn.preprocessor_class = PreprocessorLoader1D
     driver = RetrievalGradientDriver(input_file,
                                      qrnn,
                                      ancillary_data=data_path,
@@ -224,7 +224,7 @@ def test_retrieval_netcdf_0d_gradients(tmp_path):
 
 def test_retrieval_netcdf_2d(tmp_path):
     """
-    Ensure that GPROF-NN 2D retrieval works with NetCDF input.
+    Ensure that GPROF-NN 3D retrieval works with NetCDF input.
     """
     data_path = Path(__file__).parent / "data"
     input_file = data_path / "gmi" / "gprof_nn_gmi_era5.nc"
@@ -244,7 +244,7 @@ def test_retrieval_netcdf_2d(tmp_path):
 
 def test_simulator_gmi(tmp_path):
     """
-    Ensure that GPROF-NN 2D retrieval works with NetCDF input.
+    Ensure that GPROF-NN 3D retrieval works with NetCDF input.
     """
     data_path = Path(__file__).parent / "data"
     input_file = data_path / "gmi" / "gprof_nn_gmi_era5.nc"
@@ -268,7 +268,7 @@ def test_simulator_gmi(tmp_path):
 
 def test_simulator_mhs(tmp_path):
     """
-    Ensure that GPROF-NN 2D retrieval works with NetCDF input.
+    Ensure that GPROF-NN 3D retrieval works with NetCDF input.
     """
     data_path = Path(__file__).parent / "data"
     input_file = data_path / "gprof_nn_mhs_era5_5.nc"
