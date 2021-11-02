@@ -1447,7 +1447,7 @@ MHS = CrossTrackScanner(
     "/qdata1/pbrown/dbaseV7/simV7x",
 )
 
-MHS_NOA19 = MHS
+MHS_NOAA19 = MHS
 
 
 def get_sensor(platform, sensor):

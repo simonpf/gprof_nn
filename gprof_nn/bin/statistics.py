@@ -65,7 +65,7 @@ def add_parser(subparsers):
 
 STATS = {
     "training": [
-        statistics.TrainingDataStatistics(kind="0d"),
+        statistics.TrainingDataStatistics(kind="1d"),
         statistics.ZonalDistribution(),
         statistics.GlobalDistribution()
     ],
@@ -115,7 +115,7 @@ def run(args):
     kind = args.kind.lower()
     if not kind in STATS.keys():
         LOGGER.error(
-            "'kind' argument must be one of {list(STATS.keys())}."
+            f"'kind' argument must be one of {list(STATS.keys())}."
         )
         return 1
 
