@@ -8,7 +8,7 @@ to input data.
 """
 import argparse
 import logging
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from pathlib import Path
 
 from quantnn.qrnn import QRNN
@@ -147,7 +147,11 @@ def run(args):
     # Run retrieval.
     #
 
-    pool = ProcessPoolExecutor(max_workers=n_procs)
+    if args.gradients:
+        pool = ThreadPoolExecutor(max_workers=n_procs)
+    else:
+        pool = ProcessPoolExecutor(max_workers=n_procs)
+
     log_queue = gprof_nn.logging.get_log_queue()
     tasks = []
     for input_file, output_file in (zip(input_files, output_files)):

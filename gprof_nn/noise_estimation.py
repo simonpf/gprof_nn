@@ -18,7 +18,7 @@ from torch.utils.tensorboard import SummaryWriter
 from quantnn.normalizer import MinMaxNormalizer, Normalizer
 import xarray as xr
 
-from gprof_nn.data.training_data import Dataset0DBase
+from gprof_nn.data.training_data import Dataset1DBase
 
 ###############################################################################
 # PyTorch modules.
@@ -64,7 +64,7 @@ class Discriminator(nn.Sequential):
 
 class ConditionalDiscriminator(nn.Sequential):
     """
-    Conditional discriminator for 0D input data normalized using spectral
+    Conditional discriminator for 1D input data normalized using spectral
     norm.
 
     Discriminator is regularized using spectral norm to improve stability
@@ -155,7 +155,7 @@ class CategoricalGaussianNoiseGenerator(nn.Module):
 
 class ConditionalGaussianNoiseGenerator(nn.Module):
     """
-    Discriminator for 0D input data normalized using spectral
+    Discriminator for 1D input data normalized using spectral
     norm.
     """
     def __init__(self,
@@ -513,7 +513,7 @@ def train(input_data,
             np.array(loss_discriminator))
 
 
-class ObservationDataset0D(Dataset0DBase):
+class ObservationDataset1D(Dataset1DBase):
     """
     Dataset class to load target, i.e. real, observations to fit simulated
     observations to.
@@ -567,10 +567,10 @@ class ObservationDataset0D(Dataset0DBase):
             self._shuffle()
 
     def __repr__(self):
-        return f"ObservationDataset0D({self.filename.name}, n_batches={len(self)})"
+        return f"ObservationDataset1D({self.filename.name}, n_batches={len(self)})"
 
     def __str__(self):
-        return f"ObservationDataset0D({self.filename.name}, n_batches={len(self)})"
+        return f"ObservationDataset1D({self.filename.name}, n_batches={len(self)})"
 
     def _load_data(self):
         """

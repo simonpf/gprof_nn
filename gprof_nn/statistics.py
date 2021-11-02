@@ -23,8 +23,8 @@ from gprof_nn.definitions import ALL_TARGETS
 from gprof_nn.data.retrieval import RetrievalFile
 from gprof_nn.data.bin import BinFile
 from gprof_nn.data.preprocessor import PreprocessorFile
-from gprof_nn.data.training_data import (GPROF_NN_0D_Dataset,
-                                         GPROF_NN_2D_Dataset)
+from gprof_nn.data.training_data import (GPROF_NN_1D_Dataset,
+                                         GPROF_NN_3D_Dataset)
 from gprof_nn.data.combined import GPMCMBFile
 
 
@@ -282,16 +282,25 @@ class ZonalDistribution(Statistic):
                         self.sums[k][month] += cs
 
                         if k == "surface_precip":
+                            if "surface_precip_true" in data.variables:
+                                inds = data.surface_precip_true.data[indices] > 0.0
+                            else:
+                                inds = data.surface_precip.data[indices] >= 0.0
+
                             bins = (self.latitude_bins,
                                     self.surface_precip_bins)
                             cs, _, _ = np.histogram2d(
-                                lats_v.ravel(),
-                                v.ravel(),
+                                lats_v[inds].ravel(),
+                                v[inds].ravel(),
                                 bins=bins
                             )
                             self.surface_precip_mean[month] += cs
 
                 if "surface_precip_samples" in data.variables:
+                    if "surface_precip_true" in data.variables:
+                        indices *= data.surface_precip_true.data > 0.0
+                    else:
+                        indices *= data.surface_precip.data >= 0.0
                     lats = data.latitude[indices].data
                     v = data["surface_precip_samples"][indices].data
                     bins = (self.latitude_bins,
@@ -343,18 +352,27 @@ class ZonalDistribution(Statistic):
                     self.sums[k] += cs
 
                     if k == "surface_precip":
+                        if "surface_precip_true" in data.variables:
+                            inds = data.surface_precip_true.data > 0.0
+                        else:
+                            inds = data.surface_precip.data >= 0.0
+
                         bins = (self.latitude_bins,
                                 self.surface_precip_bins)
                         cs, _, _ = np.histogram2d(
-                            lats_v.ravel(),
-                            v.ravel(),
+                            lats_v[inds].ravel(),
+                            v[inds].ravel(),
                             bins=bins
                         )
                         self.surface_precip_mean += cs
 
             if "surface_precip_samples" in data.variables:
-                lats = data.latitude.data
-                v = data["surface_precip_samples"].data
+                if "surface_precip_true" in data.variables:
+                    indices = data.surface_precip_true.data > 0.0
+                else:
+                    indices = data.surface_precip.data >= 0.0
+                lats = data.latitude.data[indices]
+                v = data["surface_precip_samples"].data[indices]
                 bins = (self.latitude_bins,
                         self.surface_precip_bins)
                 cs, _, _ = np.histogram2d(
@@ -746,20 +764,30 @@ class GlobalDistribution(Statistic):
                         self.sums[k][month] += cs
 
                         if k == "surface_precip":
+                            if "surface_precip_true" in data.variables:
+                                inds = data.surface_precip_true.data[indices] > 0.0
+                            else:
+                                inds = data.surface_precip.data[indices] >= 0.0
                             bins = (self.latitude_bins,
                                     self.longitude.bins,
                                     self.surface_precip_bins)
                             vals = np.stack(
-                                [lats_v.ravel(), lons_v.ravel(), v.ravel()],
+                                [lats_v[inds].ravel(),
+                                 lons_v[inds].ravel(),
+                                 v[inds].ravel()],
                                 bins=bins
                             )
                             cs, _ = np.histogramdd(vals, bins=bins)
                             self.surface_precip_mean[month] += cs
 
                 if "surface_precip_samples" in data.variables:
-                    lons = data.longitude[indices].data
-                    lats = data.latitude[indices].data
-                    v = data["surface_precip_samples"][indices].data
+                    if "surface_precip_true" in data.variables:
+                        indices *= data.surface_precip_true.data > 0.0
+                    else:
+                        indices *= data.surface_precip.data >= 0.0
+                    lons = data.longitude.data[indices]
+                    lats = data.latitude.data[indices]
+                    v = data["surface_precip_samples"].data[indices]
                     bins = (self.latitude_bins,
                             self.longitude_bins,
                             self.surface_precip_bins)
@@ -822,20 +850,30 @@ class GlobalDistribution(Statistic):
                     self.sums[k] += cs
 
                     if k == "surface_precip":
+                        if "surface_precip_true" in data.variables:
+                            inds = data.surface_precip_true.data > 0.0
+                        else:
+                            inds = data.surface_precip.data >= 0.0
                         bins = (self.latitude_bins,
                                 self.longitude_bins,
                                 self.surface_precip_bins)
                         vals = np.stack(
-                            [lats_v.ravel(), lons_v.ravel(), v.ravel()],
+                            [lats_v[inds].ravel(),
+                             lons_v[inds].ravel(),
+                             v[inds].ravel()],
                             axis=1
                         )
                         cs, _, = np.histogramdd(vals, bins=bins)
                         self.surface_precip_mean += cs
 
             if "surface_precip_samples" in data.variables:
-                lats = data.latitude.data
-                lons = data.longitude.data
-                v = data["surface_precip_samples"].data
+                if "surface_precip_true" in data.variables:
+                    indices = data.surface_precip_true.data > 0.0
+                else:
+                    indices = data.surface_precip.data >= 0.0
+                lats = data.latitude.data[indices]
+                lons = data.longitude.data[indices]
+                v = data["surface_precip_samples"].data[indices]
                 bins = (self.latitude_bins,
                         self.longitude_bins,
                         self.surface_precip_bins)
@@ -999,15 +1037,16 @@ class TrainingDataStatistics(Statistic):
     as well as ancillary data.
     """
     def __init__(self,
-                 kind="0D"):
+                 kind="1D"):
         """
         Args:
-            kind: The kind of dataset to use to load the data: '0D' or
-                '2D'.
+            kind: The kind of dataset to use to load the data: '1D' or
+                '3D'.
         """
         self.kind = kind.upper()
 
         self.tbs = None
+        self.tbs_tcwv = None
         self.tbs_sim = None
         self.angle_bins = None
         self.tb_bins = np.linspace(0, 400, 401)
@@ -1023,6 +1062,7 @@ class TrainingDataStatistics(Statistic):
 
         self.sums_tcwv = {}
         self.counts_tcwv = {}
+        self.has_angles = False
 
     def _initialize_data(self,
                          sensor,
@@ -1076,20 +1116,22 @@ class TrainingDataStatistics(Statistic):
         Args:
             filename: The path of the data to process.
         """
-        if self.kind == "0D":
-            dataset = GPROF_NN_0D_Dataset(filename,
+        if self.kind.upper() == "1D":
+            dataset = GPROF_NN_1D_Dataset(filename,
+                                          targets=ALL_TARGETS,
+                                          normalize=False,
+                                          shuffle=False,
+                                          augment=False)
+            dataset = dataset.to_xarray_dataset()
+        elif self.kind.upper() == "3D":
+            dataset = GPROF_NN_3D_Dataset(filename,
                                           targets=ALL_TARGETS,
                                           normalize=False,
                                           shuffle=False,
                                           augment=False)
             dataset = dataset.to_xarray_dataset()
         else:
-            dataset = GPROF_NN_2D_Dataset(filename,
-                                          targets=ALL_TARGETS,
-                                          normalize=False,
-                                          shuffle=False,
-                                          augment=False)
-            dataset = dataset.to_xarray_dataset()
+            raise ValueError("'kind'  must be '1D' or '3D'.")
 
         self.sensor = sensor
 
@@ -1143,7 +1185,7 @@ class TrainingDataStatistics(Statistic):
 
 
                 # Conditional mean
-                tcwv = dataset["total_column_water_vapor"][i_st].data
+                tcwv = dataset["total_column_water_vapor"].data[i_st]
                 if v.ndim > tcwv.ndim:
                     tcwv = np.repeat(tcwv.reshape(-1, 1), v.shape[-1], axis=-1)
 
@@ -2039,7 +2081,7 @@ class RetrievalStatistics(Statistic):
                 # Swath center
                 #
 
-                # Make sure we are dealing with 2D data.
+                # Make sure we are dealing with 3D data.
                 if dataset["two_meter_temperature"].data.ndim > 1:
                     i_start = 110 - 12
                     i_end = 110 + 13

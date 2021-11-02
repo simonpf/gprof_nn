@@ -16,15 +16,15 @@ from quantnn.models.pytorch.xception import (UpsamplingBlock,
 
 
 from gprof_nn.definitions import ALL_TARGETS, PROFILE_NAMES
-from gprof_nn.retrieval import (NetcdfLoader0D,
-                                NetcdfLoader2D,
-                                PreprocessorLoader0D,
-                                PreprocessorLoader2D,
-                                L1CLoader0D,
-                                L1CLoader2D,
+from gprof_nn.retrieval import (NetcdfLoader1D,
+                                NetcdfLoader3D,
+                                PreprocessorLoader1D,
+                                PreprocessorLoader3D,
+                                L1CLoader1D,
+                                L1CLoader3D,
                                 SimulatorLoader)
-from gprof_nn.data.training_data import (GPROF_NN_0D_Dataset,
-                                         GPROF_NN_2D_Dataset)
+from gprof_nn.data.training_data import (GPROF_NN_1D_Dataset,
+                                         GPROF_NN_3D_Dataset)
 
 
 BINS = {
@@ -54,7 +54,7 @@ PROFILE_QUANTILES = np.linspace(0.0, 1.0, 18)[1:-1]
 RESIDUALS = ["none", "simple", "hyper"]
 
 ###############################################################################
-# GPROF-NN 0D
+# GPROF-NN 1D
 ###############################################################################
 
 class MLP(nn.Module):
@@ -288,7 +288,7 @@ class HyperResidualMLP(ResidualMLP):
 
 class MultiHeadMLP(nn.Module):
     """
-    Pytorch neural network model for the GPROF-NN 0D retrieval.
+    Pytorch neural network model for the GPROF-NN 1D retrieval.
 
     The model is a fully-connected residual network model with a separate
     head for each retrieval target.
@@ -403,9 +403,9 @@ class MultiHeadMLP(nn.Module):
         return results
 
 
-class GPROF_NN_0D_QRNN(MRNN):
+class GPROF_NN_1D_QRNN(MRNN):
     """
-    DRNN-based version of the GPROF-NN 0D algorithm.
+    DRNN-based version of the GPROF-NN 1D algorithm.
     """
     def __init__(self,
                  sensor,
@@ -462,10 +462,10 @@ class GPROF_NN_0D_QRNN(MRNN):
                          transformation=transformation)
 
         if ancillary:
-            self.preprocessor_class = PreprocessorLoader0D
+            self.preprocessor_class = PreprocessorLoader1D
         else:
-            self.preprocessor_class = L1CLoader0D
-        self.netcdf_class = NetcdfLoader0D
+            self.preprocessor_class = L1CLoader1D
+        self.netcdf_class = NetcdfLoader1D
 
     def set_targets(self, targets):
         """
@@ -482,9 +482,9 @@ class GPROF_NN_0D_QRNN(MRNN):
         self.model.target = targets
 
 
-class GPROF_NN_0D_DRNN(MRNN):
+class GPROF_NN_1D_DRNN(MRNN):
     """
-    DRNN-based version of the GPROF-NN 0D algorithm.
+    DRNN-based version of the GPROF-NN 1D algorithm.
     """
     def __init__(self,
                  sensor,
@@ -531,10 +531,10 @@ class GPROF_NN_0D_DRNN(MRNN):
                          model=model)
 
         if ancillary:
-            self.preprocessor_class = PreprocessorLoader0D
+            self.preprocessor_class = PreprocessorLoader1D
         else:
-            self.preprocessor_class = L1CLoader0D
-        self.netcdf_class = NetcdfLoader0D
+            self.preprocessor_class = L1CLoader1D
+        self.netcdf_class = NetcdfLoader1D
 
     def set_targets(self, targets):
         """
@@ -550,8 +550,11 @@ class GPROF_NN_0D_DRNN(MRNN):
         self.targets = targets
         self.model.targets = targets
 
+GPROF_NN_0D_QRNN = GPROF_NN_1D_QRNN
+GPROF_NN_0D_DRNN = GPROF_NN_1D_DRNN
+
 ###############################################################################
-# GPROF-NN 2D
+# GPROF-NN 3D
 ###############################################################################
 
 
@@ -695,9 +698,9 @@ class XceptionFPN(nn.Module):
         return results
 
 
-class GPROF_NN_2D_QRNN(MRNN):
+class GPROF_NN_3D_QRNN(MRNN):
     """
-    QRNN-based version of the GPROF-NN 2D algorithm.
+    QRNN-based version of the GPROF-NN 3D algorithm.
     """
     def __init__(self,
                  sensor,
@@ -757,10 +760,10 @@ class GPROF_NN_2D_QRNN(MRNN):
                          transformation=transformation)
 
         if ancillary:
-            self.preprocessor_class = PreprocessorLoader2D
+            self.preprocessor_class = PreprocessorLoader3D
         else:
-            self.preprocessor_class = L1CLoader2D
-        self.netcdf_class = NetcdfLoader2D
+            self.preprocessor_class = L1CLoader3D
+        self.netcdf_class = NetcdfLoader3D
 
     def set_targets(self, targets):
         """
@@ -777,9 +780,9 @@ class GPROF_NN_2D_QRNN(MRNN):
         self.model.targets = targets
 
 
-class GPROF_NN_2D_DRNN(MRNN):
+class GPROF_NN_3D_DRNN(MRNN):
     """
-    QRNN-based version of the GPROF-NN 2D algorithm.
+    QRNN-based version of the GPROF-NN 3D algorithm.
     """
     def __init__(self,
                  sensor,
@@ -829,11 +832,11 @@ class GPROF_NN_2D_DRNN(MRNN):
                          model=model)
 
         if ancillary:
-            self.preprocessor_class = PreprocessorLoader2D
+            self.preprocessor_class = PreprocessorLoader3D
         else:
-            self.preprocessor_class = L1CLoader2D
+            self.preprocessor_class = L1CLoader3D
 
-        self.netcdf_class = NetcdfLoader2D
+        self.netcdf_class = NetcdfLoader3D
 
     def set_targets(self, targets):
         """
@@ -850,6 +853,11 @@ class GPROF_NN_2D_DRNN(MRNN):
         self.model.targets = targets
 
 
+# Included here for temporary compatibility with legacy naming.
+GPROF_NN_2D_QRNN = GPROF_NN_3D_QRNN
+GPROF_NN_2D_DRNN = GPROF_NN_3D_DRNN
+
+
 ###############################################################################
 # Simulator
 ###############################################################################
@@ -864,8 +872,7 @@ class SimulatorNet(nn.Module):
                  sensor,
                  n_features_body,
                  n_layers_head,
-                 n_features_head,
-                 n_outputs):
+                 n_features_head):
         """
         Args:
             n_features_body: The number of features/channels in the network
@@ -883,7 +890,6 @@ class SimulatorNet(nn.Module):
             n_chans_sim = sensor.n_chans
             n_biases = sensor.n_chans
 
-        self.n_outputs = n_outputs
         self.in_block = nn.Conv2d(15, n_features_body, 1)
 
         self.down_block_2 = DownsamplingBlock(n_features_body, 2)
@@ -901,11 +907,11 @@ class SimulatorNet(nn.Module):
         n_inputs = 2 * n_features_body + 24
         self.bias_head = MLPHead(n_inputs,
                                  n_features_head,
-                                 n_biases * n_outputs,
+                                 n_biases,
                                  n_layers_head)
         self.sim_head = MLPHead(n_inputs,
                                 n_features_head,
-                                n_chans_sim * n_outputs,
+                                n_chans_sim,
                                 n_layers_head)
 
     def forward(self, x):
@@ -933,14 +939,14 @@ class SimulatorNet(nn.Module):
         if self.sensor.n_angles > 1:
             n_angles = self.sensor.n_angles
             sim_shape = (x.shape[:1] +
-                         (self.n_outputs, n_angles, n_chans) +
+                         (n_angles, n_chans) +
                          x.shape[2:4])
         else:
             sim_shape = (x.shape[:1] +
-                         (self.n_outputs, n_chans) +
+                         (n_chans,) +
                          x.shape[2:4])
         bias_shape = (x.shape[:1] +
-                        (self.n_outputs, n_chans) +
+                        (n_chans,) +
                         x.shape[2:4])
         bias = self.bias_head(x).reshape(bias_shape)
         sim = self.sim_head(x).reshape(sim_shape)
@@ -952,7 +958,7 @@ class SimulatorNet(nn.Module):
         return results
 
 
-class Simulator(QRNN):
+class Simulator(MRNN):
     """
     Simulator QRNN to learn to predict simulated brightness temperatures
     from GMI observations.
@@ -974,11 +980,12 @@ class Simulator(QRNN):
         model = SimulatorNet(sensor,
                              n_features_body,
                              n_layers_head,
-                             n_features_head,
-                             128)
-        quantiles = np.linspace(0, 1, 130)[1:-1]
-        super().__init__(n_inputs=39,
-                         quantiles=quantiles,
+                             n_features_head)
+        losses = {
+            "simulated_brightness_temperatures": Mean(),
+            "brightness_temperature_biases": Mean()
+        }
+        super().__init__(losses,
                          model=model)
         self.preprocessor_class = None
         self.netcdf_class = SimulatorLoader

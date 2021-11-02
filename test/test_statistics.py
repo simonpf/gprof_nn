@@ -12,7 +12,7 @@ from gprof_nn.definitions import ALL_TARGETS
 from gprof_nn.equalizer import QuantileEqualizer
 from gprof_nn.data.preprocessor import PreprocessorFile
 from gprof_nn.data.retrieval import RetrievalFile
-from gprof_nn.data.training_data import GPROF_NN_0D_Dataset
+from gprof_nn.data.training_data import GPROF_NN_1D_Dataset
 from gprof_nn.data.combined import GPMCMBFile
 from gprof_nn.statistics import (StatisticsProcessor,
                                  TrainingDataStatistics,
@@ -34,14 +34,14 @@ def test_training_statistics_gmi(tmpdir):
     files = [data_path / "gmi" / "gprof_nn_gmi_era5.nc"] * 2
 
 
-    stats = [TrainingDataStatistics(kind="0d"),
+    stats = [TrainingDataStatistics(kind="1d"),
              ZonalDistribution(monthly=False),
              GlobalDistribution()]
     processor = StatisticsProcessor(sensors.GMI,
                                     files,
                                     stats)
     processor.run(2, tmpdir)
-    input_data = GPROF_NN_0D_Dataset(files[0],
+    input_data = GPROF_NN_1D_Dataset(files[0],
                                      normalize=False,
                                      shuffle=False,
                                      targets=ALL_TARGETS)
@@ -59,8 +59,11 @@ def test_training_statistics_gmi(tmpdir):
                 (input_data.surface_precip >= 0)).data
 
         tbs = input_data["brightness_temperatures"].data[i_st]
+        print("TBS :: ", tbs.shape, input_data["brightness_temperatures"].shape)
         counts_ref, _ = np.histogram(tbs[:, 0], bins=bins)
         counts = results["brightness_temperatures"][st - 1, 0].data
+
+        print(tbs.shape)
         assert np.all(np.isclose(counts, 2.0 * counts_ref))
 
         tcwv = input_data["total_column_water_vapor"].data[i_st]
@@ -151,14 +154,14 @@ def test_training_statistics_mhs(tmpdir):
     files = [data_path / "mhs" / "gprof_nn_mhs_era5.nc"] * 2
 
 
-    stats = [TrainingDataStatistics(kind="0d"),
+    stats = [TrainingDataStatistics(kind="1D"),
              GlobalDistribution(),
              ZonalDistribution()]
     processor = StatisticsProcessor(sensors.MHS,
                                     files,
                                     stats)
     processor.run(2, tmpdir)
-    input_data = GPROF_NN_0D_Dataset(files[0],
+    input_data = GPROF_NN_1D_Dataset(files[0],
                                      normalize=False,
                                      shuffle=False,
                                      targets=ALL_TARGETS)

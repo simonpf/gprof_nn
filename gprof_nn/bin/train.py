@@ -19,12 +19,14 @@ from gprof_nn.definitions import (ALL_TARGETS,
                                   PROFILE_NAMES,
                                   CONFIGURATIONS,
                                   GPROF_NN_DATA_PATH)
-from gprof_nn.data.training_data import (GPROF_NN_0D_Dataset,
-                                         GPROF_NN_2D_Dataset)
-from gprof_nn.models import (GPROF_NN_0D_DRNN,
-                             GPROF_NN_0D_QRNN,
-                             GPROF_NN_2D_DRNN,
-                             GPROF_NN_2D_QRNN)
+from gprof_nn.data.training_data import (GPROF_NN_1D_Dataset,
+                                         GPROF_NN_3D_Dataset,
+                                         SimulatorDataset)
+from gprof_nn.models import (GPROF_NN_1D_DRNN,
+                             GPROF_NN_1D_QRNN,
+                             GPROF_NN_3D_DRNN,
+                             GPROF_NN_3D_QRNN,
+                             Simulator)
 
 
 LOGGER = logging.getLogger(__name__)
@@ -42,7 +44,7 @@ def add_parser(subparsers):
         "train",
         description=(
             """
-            Trains a GPROF-NN 0D or 2D network.
+            Trains a GPROF-NN 1D or 3D network.
             """
             )
     )
@@ -52,7 +54,7 @@ def add_parser(subparsers):
         'variant',
         metavar='kind',
         type=str,
-        help="The type of GPROF-NN model to train: '0D' or '2D'"
+        help="The type of GPROF-NN model to train: '1D' or '3D' or 'SIM'"
     )
     parser.add_argument(
         'sensor',
@@ -102,7 +104,7 @@ def add_parser(subparsers):
         type=int,
         nargs=1,
         default=6,
-        help=("For GPROF-NN 0D: The number of hidden layers in the shared body"
+        help=("For GPROF-NN 1D: The number of hidden layers in the shared body"
               " of the network.")
     )
 
@@ -110,34 +112,31 @@ def add_parser(subparsers):
         "--n_neurons_body",
         metavar='n',
         type=int,
-        nargs=1,
         default=256,
-        help=("For GPROF-NN 0D and 2D: The number of neurons in the body.")
+        help=("For GPROF-NN 1D and 3D: The number of neurons in the body.")
     )
     parser.add_argument(
         '--n_layers_head',
         metavar='n',
         type=int,
-        nargs=1,
         default=2,
-        help='For GPROF-NN 0D: How many layers in the heads of the model.'
+        help='For GPROF-NN 1D: How many layers in the heads of the model.'
     )
     parser.add_argument(
         '--n_neurons_head',
         metavar='n',
         type=int,
-        nargs=1,
         default=128,
-        help=('For GPROF-NN 0D and 2D: How many neurons in each head of the '
+        help=('For GPROF-NN 1D and 3D: How many neurons in each head of the '
               'model.')
     )
     parser.add_argument(
         '--n_blocks',
         metavar='N',
         type=int,
-        nargs=1,
-        default=2,
-        help=('For GPROF-NN 2D: The number of Xception  block per '
+        nargs="+",
+        default=[2],
+        help=('For GPROF-NN 3D: The number of Xception  block per '
               ' downsampling stage of the model.')
     )
     parser.add_argument(
@@ -146,7 +145,7 @@ def add_parser(subparsers):
         type=str,
         nargs=1,
         default="ReLU",
-        help='For GPROF-NN 0D: The activation function.'
+        help='For GPROF-NN 1D: The activation function.'
     )
     parser.add_argument(
         '--residuals',
@@ -154,7 +153,7 @@ def add_parser(subparsers):
         type=str,
         nargs=1,
         default='simple',
-        help='For GPROF-NN 0D: The type of residual connections to apply.'
+        help='For GPROF-NN 1D: The type of residual connections to apply.'
     )
     parser.add_argument(
         '--n_epochs',
@@ -186,7 +185,7 @@ def add_parser(subparsers):
 
     # Other
     parser.add_argument(
-        '--device', metavar="device", type=str, nargs=1,
+        '--device', metavar="device", type=str,
         help="The name of the device on which to run the training"
     )
     parser.add_argument(
@@ -194,8 +193,9 @@ def add_parser(subparsers):
         help="The target on which to train the network"
     )
     parser.add_argument(
-        '--batch_size', metavar="n", type=int, nargs=1,
-        help="The batch size to use for training."
+        '--batch_size', metavar="n", type=int,
+        help="The batch size to use for training.",
+        default=8
     )
     parser.add_argument(
         '--permute', metavar="feature_index", type=int,
@@ -232,9 +232,9 @@ def run(args):
         return 1
 
     variant = args.variant
-    if variant.upper() not in ["0D", "2D"]:
+    if variant.upper() not in ["1D", "3D", "SIM"]:
         LOGGER.error(
-            "'variant' should be one of ['0D', '2D']"
+            "'variant' should be one of ['1D', '3D', 'SIM']"
         )
         return 1
 
@@ -270,8 +270,8 @@ def run(args):
     validation_data = args.validation_data
 
 
-    if variant.upper() == "0D":
-        run_training_0d(sensor,
+    if variant.upper() == "1D":
+        run_training_1d(sensor,
                         configuration,
                         training_data,
                         validation_data,
@@ -286,14 +286,14 @@ def run(args):
                         args)
 
 
-def run_training_0d(sensor,
+def run_training_1d(sensor,
                     configuration,
                     training_data,
                     validation_data,
                     output,
                     args):
     """
-    Run training for GPROF-NN 0D algorithm.
+    Run training for GPROF-NN 1D algorithm.
 
     Args:
         sensor: Sensor object representing the sensor for which to train
@@ -313,18 +313,18 @@ def run_training_0d(sensor,
     import torch
     from torch import optim
 
-    n_layers_body = args.n_layers_body[0]
-    n_neurons_body = args.n_neurons_body[0]
-    n_layers_head = args.n_layers_head[0]
-    n_neurons_head = args.n_neurons_head[0]
+    n_layers_body = args.n_layers_body
+    n_neurons_body = args.n_neurons_body
+    n_layers_head = args.n_layers_head
+    n_neurons_head = args.n_neurons_head
 
     activation = args.activation[0]
     residuals = args.residuals[0]
 
-    device = args.device[0]
+    device = args.device
     targets = args.targets
     network_type = args.type[0]
-    batch_size = args.batch_size[0]
+    batch_size = args.batch_size
     permute = args.permute
     ancillary = args.no_ancillary
 
@@ -341,7 +341,7 @@ def run_training_0d(sensor,
     # Load training data.
     #
 
-    dataset_factory = GPROF_NN_0D_Dataset
+    dataset_factory = GPROF_NN_1D_Dataset
     normalizer_path = (GPROF_NN_DATA_PATH /
                        f"normalizer_{sensor.name.lower()}.pckl")
     normalizer = Normalizer.load(normalizer_path)
@@ -398,7 +398,7 @@ def run_training_0d(sensor,
             f"Creating new model of type {network_type}."
         )
         if network_type == "drnn":
-            xrnn = GPROF_NN_0D_DRNN(sensor,
+            xrnn = GPROF_NN_1D_DRNN(sensor,
                                     n_layers_body,
                                     n_neurons_body,
                                     n_layers_head,
@@ -410,7 +410,7 @@ def run_training_0d(sensor,
         elif network_type == "qrnn_exp":
             transformation = {t: LogLinear() for t in targets}
             transformation["latent_heat"] = None
-            xrnn = GPROF_NN_0D_QRNN(sensor,
+            xrnn = GPROF_NN_1D_QRNN(sensor,
                                     n_layers_body,
                                     n_neurons_body,
                                     n_layers_head,
@@ -421,7 +421,7 @@ def run_training_0d(sensor,
                                     targets=targets,
                                     ancillary=ancillary)
         else:
-            xrnn = GPROF_NN_0D_QRNN(sensor,
+            xrnn = GPROF_NN_1D_QRNN(sensor,
                                     n_layers_body,
                                     n_neurons_body,
                                     n_layers_head,
@@ -487,7 +487,7 @@ def run_training_2d(sensor,
                     output,
                     args):
     """
-    Run training for GPROF-NN 2D algorithm.
+    Run training for GPROF-NN 3D algorithm.
 
     Args:
         sensor: Sensor object representing the sensor for which to train
@@ -508,14 +508,14 @@ def run_training_2d(sensor,
     from torch import optim
 
     n_blocks = args.n_blocks[0]
-    n_neurons_body = args.n_neurons_body[0]
-    n_layers_head = args.n_layers_head[0]
-    n_neurons_head = args.n_neurons_head[0]
+    n_neurons_body = args.n_neurons_body
+    n_layers_head = args.n_layers_head
+    n_neurons_head = args.n_neurons_head
 
-    device = args.device[0]
+    device = args.device
     targets = args.targets
     network_type = args.type[0]
-    batch_size = args.batch_size[0]
+    batch_size = args.batch_size
 
     n_epochs = args.n_epochs
     lr = args.learning_rate
@@ -531,7 +531,7 @@ def run_training_2d(sensor,
     # Load training data.
     #
 
-    dataset_factory = GPROF_NN_2D_Dataset
+    dataset_factory = GPROF_NN_3D_Dataset
     normalizer_path = (GPROF_NN_DATA_PATH /
                        f"normalizer_{sensor.name.lower()}.pckl")
     normalizer = Normalizer.load(normalizer_path)
@@ -586,7 +586,7 @@ def run_training_2d(sensor,
             LOGGER.info(
                 f"Creating new model of type {network_type}."
             )
-            xrnn = GPROF_NN_2D_DRNN(sensor,
+            xrnn = GPROF_NN_3D_DRNN(sensor,
                                     n_blocks,
                                     n_neurons_body,
                                     n_layers_head,
@@ -600,7 +600,7 @@ def run_training_2d(sensor,
                     transformation[target] = None
                 else:
                     transformation[target] = LogLinear()
-            xrnn = GPROF_NN_2D_QRNN(sensor,
+            xrnn = GPROF_NN_3D_QRNN(sensor,
                                     n_blocks,
                                     n_neurons_body,
                                     n_layers_head,
@@ -609,13 +609,167 @@ def run_training_2d(sensor,
                                     targets=targets,
                                     ancillary=ancillary)
         else:
-            xrnn = GPROF_NN_2D_QRNN(sensor,
+            xrnn = GPROF_NN_3D_QRNN(sensor,
                                     n_blocks,
                                     n_neurons_body,
                                     n_layers_head,
                                     n_neurons_head,
                                     targets=targets,
                                     ancillary=ancillary)
+    model = xrnn.model
+    model.normalizer = normalizer
+
+    ###############################################################################
+    # Run the training.
+    ###############################################################################
+
+    n_epochs_tot = sum(n_epochs)
+    logger = TensorBoardLogger(n_epochs_tot)
+    logger.set_attributes({
+        "n_blocks": n_blocks,
+        "n_neurons_body": n_neurons_body,
+        "n_layers_head": n_layers_head,
+        "n_neurons_head": n_neurons_head,
+        "targets": ", ".join(targets),
+        "type": network_type,
+        "optimizer": "adam"
+        })
+
+    metrics = ["MeanSquaredError", "Bias", "CalibrationPlot", "CRPS"]
+    scatter_plot = ScatterPlot(log_scale=True)
+    metrics.append(scatter_plot)
+
+    for n, r in zip(n_epochs, lr):
+        LOGGER.info(
+            f"Starting training for {n} epochs with learning rate {r}"
+        )
+        optimizer = optim.Adam(model.parameters(), lr=r)
+        if no_schedule:
+            scheduler = None
+        else:
+            scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, n)
+        xrnn.train(training_data=training_data,
+                   validation_data=validation_data,
+                   n_epochs=n,
+                   optimizer=optimizer,
+                   scheduler=scheduler,
+                   logger=logger,
+                   metrics=metrics,
+                   device=device,
+                   mask=-9999)
+        LOGGER.info(
+            f"Saving training network to {output}."
+        )
+        xrnn.save(output)
+
+
+def run_training_sim(sensor,
+                     configuration,
+                     training_data,
+                     validation_data,
+                     output,
+                     args):
+    """
+    Train simulator network for sensors other than GMI.
+
+    Args:
+        sensor: Sensor object representing the sensor for which to train
+            the model.
+        configuration: String identifying the retrieval configuration.
+        training_data: The path to the training data.
+        validation_data: The path to the validation data.
+        output: Path to which to write the resulting model.
+        args: Namespace with the remaining command line arguments.
+    """
+    from quantnn.qrnn import QRNN
+    from quantnn.normalizer import Normalizer
+    from quantnn.data import DataFolder
+    from quantnn.transformations import LogLinear
+    from quantnn.models.pytorch.logging import TensorBoardLogger
+    from quantnn.metrics import ScatterPlot
+    import torch
+    from torch import optim
+
+    n_blocks = args.n_blocks[0]
+    n_neurons_body = args.n_neurons_body
+    n_layers_head = args.n_layers_head
+    n_neurons_head = args.n_neurons_head
+
+    device = args.device
+    batch_size = args.batch_size
+
+    n_epochs = args.n_epochs
+    lr = args.learning_rate
+    no_schedule = args.no_lr_schedule
+    ancillary = args.no_ancillary
+
+    if len(n_epochs) == 1:
+        n_epochs = n_epochs * len(lr)
+    if len(lr) == 1:
+        lr = lr * len(n_epochs)
+
+    #
+    # Load training data.
+    #
+
+    dataset_factory = SimulatorDataset
+    normalizer_path = (GPROF_NN_DATA_PATH /
+                       f"normalizer_gmi.pckl")
+    normalizer = Normalizer.load(normalizer_path)
+    kwargs = {
+        "batch_size": batch_size,
+        "normalizer": normalizer,
+        "augment": True
+    }
+
+    training_data = DataFolder(
+        training_data,
+        dataset_factory,
+        queue_size=32,
+        kwargs=kwargs,
+        n_workers=4)
+
+    kwargs = {
+        "batch_size": 4 * batch_size,
+        "normalizer": normalizer,
+        "augment": False
+    }
+    validation_data = DataFolder(
+        validation_data,
+        dataset_factory,
+        queue_size=32,
+        kwargs=kwargs,
+        n_workers=2
+    )
+
+    ###############################################################################
+    # Prepare in- and output.
+    ###############################################################################
+
+    #
+    # Create neural network model
+    #
+
+    if Path(output).exists():
+        try:
+            xrnn = QRNN.load(output)
+            LOGGER.info(
+                f"Continuing training of existing model {output}."
+            )
+        except Exception:
+            xrnn = None
+    else:
+        xrnn = None
+
+    if xrnn is None:
+        xrnn = Simulator(
+            sensor,
+            6,
+            n_neurons_body,
+            n_layers_head,
+            n_neurons_head
+        )
+
     model = xrnn.model
     model.normalizer = normalizer
 

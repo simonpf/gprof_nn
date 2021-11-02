@@ -20,7 +20,7 @@ from gprof_nn import sensors
 from gprof_nn.definitions import ALL_TARGETS
 from gprof_nn.data.preprocessor import PreprocessorFile, run_preprocessor
 from gprof_nn.data.retrieval import RetrievalFile
-from gprof_nn.data.training_data import (GPROF_NN_0D_Dataset,
+from gprof_nn.data.training_data import (GPROF_NN_1D_Dataset,
                                          write_preprocessor_file)
 
 
@@ -180,7 +180,7 @@ def run_gprof_training_data(input_file,
         'xarray.Dataset' containing the retrieval results.
     """
     targets = ALL_TARGETS + ["latitude", "longitude"]
-    input_data = GPROF_NN_0D_Dataset(input_file,
+    input_data = GPROF_NN_1D_Dataset(input_file,
                                      shuffle=False,
                                      normalize=False,
                                      augment=False,

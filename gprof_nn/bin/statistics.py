@@ -87,7 +87,7 @@ PATTERNS = {
     "training": "**/*.nc",
     "bin": "**/*.bin",
     "observations": "**/*.nc",
-    "retrieval": "**/*.nc",
+    "retrieval": "*.nc",
     "combined": "**/2B.GPM*.HDF5"
 }
 
