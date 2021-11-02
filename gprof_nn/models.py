@@ -872,8 +872,7 @@ class SimulatorNet(nn.Module):
                  sensor,
                  n_features_body,
                  n_layers_head,
-                 n_features_head,
-                 n_outputs):
+                 n_features_head):
         """
         Args:
             n_features_body: The number of features/channels in the network
@@ -891,7 +890,6 @@ class SimulatorNet(nn.Module):
             n_chans_sim = sensor.n_chans
             n_biases = sensor.n_chans
 
-        self.n_outputs = n_outputs
         self.in_block = nn.Conv2d(15, n_features_body, 1)
 
         self.down_block_2 = DownsamplingBlock(n_features_body, 2)
@@ -909,11 +907,11 @@ class SimulatorNet(nn.Module):
         n_inputs = 2 * n_features_body + 24
         self.bias_head = MLPHead(n_inputs,
                                  n_features_head,
-                                 n_biases * n_outputs,
+                                 n_biases,
                                  n_layers_head)
         self.sim_head = MLPHead(n_inputs,
                                 n_features_head,
-                                n_chans_sim * n_outputs,
+                                n_chans_sim,
                                 n_layers_head)
 
     def forward(self, x):
@@ -941,14 +939,14 @@ class SimulatorNet(nn.Module):
         if self.sensor.n_angles > 1:
             n_angles = self.sensor.n_angles
             sim_shape = (x.shape[:1] +
-                         (self.n_outputs, n_angles, n_chans) +
+                         (n_angles, n_chans) +
                          x.shape[2:4])
         else:
             sim_shape = (x.shape[:1] +
-                         (self.n_outputs, n_chans) +
+                         (n_chans,) +
                          x.shape[2:4])
         bias_shape = (x.shape[:1] +
-                        (self.n_outputs, n_chans) +
+                        (n_chans,) +
                         x.shape[2:4])
         bias = self.bias_head(x).reshape(bias_shape)
         sim = self.sim_head(x).reshape(sim_shape)
@@ -960,7 +958,7 @@ class SimulatorNet(nn.Module):
         return results
 
 
-class Simulator(QRNN):
+class Simulator(MRNN):
     """
     Simulator QRNN to learn to predict simulated brightness temperatures
     from GMI observations.
@@ -982,11 +980,12 @@ class Simulator(QRNN):
         model = SimulatorNet(sensor,
                              n_features_body,
                              n_layers_head,
-                             n_features_head,
-                             128)
-        quantiles = np.linspace(0, 1, 130)[1:-1]
-        super().__init__(n_inputs=39,
-                         quantiles=quantiles,
+                             n_features_head)
+        losses = {
+            "simulated_brightness_temperatures": Mean(),
+            "brightness_temperature_biases": Mean()
+        }
+        super().__init__(losses,
                          model=model)
         self.preprocessor_class = None
         self.netcdf_class = SimulatorLoader

@@ -136,15 +136,13 @@ def test_simulator():
     file = path / "data" / "gprof_nn_mhs_era5_5.nc"
     data = SimulatorDataset(file, batch_size=1)
 
-    simulator = SimulatorNet(sensors.MHS, 64, 2, 32, 128)
+    simulator = SimulatorNet(sensors.MHS, 64, 2, 32)
     x, y = data[0]
     print(x.shape)
     y_pred = simulator(x)
     for k in y_pred:
-        print(y_pred[k].shape, y[k].shape)
         assert k in y
-        assert y_pred[k].shape[1] == 128
-        assert y_pred[k].shape[2] == y[k].shape[1]
-        assert y_pred[k].shape[3] == y[k].shape[2]
+        assert y_pred[k].shape[1] == y[k].shape[1]
+        assert y_pred[k].shape[2] == y[k].shape[2]
 
 

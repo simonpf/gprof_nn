@@ -17,14 +17,14 @@ from gprof_nn.data.training_data import (
     load_variable,
     decompress_scene,
     remap_scene,
-    GPROF_NN_0D_Dataset,
-    TrainingObsDataset0D,
-    GPROF_NN_2D_Dataset,
+    GPROF_NN_1D_Dataset,
+    TrainingObsDataset1D,
+    GPROF_NN_3D_Dataset,
     SimulatorDataset,
 )
 
 
-def test_to_xarray_dataset_0d_gmi():
+def test_to_xarray_dataset_1d_gmi():
     """
     Ensure that converting training data to 'xarray.Dataset' yield same
     Tbs as the ones found in the first batch of the training data when
@@ -32,7 +32,7 @@ def test_to_xarray_dataset_0d_gmi():
     """
     path = Path(__file__).parent
     input_file = path / "data" / "gmi" / "gprof_nn_gmi_era5.nc"
-    dataset = GPROF_NN_0D_Dataset(
+    dataset = GPROF_NN_1D_Dataset(
         input_file,
         batch_size=64,
         normalize=False,
@@ -97,7 +97,7 @@ def test_to_xarray_dataset_0d_gmi():
     assert np.all(np.isclose(at[inds], at_ref))
 
 
-def test_to_xarray_dataset_0d_mhs():
+def test_to_xarray_dataset_1d_mhs():
     """
     Ensure that converting training data to 'xarray.Dataset' yield same
     Tbs as the ones found in the first batch of the training data when
@@ -105,7 +105,7 @@ def test_to_xarray_dataset_0d_mhs():
     """
     path = Path(__file__).parent
     input_file = path / "data" / "mhs" / "gprof_nn_mhs_era5.nc"
-    dataset = GPROF_NN_0D_Dataset(
+    dataset = GPROF_NN_1D_Dataset(
         input_file,
         batch_size=64,
         normalize=False,
@@ -138,7 +138,7 @@ def test_to_xarray_dataset_0d_mhs():
     assert np.all(np.isclose(at[inds], at_ref))
 
 
-def test_to_xarray_dataset_2d():
+def test_to_xarray_dataset_3d():
     """
     Ensure that converting training data to 'xarray.Dataset' yield same
     Tbs as the ones found in the first batch of the training data when
@@ -146,7 +146,7 @@ def test_to_xarray_dataset_2d():
     """
     path = Path(__file__).parent
     input_file = path / "data" / "gmi" / "gprof_nn_gmi_era5.nc"
-    dataset = GPROF_NN_2D_Dataset(
+    dataset = GPROF_NN_3D_Dataset(
         input_file,
         batch_size=32,
         normalize=False,
@@ -193,7 +193,7 @@ def test_permutation_gmi():
     # Permute continuous input
     path = Path(__file__).parent
     input_file = path / "data" / "gmi" / "gprof_nn_gmi_era5.nc"
-    dataset_1 = GPROF_NN_0D_Dataset(
+    dataset_1 = GPROF_NN_1D_Dataset(
         input_file,
         batch_size=16,
         shuffle=False,
@@ -201,7 +201,7 @@ def test_permutation_gmi():
         transform_zeros=False,
         targets=["surface_precip"],
     )
-    dataset_2 = GPROF_NN_0D_Dataset(
+    dataset_2 = GPROF_NN_1D_Dataset(
         input_file,
         batch_size=16,
         shuffle=False,
@@ -220,7 +220,7 @@ def test_permutation_gmi():
     assert np.all(np.isclose(x_1[:, 1:], x_2[:, 1:]))
 
     # Permute surface type
-    dataset_2 = GPROF_NN_0D_Dataset(
+    dataset_2 = GPROF_NN_1D_Dataset(
         input_file,
         batch_size=16,
         shuffle=False,
@@ -238,7 +238,7 @@ def test_permutation_gmi():
     assert np.all(np.isclose(x_1[:, -4:], x_2[:, -4:]))
 
     # Permute airmass type
-    dataset_2 = GPROF_NN_0D_Dataset(
+    dataset_2 = GPROF_NN_1D_Dataset(
         input_file,
         batch_size=16,
         shuffle=False,
@@ -254,13 +254,13 @@ def test_permutation_gmi():
     assert np.all(np.isclose(x_1[:, :-4], x_2[:, :-4]))
 
 
-def test_gprof_0d_dataset_input_gmi():
+def test_gprof_1d_dataset_input_gmi():
     """
     Ensure that input variables have realistic values.
     """
     path = Path(__file__).parent
     input_file = path / "data" / "gmi" / "gprof_nn_gmi_era5.nc"
-    dataset = GPROF_NN_0D_Dataset(
+    dataset = GPROF_NN_1D_Dataset(
         input_file, batch_size=1, normalize=False, targets=["surface_precip"]
     )
     x, _ = dataset[0]
@@ -277,14 +277,14 @@ def test_gprof_0d_dataset_input_gmi():
     assert np.all((tcwv > 0) * (tcwv < 100))
 
 
-def test_gprof_0d_dataset_gmi():
+def test_gprof_1d_dataset_gmi():
     """
     Ensure that iterating over single-pixel dataset conserves
     statistics.
     """
     path = Path(__file__).parent
     input_file = path / "data" / "gmi" / "gprof_nn_gmi_era5.nc"
-    dataset = GPROF_NN_0D_Dataset(
+    dataset = GPROF_NN_1D_Dataset(
         input_file, batch_size=1, augment=False, targets=["surface_precip"]
     )
 
@@ -308,14 +308,14 @@ def test_gprof_0d_dataset_gmi():
     assert np.all(np.isclose(y_mean, y_mean_ref, rtol=1e-3))
 
 
-def test_gprof_0d_dataset_multi_target_gmi():
+def test_gprof_1d_dataset_multi_target_gmi():
     """
     Ensure that iterating over single-pixel dataset conserves
     statistics.
     """
     path = Path(__file__).parent
     input_file = path / "data" / "gmi" / "gprof_nn_gmi_era5.nc"
-    dataset = GPROF_NN_0D_Dataset(
+    dataset = GPROF_NN_1D_Dataset(
         input_file,
         targets=["surface_precip", "latent_heat", "rain_water_content"],
         batch_size=1,
@@ -344,14 +344,14 @@ def test_gprof_0d_dataset_multi_target_gmi():
         assert np.all(np.isclose(y_mean[k], y_mean_ref[k], rtol=1e-3))
 
 
-def test_gprof_0d_dataset_mhs():
+def test_gprof_1d_dataset_mhs():
     """
     Ensure that iterating over single-pixel dataset conserves
     statistics.
     """
     path = Path(__file__).parent
     input_file = path / "data" / "gprof_nn_mhs_era5.nc"
-    dataset = GPROF_NN_0D_Dataset(
+    dataset = GPROF_NN_1D_Dataset(
         input_file,
         batch_size=1,
         augment=False,
@@ -381,14 +381,14 @@ def test_gprof_0d_dataset_mhs():
     assert np.all(np.isclose(x[:, 8:26].sum(-1), 1.0))
 
 
-def test_gprof_0d_dataset_multi_target_mhs():
+def test_gprof_1d_dataset_multi_target_mhs():
     """
     Ensure that iterating over single-pixel dataset conserves
     statistics.
     """
     path = Path(__file__).parent
     input_file = path / "data" / "gprof_nn_mhs_era5.nc"
-    dataset = GPROF_NN_0D_Dataset(
+    dataset = GPROF_NN_1D_Dataset(
         input_file,
         targets=["surface_precip", "latent_heat", "rain_water_content"],
         batch_size=1,
@@ -418,13 +418,13 @@ def test_gprof_0d_dataset_multi_target_mhs():
         assert np.all(np.isclose(y_mean[k], y_mean_ref[k], rtol=1e-3))
 
 
-def test_gprof_0d_dataset_input_mhs():
+def test_gprof_1d_dataset_input_mhs():
     """
     Ensure that input variables have realistic values.
     """
     path = Path(__file__).parent
     input_file = path / "data" / "gprof_nn_mhs_era5.nc"
-    dataset = GPROF_NN_0D_Dataset(
+    dataset = GPROF_NN_1D_Dataset(
         input_file, batch_size=1, normalize=False, targets=["surface_precip"]
     )
     x, _ = dataset[0]
@@ -445,14 +445,14 @@ def test_gprof_0d_dataset_input_mhs():
     assert np.all((tcwv > 0) * (tcwv < 100))
 
 
-def test_observation_dataset_0d():
+def test_observation_dataset_1d():
     """
     Test loading of observations data from MHS training data.
     """
     path = Path(__file__).parent
     input_file = path / "data" / "gprof_nn_mhs_era5.nc"
     input_data = xr.load_dataset(input_file)
-    dataset = TrainingObsDataset0D(
+    dataset = TrainingObsDataset1D(
         input_file, batch_size=1, sensor=sensors.MHS, normalize=False, shuffle=False
     )
 
@@ -483,17 +483,17 @@ def test_profile_variables():
         "cloud_water_content",
         "latent_heat",
     ]
-    dataset = GPROF_NN_0D_Dataset(input_file, targets=PROFILE_TARGETS, batch_size=1)
+    dataset = GPROF_NN_1D_Dataset(input_file, targets=PROFILE_TARGETS, batch_size=1)
     x, y = dataset[0]
 
 
-def test_gprof_2d_dataset_input_gmi():
+def test_gprof_3d_dataset_input_gmi():
     """
     Ensure that input variables have realistic values.
     """
     path = Path(__file__).parent
     input_file = path / "data" / "gmi" / "gprof_nn_gmi_era5.nc"
-    dataset = GPROF_NN_2D_Dataset(
+    dataset = GPROF_NN_3D_Dataset(
         input_file, batch_size=1, normalize=False, targets=["surface_precip"]
     )
     x, _ = dataset[0]
@@ -510,14 +510,14 @@ def test_gprof_2d_dataset_input_gmi():
     assert np.all((tcwv > 0) * (tcwv < 100))
 
 
-def test_gprof_2d_dataset_gmi():
+def test_gprof_3d_dataset_gmi():
     """
-    Ensure that iterating over 2D dataset conserves
+    Ensure that iterating over 3D dataset conserves
     statistics.
     """
     path = Path(__file__).parent
     input_file = path / "data" / "gmi" / "gprof_nn_gmi_era5.nc"
-    dataset = GPROF_NN_2D_Dataset(
+    dataset = GPROF_NN_3D_Dataset(
         input_file, batch_size=1, augment=False, transform_zeros=True
     )
 
@@ -544,13 +544,13 @@ def test_gprof_2d_dataset_gmi():
     assert np.all(np.isclose(y_mean, y_mean_ref, atol=1e-3))
 
 
-def test_gprof_2d_dataset_profiles():
+def test_gprof_3d_dataset_profiles():
     """
     Ensure that loading of profile variables works.
     """
     path = Path(__file__).parent
     input_file = path / "data" / "gmi" / "gprof_nn_gmi_era5.nc"
-    dataset = GPROF_NN_2D_Dataset(
+    dataset = GPROF_NN_3D_Dataset(
         input_file,
         batch_size=1,
         augment=False,
@@ -589,13 +589,13 @@ def test_gprof_2d_dataset_profiles():
         assert np.all(np.isclose(y_mean[k], y_mean_ref[k], atol=1e-3))
 
 
-def test_gprof_2d_dataset_input_mhs():
+def test_gprof_3d_dataset_input_mhs():
     """
     Ensure that input variables have realistic values.
     """
     path = Path(__file__).parent
     input_file = path / "data" / "gprof_nn_mhs_era5.nc"
-    dataset = GPROF_NN_2D_Dataset(
+    dataset = GPROF_NN_3D_Dataset(
         input_file, batch_size=1, normalize=False, targets=["surface_precip"]
     )
     x, _ = dataset[0]
@@ -615,13 +615,13 @@ def test_gprof_2d_dataset_input_mhs():
     assert np.all((tcwv > 0) * (tcwv < 100))
 
 
-def test_gprof_2d_dataset_mhs():
+def test_gprof_3d_dataset_mhs():
     """
-    Test loading of 2D training data for MHS sensor.
+    Test loading of 3D training data for MHS sensor.
     """
     path = Path(__file__).parent
     input_file = path / "data" / "gprof_nn_mhs_era5_sim.nc"
-    dataset = GPROF_NN_2D_Dataset(
+    dataset = GPROF_NN_3D_Dataset(
         input_file, batch_size=1, augment=False, transform_zeros=True
     )
 
