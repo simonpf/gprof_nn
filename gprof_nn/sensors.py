@@ -5,6 +5,21 @@ gprof_nn.sensors
 
 This module defines different sensor classes to represent the
  various sensors of the GPM constellation.
+
+This module provides sensor objects for all satellites of the
+GPM constellation. Most sensors exist in two or three variants:
+
+  1. A generic variant that is named directly after the sensor
+     ('GMI', 'MHS', ...) that can be used whenever it is
+     irrelevant to which specific sensor instance is referred,
+     i.e. for reading simulator or bin files.
+  2. A specific variant named using the naming scheme
+     {sensor}_{platform}. The should be used when specific
+     instance of the sensor plays a role, e.g. training of
+     a retrieval model.
+  3. A specific variant named using the naming scheme
+     {sensor}_{platform}_C. This sensor also applies a
+     quantile-matching correction to the training data.
 """
 from abc import ABC, abstractmethod, abstractproperty
 from pathlib import Path
@@ -1407,7 +1422,7 @@ MHS_CHANNELS = [
 
 MHS_NEDT = np.array([1.0, 1.0, 4.0, 2.0, 2.0])
 
-MHS_VIEWING_GEOMETRY =  CrossTrack(
+MHS_VIEWING_GEOMETRY = CrossTrack(
     altitude=855e3,
     scan_range=2.0 * 49.5,
     pixels_per_scan=90,

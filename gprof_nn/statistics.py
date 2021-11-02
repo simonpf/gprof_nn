@@ -3,10 +3,15 @@
 gprof_nn.statistics
 ===================
 
-This module provides a framework to calculate statistics over large
-datasets split across multiple files.
-"""
+This module provides functionality to calculate task-specific statistics over
+ large datasets split across multiple files.
 
+Different task or data related statistics are implemented by statistics
+classes that define how a single file is treated and how results from two
+files should be merged. Arbitrary selections of these classes can then
+be applied to a sequence of files using the generic StatisticsProcessor
+class.
+"""
 from abc import ABC, abstractmethod
 from concurrent.futures import ProcessPoolExecutor
 import logging
@@ -37,12 +42,15 @@ LOGGER = logging.getLogger(__name__)
 
 def calculate_angle_bins(angles):
     """
-    Helper function to create sequence of angle bins from a sensors
-    simulated viewing angles.
+    Helper function to create sequence of angle bin boundaries
+    the simulated viewing angles of a sensor.
 
     Args:
-        angles: 1D array containing the viewing angles in ascending
+        angles: 1D array containing the N viewing angles in ascending
             order.
+
+    Return:
+        1D array containing N + 1 angle bin boundaries.
     """
     angle_bins = np.zeros(angles.size + 1)
     angle_bins[1:-1] = 0.5 * (angles[1:] + angles[:-1])
@@ -53,13 +61,14 @@ def calculate_angle_bins(angles):
 
 def open_file(filename):
     """
-    Generic function to open a file and return data as ``xarray.Dataset``.
+    Helper function to open a generic file format  and return the
+    data as ``xarray.Dataset``.
 
     Args:
         filename: The path to the file to open.
 
     Return:
-        ``xarray.Dataset`` containing the data in the file.
+        ``xarray.Dataset`` providing access to the data in the file.
     """
     filename = Path(filename)
     suffix = filename.suffix
@@ -79,14 +88,23 @@ def open_file(filename):
     )
 
 
+###############################################################################
+# Statistic interface
+###############################################################################
+
+
 class Statistic(ABC):
     """
-    Basic interface for statistics calculated across multiple retrieval files.
+    The basic interface for statistics that can be computed with the generic
+    'StatisticsProcessor' class.
     """
     @abstractmethod
     def process_file(self, sensor, filename):
         """
         Process data from a single file.
+
+        This function may be called multiple times for different files so it
+        should accumulate the statistics.
 
         Args:
             filename: Path to the file to process.
@@ -95,15 +113,22 @@ class Statistic(ABC):
     @abstractmethod
     def merge(self, statistic):
         """
-        Merge the data of this statistic with that calculated in a different
-        process.
+        Merge the data of 'self' with the 'statistic' object calculated
+        on a different file. After this function was called the 'self'
+        should contain the accumulated data from 'statistic' and 'self'
+        before the call to the function.
         """
 
     @abstractmethod
     def save(self, destination):
         """
-        Save results to file in NetCDF format.
+        Save the calculated statistics to a file in NetCDF format.
         """
+
+
+###############################################################################
+# Statistic classes
+###############################################################################
 
 
 class ScanPositionMean(Statistic):
@@ -116,7 +141,7 @@ class ScanPositionMean(Statistic):
         Instantiate scan position mean statistic for given variable.
 
         Args:
-            Name of the retrieval variable for which to compute the
+            variable: Name of the retrieval variable for which to compute the
             scan position mean.
         """
         self.variable = variable
@@ -170,8 +195,8 @@ class ScanPositionMean(Statistic):
 
 class ZonalDistribution(Statistic):
     """
-    Calculates zonal distributions of retrieval targets on a 1-degree
-    latitude grid.
+    This statistics class calculates zonal distributions of retrieval
+    results in either GPROF binary format or NetCDF format.
     """
     def __init__(self, monthly=False):
         """
@@ -188,6 +213,9 @@ class ZonalDistribution(Statistic):
         self.sensor = None
 
     def _initialize(self, data):
+        """
+        Initialize variables used to hold the results.
+        """
         self.sums = {}
         self.counts = {}
         self.has_time = self.has_time and "scan_time" in data.variables
@@ -225,100 +253,22 @@ class ZonalDistribution(Statistic):
                 dtype=np.float32
             )
 
-    def process_file(self, sensor, filename):
+    def _process_file_monthly(self, sensor, data):
         """
-        Process data from a single file.
-
-        Args:
-            filename: Path to the file to process.
+        Processing of a single file fort the case that distributions should
+        be calculated separately for different months.
         """
-        self.sensor = sensor
-        data = open_file(filename)
-        if self.counts is None:
-            self._initialize(data)
-
-        if self.has_time:
-            for month in range(12):
-                indices = data["scan_time"].dt.month == (month + 1)
-                if indices.ndim > 1:
-                    indices = indices.all(axis=tuple(np.arange(indices.ndim)[1:]))
-                data.latitude.load()
-
-                for k in ALL_TARGETS:
-                    if k in self.counts:
-                        lats = data.latitude[indices].data
-                        data[k].load()
-                        v = data[k][indices].data
-
-                        selection = []
-                        for i in range(lats.ndim):
-                            n_lats = lats.shape[i]
-                            n_v = v.shape[i]
-                            d_n = (n_lats - n_v) // 2
-                            if d_n > 0:
-                                selection.append(slice(d_n, -d_n))
-                            else:
-                                selection.append(slice(0, None))
-                        lats = lats[tuple(selection)]
-
-                        if v.ndim > lats.ndim:
-                            shape = (lats.shape  +
-                                     tuple([1] * (v.ndim - lats.ndim)))
-                            lats_v = lats.reshape(shape)
-                            lats_v = np.broadcast_to(lats_v, v.shape)
-                        else:
-                            lats_v = lats
-                        weights = np.isfinite(v).astype(np.float32)
-                        weights[v < -500] = 0.0
-                        cs, _ = np.histogram(lats_v.ravel(),
-                                             bins=self.latitude_bins,
-                                             weights=weights.ravel())
-                        self.counts[k][month] += cs
-                        weights = np.nan_to_num(v, nan=0.0)
-                        weights[v < -500] = 0.0
-                        cs, _ = np.histogram(lats_v.ravel(),
-                                             bins=self.latitude_bins,
-                                             weights=weights.ravel())
-                        self.sums[k][month] += cs
-
-                        if k == "surface_precip":
-                            if "surface_precip_true" in data.variables:
-                                inds = data.surface_precip_true.data[indices] > 0.0
-                            else:
-                                inds = data.surface_precip.data[indices] >= 0.0
-
-                            bins = (self.latitude_bins,
-                                    self.surface_precip_bins)
-                            cs, _, _ = np.histogram2d(
-                                lats_v[inds].ravel(),
-                                v[inds].ravel(),
-                                bins=bins
-                            )
-                            self.surface_precip_mean[month] += cs
-
-                if "surface_precip_samples" in data.variables:
-                    if "surface_precip_true" in data.variables:
-                        indices *= data.surface_precip_true.data > 0.0
-                    else:
-                        indices *= data.surface_precip.data >= 0.0
-                    lats = data.latitude[indices].data
-                    v = data["surface_precip_samples"][indices].data
-                    bins = (self.latitude_bins,
-                            self.surface_precip_bins)
-                    cs, _, _ = np.histogram2d(
-                        lats.ravel(),
-                        v.ravel(),
-                        bins=bins
-                    )
-                    self.surface_precip_samples[month] += cs
-        else:
+        for month in range(12):
+            indices = data["scan_time"].dt.month == (month + 1)
+            if indices.ndim > 1:
+                indices = indices.all(axis=tuple(np.arange(indices.ndim)[1:]))
             data.latitude.load()
+
             for k in ALL_TARGETS:
                 if k in self.counts:
-                    v = data[k].data
-                    lats = data.latitude.data
+                    lats = data.latitude[indices].data
                     data[k].load()
-                    v = data[k].data
+                    v = data[k][indices].data
 
                     selection = []
                     for i in range(lats.ndim):
@@ -333,7 +283,7 @@ class ZonalDistribution(Statistic):
 
                     if v.ndim > lats.ndim:
                         shape = (lats.shape  +
-                                 tuple([1] * (v.ndim - lats.ndim)))
+                                    tuple([1] * (v.ndim - lats.ndim)))
                         lats_v = lats.reshape(shape)
                         lats_v = np.broadcast_to(lats_v, v.shape)
                     else:
@@ -341,21 +291,21 @@ class ZonalDistribution(Statistic):
                     weights = np.isfinite(v).astype(np.float32)
                     weights[v < -500] = 0.0
                     cs, _ = np.histogram(lats_v.ravel(),
-                                         bins=self.latitude_bins,
-                                         weights=weights.ravel())
-                    self.counts[k] += cs
+                                            bins=self.latitude_bins,
+                                            weights=weights.ravel())
+                    self.counts[k][month] += cs
                     weights = np.nan_to_num(v, nan=0.0)
                     weights[v < -500] = 0.0
                     cs, _ = np.histogram(lats_v.ravel(),
-                                         bins=self.latitude_bins,
-                                         weights=weights.ravel())
-                    self.sums[k] += cs
+                                            bins=self.latitude_bins,
+                                            weights=weights.ravel())
+                    self.sums[k][month] += cs
 
                     if k == "surface_precip":
                         if "surface_precip_true" in data.variables:
-                            inds = data.surface_precip_true.data > 0.0
+                            inds = data.surface_precip_true.data[indices] > 0.0
                         else:
-                            inds = data.surface_precip.data >= 0.0
+                            inds = data.surface_precip.data[indices] >= 0.0
 
                         bins = (self.latitude_bins,
                                 self.surface_precip_bins)
@@ -364,15 +314,15 @@ class ZonalDistribution(Statistic):
                             v[inds].ravel(),
                             bins=bins
                         )
-                        self.surface_precip_mean += cs
+                        self.surface_precip_mean[month] += cs
 
             if "surface_precip_samples" in data.variables:
                 if "surface_precip_true" in data.variables:
-                    indices = data.surface_precip_true.data > 0.0
+                    indices *= data.surface_precip_true.data > 0.0
                 else:
-                    indices = data.surface_precip.data >= 0.0
-                lats = data.latitude.data[indices]
-                v = data["surface_precip_samples"].data[indices]
+                    indices *= data.surface_precip.data >= 0.0
+                lats = data.latitude[indices].data
+                v = data["surface_precip_samples"][indices].data
                 bins = (self.latitude_bins,
                         self.surface_precip_bins)
                 cs, _, _ = np.histogram2d(
@@ -380,7 +330,94 @@ class ZonalDistribution(Statistic):
                     v.ravel(),
                     bins=bins
                 )
-                self.surface_precip_samples += cs
+                self.surface_precip_samples[month] += cs
+
+    def process_file(self, sensor, filename):
+        """
+        Process data from a single file.
+
+        Args:
+            filename: Path to the file to process.
+        """
+        self.sensor = sensor
+        data = open_file(filename)
+        if self.counts is None:
+            self._initialize(data)
+
+        # Handle monthly statistics separately.
+        if self.has_time:
+            self._process_file_monthly(self, sensor, data)
+            return None
+
+        data.latitude.load()
+        for k in ALL_TARGETS:
+            if k in self.counts:
+                v = data[k].data
+                lats = data.latitude.data
+                data[k].load()
+                v = data[k].data
+
+                selection = []
+                for i in range(lats.ndim):
+                    n_lats = lats.shape[i]
+                    n_v = v.shape[i]
+                    d_n = (n_lats - n_v) // 2
+                    if d_n > 0:
+                        selection.append(slice(d_n, -d_n))
+                    else:
+                        selection.append(slice(0, None))
+                lats = lats[tuple(selection)]
+
+                if v.ndim > lats.ndim:
+                    shape = (lats.shape  +
+                                tuple([1] * (v.ndim - lats.ndim)))
+                    lats_v = lats.reshape(shape)
+                    lats_v = np.broadcast_to(lats_v, v.shape)
+                else:
+                    lats_v = lats
+                weights = np.isfinite(v).astype(np.float32)
+                weights[v < -500] = 0.0
+                cs, _ = np.histogram(lats_v.ravel(),
+                                     bins=self.latitude_bins,
+                                     weights=weights.ravel())
+                self.counts[k] += cs
+                weights = np.nan_to_num(v, nan=0.0)
+                weights[v < -500] = 0.0
+                cs, _ = np.histogram(lats_v.ravel(),
+                                     bins=self.latitude_bins,
+                                     weights=weights.ravel())
+                self.sums[k] += cs
+
+                if k == "surface_precip":
+                    if "surface_precip_true" in data.variables:
+                        inds = data.surface_precip_true.data > 0.0
+                    else:
+                        inds = data.surface_precip.data >= 0.0
+
+                    bins = (self.latitude_bins,
+                            self.surface_precip_bins)
+                    cs, _, _ = np.histogram2d(
+                        lats_v[inds].ravel(),
+                        v[inds].ravel(),
+                        bins=bins
+                    )
+                    self.surface_precip_mean += cs
+
+        if "surface_precip_samples" in data.variables:
+            if "surface_precip_true" in data.variables:
+                indices = data.surface_precip_true.data > 0.0
+            else:
+                indices = data.surface_precip.data >= 0.0
+            lats = data.latitude.data[indices]
+            v = data["surface_precip_samples"].data[indices]
+            bins = (self.latitude_bins,
+                    self.surface_precip_bins)
+            cs, _, _ = np.histogram2d(
+                lats.ravel(),
+                v.ravel(),
+                bins=bins
+            )
+            self.surface_precip_samples += cs
 
     def merge(self, other):
         """
@@ -448,8 +485,8 @@ class ZonalDistribution(Statistic):
 
 class GPMCMBStatistics(Statistic):
     """
-    Calculates surface precipitation distributions from GPM combined
-    files.
+    This class calculates zonal means of surface precipitation from GPM
+    CMB files.
     """
     def __init__(self,
                  monthly=False,
@@ -641,8 +678,9 @@ class GPMCMBStatistics(Statistic):
 
 class GlobalDistribution(Statistic):
     """
-    Calculates global distributions of retrieval targets on a 1-degree
-    latitude and longitude grid.
+    This statistic calculates global distributions of retrieval variables
+    from retrieval results files either in GPROF binary format or NetCDF
+    format.
     """
     def __init__(self,
                  monthly=False,
@@ -1740,31 +1778,9 @@ class BinFileStatistics(Statistic):
         data.to_netcdf(output_file)
 
 
-class SinFileStatistics(BinFileStatistics):
-    """
-    Class to calculate relevant statistics from training data files.
-    Calculates statistics of brightness temperatures, retrieval targets
-    as well as ancillary data.
-    """
-    def __init__(self):
-        super().__init__()
-    def open_file(self,
-                  filename):
-        """
-        Open input file with given name and returns data as 'xarray.Dataset'.
-
-        Args:
-            filename: The name of the input file.
-
-        Return:
-            'xarray.Dataset' containing the data in the file.
-        """
-        return SimFile(filename).to_xarray_dataset()
-
-
 class ObservationStatistics(Statistic):
     """
-    Class to extract relevant statistics from observation datasets.
+    This statistic calculates TB distributions from L1C files.
     """
     def __init__(self,
                  conditional=None):
@@ -1965,7 +1981,8 @@ class ObservationStatistics(Statistic):
 
 class RetrievalStatistics(Statistic):
     """
-    Class to calculate statistics of retrieval results
+    This class calculates conditional distributions of retrieval results
+    w. r. t. the two meter temperature and the total column water vapor.
     """
     def __init__(self):
         """
@@ -2023,6 +2040,7 @@ class RetrievalStatistics(Statistic):
         Process data from a single file.
 
         Args:
+            sensor: The sensor from which the data stems.
             filename: The path of the data to process.
         """
         self.sensor = sensor
@@ -2198,9 +2216,9 @@ class RetrievalStatistics(Statistic):
         data.to_netcdf(output_file)
 
 
-###############################################################################
-# Statistics
-###############################################################################
+################################################################################
+# Statistics processor
+################################################################################
 
 
 def process_files(sensor,
@@ -2212,6 +2230,7 @@ def process_files(sensor,
     process.
 
     Args:
+        sensor: The sensor for which the statistics are computed.
         files: The list of files to process.
         statistics: List of the statistics to calculate.
         log_queue: The queue to use to log messages to.
