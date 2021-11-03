@@ -627,9 +627,10 @@ def has_preprocessor():
 
 
 # Dictionary mapping sensor IDs to preprocessor executables.
-PREPROCESSOR_EXECUTABLES = {"GMI": "gprof2020pp_GMI_L1C", "MHS": "gprof2020pp_MHS_L1C"}
-
-
+PREPROCESSOR_EXECUTABLES = {
+        "GMI": "gprof2020pp_GMI_L1C",
+        "MHS": "gprof2020pp_MHS_L1C"
+        }
 
 
 def get_preprocessor_settings(configuration):
@@ -671,7 +672,7 @@ def run_preprocessor(
     """
     file = None
     if output_file is None:
-        file = tempfile.NamedTemporaryFile(dir="/gdata/simon/tmp")
+        file = tempfile.NamedTemporaryFile()
         output_file = file.name
     try:
         executable = PREPROCESSOR_EXECUTABLES[sensor.sensor_id]

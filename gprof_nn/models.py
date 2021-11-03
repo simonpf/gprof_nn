@@ -894,9 +894,9 @@ class SimulatorNet(nn.Module):
 
         self.down_block_2 = DownsamplingBlock(n_features_body, 2)
         self.down_block_4 = DownsamplingBlock(n_features_body, 2)
-        self.down_block_8 = DownsamplingBlock(n_features_body, 2)
-        self.down_block_16 = DownsamplingBlock(n_features_body, 2)
-        self.down_block_32 = DownsamplingBlock(n_features_body, 2)
+        self.down_block_8 = DownsamplingBlock(n_features_body, 4)
+        self.down_block_16 = DownsamplingBlock(n_features_body, 6)
+        self.down_block_32 = DownsamplingBlock(n_features_body, 6)
 
         self.up_block_16 = UpsamplingBlock(n_features_body)
         self.up_block_8 = UpsamplingBlock(n_features_body)

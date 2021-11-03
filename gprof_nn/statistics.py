@@ -31,6 +31,7 @@ from gprof_nn.data.preprocessor import PreprocessorFile
 from gprof_nn.data.training_data import (GPROF_NN_1D_Dataset,
                                          GPROF_NN_3D_Dataset)
 from gprof_nn.data.combined import GPMCMBFile
+from gprof_nn.data.l1c import L1CFile
 
 
 LOGGER = logging.getLogger(__name__)
@@ -83,8 +84,11 @@ def open_file(filename):
     elif suffix == ".pp":
         file = PreprocessorFile(filename)
         return file.to_xarray_dataset()
+    elif filename.name.startswith("1C"):
+        file = L1CFile(filename)
+        return file.to_xarray_dataset()
     raise ValueError(
-        f"Could not figure out how handle the file f{filename.name}."
+        f"Could not figure out how handle the file {filename.name}."
     )
 
 

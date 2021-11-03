@@ -277,13 +277,25 @@ def run(args):
                         validation_data,
                         output,
                         args)
-    else:
+    elif variant.upper() == "2D":
         run_training_2d(sensor,
                         configuration,
                         training_data,
                         validation_data,
                         output,
                         args)
+    elif variant.upper() == "SIM":
+        run_training_sim(sensor,
+                         configuration,
+                         training_data,
+                         validation_data,
+                         output,
+                         args)
+    else:
+        raise ValueError(
+                "'variant' should be one of '1D', '2D', 'SIM'."
+                )
+
 
 
 def run_training_1d(sensor,
@@ -764,7 +776,6 @@ def run_training_sim(sensor,
     if xrnn is None:
         xrnn = Simulator(
             sensor,
-            6,
             n_neurons_body,
             n_layers_head,
             n_neurons_head
@@ -784,8 +795,6 @@ def run_training_sim(sensor,
         "n_neurons_body": n_neurons_body,
         "n_layers_head": n_layers_head,
         "n_neurons_head": n_neurons_head,
-        "targets": ", ".join(targets),
-        "type": network_type,
         "optimizer": "adam"
         })
 

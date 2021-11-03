@@ -537,15 +537,6 @@ def process_sim_file(sim_filename, configuration, era5_path, log_queue=None):
     sim_file.match_targets(data_pp)
     l1c_data = l1c_file.to_xarray_dataset()
 
-    # Need to replace surface types if not dealing with GMI.
-    if sensor != sensors.GMI:
-        date = data_pp["scan_time"].data[data_pp.scans.size // 2]
-        surface_types = get_surface_type_map(date, sensor=sensor.name)
-        surface_types = surface_types.interp(
-            latitude=data_pp.latitude, longitude=data_pp.longitude, method="nearest"
-        )
-        data_pp["surface_type"].data = surface_types.data.astype(np.int8)
-
     # Orographic enhancement for types 17 and 18.
     apply_orographic_enhancement(data_pp)
 

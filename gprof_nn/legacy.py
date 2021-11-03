@@ -28,8 +28,8 @@ LOGGER = logging.getLogger(__name__)
 
 
 EXECUTABLES = {
-    "STANDARD": "GPROF_2020_V1",
-    "SENSITIVITY": "GPROF_2020_V1_grads",
+    "STANDARD": "GPROF_2021_V1",
+    "SENSITIVITY": "GPROF_2020_grads",
     "PROFILES": "GPROF_2020_V1_prof"
 
 }

@@ -12,10 +12,6 @@ import logging
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
-from quantnn.qrnn import QRNN
-from quantnn.normalizer import Normalizer
-from rich.progress import track
-
 import gprof_nn.logging
 from gprof_nn.retrieval import RetrievalDriver, RetrievalGradientDriver
 from gprof_nn import sensors
@@ -86,7 +82,7 @@ STATS = {
 PATTERNS = {
     "training": "**/*.nc",
     "bin": "**/*.bin",
-    "observations": "**/*.nc",
+    "observations": "**/*.HDF5",
     "retrieval": "*.nc",
     "combined": "**/2B.GPM*.HDF5"
 }

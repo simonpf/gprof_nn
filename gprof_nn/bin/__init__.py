@@ -25,6 +25,7 @@ def gprof_nn():
     from gprof_nn.bin import statistics
     from gprof_nn.bin import train
     from gprof_nn.bin import legacy
+    from gprof_nn.bin import run_preprocessor
 
     set_log_level("INFO")
 
@@ -43,6 +44,7 @@ def gprof_nn():
     statistics.add_parser(subparsers)
     train.add_parser(subparsers)
     legacy.add_parser(subparsers)
+    run_preprocessor.add_parser(subparsers)
 
     if len(sys.argv)==1:
         parser.print_help(sys.stderr)
