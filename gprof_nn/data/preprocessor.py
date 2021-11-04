@@ -633,18 +633,21 @@ PREPROCESSOR_EXECUTABLES = {
         }
 
 
+# The default preprocessor settings for CSU computers.
+PREPROCESSOR_SETTINGS = {
+    "prodtype": "CLIMATOLOGY",
+    "prepdir": "/qdata2/archive/ERA5/",
+    "ancdir": "/qdata1/pbrown/gpm/ppancillary/",
+    "ingestdir": "/qdata1/pbrown/gpm/ppingest/",
+}
+
 def get_preprocessor_settings(configuration):
 
     """
     Return preprocessor settings as list of command line arguments to invoke
     the preprocessor.
     """
-    settings = {
-        "prodtype": "CLIMATOLOGY",
-        "prepdir": "/qdata2/archive/ERA5/",
-        "ancdir": "/qdata1/pbrown/gpm/ppancillary/",
-        "ingestdir": "/qdata1/pbrown/gpm/ppingest/",
-    }
+    settings = PREPROCESSOR_SETTINGS.copy()
     if configuration != ERA5:
         settings["prodtype"] = "STANDARD"
         settings["prepdir"] = "/qdata1/pbrown/gpm/modelprep/GANALV7/"

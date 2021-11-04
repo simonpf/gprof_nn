@@ -36,7 +36,6 @@ from gprof_nn.coordinates import latlon_to_ecef
 from gprof_nn.data.l1c import L1CFile
 from gprof_nn.data.mrms import MRMSMatchFile
 from gprof_nn.data.preprocessor import run_preprocessor
-from gprof_nn.data.surface import get_surface_type_map
 from gprof_nn.data.utils import compressed_pixel_range, N_PIXELS_CENTER
 from gprof_nn.logging import get_console
 from gprof_nn.utils import CONUS

@@ -19,7 +19,9 @@ from gprof_nn.data.training_data import (GPROF_NN_0D_Dataset,
                                          write_preprocessor_file)
 from gprof_nn.data.l1c import L1CFile
 
+
 HAS_PREPROCESSOR = has_preprocessor()
+
 
 def test_read_preprocessor_gmi():
     """
