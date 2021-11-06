@@ -49,7 +49,6 @@ def read_land_mask(sensor):
 
     # Filename contains the resolution per degree
     resolution = int(path.stem.split("_")[-1])
-
     shape = (180 * resolution, 360 * resolution)
 
     lats = np.linspace(-90, 90, shape[0] + 1)[:-1]
@@ -65,11 +64,6 @@ def read_land_mask(sensor):
             "mask": (("latitude", "longitude"), data),
         }
     )
-    if resolution > 16:
-        dataset = dataset[{
-            "latitude": slice(0, None, 2),
-            "longitude": slice(0, None, 2)
-        }]
     return dataset
 
 
@@ -112,7 +106,6 @@ def read_autosnow(date, legacy=False):
 
         if filename.exists():
             break
-    print(filename)
 
     if filename is None:
         raise Exception(f"Couldn't find autosnow file for date {date}")
@@ -224,8 +217,8 @@ def read_emissivity_classes():
         data_c = data.copy()
         if np.all(data > 0):
             break
-        for offs_lat in [-1, 0, 1]:
-            for offs_lon in [-1, 0, 1]:
+        for offs_lon in [-1, 0, 1]:
+            for offs_lat in [-1, 0, 1]:
                 lat_slice = slice(max(-offs_lat, 0), N_LAT - offs_lat)
                 lon_slice = slice(max(-offs_lon, 0), N_LON - offs_lon)
                 dest = data_c[:, lat_slice, lon_slice]
@@ -270,8 +263,8 @@ def read_mountain_mask():
     with open(path, "rb") as buffer:
         buffer.read(4)
         n_lons, n_lats = np.fromfile(buffer, dtype="i4", count=2)
-        n_elem = n_lons * n_lats
         buffer.read(8)
+        n_elem = n_lons * n_lats
         data = np.fromfile(buffer, dtype="i", count=n_elem)
 
     shape = (n_lats, n_lons)
@@ -279,22 +272,18 @@ def read_mountain_mask():
     lons = np.linspace(-180, 180, shape[1] + 1)[:-1]
     data = data.reshape(shape)
 
-    data = np.concatenate([data[:, shape[1] // 2:], data[:, :shape[1] // 2]],
-                          axis=-1)
-    dataset = xr.Dataset({
-        "latitude": (("latitude", ), lats),
-        "longitude": (("longitude",), lons),
-        "mask": (("latitude", "longitude"), data)
-    })
+    data = np.concatenate([data[:, shape[1] // 2 :], data[:, : shape[1] // 2]], axis=-1)
+    dataset = xr.Dataset(
+        {
+            "latitude": (("latitude",), lats),
+            "longitude": (("longitude",), lons),
+            "mask": (("latitude", "longitude"), data),
+        }
+    )
     return dataset
 
 
-def combine_surface_types(
-        land,
-        snow,
-        emiss,
-        mtn,
-        month):
+def combine_surface_types(land, snow, emiss, month):
     """
     Combines land, snow and emissivity maps to derive the CSU
     surface classficiation.
@@ -305,7 +294,6 @@ def combine_surface_types(
         land: Array containing the land/sea map
         snow: Array containing the autosnow classes
         emiss: Array containing the emissivity classes for each month.
-        mtn: The mountain mask to determine surface types 17 and 18.
         month: Index of the month.
 
     Returns:
@@ -357,8 +345,9 @@ def combine_surface_types(
     sfc[mask] = emiss[month][mask] + 2
 
     # Only autosnow predicts snow
-    mask_emiss_no_snow = (((emiss[month] >= 1) * (emiss[month] <= 5)) +
-                          (emiss[month] == 10))
+    mask_emiss_no_snow = ((emiss[month] >= 1) * (emiss[month] <= 5)) + (
+        emiss[month] == 10
+    )
     mask = land * mask_auto_snow * mask_emiss_no_snow
     sfc[mask] = 10
 
@@ -370,8 +359,7 @@ def combine_surface_types(
     # No (auto) snow
     #
 
-    mask_emiss_land = (land * ~mask_auto_snow *
-                       (emiss[month] >= 1) * (emiss[month] <= 5))
+    mask_emiss_land = land * ~mask_auto_snow * (emiss[month] >= 1) * (emiss[month] <= 5)
     sfc[mask_emiss_land] = emiss[month][mask_emiss_land] + 2
 
     # If autosnow says snow but emissivity does not, look for latest
@@ -382,11 +370,10 @@ def combine_surface_types(
         mask = land * ~mask_auto_snow * mask_emiss_snow
         if not np.any(mask):
             break
-        m = ((month - i) % 12)
+        m = (month - i) % 12
 
         replace = mask * ((emiss[m] < 6) + (emiss[m] == 10))
         latest_emiss[replace] = emiss[m][replace]
-        print(m, mask.sum())
 
     mask_emiss_snow = (latest_emiss >= 6) * (latest_emiss <= 9)
     mask = land * ~mask_auto_snow * mask_emiss_snow
@@ -423,6 +410,138 @@ def combine_surface_types(
     mask = coast * (snow == 3)
     sfc[mask] = 2
 
+    return sfc
+
+
+def get_surface_type_map(sensor, date):
+    """
+    Get map of the basic surface types (1 - 16) on the resolution
+    of the underlyin land sea maks.
+
+    Args:
+        sensor: The sensor given as string.
+        date: The date for which to calculate the surface map.
+
+    Return:
+        A 2D array containing the surface map.
+    """
+    date = pd.Timestamp(date)
+    month = date.month - 1
+    land = read_land_mask(sensor)
+    snow = read_autosnow(date)
+    emiss = read_emissivity_classes()
+    mtn = read_mountain_mask()
+
+    LAT_MAX, LON_MAX = land.mask.shape
+    LAT_MAX_SNOW, LON_MAX_SNOW = snow.snow.shape
+    _, LAT_MAX_EMISS, LON_MAX_EMISS = emiss.emissivity.shape
+    lats_land = land.latitude.data
+    lons_land = land.longitude.data
+    lons_land, lats_land = np.meshgrid(lons_land, lats_land)
+
+    snow_scaling = LON_MAX_SNOW / LON_MAX
+    emiss_scaling = LON_MAX_EMISS / LON_MAX
+
+    inds_lat = LAT_MAX - 1 - np.arange(0, LAT_MAX)
+    inds_lon = np.arange(LON_MAX)
+    inds_lon, inds_lat = np.meshgrid(inds_lon, inds_lat)
+    inds_lon = inds_lon.ravel()
+    inds_lat = inds_lat.ravel()
+    inds_lat_snow = np.clip(
+        np.trunc(inds_lat * snow_scaling).astype(np.int16), 0, LAT_MAX_SNOW - 1
+    )
+    inds_lon_snow = np.clip(
+        np.trunc(inds_lon * snow_scaling).astype(np.int16), 0, LON_MAX_SNOW - 1
+    )
+    inds_lat_emiss = np.clip(
+        np.trunc(inds_lat * emiss_scaling).astype(np.int16), 0, LAT_MAX_EMISS - 1
+    )
+    inds_lon_emiss = np.clip(
+        np.trunc(inds_lon * emiss_scaling).astype(np.int16), 0, LON_MAX_EMISS - 1
+    )
+
+    land = land.mask.data[::-1][inds_lat, inds_lon].reshape((LAT_MAX, LON_MAX))
+    snow = snow.snow.data[::-1][inds_lat_snow, inds_lon_snow].reshape(
+        (LAT_MAX, LON_MAX)
+    )
+    emiss = emiss.emissivity.data[:, ::-1][:, inds_lat_emiss, inds_lon_emiss]
+    emiss = emiss.reshape((12,) + (LAT_MAX, LON_MAX))
+
+    sfc = combine_surface_types(land, snow, emiss, month)
+
+    # Snow in antarctica
+    mask = (lats_land <= -60) * (sfc >= 8) * (sfc <= 10)
+    sfc[mask] = 11
+
+    # Snow in greenland
+    mask = (
+        (lats_land >= 60)
+        * (lats_land <= 82)
+        * (lons_land >= -66)
+        * (lons_land <= -23)
+        * (sfc >= 8)
+        * (sfc <= 10)
+    )
+    sfc[mask] = 11
+    return sfc
+
+def get_surface_types(sensor, date, latitude, longitude):
+    """
+    Get surface type for a given swath of observations.
+
+    Args:
+        sensor: Name of the sensor for which to calculate the surface type.
+        date: The date of the observations.
+        latitude: Array containing the latitude coordinates of the
+            observations.
+        longitude: Array containing the longitude coordinates of the
+            observations.
+
+    Return:
+        An array of the same shape as 'latitude' containing the surface
+        types for each pixel.
+    """
+    sfc = get_surface_type_map(sensor, date)
+    shape = latitude.shape
+    latitude = latitude.ravel()
+    longitude = longitude.ravel()
+    mask = longitude > 180
+    longitude[mask] = longitude[mask] - 360
+    mask = longitude < -180
+    longitude[mask] = longitude[mask] + 360
+
+    # Extract swath pixels
+    LAT_MAX, LON_MAX = sfc.shape
+    inc = 360 / LON_MAX
+    lat_grid = np.linspace(-90, 90, LAT_MAX + 1)
+    lon_grid = np.linspace(-180, 180, LON_MAX + 1)
+    inds_lat = np.clip(np.digitize(latitude, lat_grid, right=True), 1, LAT_MAX) - 1
+    inds_lon = np.clip(np.digitize(longitude, lon_grid), 1, LON_MAX + 1) - 1
+    inds_lon %= LON_MAX
+    sfc = sfc[inds_lat, inds_lon].reshape(shape)
+
+    # Combine with mountain mask.
+    mtn = read_mountain_mask()
+    LAT_MAX_MTN = mtn.latitude.size
+    LON_MAX_MTN = mtn.longitude.size
+    lat_inc = 180 / LAT_MAX_MTN
+    lat_grid = np.linspace(-90 - lat_inc / 2.0, 90 - lat_inc / 2.0, LAT_MAX_MTN + 1)
+    lon_inc = 360 / LON_MAX_MTN
+    lon_grid = np.linspace(-180 - lon_inc / 2.0, 180 - lon_inc / 2.0, LON_MAX_MTN + 1)
+    inds_lat_mtn = (
+        np.clip(
+            np.digitize(
+                latitude,
+                lat_grid,
+            ),
+            1,
+            LAT_MAX_MTN,
+        )
+        - 1
+    )
+    inds_lon_mtn = np.clip(np.digitize(longitude, lon_grid), 1, LON_MAX_MTN) - 1
+    mtn = mtn.mask.data[inds_lat_mtn, inds_lon_mtn].reshape(shape)
+
     # Mountain rain and snow
     mask = (mtn >= 1) * (sfc >= 3) * (sfc <= 7)
     sfc[mask] = 17
@@ -432,82 +551,72 @@ def combine_surface_types(
     return sfc
 
 
-def get_surface_type_map(sensor, date):
-    date = pd.Timestamp(date)
-    month = date.month
-    land = read_land_mask(sensor)
-    snow = read_autosnow(date)
-    emiss = read_emissivity_classes()
-    mtn = read_mountain_mask()
+def read_topography_map():
+    """
+    Read topography map of ERA5.
 
-    # Combine with autosnow and emissivity and assemble final
-    # classification.
-    snow = snow.interp(
-        {"latitude": land.latitude, "longitude": land.longitude}, "nearest"
-    ).snow.data
-    emiss = emiss.interp(
-        {"latitude": land.latitude, "longitude": land.longitude}, "nearest"
-    ).emissivity.data
-    mtn = mtn.interp(
-        {"latitude": land.latitude, "longitude": land.longitude}, "nearest"
-    ).mask.data
+    Return:
+        xarray.Datset containing the elevation and surface gradients
+        of the ERA5 domain.
+    """
+    ancdir = Path(PREPROCESSOR_SETTINGS["ancdir"])
+    path = ancdir / "gmted2010_global_25km.bin"
 
-    surface_types = combine_surface_types(
-        land.mask.data, snow, emiss, mtn, month
+    with open(path, "rb") as buffer:
+        n_lons, n_lats = np.fromfile(buffer, dtype="i4", count=2)
+        n2 = n_lons // 2
+
+        second_half = (slice(0, None), slice(n2, None))
+        first_half = (slice(0, None), slice(0, n2))
+
+        n_elem = n_lons * n_lats
+        shape = (n_lats, n_lons)
+        elev = np.fromfile(buffer, dtype="f", count=n_elem).reshape(shape)
+        elev = np.concatenate([elev[second_half], elev[first_half]], axis=1)
+
+        xgrad = np.fromfile(buffer, dtype="f", count=n_elem).reshape(shape)
+        xgrad = np.concatenate([xgrad[second_half], xgrad[first_half]], axis=1)
+
+        ygrad = np.fromfile(buffer, dtype="f", count=n_elem).reshape(shape)
+        ygrad = np.concatenate([ygrad[second_half], ygrad[first_half]], axis=1)
+
+        lats = np.fromfile(buffer, dtype="f", count=n_elem).reshape(shape)
+        lats = np.concatenate([lats[second_half], lats[first_half]], axis=1)
+        lons = np.fromfile(buffer, dtype="f", count=n_elem).reshape(shape)
+        lons = np.concatenate([lons[second_half], lons[first_half]], axis=1)
+
+    dataset = xr.Dataset(
+        {
+            "latitude": (
+                (
+                    "y",
+                    "x",
+                ),
+                lats,
+            ),
+            "longitude": (("y", "x"), lons),
+            "z": (
+                (
+                    "y",
+                    "x",
+                ),
+                elev,
+            ),
+            "dz_dx": (
+                (
+                    "y",
+                    "x",
+                ),
+                xgrad,
+            ),
+            "dz_dy": (
+                (
+                    "y",
+                    "x",
+                ),
+                ygrad,
+            ),
+        }
     )
-    return surface_types
 
-
-def get_surface_types(sensor, date, latitude, longitude):
-    date = pd.Timestamp(date)
-    month = date.month - 1
-    land = read_land_mask(sensor)
-    snow = read_autosnow(date)
-    emiss = read_emissivity_classes()
-    mtn = read_mountain_mask()
-
-    shape = latitude.shape
-    latitude = latitude.ravel()
-    longitude = longitude.ravel()
-    mask = longitude > 180
-    longitude[mask] = longitude[mask] - 360
-    mask = longitude < -180
-    longitude[mask] = longitude[mask] + 360
-
-    CELLS_PER_DEGREE = 16
-    LAT_MAX = 180 * CELLS_PER_DEGREE
-    LON_MAX = 360 * CELLS_PER_DEGREE
-    lat_grid = np.linspace(-90, 90, 180 * CELLS_PER_DEGREE + 1)
-    lon_grid = np.linspace(-180, 180, 360 * CELLS_PER_DEGREE + 1)
-
-    inds_lat = np.clip(np.digitize(latitude, lat_grid), 1, LAT_MAX) - 1
-    inds_lon = np.clip(np.digitize(longitude, lon_grid), 1, LON_MAX) - 1
-
-    LAT_MAX_SNOW = 4500
-    LON_MAX_SNOW = 9000
-    inds_lat_snow = np.clip(
-        np.trunc(inds_lat / 0.64).astype(np.int16), 0, LAT_MAX_SNOW - 1)
-    inds_lon_snow = np.clip(np.trunc(inds_lon / 0.64).astype(np.int16), 0, LON_MAX_SNOW - 1)
-
-    LAT_MAX_EMISS = 359
-    LON_MAX_EMISS = 720
-    inds_lat_emiss = np.clip(inds_lat // 8, 1, LAT_MAX_EMISS) - 1
-    inds_lon_emiss = np.clip(inds_lon // 8, 0, LON_MAX_EMISS - 1)
-
-    LAT_MAX_MTN = mtn.latitude.size
-    LON_MAX_MTN = mtn.longitude.size
-    lat_grid = np.linspace(-90, 90, LAT_MAX_MTN + 1)
-    lon_grid = np.linspace(-180, 180, LON_MAX_MTN + 1)
-    inds_lat_mtn = np.clip(np.digitize(latitude, lat_grid), 1, LAT_MAX_MTN) - 1
-    inds_lon_mtn = np.clip(np.digitize(longitude, lon_grid), 1, LON_MAX_MTN) - 1
-
-    land = land.mask.data[inds_lat, inds_lon].reshape(shape)
-    snow = snow.snow.data[inds_lat_snow, inds_lon_snow].reshape(shape)
-    emiss = emiss.emissivity.data[:, inds_lat_emiss, inds_lon_emiss]
-    emiss = emiss.reshape((12,) + shape)
-    mtn = mtn.mask.data[inds_lat_mtn, inds_lon_mtn].reshape(shape)
-
-    surface_types = combine_surface_types(
-        land, snow, emiss, mtn, month
-    )
-    return surface_types
+    return dataset

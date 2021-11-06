@@ -22,13 +22,15 @@ import scipy.interpolate
 import torch
 import xarray as xr
 
-from gprof_nn.definitions import (MISSING,
-                                  TCWV_MIN,
-                                  TCWV_MAX,
-                                  T2M_MIN,
-                                  T2M_MAX,
-                                  ERA5,
-                                  GANAL)
+from gprof_nn.definitions import (
+    MISSING,
+    TCWV_MIN,
+    TCWV_MAX,
+    T2M_MIN,
+    T2M_MAX,
+    ERA5,
+    GANAL,
+)
 from gprof_nn import sensors
 from gprof_nn.data import retrieval
 from gprof_nn.data.profiles import ProfileClusters
@@ -628,9 +630,10 @@ def has_preprocessor():
 
 # Dictionary mapping sensor IDs to preprocessor executables.
 PREPROCESSOR_EXECUTABLES = {
-        "GMI": "gprof2020pp_GMI_L1C",
-        "MHS": "gprof2020pp_MHS_L1C"
-        }
+    "GMI": "gprof2020pp_GMI_L1C",
+    "MHS": "gprof2020pp_MHS_L1C",
+    ("GMI", "MHS"): "gprof2020pp_GMI_MHS_L1C",
+}
 
 
 # The default preprocessor settings for CSU computers.
@@ -640,6 +643,7 @@ PREPROCESSOR_SETTINGS = {
     "ancdir": "/qdata1/pbrown/gpm/ppancillary/",
     "ingestdir": "/qdata1/pbrown/gpm/ppingest/",
 }
+
 
 def get_preprocessor_settings(configuration):
 
@@ -673,12 +677,20 @@ def run_preprocessor(
         xarray.Dataset containing the retrieval input data for the given L1C
         file or None when the 'output_file' argument is given.
     """
+    from gprof_nn.data.l1c import L1CFile
+
     file = None
     if output_file is None:
         file = tempfile.NamedTemporaryFile()
         output_file = file.name
     try:
         executable = PREPROCESSOR_EXECUTABLES[sensor.sensor_id]
+        sensor_l1c = L1CFile(l1c_file).sensor
+        if sensor_l1c.sensor_id != sensor.sensor_id:
+            executable = PREPROCESSOR_EXECUTABLES[
+                (sensor_l1c.sensor_id, sensor.sensor_id)
+            ]
+        LOGGER.info("Using preprocesor '%s'.", executable)
 
         jobid = str(os.getpid()) + "_pp"
         args = [jobid] + get_preprocessor_settings(configuration)
