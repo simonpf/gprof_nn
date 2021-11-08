@@ -1,8 +1,10 @@
 """
+===============
 gprof_nn.models
-===========
+===============
 
-Neural network models used for the GPROF-NN algorithms.
+This module defines the neural network models that are used
+for the implementation of the GPROF-NN algorithms.
 """
 import numpy as np
 import torch
@@ -11,22 +13,23 @@ from torch.nn.functional import softplus
 from quantnn.qrnn import QRNN
 from quantnn.drnn import DRNN
 from quantnn.mrnn import MRNN, Mean, Quantiles, Density
-from quantnn.models.pytorch.xception import (UpsamplingBlock,
-                                             DownsamplingBlock)
+from quantnn.models.pytorch.xception import UpsamplingBlock, DownsamplingBlock
 
 
 from gprof_nn.definitions import ALL_TARGETS, PROFILE_NAMES
-from gprof_nn.retrieval import (NetcdfLoader1D,
-                                NetcdfLoader3D,
-                                PreprocessorLoader1D,
-                                PreprocessorLoader3D,
-                                L1CLoader1D,
-                                L1CLoader3D,
-                                SimulatorLoader)
-from gprof_nn.data.training_data import (GPROF_NN_1D_Dataset,
-                                         GPROF_NN_3D_Dataset)
+from gprof_nn.retrieval import (
+    NetcdfLoader1D,
+    NetcdfLoader3D,
+    PreprocessorLoader1D,
+    PreprocessorLoader3D,
+    L1CLoader1D,
+    L1CLoader3D,
+    SimulatorLoader,
+)
+from gprof_nn.data.training_data import GPROF_NN_1D_Dataset, GPROF_NN_3D_Dataset
 
 
+# Define bins for DRNN models.
 BINS = {
     "surface_precip": np.logspace(-5.0, 2.5, 129),
     "convective_precip": np.logspace(-5.0, 2.5, 129),
@@ -37,30 +40,33 @@ BINS = {
     "cloud_water_content": np.logspace(-6.0, 1.5, 129),
     "snow_water_content": np.logspace(-6.0, 1.5, 129),
     "rain_water_content": np.logspace(-6.0, 1.5, 129),
-    "latent_heat": np.concatenate([
-        -np.logspace(-2, 2.5, 64)[::-1],
-        np.array([0.0]),
-        np.logspace(-2, 3.0, 64)
-        ])
+    "latent_heat": np.concatenate(
+        [-np.logspace(-2, 2.5, 64)[::-1], np.array([0.0]), np.logspace(-2, 3.0, 64)]
+    ),
 }
 
 for k in BINS:
     if k != "latent_heat":
         BINS[k][0] == 0.0
 
+# Quantiles for scalar variables
 QUANTILES = np.linspace(0.0, 1.0, 66)[1:-1]
+# Quantiles for profile variables
 PROFILE_QUANTILES = np.linspace(0.0, 1.0, 18)[1:-1]
-
+# Define types of residuals for MLP models.
 RESIDUALS = ["none", "simple", "hyper"]
 
 ###############################################################################
 # GPROF-NN 1D
 ###############################################################################
 
+
 class MLP(nn.Module):
     """
-    Vanilla Fully-connected feed-forward neural network.
+    Pytorch 'Module' implementating a fully-connected feed-forward
+    neural network.
     """
+
     def __init__(
         self,
         n_inputs,
@@ -68,21 +74,22 @@ class MLP(nn.Module):
         n_outputs,
         n_layers,
         activation="ReLU",
-        internal=False
+        internal=False,
     ):
         """
         Create MLP object.
 
         Args:
-            n_inputs: Number of input features in first layer.
+            n_inputs: Number of features in input.
             n_outputs: Number of output values.
             n_neurons: Number of neurons in hidden layers.
             n_layers: Number of layers including the output layer.
             activation: The activation function to use in each layer.
             internal: Whether or not activation layer norm and activation
-                are applied to output from last layer.
+                should be applied to output from last layer.
         """
         super().__init__()
+        self.n_inputs = n_inputs
         self.n_layers = n_layers
         self.n_neurons = n_neurons
         self.layers = nn.ModuleList()
@@ -107,12 +114,22 @@ class MLP(nn.Module):
             else:
                 self.output_layer = nn.Linear(n_inputs, n_outputs, bias=False)
 
+    def __repr__(self):
+        return (
+            f"MLP(n_inputs={self.n_inputs}, n_layers={self.n_layers}, "
+            f"n_neurons={self.n_neurons})"
+        )
+
     def forward(self, x, *args, **kwargs):
         """
         Forward input through network.
 
         Args:
             x: The 2D input tensor to propagate through the network.
+
+        Return:
+            Tuple ``(y, None)`` consisting of the network output ``y``
+            and ``None``.
         """
         if self.n_layers == 0:
             return x, None
@@ -130,6 +147,7 @@ class ResidualMLP(MLP):
     Fully-connected feed-forward neural network with residual
     connections between adjacent layers.
     """
+
     def __init__(
         self,
         n_inputs,
@@ -137,7 +155,7 @@ class ResidualMLP(MLP):
         n_outputs,
         n_layers,
         activation="ReLU",
-        internal=False
+        internal=False,
     ):
         """
         Create MLP with residual connection.
@@ -157,13 +175,18 @@ class ResidualMLP(MLP):
             n_outputs,
             n_layers,
             activation=activation,
-            internal=internal
+            internal=internal,
         )
         if n_inputs != n_neurons:
             self.projection = nn.Linear(n_inputs, n_neurons)
         else:
             self.projection = None
 
+    def __repr__(self):
+        return (
+            f"ResidualMLP(n_inputs={self.n_inputs}, n_layers={self.n_layers}, "
+            f"n_neurons={self.n_neurons})"
+        )
 
     def forward(self, x, *args, **kwargs):
         """
@@ -171,6 +194,10 @@ class ResidualMLP(MLP):
 
         Args:
             x: The 2D input tensor to propagate through the network.
+
+        Return:
+            Tuple ``(y, None)`` consisting of the network output ``y``
+            and ``None``.
         """
         if self.n_layers == 0:
             return x, None
@@ -201,6 +228,7 @@ class HyperResidualMLP(ResidualMLP):
     connections between adjacent layers and hyper-residual
     connections between all layers.
     """
+
     def __init__(
         self,
         n_inputs,
@@ -208,7 +236,7 @@ class HyperResidualMLP(ResidualMLP):
         n_outputs,
         n_layers,
         activation="ReLU",
-        internal=False
+        internal=False,
     ):
         """
         Create network object.
@@ -228,7 +256,13 @@ class HyperResidualMLP(ResidualMLP):
             n_outputs,
             n_layers,
             activation=activation,
-            internal=internal
+            internal=internal,
+        )
+
+    def __repr__(self):
+        return (
+            f"HyperResidualMLP(n_inputs={self.n_inputs}, n_layers={self.n_layers}, "
+            f"n_neurons={self.n_neurons})"
         )
 
     def forward(self, x, acc_in=None, li=1):
@@ -240,13 +274,15 @@ class HyperResidualMLP(ResidualMLP):
             acc_in: Accumulator tensor containing accumulated activations
                  from previous layers.
             li: Layer index used to normalize accumulated activations.
+
+        Return:
+            Tuple ``(y, acc_out)`` consisting of the network output ``y``
+            and and the accumulator tensor ``acc_out``.
         """
         if self.n_layers == 0:
             return x, None
 
-        acc = torch.zeros((x.shape[0], self.n_neurons),
-                          dtype=x.dtype,
-                          device=x.device)
+        acc = torch.zeros((x.shape[0], self.n_neurons), dtype=x.dtype, device=x.device)
         if acc_in is not None:
             if self.projection is not None:
                 acc += self.projection(acc_in)
@@ -316,19 +352,21 @@ class MultiHeadMLP(nn.Module):
         residuals="none",
         targets=None,
         activation="ReLU",
-        ancillary=True
+        ancillary=True,
     ):
         if targets is None:
             self.targets = ["surface_precip"]
         else:
             self.targets = targets
+        self.n_inputs = n_inputs
         self.n_layers_body = n_layers_body
         self.n_neurons_body = n_neurons_body
+        self.n_layers_head = n_layers_head
+        self.n_neurons_head = n_neurons_head
 
         residuals = residuals.lower()
         if residuals not in RESIDUALS:
-            raise ValueError(
-                f"'residuals' argument should be one of f{RESIDUALS}.")
+            raise ValueError(f"'residuals' argument should be one of f{RESIDUALS}.")
         if residuals == "none":
             module_class = MLP
         elif residuals == "hyper":
@@ -347,7 +385,7 @@ class MultiHeadMLP(nn.Module):
             n_neurons_body,
             n_layers_body,
             activation=activation,
-            internal=True
+            internal=True,
         )
         self.n_inputs_body = n_inputs
 
@@ -361,11 +399,7 @@ class MultiHeadMLP(nn.Module):
         for t in targets:
             if t in PROFILE_NAMES:
                 self.heads[t] = module_class(
-                    n_in,
-                    n_neurons_head,
-                    16 * 28,
-                    n_layers_head,
-                    activation=activation
+                    n_in, n_neurons_head, 16 * 28, n_layers_head, activation=activation
                 )
             else:
                 self.heads[t] = module_class(
@@ -373,8 +407,15 @@ class MultiHeadMLP(nn.Module):
                     n_neurons_head,
                     n_outputs,
                     n_layers_head,
-                    activation=activation
+                    activation=activation,
                 )
+
+    def __repr__(self):
+        return (
+            f"MultiHeadMLP(n_inputs={self.n_inputs}, n_layers_body={self.n_layers_body}, "
+            f", n_neurons_body={self.n_neurons_body}, n_layers_head={self.n_layers_head}, "
+            f" n_neurons_head={self.n_neurons_head})"
+        )
 
     def forward(self, x):
         """
@@ -390,7 +431,7 @@ class MultiHeadMLP(nn.Module):
         """
         targets = self.targets
         if not self.ancillary:
-            x = x[..., :self.n_inputs_body]
+            x = x[..., : self.n_inputs_body]
 
         y, acc = self.body(x, None)
         results = {}
@@ -405,26 +446,43 @@ class MultiHeadMLP(nn.Module):
 
 class GPROF_NN_1D_QRNN(MRNN):
     """
-    DRNN-based version of the GPROF-NN 1D algorithm.
+    Neural network for the GPROF-NN 1D algorithm based on 'quantnn's
+    quantile regression neural networks (QRNN).
+
+    Attributes:
+        sensor: The sensor that the network is compatible with.
+        targets: The retrieval targets that the network can handle.
+        preprocessor_class: Interface class that reads CSU preprocessor
+            and transforms their content into the input format expected
+            by the network.
+        netcdf_class: Interface class that reads NetCDF training data
+            and transforms their content into the input format expected
+            by the network.
+        normalizer: Normalizer object to use to normalize the network
+            inputs. Note that this will be 'None' before the network
+            has been trained.
+        configuration: The configuration ('GANAL' or 'ERA5' for which
+            the network was trained. Note that this will be 'None' before
+            the network has been trained.
     """
-    def __init__(self,
-                 sensor,
-                 n_layers_body,
-                 n_neurons_body,
-                 n_layers_head,
-                 n_neurons_head,
-                 activation="ReLU",
-                 residuals="simple",
-                 targets=None,
-                 transformation=None,
-                 ancillary=True
+
+    def __init__(
+        self,
+        sensor,
+        n_layers_body,
+        n_neurons_body,
+        n_layers_head,
+        n_neurons_head,
+        activation="ReLU",
+        residuals="simple",
+        targets=None,
+        transformation=None,
+        ancillary=True,
     ):
         self.sensor = sensor
         residuals = residuals.lower()
         if residuals not in RESIDUALS:
-            raise ValueError(
-                f"'residuals' argument should be one of {RESIDUALS}."
-            )
+            raise ValueError(f"'residuals' argument should be one of {RESIDUALS}.")
 
         if targets is None:
             targets = ALL_TARGETS
@@ -438,16 +496,18 @@ class GPROF_NN_1D_QRNN(MRNN):
             if "latent_heat" in targets:
                 transformation["latent_heat"] = None
 
-        model = MultiHeadMLP(sensor.n_inputs,
-                             n_layers_body,
-                             n_neurons_body,
-                             n_layers_head,
-                             n_neurons_head,
-                             64,
-                             targets=targets,
-                             residuals=residuals,
-                             activation=activation,
-                             ancillary=ancillary)
+        model = MultiHeadMLP(
+            sensor.n_inputs,
+            n_layers_body,
+            n_neurons_body,
+            n_layers_head,
+            n_neurons_head,
+            64,
+            targets=targets,
+            residuals=residuals,
+            activation=activation,
+            ancillary=ancillary,
+        )
 
         losses = {}
         for target in targets:
@@ -456,10 +516,12 @@ class GPROF_NN_1D_QRNN(MRNN):
             else:
                 losses[target] = Quantiles(QUANTILES)
 
-        super().__init__(n_inputs=sensor.n_inputs,
-                         losses=losses,
-                         model=model,
-                         transformation=transformation)
+        super().__init__(
+            n_inputs=sensor.n_inputs,
+            losses=losses,
+            model=model,
+            transformation=transformation,
+        )
 
         if ancillary:
             self.preprocessor_class = PreprocessorLoader1D
@@ -467,57 +529,92 @@ class GPROF_NN_1D_QRNN(MRNN):
             self.preprocessor_class = L1CLoader1D
         self.netcdf_class = NetcdfLoader1D
 
+        # Initialize attributes that will be set during training.
+        self.normalizer = None
+        self.configuration = None
+
+    def __repr__(self):
+        trained = getattr(self, "configuration", default=None) is not None
+        if trained:
+            return (f"GPROF_NN_1D_DRNN(sensor={self.sensor}, "
+                    f"configuration={self.configuration}, "
+                    f"targets={self.targets})")
+        else:
+            return (f"GPROF_NN_1D_DRNN(sensor={self.sensor}, "
+                    f"targets={self.targets})")
+
     def set_targets(self, targets):
         """
-        Set target list.
+        Set targets for retrival.
 
-        This function can be used to reduc
+        This function can be used to reduce the number of retrieved
+        targets during inference to speed up the retrieval.
 
+        Args:
+            targets: List of the targets to retrieve. Note: These must
+                be a subset of the targets the network was trained to
+                to retriev.
         """
         if not all([t in self.targets for t in targets]):
-            raise ValueError(
-                "'targets' must be a sub-set of the models targets."
-            )
+            raise ValueError("'targets' must be a sub-set of the models targets.")
         self.targets = targets
         self.model.target = targets
 
 
 class GPROF_NN_1D_DRNN(MRNN):
     """
-    DRNN-based version of the GPROF-NN 1D algorithm.
+    Neural network for the GPROF-NN 1D algorithm based on 'quantnn's
+    density regression neural networks (DRNN).
+
+    Attributes:
+        sensor: The sensor that the network is compatible with.
+        targets: The retrieval targets that the network can handle.
+        preprocessor_class: Interface class that reads CSU preprocessor
+            and transforms their content into the input format expected
+            by the network.
+        netcdf_class: Interface class that reads NetCDF training data
+            and transforms their content into the input format expected
+            by the network.
+        normalizer: Normalizer object to use to normalize the network
+            inputs. Note that this will be 'None' before the network
+            has been trained.
+        configuration: The configuration ('GANAL' or 'ERA5' for which
+            the network was trained. Note that this will be 'None' before
+            the network has been trained.
     """
-    def __init__(self,
-                 sensor,
-                 n_layers_body,
-                 n_neurons_body,
-                 n_layers_head,
-                 n_neurons_head,
-                 activation="ReLU",
-                 residuals="simple",
-                 targets=None,
-                 ancillary=True
+    def __init__(
+        self,
+        sensor,
+        n_layers_body,
+        n_neurons_body,
+        n_layers_head,
+        n_neurons_head,
+        activation="ReLU",
+        residuals="simple",
+        targets=None,
+        ancillary=True,
     ):
         self.sensor = sensor
         residuals = residuals.lower()
         if residuals not in RESIDUALS:
-            raise ValueError(
-                f"'residuals' argument should be one of {RESIDUALS}."
-            )
+            raise ValueError(f"'residuals' argument should be one of {RESIDUALS}.")
 
         if targets is None:
             targets = ALL_TARGETS
         self.targets = targets
 
-        model = MultiHeadMLP(sensor.n_inputs,
-                             n_layers_body,
-                             n_neurons_body,
-                             n_layers_head,
-                             n_neurons_head,
-                             128,
-                             targets=targets,
-                             residuals=residuals,
-                             activation=activation,
-                             ancillary=ancillary)
+        model = MultiHeadMLP(
+            sensor.n_inputs,
+            n_layers_body,
+            n_neurons_body,
+            n_layers_head,
+            n_neurons_head,
+            128,
+            targets=targets,
+            residuals=residuals,
+            activation=activation,
+            ancillary=ancillary,
+        )
 
         losses = {}
         for target in targets:
@@ -526,9 +623,7 @@ class GPROF_NN_1D_DRNN(MRNN):
             else:
                 losses[target] = Density(bins=BINS[target])
 
-        super().__init__(n_inputs=sensor.n_inputs,
-                         losses=losses,
-                         model=model)
+        super().__init__(n_inputs=sensor.n_inputs, losses=losses, model=model)
 
         if ancillary:
             self.preprocessor_class = PreprocessorLoader1D
@@ -536,19 +631,37 @@ class GPROF_NN_1D_DRNN(MRNN):
             self.preprocessor_class = L1CLoader1D
         self.netcdf_class = NetcdfLoader1D
 
+        # Initialize attributes that will be set during training.
+        self.normalizer = None
+        self.configuration = None
+
+    def __repr__(self):
+        trained = getattr(self, "configuration", default=None) is not None
+        if trained:
+            return (f"GPROF_NN_1D_DRNN(sensor={self.sensor}, "
+                    f"configuration={self.configuration}, "
+                    f"targets={self.targets})")
+        else:
+            return (f"GPROF_NN_1D_DRNN(sensor={self.sensor}, "
+                    f"targets={self.targets})")
+
     def set_targets(self, targets):
         """
-        Set target list.
+        Set targets for retrival.
 
-        This function can be used to reduc
+        This function can be used to reduce the number of retrieved
+        targets during inference to speed up the retrieval.
 
+        Args:
+            targets: List of the targets to retrieve. Note: These must
+                be a subset of the targets the network was trained to
+                to retriev.
         """
         if not all([t in self.targets for t in targets]):
-            raise ValueError(
-                "'targets' must be a sub-set of the models targets."
-            )
+            raise ValueError("'targets' must be a sub-set of the models targets.")
         self.targets = targets
         self.model.targets = targets
+
 
 GPROF_NN_0D_QRNN = GPROF_NN_1D_QRNN
 GPROF_NN_0D_DRNN = GPROF_NN_1D_DRNN
@@ -560,28 +673,57 @@ GPROF_NN_0D_DRNN = GPROF_NN_1D_DRNN
 
 class MLPHead(nn.Module):
     """
-    MLP-type head for convolutional network.
+    Fully-convolutional implementation of a fully-connected network
+    with residual connections.
+
+    This module is used as network heads for different retrieval
+    variables after the encode-decoder stage of the GPROF-NN 3D
+    network.
     """
-    def __init__(self,
-                 n_inputs,
-                 n_hidden,
-                 n_outputs,
-                 n_layers):
+    def __init__(self, n_inputs, n_hidden, n_outputs, n_layers):
+        """
+        Args:
+            n_inputs: The number of input channels to the layer.
+            n_hidden: The number of channels in the 'hidden' layers
+                of the module.
+            n_outputs: The number of channels
+            n_layers: The number of hidden layers.
+        """
         super().__init__()
+        self.n_inputs = n_inputs
+        self.n_hidden = n_hidden
+        self.n_outputs = n_outputs
+        self.n_layers = n_layers
         self.layers = nn.ModuleList()
         for i in range(n_layers - 1):
-            self.layers.append(nn.Sequential(
-                nn.Conv2d(n_inputs, n_hidden, 1),
-                nn.GroupNorm(1, n_hidden),
-                nn.GELU()
-            ))
+            self.layers.append(
+                nn.Sequential(
+                    nn.Conv2d(n_inputs, n_hidden, 1),
+                    nn.GroupNorm(1, n_hidden),
+                    nn.GELU(),
+                )
+            )
             n_inputs = n_hidden
-        self.layers.append(nn.Sequential(
-            nn.Conv2d(n_hidden, n_outputs, 1),
-        ))
+        self.layers.append(
+            nn.Sequential(
+                nn.Conv2d(n_hidden, n_outputs, 1),
+            )
+        )
+
+    def __repr__(self):
+        return (f"MLPHead(n_inputs={self.ninputs}, n_hidden={self.n_hidden},"
+                f"n_outputs={self.n_outputs}, n_layers={self.n_layers})")
 
     def forward(self, x):
-        "Propagate input through head."
+        """
+        Propagate input through head.
+
+        Args:
+            x: 4D ``torch.Tensor`` containing the input.
+
+        Return:
+            4D ``torch.Tensor`` containing the nerwork output.
+        """
         for l in self.layers[:-1]:
             y = l(x)
             n = min(x.shape[1], y.shape[1])
@@ -592,22 +734,34 @@ class MLPHead(nn.Module):
 
 class XceptionFPN(nn.Module):
     """
-    Feature pyramid network (FPN) with 5 stages based on xception
-    architecture.
+    This class implements the fully-convolutional neural network for the
+    GPROF-NN 3D algorithm. The network body consists of an asymmetric
+    encoder-decoder structure with skip connections between different
+    stages. Each stage consists of a given number of Xception blocks.
+    The head of the network consists of a separate MLP for all retrieval
+    targets.
     """
-    def __init__(self,
-                 sensor,
-                 n_outputs,
-                 n_blocks,
-                 n_features_body,
-                 n_layers_head,
-                 n_features_head,
-                 ancillary=True,
-                 targets=None):
+    def __init__(
+        self,
+        sensor,
+        n_outputs,
+        n_blocks,
+        n_features_body,
+        n_layers_head,
+        n_features_head,
+        ancillary=True,
+        targets=None,
+    ):
         """
         Args:
-            n_outputs: The number of output channels,
-            n_blocks: The number of blocks in each stage of the encoder.
+            sensor: The sensor whose observations the network should process.
+            n_outputs: The number of output features for the scalar retrieval
+                variables.
+            n_blocks: The number of blocks in each stage of the encoder. They
+                may be given as a 5-element list providing the number of
+                blocks in each of the 5 downsampling stages or as a single
+                'int' if the number of blocks in each stage should be the
+                same.
             n_features_body: The number of features/channels in the network
                 body.
             n_layers_head: The number of layers in each network head.
@@ -654,15 +808,15 @@ class XceptionFPN(nn.Module):
         self.heads = nn.ModuleDict()
         for k in targets:
             if k in PROFILE_NAMES:
-                self.heads[k] = MLPHead(n_inputs,
-                                        n_features_head,
-                                        28,
-                                        n_layers_head)
+                self.heads[k] = MLPHead(n_inputs, n_features_head, 28, n_layers_head)
             else:
-                self.heads[k] = MLPHead(n_inputs,
-                                        n_features_head,
-                                        n_outputs,
-                                        n_layers_head)
+                self.heads[k] = MLPHead(
+                    n_inputs, n_features_head, n_outputs, n_layers_head
+                )
+
+    def __repr__(self):
+        return (f"XceptionFPN(sensor={self.sensor}, targets={self.targets}, "
+                f"ancillary={self.ancillary})")
 
     def forward(self, x):
         """
@@ -700,18 +854,21 @@ class XceptionFPN(nn.Module):
 
 class GPROF_NN_3D_QRNN(MRNN):
     """
-    QRNN-based version of the GPROF-NN 3D algorithm.
+    Neural network for the GPROF-NN 3D algorithm using quantnn's mixed
+    regression neural network (MRNN) class to combine quantile regression
+    for scalar variables and least-squares regression for profile targets.
     """
-    def __init__(self,
-                 sensor,
-                 n_blocks,
-                 n_features_body,
-                 n_layers_head,
-                 n_features_head,
-                 activation="ReLU",
-                 targets=None,
-                 transformation=None,
-                 ancillary=True
+    def __init__(
+        self,
+        sensor,
+        n_blocks,
+        n_features_body,
+        n_layers_head,
+        n_features_head,
+        activation="ReLU",
+        targets=None,
+        transformation=None,
+        ancillary=True,
     ):
         """
         Args:
@@ -738,14 +895,16 @@ class GPROF_NN_3D_QRNN(MRNN):
             if "latent_heat" in targets:
                 transformation["latent_heat"] = None
 
-        model = XceptionFPN(sensor,
-                            64,
-                            n_blocks,
-                            n_features_body,
-                            n_layers_head,
-                            n_features_head,
-                            targets=targets,
-                            ancillary=ancillary)
+        model = XceptionFPN(
+            sensor,
+            64,
+            n_blocks,
+            n_features_body,
+            n_layers_head,
+            n_features_head,
+            targets=targets,
+            ancillary=ancillary,
+        )
 
         losses = {}
         for target in targets:
@@ -754,10 +913,12 @@ class GPROF_NN_3D_QRNN(MRNN):
             else:
                 losses[target] = Quantiles(QUANTILES)
 
-        super().__init__(n_inputs=sensor.n_inputs,
-                         losses=losses,
-                         model=model,
-                         transformation=transformation)
+        super().__init__(
+            n_inputs=sensor.n_inputs,
+            losses=losses,
+            model=model,
+            transformation=transformation,
+        )
 
         if ancillary:
             self.preprocessor_class = PreprocessorLoader3D
@@ -765,34 +926,48 @@ class GPROF_NN_3D_QRNN(MRNN):
             self.preprocessor_class = L1CLoader3D
         self.netcdf_class = NetcdfLoader3D
 
+        # Initialize attributes that will be set during training.
+        self.normalizer = None
+        self.configuration = None
+
+    def __repr__(self):
+        trained = getattr(self, "configuration", default=None) is not None
+        if trained:
+            return (f"GPROF_NN_3D_DRNN(sensor={self.sensor}, "
+                    f"configuration={self.configuration}, "
+                    f"targets={self.targets})")
+        else:
+            return (f"GPROF_NN_3D_DRNN(sensor={self.sensor}, "
+                    f"targets={self.targets})")
+
     def set_targets(self, targets):
         """
         Set target list.
 
         This function can be used to reduc
-
         """
         if not all([t in self.targets for t in targets]):
-            raise ValueError(
-                "'targets' must be a sub-set of the models targets."
-            )
+            raise ValueError("'targets' must be a sub-set of the models targets.")
         self.targets = targets
         self.model.targets = targets
 
 
 class GPROF_NN_3D_DRNN(MRNN):
     """
-    QRNN-based version of the GPROF-NN 3D algorithm.
+    Neural network for the GPROF-NN 3D algorithm using quantnn's mixed
+    regression neural network (MRNN) class to combine density regression
+    for scalar variables and least-squares regression for profile targets.
     """
-    def __init__(self,
-                 sensor,
-                 n_blocks,
-                 n_features_body,
-                 n_layers_head,
-                 n_features_head,
-                 activation="ReLU",
-                 targets=None,
-                 ancillary=True
+    def __init__(
+        self,
+        sensor,
+        n_blocks,
+        n_features_body,
+        n_layers_head,
+        n_features_head,
+        activation="ReLU",
+        targets=None,
+        ancillary=True,
     ):
         """
         Args:
@@ -811,14 +986,16 @@ class GPROF_NN_3D_DRNN(MRNN):
             targets = ALL_TARGETS
         self.targets = targets
 
-        model = XceptionFPN(sensor,
-                            128,
-                            n_blocks,
-                            n_features_body,
-                            n_layers_head,
-                            n_features_head,
-                            targets=targets,
-                            ancillary=True)
+        model = XceptionFPN(
+            sensor,
+            128,
+            n_blocks,
+            n_features_body,
+            n_layers_head,
+            n_features_head,
+            targets=targets,
+            ancillary=True,
+        )
 
         losses = {}
         for target in targets:
@@ -827,9 +1004,7 @@ class GPROF_NN_3D_DRNN(MRNN):
             else:
                 losses[target] = Density(BINS[target])
 
-        super().__init__(n_inputs=sensor.n_inputs,
-                         losses=losses,
-                         model=model)
+        super().__init__(n_inputs=sensor.n_inputs, losses=losses, model=model)
 
         if ancillary:
             self.preprocessor_class = PreprocessorLoader3D
@@ -840,15 +1015,18 @@ class GPROF_NN_3D_DRNN(MRNN):
 
     def set_targets(self, targets):
         """
-        Set target list.
+        Set targets for retrival.
 
-        This function can be used to reduc
+        This function can be used to reduce the number of retrieved
+        targets during inference to speed up the retrieval.
 
+        Args:
+            targets: List of the targets to retrieve. Note: These must
+                be a subset of the targets the network was trained to
+                to retriev.
         """
         if not all([t in self.targets for t in targets]):
-            raise ValueError(
-                "'targets' must be a sub-set of the models targets."
-            )
+            raise ValueError("'targets' must be a sub-set of the models targets.")
         self.targets = targets
         self.model.targets = targets
 
@@ -868,11 +1046,7 @@ class SimulatorNet(nn.Module):
     Special version of the Xception FPN network for simulating brightness
     temperatures and biases.
     """
-    def __init__(self,
-                 sensor,
-                 n_features_body,
-                 n_layers_head,
-                 n_features_head):
+    def __init__(self, sensor, n_features_body, n_layers_head, n_features_head):
         """
         Args:
             n_features_body: The number of features/channels in the network
@@ -905,14 +1079,8 @@ class SimulatorNet(nn.Module):
         self.up_block = UpsamplingBlock(n_features_body)
 
         n_inputs = 2 * n_features_body + 24
-        self.bias_head = MLPHead(n_inputs,
-                                 n_features_head,
-                                 n_biases,
-                                 n_layers_head)
-        self.sim_head = MLPHead(n_inputs,
-                                n_features_head,
-                                n_chans_sim,
-                                n_layers_head)
+        self.bias_head = MLPHead(n_inputs, n_features_head, n_biases, n_layers_head)
+        self.sim_head = MLPHead(n_inputs, n_features_head, n_chans_sim, n_layers_head)
 
     def forward(self, x):
         """
@@ -938,22 +1106,16 @@ class SimulatorNet(nn.Module):
         n_chans = self.sensor.n_chans
         if self.sensor.n_angles > 1:
             n_angles = self.sensor.n_angles
-            sim_shape = (x.shape[:1] +
-                         (n_angles, n_chans) +
-                         x.shape[2:4])
+            sim_shape = x.shape[:1] + (n_angles, n_chans) + x.shape[2:4]
         else:
-            sim_shape = (x.shape[:1] +
-                         (n_chans,) +
-                         x.shape[2:4])
-        bias_shape = (x.shape[:1] +
-                        (n_chans,) +
-                        x.shape[2:4])
+            sim_shape = x.shape[:1] + (n_chans,) + x.shape[2:4]
+        bias_shape = x.shape[:1] + (n_chans,) + x.shape[2:4]
         bias = self.bias_head(x).reshape(bias_shape)
         sim = self.sim_head(x).reshape(sim_shape)
 
         results = {
             "brightness_temperature_biases": bias,
-            "simulated_brightness_temperatures": sim
+            "simulated_brightness_temperatures": sim,
         }
         return results
 
@@ -963,11 +1125,7 @@ class Simulator(MRNN):
     Simulator QRNN to learn to predict simulated brightness temperatures
     from GMI observations.
     """
-    def __init__(self,
-                 sensor,
-                 n_features_body,
-                 n_layers_head,
-                 n_features_head):
+    def __init__(self, sensor, n_features_body, n_layers_head, n_features_head):
         """
         Args:
             sensor: Sensor object defining the object for which the simulations
@@ -977,15 +1135,17 @@ class Simulator(MRNN):
             n_layers_head: The number of layers in each head of the FPN.
             n_features_header: The number of features in each head.
         """
-        model = SimulatorNet(sensor,
-                             n_features_body,
-                             n_layers_head,
-                             n_features_head)
+        model = SimulatorNet(sensor, n_features_body, n_layers_head, n_features_head)
         losses = {
             "simulated_brightness_temperatures": Mean(),
-            "brightness_temperature_biases": Mean()
+            "brightness_temperature_biases": Mean(),
         }
-        super().__init__(losses,
-                         model=model)
+        super().__init__(losses, model=model)
         self.preprocessor_class = None
         self.netcdf_class = SimulatorLoader
+
+    def set_targets(self, *args):
+        """
+        This function does nothing. It's a dummy function provided
+        for compatibilty with retrieval driver interface.
+        """

@@ -31,20 +31,20 @@ import xarray as xr
 
 from gprof_nn.data import types
 from gprof_nn.definitions import N_LAYERS, LIMITS
-from gprof_nn.data.utils import (load_variable,
-                                 decompress_scene,
-                                 remap_scene)
-from gprof_nn.utils import (apply_limits,
-                            get_mask,
-                            calculate_interpolation_weights,
-                            interpolate)
+from gprof_nn.data.utils import load_variable, decompress_scene, remap_scene
+from gprof_nn.utils import (
+    apply_limits,
+    get_mask,
+    calculate_interpolation_weights,
+    interpolate,
+)
 from gprof_nn.data.utils import expand_pixels
 from gprof_nn.augmentation import (
     Conical,
     CrossTrack,
     get_transformation_coordinates,
     extract_domain,
-    SCANS_PER_SAMPLE
+    SCANS_PER_SAMPLE,
 )
 
 DATE_TYPE = np.dtype(
@@ -68,11 +68,9 @@ MASKED_OUTPUT = -9999
 _BIAS_SCALES_GMI = 1.0 / np.cos(np.deg2rad([52.8, 49.19, 49.19, 49.19, 49.19]))
 
 
-def calculate_smoothing_kernel(res_x_source,
-                               res_a_source,
-                               res_x_target,
-                               res_a_target,
-                               size):
+def calculate_smoothing_kernel(
+    res_x_source, res_a_source, res_x_target, res_a_target, size
+):
     """
     Calculate smoothing kernel to smooth a field observed at
     the resolution of a source sensor to that of a given target
@@ -109,17 +107,14 @@ def calculate_smoothing_kernels(sensor):
 
     kernels = []
     for res in res_x_target:
-        k = calculate_smoothing_kernel(res_x_source,
-                                       res_a_source,
-                                       res,
-                                       res_a_target,
-                                       size=11)
+        k = calculate_smoothing_kernel(
+            res_x_source, res_a_source, res, res_a_target, size=11
+        )
         kernels.append(k)
     return kernels
 
 
-def smooth_gmi_field(field,
-                     kernels):
+def smooth_gmi_field(field, kernels):
     """
     Smooth a variable using precomputed kernels.
 
@@ -176,18 +171,13 @@ class Sensor(ABC):
     The sensor class defines the abstract properties and methods that
     each sensor class must implement.
     """
-    def __init__(self,
-                 kind,
-                 name,
-                 channels,
-                 angles,
-                 platform,
-                 viewing_geometry):
+
+    def __init__(self, kind, name, channels, angles, platform, viewing_geometry):
         self.kind = kind
         self._name = name
         self._channels = channels
         self._angles = angles
-        n_chans =len(channels)
+        n_chans = len(channels)
         n_angles = len(angles)
         self._n_chans = n_chans
         self._n_angles = n_angles
@@ -195,40 +185,22 @@ class Sensor(ABC):
         self.viewing_geometry = viewing_geometry
 
         # Bin file types
-        self._bin_file_header = types.get_bin_file_header(
-            n_chans,
-            n_angles,
-            kind
-        )
+        self._bin_file_header = types.get_bin_file_header(n_chans, n_angles, kind)
 
         # Preprocessor types
-        self._preprocessor_orbit_header = types.get_preprocessor_orbit_header(
-            n_chans
-        )
+        self._preprocessor_orbit_header = types.get_preprocessor_orbit_header(n_chans)
         self._preprocessor_pixel_record = types.get_preprocessor_pixel_record(
-            n_chans,
-            self.kind
+            n_chans, self.kind
         )
 
         # Sim file types
-        self._sim_file_header = types.get_sim_file_header(
-            n_chans,
-            n_angles,
-            kind
-        )
+        self._sim_file_header = types.get_sim_file_header(n_chans, n_angles, kind)
         self._sim_file_record = types.get_sim_file_record(
-            n_chans,
-            n_angles,
-            N_LAYERS,
-            kind
+            n_chans, n_angles, N_LAYERS, kind
         )
 
         # MRMS types
-        self._mrms_file_record = types.get_mrms_file_record(
-            n_chans,
-            n_angles,
-            kind
-        )
+        self._mrms_file_record = types.get_mrms_file_record(n_chans, n_angles, kind)
 
     def __eq__(self, other):
         return self.name == other.name and self.platform == other.platform
@@ -306,11 +278,7 @@ class Sensor(ABC):
             non-clustered database files.
         """
         return types.get_bin_file_record(
-            self.n_chans,
-            self.n_angles,
-            N_LAYERS,
-            surface_type,
-            self.kind
+            self.n_chans, self.n_angles, N_LAYERS, surface_type, self.kind
         )
 
     @property
@@ -540,12 +508,17 @@ class ConicalScanner(Sensor):
         sim_file_pattern,
         sim_file_path,
     ):
-        super().__init__(types.CONICAL, name, channels, angles, platform, viewing_geometry)
+        super().__init__(
+            types.CONICAL, name, channels, angles, platform, viewing_geometry
+        )
         n_chans = len(channels)
 
         self._mrms_file_path = mrms_file_path
         self._sim_file_pattern = sim_file_pattern
         self._sim_file_path = sim_file_path
+
+    def __repr__(self):
+        return f"ConicalScanner(name=self.name, platform={self.platform.name})"
 
     @property
     def name(self):
@@ -707,13 +680,8 @@ class ConicalScanner(Sensor):
             return np.stack(x)
 
     def load_training_data_3d(
-            self,
-            dataset,
-            targets,
-            augment,
-            rng,
-            width=96,
-            height=128):
+        self, dataset, targets, augment, rng, width=96, height=128
+    ):
         """
         Load training data for GPROF-NN 3D retrieval. This function extracts
         scenes of 128 x 96 pixels from each training data sample and arranges
@@ -742,19 +710,19 @@ class ConicalScanner(Sensor):
                 scene = decompress_scene(dataset[{"samples": i}], targets + vs)
 
                 if augment:
-                        p_x_o = rng.random()
-                        p_x_i = rng.random()
-                        p_y = rng.random()
+                    p_x_o = rng.random()
+                    p_x_i = rng.random()
+                    p_y = rng.random()
                 else:
-                        p_x_o = 0.5
-                        p_x_i = 0.5
-                        p_y = 0.5
+                    p_x_o = 0.5
+                    p_x_i = 0.5
+                    p_y = 0.5
 
                 lats = scene.latitude.data
                 lons = scene.longitude.data
                 coords = get_transformation_coordinates(
-                        lats, lons, self.viewing_geometry, width, height, p_x_i, p_x_o, p_y
-                   )
+                    lats, lons, self.viewing_geometry, width, height, p_x_i, p_x_o, p_y
+                )
 
                 scene = remap_scene(scene, coords, targets)
 
@@ -831,12 +799,9 @@ class CrossTrackScanner(Sensor):
         sim_file_pattern,
         sim_file_path,
     ):
-        super().__init__(types.XTRACK,
-                         "MHS",
-                         channels,
-                         angles,
-                         platform,
-                         viewing_geometry)
+        super().__init__(
+            types.XTRACK, "MHS", channels, angles, platform, viewing_geometry
+        )
         self.nedt = nedt
         n_chans = len(channels)
         n_angles = len(angles)
@@ -846,6 +811,8 @@ class CrossTrackScanner(Sensor):
         self._sim_file_pattern = sim_file_pattern
         self._sim_file_path = sim_file_path
 
+    def __repr__(self):
+        return f"CrossTrackScanner(name=self.name, " f"platform={self.platform.name})"
 
     @property
     def n_inputs(self):
@@ -940,7 +907,7 @@ class CrossTrackScanner(Sensor):
                 vs = [
                     "simulated_brightness_temperatures",
                     "brightness_temperature_biases",
-                    "earth_incidence_angle"
+                    "earth_incidence_angle",
                 ]
                 scene = decompress_scene(dataset[{"samples": i}], vs)
                 source = dataset.source[i]
@@ -1033,17 +1000,17 @@ class CrossTrackScanner(Sensor):
                 if source == 0:
                     tbs = scene["simulated_brightness_temperatures"].data
                     mask_tbs = get_mask(
-                        tbs,
-                        *LIMITS["simulated_brightness_temperatures"]
+                        tbs, *LIMITS["simulated_brightness_temperatures"]
                     )
                     biases = scene["brightness_temperature_biases"].data
                     mask_biases = get_mask(
-                        biases,
-                        *LIMITS["brightness_temperature_biases"]
+                        biases, *LIMITS["brightness_temperature_biases"]
                     )
-                    mask = (mask *
-                            np.all(mask_tbs, axis=(-2,-1)) *
-                            np.all(mask_biases, axis=-1))
+                    mask = (
+                        mask
+                        * np.all(mask_tbs, axis=(-2, -1))
+                        * np.all(mask_biases, axis=-1)
+                    )
                     eia = rng.uniform(angles_min, angles_max, size=mask.sum())
                     weights = calculate_interpolation_weights(eia, self.angles)
                 else:
@@ -1087,13 +1054,7 @@ class CrossTrackScanner(Sensor):
         pass
 
     def _load_training_data_3d_sim(
-            self,
-            scene,
-            targets,
-            augment,
-            rng,
-            width=32,
-            height=128
+        self, scene, targets, augment, rng, width=32, height=128
     ):
         """
         Load training data for scene extracted from a sim file. Since
@@ -1183,13 +1144,7 @@ class CrossTrackScanner(Sensor):
         return x, y
 
     def _load_training_data_3d_other(
-            self,
-            scene,
-            targets,
-            augment,
-            rng,
-            width=32,
-            height=128
+        self, scene, targets, augment, rng, width=32, height=128
     ):
         """
         Load training data for sea ice or snow surfaces. These observations
@@ -1220,8 +1175,7 @@ class CrossTrackScanner(Sensor):
         n_pixels = self.viewing_geometry.pixels_per_scan
 
         i = height // 2 + (n_scans - height) * p_y
-        j = ((SCANS_PER_SAMPLE - n_pixels + width) // 2 +
-             (n_pixels - width) * p_x)
+        j = (SCANS_PER_SAMPLE - n_pixels + width) // 2 + (n_pixels - width) * p_x
 
         i_start = int(i - height // 2)
         i_end = int(i + height // 2)
@@ -1279,13 +1233,9 @@ class CrossTrackScanner(Sensor):
 
         return x, y
 
-    def load_training_data_3d(self,
-                              dataset,
-                              targets,
-                              augment,
-                              rng,
-                              width=32,
-                              height=128):
+    def load_training_data_3d(
+        self, dataset, targets, augment, rng, width=32, height=128
+    ):
 
         if isinstance(dataset, (str, Path)):
             dataset = xr.open_dataset(dataset)
@@ -1302,7 +1252,7 @@ class CrossTrackScanner(Sensor):
             "earth_incidence_angle",
             "source",
             "latitude",
-            "longitude"
+            "longitude",
         ]
         if "surface_precip" not in targets:
             vs += ["surface_precip"]
@@ -1311,12 +1261,9 @@ class CrossTrackScanner(Sensor):
             scene = decompress_scene(dataset[{"samples": i}], targets + vs)
             source = scene.source
             if source == 0:
-                x_i, y_i = self._load_training_data_3d_sim(scene,
-                                                           targets,
-                                                           augment,
-                                                           rng,
-                                                           width=width,
-                                                           height=height)
+                x_i, y_i = self._load_training_data_3d_sim(
+                    scene, targets, augment, rng, width=width, height=height
+                )
             else:
                 x_i, y_i = self._load_training_data_3d_other(
                     scene, targets, augment, rng, width=width, height=height
@@ -1329,6 +1276,7 @@ class CrossTrackScanner(Sensor):
 
         return x, y
 
+
 ###############################################################################
 # Platforms
 ###############################################################################
@@ -1339,10 +1287,8 @@ class Platform:
     The platform class contains bundles the satellite-specific information
     related to a sensor.
     """
-    def __init__(self,
-                 name,
-                 l1c_file_path,
-                 l1c_file_prefix):
+
+    def __init__(self, name, l1c_file_path, l1c_file_prefix):
         self.name = name
         self.l1c_file_path = l1c_file_path
         self.l1c_file_prefix = l1c_file_prefix
@@ -1350,21 +1296,14 @@ class Platform:
     def __eq__(self, other):
         return self.name == other.name
 
-    def __str__(self):
-        return f"Platform(name={self.name})"
-
     def __repr__(self):
         return f"Platform(name={self.name})"
 
-NOAA19 = Platform("NOAA-19",
-                  "/pdata4/archive/GPM/1C_NOAA19/",
-                  "1C.NOAA19.MHS")
 
-# Increased altitude because it seems to more realistic result for the
-# observation remapping.
-GPM = Platform("GMP-CO",
-               "/pdata4/archive/GPM/1CR_GMI/",
-               "1C-R.GPM.GMI")
+NOAA19 = Platform("NOAA-19", "/pdata4/archive/GPM/1C_NOAA19/", "1C.NOAA19.MHS")
+
+
+GPM = Platform("GMP-CO", "/pdata4/archive/GPM/1CR_GMI/", "1C-R.GPM.GMI")
 
 ###############################################################################
 # GMI
@@ -1395,7 +1334,7 @@ GMI_VIEWING_GEOMETRY = Conical(
     earth_incidence_angle=53.0,
     scan_range=140.0,
     pixels_per_scan=221,
-    scan_offset=13.4e3
+    scan_offset=13.4e3,
 )
 
 
@@ -1407,7 +1346,7 @@ GMI = ConicalScanner(
     GMI_VIEWING_GEOMETRY,
     "/pdata4/veljko/GMI2MRMS_match2019/db_mrms4GMI/",
     "GMI.dbsatTb.??????{day}.??????.sim",
-    "/qdata1/pbrown/dbaseV7/simV7"
+    "/qdata1/pbrown/dbaseV7/simV7",
 )
 
 ###############################################################################
@@ -1429,10 +1368,7 @@ MHS_CHANNELS = [
 MHS_NEDT = np.array([1.0, 1.0, 4.0, 2.0, 2.0])
 
 MHS_VIEWING_GEOMETRY = CrossTrack(
-    altitude=855e3,
-    scan_range=2.0 * 49.5,
-    pixels_per_scan=90,
-    scan_offset=17e3
+    altitude=855e3, scan_range=2.0 * 49.5, pixels_per_scan=90, scan_offset=17e3
 )
 
 MHS = CrossTrackScanner(
@@ -1453,4 +1389,3 @@ MHS_NOAA19 = MHS
 def get_sensor(platform, sensor):
     key = sensor.upper()
     return globals()[key]
-

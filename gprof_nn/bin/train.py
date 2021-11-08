@@ -444,6 +444,7 @@ def run_training_1d(sensor,
                                     ancillary=ancillary)
     model = xrnn.model
     xrnn.normalizer = normalizer
+    xrnn.configuration = configuration
 
     #
     # Run training
@@ -629,7 +630,8 @@ def run_training_2d(sensor,
                                     targets=targets,
                                     ancillary=ancillary)
     model = xrnn.model
-    model.normalizer = normalizer
+    xrnn.normalizer = normalizer
+    xrnn.configuration = configuration
 
     ###############################################################################
     # Run the training.
@@ -782,7 +784,8 @@ def run_training_sim(sensor,
         )
 
     model = xrnn.model
-    model.normalizer = normalizer
+    xrnn.normalizer = normalizer
+    xrnn.configuration = configuration
 
     ###############################################################################
     # Run the training.

@@ -155,7 +155,7 @@ def combine_input_data_2d(
     n_chans = sensor.n_chans
 
     tbs = dataset[v_tbs][:].data
-    if tbs.shape[-1] != n_chans:
+    if tbs.shape[-1] < n_chans:
         tbs = expand_tbs(tbs)
 
     invalid = (tbs > 500.0) + (tbs < 0.0)
@@ -1158,10 +1158,16 @@ class SimulatorLoader(NetcdfLoader):
         dataset = xr.open_dataset(self.filename)
         dataset = dataset[{"samples": dataset.source == 0}]
         if self.sensor == sensors.GMI:
-            input_data = combine_input_data_2d(dataset, v_tbs="brightness_temperatures")
+            input_data = combine_input_data_2d(
+                dataset,
+                self.sensor,
+                v_tbs="brightness_temperatures"
+            )
         else:
             input_data = combine_input_data_2d(
-                dataset, v_tbs="brightness_temperatures_gmi"
+                dataset,
+                self.sensor,
+                v_tbs="brightness_temperatures_gmi"
             )
         self.input_data = self.normalizer(input_data)
         self.padding = calculate_padding_dimensions(input_data)
