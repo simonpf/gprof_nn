@@ -80,7 +80,7 @@ STATS = {
 }
 
 PATTERNS = {
-    "training": "**/*.nc",
+    "training": "**/*.nc*",
     "bin": "**/*.bin",
     "observations": "**/*.HDF5",
     "retrieval": "*.nc",

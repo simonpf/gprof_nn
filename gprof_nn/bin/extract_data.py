@@ -94,8 +94,8 @@ def run(args):
     # Check kind
     kind = args.kind.lower().strip()
     if not kind in ["train", "val", "test"]:
-        LOGGER.error("The configuration should be 'train' 'val' or 'test' not '%s'.",
-                     args.configuration)
+        LOGGER.error("The kind should be 'train' 'val' or 'test' not '%s'.",
+                     args.kind)
         return 1
 
     output = Path(args.output)

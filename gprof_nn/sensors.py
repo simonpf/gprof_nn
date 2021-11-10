@@ -32,6 +32,7 @@ import xarray as xr
 from gprof_nn.data import types
 from gprof_nn.definitions import N_LAYERS, LIMITS
 from gprof_nn.data.utils import load_variable, decompress_scene, remap_scene
+from gprof_nn.data.cdf import CdfCorrection
 from gprof_nn.utils import (
     apply_limits,
     get_mask,
@@ -59,6 +60,10 @@ DATE_TYPE = np.dtype(
 )
 
 MASKED_OUTPUT = -9999
+
+
+DATA_FOLDER = Path(__file__).parent / "files"
+
 
 ###############################################################################
 # Helper functions
@@ -250,6 +255,18 @@ class Sensor(ABC):
         return self._n_angles
 
     @property
+    def angle_bins(self):
+        """
+        Angle bin boundaries to map the viewing angles of the real observations
+        to the discrete angles of the simulations.
+        """
+        angle_bins = np.zeros(self.angles.size + 1)
+        angle_bins[1:-1] = 0.5 * (self.angles[1:] + self.angles[:-1])
+        angle_bins[0] = 2.0 * angle_bins[1] - angle_bins[2]
+        angle_bins[-1] = 2.0 * angle_bins[-2] - angle_bins[-3]
+        return angle_bins
+
+    @property
     def n_inputs(self):
         """
         The number of frequencies or channels of the sensor.
@@ -373,7 +390,7 @@ class Sensor(ABC):
         pass
 
     @abstractmethod
-    def load_training_data_1d(self, filename, targets, augment, rng):
+    def load_training_data_1d(self, dataset, targets, augment, rng):
         """
         Load training data for GPROF-NN 1D algorithm from NetCDF file.
 
@@ -518,7 +535,7 @@ class ConicalScanner(Sensor):
         self._sim_file_path = sim_file_path
 
     def __repr__(self):
-        return f"ConicalScanner(name=self.name, platform={self.platform.name})"
+        return f"ConicalScanner(name={self.name}, platform={self.platform.name})"
 
     @property
     def name(self):
@@ -575,7 +592,7 @@ class ConicalScanner(Sensor):
                 x.append(np.concatenate([tbs, t2m, tcwv, st, am], axis=1))
         return np.concatenate(x, axis=0)
 
-    def load_training_data_1d(self, filename, targets, augment, rng, equalizer=None):
+    def load_training_data_1d(self, dataset, targets, augment, rng, equalizer=None):
         """
         Load training data for GPROF-NN 1D retrieval. This function will
         only load pixels that with a finite surface precip value in order
@@ -600,45 +617,55 @@ class ConicalScanner(Sensor):
         x = []
         y = {}
 
-        with xr.open_dataset(filename) as dataset:
-            n_samples = dataset.samples.size
-            for i in range(n_samples):
+        if isinstance(dataset, (str, Path)):
+            dataset = xr.open_dataset(dataset)
+            loaded = True
+        else:
+            loaded = False
 
-                if "surface_precip" not in targets:
-                    ts = targets + ["surface_precip"]
-                else:
-                    ts = targets
-                scene = decompress_scene(dataset[{"samples": i}], ts)
+        n_samples = dataset.samples.size
+        for i in range(n_samples):
 
-                #
-                # Input data
-                #
+            if "surface_precip" not in targets:
+                ts = targets + ["surface_precip"]
+            else:
+                ts = targets
+            scene = decompress_scene(dataset[{"samples": i}], ts)
 
-                # Select only samples that have a finite surface precip value.
-                sp = self.load_target(scene, "surface_precip")
-                valid = sp >= 0
+            #
+            # Input data
+            #
 
-                tbs = self.load_brightness_temperatures(scene, mask=valid)
-                if augment:
-                    r = rng.random(tbs.shape[0])
-                    tbs[r > 0.9, 10:15] = np.nan
-                t2m = self.load_two_meter_temperature(scene, valid)[..., np.newaxis]
-                tcwv = self.load_total_column_water_vapor(scene, valid)
-                tcwv = tcwv[..., np.newaxis]
-                st = self.load_surface_type(scene, valid)
-                am = self.load_airmass_type(scene, valid)
-                x.append(np.concatenate([tbs, t2m, tcwv, st, am], axis=1))
+            # Select only samples that have a finite surface precip value.
+            sp = self.load_target(scene, "surface_precip")
+            valid = sp >= 0
 
-                #
-                # Output data
-                #
+            tbs = self.load_brightness_temperatures(scene, mask=valid)
+            if augment:
+                r = rng.random(tbs.shape[0])
+                tbs[r > 0.9, 10:15] = np.nan
+            t2m = self.load_two_meter_temperature(scene, valid)[..., np.newaxis]
+            tcwv = self.load_total_column_water_vapor(scene, valid)
+            tcwv = tcwv[..., np.newaxis]
+            st = self.load_surface_type(scene, valid)
+            am = self.load_airmass_type(scene, valid)
+            x.append(np.concatenate([tbs, t2m, tcwv, st, am], axis=1))
 
-                for t in targets:
-                    y_t = self.load_target(scene, t, valid)
-                    y_t = np.nan_to_num(y_t, nan=MASKED_OUTPUT)
-                    y.setdefault(t, []).append(y_t)
+            #
+            # Output data
+            #
+
+            for t in targets:
+                y_t = self.load_target(scene, t, valid)
+                y_t = np.nan_to_num(y_t, nan=MASKED_OUTPUT)
+                y.setdefault(t, []).append(y_t)
+
         x = np.concatenate(x)
         y = {k: np.concatenate(y[k]) for k in y}
+
+        if loaded:
+            dataset.close()
+
         return x, y
 
     def load_data_2d(self, filename):
@@ -654,30 +681,32 @@ class ConicalScanner(Sensor):
             ``(n_samples, n_features, height, widht)`` containing all scenes
             from the training data file.
         """
-        with xr.open_dataset(self.filename) as dataset:
-            #
-            # Input data
-            #
+        if isinstance(dataset, (str, Path)):
+            dataset = xr.open_dataset(dataset)
 
-            # Brightness temperatures
-            n = dataset.samples.size
+        #
+        # Input data
+        #
 
-            x = []
+        # Brightness temperatures
+        n = dataset.samples.size
 
-            for i in range(n):
-                scene = dataset[{"samples": i}]
+        x = []
 
-                tbs = self.load_brightness_temperatures(scene)
-                tbs = np.transpose(tbs, (2, 0, 1))
-                t2m = self.load_two_meter_temperature(dataset)[np.newaxis]
-                tcwv = self.load_two_meter_temperature(dataset)[np.newaxis]
-                st = self.load_surface_type(dataset)
-                st = np.transpose(st, (2, 0, 1))
-                am = self.load_airmass_type(dataset)
-                am = np.transpose(am, (2, 0, 1))
-                x.append(np.concatenate([tbs, t2m, tcwv, st, am], axis=0))
+        for i in range(n):
+            scene = dataset[{"samples": i}]
 
-            return np.stack(x)
+            tbs = self.load_brightness_temperatures(scene)
+            tbs = np.transpose(tbs, (2, 0, 1))
+            t2m = self.load_two_meter_temperature(dataset)[np.newaxis]
+            tcwv = self.load_two_meter_temperature(dataset)[np.newaxis]
+            st = self.load_surface_type(dataset)
+            st = np.transpose(st, (2, 0, 1))
+            am = self.load_airmass_type(dataset)
+            am = np.transpose(am, (2, 0, 1))
+            x.append(np.concatenate([tbs, t2m, tcwv, st, am], axis=0))
+
+        return np.stack(x)
 
     def load_training_data_3d(
         self, dataset, targets, augment, rng, width=96, height=128
@@ -704,80 +733,89 @@ class ConicalScanner(Sensor):
         y = {}
 
         vs = ["latitude", "longitude"]
-        with xr.open_dataset(dataset) as dataset:
-            n = dataset.samples.size
-            for i in range(n):
-                scene = decompress_scene(dataset[{"samples": i}], targets + vs)
 
-                if augment:
-                    p_x_o = rng.random()
-                    p_x_i = rng.random()
-                    p_y = rng.random()
-                else:
-                    p_x_o = 0.5
-                    p_x_i = 0.5
-                    p_y = 0.5
+        if isinstance(dataset, (str, Path)):
+            dataset = xr.open_dataset(dataset)
+            loaded = True
+        else:
+            loaded = False
 
-                lats = scene.latitude.data
-                lons = scene.longitude.data
-                coords = get_transformation_coordinates(
-                    lats, lons, self.viewing_geometry, width, height, p_x_i, p_x_o, p_y
-                )
+        n = dataset.samples.size
+        for i in range(n):
+            scene = decompress_scene(dataset[{"samples": i}], targets + vs)
 
-                scene = remap_scene(scene, coords, targets)
+            if augment:
+                p_x_o = rng.random()
+                p_x_i = rng.random()
+                p_y = rng.random()
+            else:
+                p_x_o = 0.5
+                p_x_i = 0.5
+                p_y = 0.5
 
-                #
-                # Input data
-                #
+            lats = scene.latitude.data
+            lons = scene.longitude.data
+            coords = get_transformation_coordinates(
+                lats, lons, self.viewing_geometry, width, height, p_x_i, p_x_o, p_y
+            )
 
-                tbs = self.load_brightness_temperatures(scene)
-                tbs = np.transpose(tbs, (2, 0, 1))
-                if augment:
-                    r = rng.random()
-                    n_p = rng.integers(10, 30)
-                    if r > 0.80:
-                        tbs[10:15, :, :n_p] = np.nan
-                t2m = self.load_two_meter_temperature(scene)[np.newaxis]
-                tcwv = self.load_total_column_water_vapor(scene)[np.newaxis]
-                st = self.load_surface_type(scene)
-                st = np.transpose(st, (2, 0, 1))
-                am = self.load_airmass_type(scene)
-                am = np.transpose(am, (2, 0, 1))
+            scene = remap_scene(scene, coords, targets)
 
-                x_i = np.concatenate([tbs, t2m, tcwv, st, am], axis=0)
-                x.append(x_i.astype(np.float32))
+            #
+            # Input data
+            #
 
-                #
-                # Output data
-                #
+            tbs = self.load_brightness_temperatures(scene)
+            tbs = np.transpose(tbs, (2, 0, 1))
+            if augment:
+                r = rng.random()
+                n_p = rng.integers(10, 30)
+                if r > 0.80:
+                    tbs[10:15, :, :n_p] = np.nan
+            t2m = self.load_two_meter_temperature(scene)[np.newaxis]
+            tcwv = self.load_total_column_water_vapor(scene)[np.newaxis]
+            st = self.load_surface_type(scene)
+            st = np.transpose(st, (2, 0, 1))
+            am = self.load_airmass_type(scene)
+            am = np.transpose(am, (2, 0, 1))
 
-                for t in targets:
-                    y_t = self.load_target(scene, t)
-                    y_t = np.nan_to_num(y_t, nan=MASKED_OUTPUT)
+            x_i = np.concatenate([tbs, t2m, tcwv, st, am], axis=0)
+            x.append(x_i.astype(np.float32))
 
-                    dims_sp = tuple(range(2))
-                    dims_t = tuple(range(2, y_t.ndim))
+            #
+            # Output data
+            #
 
-                    y_i = np.transpose(y_t, dims_t + dims_sp).astype(np.float32)
-                    y.setdefault(t, []).append(y_i)
+            for t in targets:
+                y_t = self.load_target(scene, t)
+                y_t = np.nan_to_num(y_t, nan=MASKED_OUTPUT)
 
-                # Also flip data if requested.
-                if augment:
-                    r = rng.random()
-                    if r > 0.5:
-                        x[i] = np.flip(x[i], -2)
-                        for k in targets:
-                            y[k][i] = np.flip(y[k][i], -2)
+                dims_sp = tuple(range(2))
+                dims_t = tuple(range(2, y_t.ndim))
 
-                    r = rng.random()
-                    if r > 0.5:
-                        x[i] = np.flip(x[i], -1)
-                        for k in targets:
-                            y[k][i] = np.flip(y[k][i], -1)
+                y_i = np.transpose(y_t, dims_t + dims_sp).astype(np.float32)
+                y.setdefault(t, []).append(y_i)
+
+            # Also flip data if requested.
+            if augment:
+                r = rng.random()
+                if r > 0.5:
+                    x[i] = np.flip(x[i], -2)
+                    for k in targets:
+                        y[k][i] = np.flip(y[k][i], -2)
+
+                r = rng.random()
+                if r > 0.5:
+                    x[i] = np.flip(x[i], -1)
+                    for k in targets:
+                        y[k][i] = np.flip(y[k][i], -1)
 
         x = np.stack(x)
         for k in targets:
             y[k] = np.stack(y[k])
+
+        if loaded:
+            dataset.close()
 
         return x, y
 
@@ -795,9 +833,11 @@ class CrossTrackScanner(Sensor):
         angles,
         platform,
         viewing_geometry,
+        gmi_channels,
         mrms_file_path,
         sim_file_pattern,
         sim_file_path,
+        correction=None
     ):
         super().__init__(
             types.XTRACK, "MHS", channels, angles, platform, viewing_geometry
@@ -807,12 +847,24 @@ class CrossTrackScanner(Sensor):
         n_angles = len(angles)
         self.kernels = calculate_smoothing_kernels(self)
 
+        self.gmi_channels = np.array(gmi_channels)
+        gmi_angles = GMI.angles[self.gmi_channels]
+        self.bias_scales = (np.cos(np.deg2rad(gmi_angles).reshape(1, -1)) /
+                            np.cos(np.deg2rad(self.angles).reshape(-1, 1)))
+        self.apply_biases = True
+        self.bias_scaling = True
+
         self._mrms_file_path = mrms_file_path
         self._sim_file_pattern = sim_file_pattern
         self._sim_file_path = sim_file_path
 
+        if correction is None:
+            self.correction = None
+        else:
+            self.correction = CdfCorrection(correction)
+
     def __repr__(self):
-        return f"CrossTrackScanner(name=self.name, " f"platform={self.platform.name})"
+        return f"CrossTrackScanner(name={self.name}, " f"platform={self.platform.name})"
 
     @property
     def n_inputs(self):
@@ -861,12 +913,18 @@ class CrossTrackScanner(Sensor):
                 data, "simulated_brightness_temperatures", mask=mask
             )
 
-            bias = load_variable(data, "brightness_temperature_biases")
-            bias = smooth_gmi_field(bias, self.kernels)
+            if self.apply_biases:
+                bias = load_variable(data, "brightness_temperature_biases")
+                bias = smooth_gmi_field(bias, self.kernels)
+                # Apply scaling of biases
+                if self.bias_scaling:
+                    shape = [1] * (bias.ndim - 2) + [10, 5]
+                    bias = bias * self.bias_scales.reshape(shape)
+
             if mask is not None:
                 bias = bias[mask]
-
             tbs = interpolate(tbs_sim - bias, weights)
+
         else:
             tbs = load_variable(data, "brightness_temperatures", mask=mask)
         return tbs
@@ -930,6 +988,7 @@ class CrossTrackScanner(Sensor):
                     eia = eia[..., :1]
 
                 tbs = self.load_brightness_temperatures(scene, weights, mask=mask)
+
                 t2m = self.load_two_meter_temperature(scene, mask=mask)
                 t2m = t2m[..., np.newaxis]
                 tcwv = self.load_two_meter_temperature(scene, mask=mask)
@@ -942,7 +1001,7 @@ class CrossTrackScanner(Sensor):
         x = np.concatenate(x, axis=0)
         return x
 
-    def load_training_data_1d(self, filename, targets, augment, rng, equalizer=None):
+    def load_training_data_1d(self, dataset, targets, augment, rng, equalizer=None):
         """
         Load training data for GPROF-NN 1D retrieval. This function will
         only load pixels that with a finite surface precip value in order
@@ -970,83 +1029,101 @@ class CrossTrackScanner(Sensor):
             data as it is contained in the given NetCDF file.
         """
         angles_max = self.angles[0] + 0.5 * (self.angles[0] - self.angles[1])
-        angles_min = -self.angles[0] + 0.5 * (self.angles[0] - self.angles[1])
+        angles_min = -angles_max
 
         x = []
         y = {}
 
-        with xr.open_dataset(filename) as dataset:
+        if isinstance(dataset, (str, Path)):
+            dataset = xr.open_dataset(dataset)
+            loaded = True
+        else:
+            loaded = False
 
-            n_samples = dataset.samples.size
+        n_samples = dataset.samples.size
 
-            # Iterate over samples in training data (scenes of size 221 x 221)
-            # and extract only pixels for which surface precip is defined.
+        # Iterate over samples in training data (scenes of size 221 x 221)
+        # and extract only pixels for which surface precip is defined.
 
-            vs = [
-                "simulated_brightness_temperatures",
-                "brightness_temperature_biases",
-                "earth_incidence_angle",
-            ]
-            if "surface_precip" not in targets:
-                vs += ["surface_precip"]
+        vs = [
+            "simulated_brightness_temperatures",
+            "brightness_temperature_biases",
+            "earth_incidence_angle",
+        ]
+        if "surface_precip" not in targets:
+            vs += ["surface_precip"]
 
-            for i in range(n_samples):
-                scene = decompress_scene(dataset[{"samples": i}], targets + vs)
-                source = dataset.source[i]
+        for i in range(n_samples):
+            scene = decompress_scene(dataset[{"samples": i}], targets + vs)
+            source = dataset.source[i]
 
-                sp = scene["surface_precip"].data
-                mask = np.all(sp >= 0, axis=-1)
+            sp = scene["surface_precip"].data
+            mask = np.all(sp >= 0, axis=-1)
 
-                if source == 0:
-                    tbs = scene["simulated_brightness_temperatures"].data
-                    mask_tbs = get_mask(
-                        tbs, *LIMITS["simulated_brightness_temperatures"]
-                    )
-                    biases = scene["brightness_temperature_biases"].data
-                    mask_biases = get_mask(
-                        biases, *LIMITS["brightness_temperature_biases"]
-                    )
-                    mask = (
-                        mask
-                        * np.all(mask_tbs, axis=(-2, -1))
-                        * np.all(mask_biases, axis=-1)
-                    )
-                    eia = rng.uniform(angles_min, angles_max, size=mask.sum())
-                    weights = calculate_interpolation_weights(eia, self.angles)
-                else:
-                    weights = None
-                    tbs = scene["brightness_temperatures"].data
-                    mask = mask * np.all((tbs > 0) * (tbs < 500), axis=-1)
-                    eia = load_variable(scene, "earth_incidence_angle", mask=mask)[
-                        ..., 0
-                    ]
+            if source == 0:
+                tbs = scene["simulated_brightness_temperatures"].data
+                mask_tbs = get_mask(
+                    tbs, *LIMITS["simulated_brightness_temperatures"]
+                )
+                biases = scene["brightness_temperature_biases"].data
+                mask_biases = get_mask(
+                    biases, *LIMITS["brightness_temperature_biases"]
+                )
+                mask = (
+                    mask
+                    * np.all(mask_tbs, axis=(-2, -1))
+                    * np.all(mask_biases, axis=-1)
+                )
+                eia = rng.uniform(angles_min, angles_max, size=mask.sum())
+                weights = calculate_interpolation_weights(np.abs(eia), self.angles)
+            else:
+                weights = None
+                tbs = scene["brightness_temperatures"].data
+                mask = mask * np.all((tbs > 0) * (tbs < 500), axis=-1)
+                eia = load_variable(scene, "earth_incidence_angle", mask=mask)[
+                    ..., 0
+                ]
 
-                #
-                # Input data
-                #
+            #
+            # Input data
+            #
 
-                tbs = self.load_brightness_temperatures(scene, weights, mask=mask)
-                eia = eia[..., np.newaxis]
-                t2m = self.load_two_meter_temperature(scene, mask=mask)
-                t2m = t2m[..., np.newaxis]
-                tcwv = self.load_total_column_water_vapor(scene, mask=mask)
-                tcwv = tcwv[..., np.newaxis]
-                st = self.load_surface_type(scene, mask=mask)
-                am = self.load_airmass_type(scene, mask=mask)
+            tbs = self.load_brightness_temperatures(scene, weights, mask=mask)
+            t2m = self.load_two_meter_temperature(scene, mask=mask)
+            tcwv = self.load_total_column_water_vapor(scene, mask=mask)
+            st = scene.surface_type.data[mask]
 
-                x.append(np.concatenate([tbs, eia, t2m, tcwv, st, am], axis=1))
+            if self.correction is not None:
+                tbs = self.correction(self, st, eia, tcwv, tbs)
 
-                #
-                # Output data
-                #
+            if augment and self.nedt is not None:
+                noise = rng.normal(size=tbs.shape)
+                for i in range(noise.shape[-1]):
+                    noise[..., i] *= self.nedt[i]
+                tbs = tbs + noise
 
-                for t in targets:
-                    y_t = self.load_target(scene, t, weights, mask=mask)
-                    y_t = np.nan_to_num(y_t, nan=MASKED_OUTPUT)
-                    y.setdefault(t, []).append(y_t)
+            st = self.load_surface_type(scene, mask=mask)
+            eia = eia[..., np.newaxis]
+            t2m = t2m[..., np.newaxis]
+            tcwv = tcwv[..., np.newaxis]
+            am = self.load_airmass_type(scene, mask=mask)
+
+            x.append(np.concatenate([tbs, eia, t2m, tcwv, st, am], axis=1))
+
+            #
+            # Output data
+            #
+
+            for t in targets:
+                y_t = self.load_target(scene, t, weights, mask=mask)
+                y_t = np.nan_to_num(y_t, nan=MASKED_OUTPUT)
+                y.setdefault(t, []).append(y_t)
 
         x = np.concatenate(x, axis=0)
         y = {t: np.concatenate(y[t], axis=0) for t in y}
+
+        if loaded:
+            dataset.close()
 
         return x, y
 
@@ -1102,14 +1179,30 @@ class CrossTrackScanner(Sensor):
         weights = np.repeat(weights.reshape(1, -1, self.n_angles), height, axis=0)
 
         tbs = self.load_brightness_temperatures(scene, weights)
-        tbs = np.transpose(tbs, (2, 0, 1))
+        t2m = self.load_two_meter_temperature(scene)
+        tcwv = self.load_total_column_water_vapor(scene)
+        st = scene.surface_type.data
+
+        if self.correction is not None:
+            tbs = self.correction(self, st, eia, tcwv, tbs)
+
+        if augment and self.nedt is not None:
+            noise = self.rng.normal(size=tbs.shape)
+            for i in range(noise.shape[-1]):
+                noise[..., i] *= self.nedt[i]
+            tbs = tbs + noise
+
         eia = eia[np.newaxis]
-        t2m = self.load_two_meter_temperature(scene)[np.newaxis]
-        tcwv = self.load_total_column_water_vapor(scene)[np.newaxis]
+        tcwv = tcwv[np.newaxis]
+        t2m = t2m[np.newaxis]
         st = self.load_surface_type(scene)
-        st = np.transpose(st, (2, 0, 1))
         am = self.load_airmass_type(scene)
+
+        tbs = np.transpose(tbs, (2, 0, 1))
+        st = np.transpose(st, (2, 0, 1))
         am = np.transpose(am, (2, 0, 1))
+
+
         x = np.concatenate([tbs, eia, t2m, tcwv, st, am], axis=0)
 
         #
@@ -1132,7 +1225,7 @@ class CrossTrackScanner(Sensor):
             r = rng.random()
             if r > 0.5:
                 x = np.flip(x, -2)
-                x[:, self.n_chans] *= -1.0
+                x[self.n_chans] *= -1.0
                 for k in targets:
                     y[k] = np.flip(y[k], -2)
 
@@ -1236,7 +1329,6 @@ class CrossTrackScanner(Sensor):
     def load_training_data_3d(
         self, dataset, targets, augment, rng, width=32, height=128
     ):
-
         if isinstance(dataset, (str, Path)):
             dataset = xr.open_dataset(dataset)
 
@@ -1284,11 +1376,16 @@ class CrossTrackScanner(Sensor):
 
 class Platform:
     """
-    The platform class contains bundles the satellite-specific information
-    related to a sensor.
+    The 'Platform' class represents the satellite that a specifc sensor
+    is flown on. It is used to hold information that is specifc to that
+    platform such as the data path and the prefix of L1C files.
     """
-
-    def __init__(self, name, l1c_file_path, l1c_file_prefix):
+    def __init__(
+            self,
+            name,
+            l1c_file_path,
+            l1c_file_prefix
+    ):
         self.name = name
         self.l1c_file_path = l1c_file_path
         self.l1c_file_prefix = l1c_file_prefix
@@ -1303,7 +1400,7 @@ class Platform:
 NOAA19 = Platform("NOAA-19", "/pdata4/archive/GPM/1C_NOAA19/", "1C.NOAA19.MHS")
 
 
-GPM = Platform("GMP-CO", "/pdata4/archive/GPM/1CR_GMI/", "1C-R.GPM.GMI")
+GPM = Platform("GPM-CO", "/pdata4/archive/GPM/1CR_GMI/", "1C-R.GPM.GMI")
 
 ###############################################################################
 # GMI
@@ -1327,7 +1424,24 @@ GMI_CHANNELS = [
     (190.0, "H"),
 ]
 
-GMI_ANGLES = [52.8]
+GMI_ANGLES = np.array([
+    52.8,
+    52.8,
+    52.8,
+    52.8,
+    52.8,
+    -9999.9,
+    52.8,
+    52.8,
+    52.8,
+    52.8,
+    49.19,
+    49.19,
+    -9999.9,
+    49.19,
+    49.19,
+])
+
 
 GMI_VIEWING_GEOMETRY = Conical(
     altitude=455e3,
@@ -1365,11 +1479,13 @@ MHS_CHANNELS = [
     (190.0, "H"),
 ]
 
-MHS_NEDT = np.array([1.0, 1.0, 4.0, 2.0, 2.0])
+MHS_NEDT = np.array([0.3, 0.5, 3.8, 0.7, 0.3])
 
 MHS_VIEWING_GEOMETRY = CrossTrack(
     altitude=855e3, scan_range=2.0 * 49.5, pixels_per_scan=90, scan_offset=17e3
 )
+
+MHS_GMI_CHANNELS = [8, 11, 13, 13, 14]
 
 MHS = CrossTrackScanner(
     "MHS",
@@ -1378,12 +1494,25 @@ MHS = CrossTrackScanner(
     MHS_ANGLES,
     NOAA19,
     MHS_VIEWING_GEOMETRY,
+    MHS_GMI_CHANNELS,
     "/pdata4/veljko/MHS2MRMS_match2019/monthly_2021/",
     "MHS.dbsatTb.??????{day}.??????.sim",
     "/qdata1/pbrown/dbaseV7/simV7x",
 )
 
-MHS_NOAA19 = MHS
+MHS_NOAA19 = CrossTrackScanner(
+    "MHS",
+    MHS_CHANNELS,
+    MHS_NEDT,
+    MHS_ANGLES,
+    NOAA19,
+    MHS_VIEWING_GEOMETRY,
+    MHS_GMI_CHANNELS,
+    "/pdata4/veljko/MHS2MRMS_match2019/monthly_2021/",
+    "MHS.dbsatTb.??????{day}.??????.sim",
+    "/qdata1/pbrown/dbaseV7/simV7x",
+    correction=DATA_FOLDER / "corrections_mhs_noaa19.nc"
+)
 
 
 def get_sensor(platform, sensor):

@@ -6,6 +6,8 @@ gprof_nn.models
 This module defines the neural network models that are used
 for the implementation of the GPROF-NN algorithms.
 """
+from copy import deepcopy
+
 import numpy as np
 import torch
 from torch import nn
@@ -13,8 +15,7 @@ from torch.nn.functional import softplus
 from quantnn.qrnn import QRNN
 from quantnn.drnn import DRNN
 from quantnn.mrnn import MRNN, Mean, Quantiles, Density
-from quantnn.models.pytorch.xception import UpsamplingBlock, DownsamplingBlock
-
+from quantnn.models.pytorch.xception import SeparableConv3x3
 
 from gprof_nn.definitions import ALL_TARGETS, PROFILE_NAMES
 from gprof_nn.retrieval import (
@@ -55,6 +56,7 @@ QUANTILES = np.linspace(0.0, 1.0, 66)[1:-1]
 PROFILE_QUANTILES = np.linspace(0.0, 1.0, 18)[1:-1]
 # Define types of residuals for MLP models.
 RESIDUALS = ["none", "simple", "hyper"]
+
 
 ###############################################################################
 # GPROF-NN 1D
@@ -115,10 +117,13 @@ class MLP(nn.Module):
                 self.output_layer = nn.Linear(n_inputs, n_outputs, bias=False)
 
     def __repr__(self):
-        return (
-            f"MLP(n_inputs={self.n_inputs}, n_layers={self.n_layers}, "
-            f"n_neurons={self.n_neurons})"
-        )
+        try:
+            return (
+                f"MLP(n_inputs={self.n_inputs}, n_layers={self.n_layers}, "
+                f"n_neurons={self.n_neurons})"
+            )
+        except:
+            return super().__repr__()
 
     def forward(self, x, *args, **kwargs):
         """
@@ -183,10 +188,13 @@ class ResidualMLP(MLP):
             self.projection = None
 
     def __repr__(self):
-        return (
-            f"ResidualMLP(n_inputs={self.n_inputs}, n_layers={self.n_layers}, "
-            f"n_neurons={self.n_neurons})"
-        )
+        try:
+            return (
+                f"ResidualMLP(n_inputs={self.n_inputs}, n_layers={self.n_layers}, "
+                f"n_neurons={self.n_neurons})"
+            )
+        except:
+            return super().__repr__()
 
     def forward(self, x, *args, **kwargs):
         """
@@ -260,10 +268,13 @@ class HyperResidualMLP(ResidualMLP):
         )
 
     def __repr__(self):
-        return (
-            f"HyperResidualMLP(n_inputs={self.n_inputs}, n_layers={self.n_layers}, "
-            f"n_neurons={self.n_neurons})"
-        )
+        try:
+            return (
+                f"HyperResidualMLP(n_inputs={self.n_inputs}, n_layers={self.n_layers}, "
+                f"n_neurons={self.n_neurons})"
+            )
+        except:
+            return super().__repr__()
 
     def forward(self, x, acc_in=None, li=1):
         """
@@ -411,11 +422,14 @@ class MultiHeadMLP(nn.Module):
                 )
 
     def __repr__(self):
-        return (
-            f"MultiHeadMLP(n_inputs={self.n_inputs}, n_layers_body={self.n_layers_body}, "
-            f", n_neurons_body={self.n_neurons_body}, n_layers_head={self.n_layers_head}, "
-            f" n_neurons_head={self.n_neurons_head})"
-        )
+        try:
+            return (
+                f"MultiHeadMLP(n_inputs={self.n_inputs}, n_layers_body={self.n_layers_body}, "
+                f", n_neurons_body={self.n_neurons_body}, n_layers_head={self.n_layers_head}, "
+                f" n_neurons_head={self.n_neurons_head})"
+            )
+        except:
+            return super().__repr__()
 
     def forward(self, x):
         """
@@ -534,7 +548,7 @@ class GPROF_NN_1D_QRNN(MRNN):
         self.configuration = None
 
     def __repr__(self):
-        trained = getattr(self, "configuration", default=None) is not None
+        trained = getattr(self, "configuration", None) is not None
         if trained:
             return (f"GPROF_NN_1D_DRNN(sensor={self.sensor}, "
                     f"configuration={self.configuration}, "
@@ -666,9 +680,187 @@ class GPROF_NN_1D_DRNN(MRNN):
 GPROF_NN_0D_QRNN = GPROF_NN_1D_QRNN
 GPROF_NN_0D_DRNN = GPROF_NN_1D_DRNN
 
+
+def prepare_model(gmi_model, sensor, normalizer):
+    """
+    Create a new model for a given sensor using the weights from a
+    pre-trained model for GMI.
+
+    Args:
+        gmi_model: The model trained on GMI data.
+        sensor: The sensor for which this new model will be trained.
+        normalizer: The normalizer object to use to normalize inputs.
+
+    Return:
+        A new model for the given sensor, which reuses the weights from
+        the GMI model that match the GMI input channels.
+    """
+    new_model = deepcopy(gmi_model)
+    new_model.model = deepcopy(gmi_model.model)
+
+    # Modify input layer
+    old_layer = gmi_model.model.body.layers[0][0]
+    out_features = old_layer.out_features
+    bias = old_layer.bias is not None
+    new_model.model.body.layers[0][0] = nn.Linear(
+        sensor.n_inputs,
+        out_features,
+        bias=bias
+    )
+    new_layer = new_model.model.body.layers[0][0]
+    for i, c in enumerate(sensor.gmi_channels):
+        new_layer.weight.data[:, i] = old_layer.weight.data[:, c]
+
+    # Modify projection layer
+    old_layer = gmi_model.model.body.projection
+    out_features = old_layer.out_features
+    bias = old_layer.bias is not None
+    new_model.model.body.projection = nn.Linear(
+        sensor.n_inputs,
+        out_features,
+        bias=bias
+    )
+    new_layer = new_model.model.body.projection
+    for i, c in enumerate(sensor.gmi_channels):
+        new_layer.weight.data[:, i] = old_layer.weight.data[:, c]
+
+    new_model.sensor = sensor
+    new_model.n_inputs = sensor.n_inputs
+    new_model.normalizer = normalizer
+    del new_model.training_history
+
+    return new_model
+
+
 ###############################################################################
 # GPROF-NN 3D
 ###############################################################################
+
+class XceptionBlock(nn.Module):
+    """
+    Xception block consisting of two depth-wise separable convolutions
+    each folowed by batch-norm and GELU activations.
+    """
+
+    def __init__(
+            self,
+            channels_in,
+            channels_out,
+            downsample=False,
+            across_track=True
+    ):
+        """
+        Args:
+            channels_in: The number of incoming channels.
+            channels_out: The number of outgoing channels.
+            downsample: Whether or not to insert 3x3 max pooling block
+                after the first convolution.
+            across_track: Whether to downsample in across track direction.
+        """
+        super().__init__()
+        if downsample:
+            if across_track:
+                stride = (2, 2)
+            else:
+                stride = (2, 1)
+
+            self.block_1 = nn.Sequential(
+            SeparableConv3x3(channels_in, channels_out),
+            nn.GroupNorm(1, channels_out),
+            SymmetricPadding(1),
+            nn.MaxPool2d(kernel_size=3, stride=stride),
+            nn.GELU())
+        else:
+            self.block_1 = nn.Sequential(
+                SeparableConv3x3(channels_in, channels_out),
+                nn.GroupNorm(1, channels_out),
+                nn.GELU(),
+            )
+
+        self.block_2 = nn.Sequential(
+            SeparableConv3x3(channels_out, channels_out),
+            nn.GroupNorm(1, channels_out),
+            nn.GELU(),
+        )
+
+        if channels_in != channels_out or downsample:
+            if downsample:
+                self.projection = nn.Conv2d(channels_in, channels_out, 1, stride=stride)
+            else:
+                self.projection = nn.Conv2d(channels_in, channels_out, 1)
+        else:
+            self.projection = None
+
+    def forward(self, x):
+        """
+        Propagate input through block.
+        """
+        if self.projection is None:
+            x_proj = x
+        else:
+            x_proj = self.projection(x)
+        y = self.block_2(self.block_1(x))
+        return x_proj + y
+
+
+class DownsamplingStage(nn.Sequential):
+    """
+    Downsampling stage consisting of Xception blocks.
+    """
+    def __init__(self, n_channels, n_blocks, across_track=True):
+        """
+        Args:
+            n_channels: The number of elements along the dimension 1 of the
+                input_tensor.
+            n_blocks: The number of blocks in the stage.
+            across_track: If 'False' downsampling will not be performed along
+                the across track direction.
+        """
+        blocks = [
+            XceptionBlock(
+                n_channels,
+                n_channels,
+                downsample=True,
+                across_track=across_track
+            )
+        ]
+        for i in range(n_blocks):
+            blocks.append(XceptionBlock(n_channels, n_channels))
+        super().__init__(*blocks)
+
+
+class UpsamplingStage(nn.Module):
+    """
+    Upsampling stage consisting of Xception blocks.
+    """
+    def __init__(self, n_channels, across_track=True):
+        """
+        Args:
+            n_channels: The number of incoming and outgoing channels.
+            across_track: Whether to upsample also along ``across_track``
+                dimension.
+        """
+        super().__init__()
+        if across_track:
+            scale_factor = (2, 2)
+        else:
+            scale_factor = (2, 1)
+        self.upsample = nn.Upsample(mode="bilinear",
+                                    scale_factor=scale_factor,
+                                    align_corners=False)
+        self.block = nn.Sequential(
+            SeparableConv3x3(n_channels * 2, n_channels),
+            nn.GroupNorm(1, n_channels),
+            nn.GELU(),
+        )
+
+    def forward(self, x, x_skip):
+        """
+        Propagate input through block.
+        """
+        x_up = self.upsample(x)
+        x_merged = torch.cat([x_up, x_skip], 1)
+        return self.block(x_merged)
 
 
 class MLPHead(nn.Module):
@@ -711,8 +903,11 @@ class MLPHead(nn.Module):
         )
 
     def __repr__(self):
-        return (f"MLPHead(n_inputs={self.ninputs}, n_hidden={self.n_hidden},"
-                f"n_outputs={self.n_outputs}, n_layers={self.n_layers})")
+        try:
+            return (f"MLPHead(n_inputs={self.n_inputs}, n_hidden={self.n_hidden},"
+                    f"n_outputs={self.n_outputs}, n_layers={self.n_layers})")
+        except:
+            return super().__repr__()
 
     def forward(self, x):
         """
@@ -787,17 +982,17 @@ class XceptionFPN(nn.Module):
 
         self.in_block = nn.Conv2d(n_channels, n_features_body, 1)
 
-        self.down_block_2 = DownsamplingBlock(n_features_body, n_blocks[0])
-        self.down_block_4 = DownsamplingBlock(n_features_body, n_blocks[1])
-        self.down_block_8 = DownsamplingBlock(n_features_body, n_blocks[2])
-        self.down_block_16 = DownsamplingBlock(n_features_body, n_blocks[3])
-        self.down_block_32 = DownsamplingBlock(n_features_body, n_blocks[4])
+        self.down_block_2 = DownsamplingStage(n_features_body, n_blocks[0])
+        self.down_block_4 = DownsamplingStage(n_features_body, n_blocks[1])
+        self.down_block_8 = DownsamplingStage(n_features_body, n_blocks[2])
+        self.down_block_16 = DownsamplingStage(n_features_body, n_blocks[3])
+        self.down_block_32 = DownsamplingStage(n_features_body, n_blocks[4])
 
-        self.up_block_16 = UpsamplingBlock(n_features_body)
-        self.up_block_8 = UpsamplingBlock(n_features_body)
-        self.up_block_4 = UpsamplingBlock(n_features_body)
-        self.up_block_2 = UpsamplingBlock(n_features_body)
-        self.up_block = UpsamplingBlock(n_features_body)
+        self.up_block_16 = UpsamplingStage(n_features_body)
+        self.up_block_8 = UpsamplingStage(n_features_body)
+        self.up_block_4 = UpsamplingStage(n_features_body)
+        self.up_block_2 = UpsamplingStage(n_features_body)
+        self.up_block = UpsamplingStage(n_features_body)
 
         n_inputs = 2 * n_features_body
         if self.ancillary:
@@ -1066,17 +1261,17 @@ class SimulatorNet(nn.Module):
 
         self.in_block = nn.Conv2d(15, n_features_body, 1)
 
-        self.down_block_2 = DownsamplingBlock(n_features_body, 2)
-        self.down_block_4 = DownsamplingBlock(n_features_body, 2)
-        self.down_block_8 = DownsamplingBlock(n_features_body, 4)
-        self.down_block_16 = DownsamplingBlock(n_features_body, 6)
-        self.down_block_32 = DownsamplingBlock(n_features_body, 6)
+        self.down_block_2 = DownsamplingStage(n_features_body, 2)
+        self.down_block_4 = DownsamplingStage(n_features_body, 2)
+        self.down_block_8 = DownsamplingStage(n_features_body, 4)
+        self.down_block_16 = DownsamplingStage(n_features_body, 6)
+        self.down_block_32 = DownsamplingStage(n_features_body, 6)
 
-        self.up_block_16 = UpsamplingBlock(n_features_body)
-        self.up_block_8 = UpsamplingBlock(n_features_body)
-        self.up_block_4 = UpsamplingBlock(n_features_body)
-        self.up_block_2 = UpsamplingBlock(n_features_body)
-        self.up_block = UpsamplingBlock(n_features_body)
+        self.up_block_16 = UpsamplingStage(n_features_body)
+        self.up_block_8 = UpsamplingStage(n_features_body)
+        self.up_block_4 = UpsamplingStage(n_features_body)
+        self.up_block_2 = UpsamplingStage(n_features_body)
+        self.up_block = UpsamplingStage(n_features_body)
 
         n_inputs = 2 * n_features_body + 24
         self.bias_head = MLPHead(n_inputs, n_features_head, n_biases, n_layers_head)

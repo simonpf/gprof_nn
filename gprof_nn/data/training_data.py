@@ -10,6 +10,8 @@ import math
 import logging
 import os
 from pathlib import Path
+import subprocess
+from tempfile import TemporaryDirectory
 
 from scipy.signal import convolve
 import numpy as np
@@ -52,6 +54,47 @@ _INPUT_DIMENSIONS = {
     "GMI": (96, 128),
     "MHS": (32, 128)
 }
+
+
+def decompress_and_load(filename):
+    """
+    Load a potentially gzipped NetCDF file and return the
+    data as 'xarray.Dataset'.
+
+    Args:
+        filename: The filename to store the file to.
+
+    Return:
+        An 'xarray.Dataset' containing the loaded data.
+    """
+    filename = Path(filename)
+    if not filename.exists():
+        if Path(filename).suffix == ".gz":
+            raise ValueError(
+                f"The file '{filename}' doesn't exist. "
+            )
+        else:
+            filename_gz = Path(str(filename) + ".gz")
+            if not filename_gz.exists():
+                raise ValueError(
+                    f"Neither the file '{filename}' nor '{filename}.gz' exist."
+            )
+            filename = filename_gz
+
+    if Path(filename).suffix == ".gz":
+        with TemporaryDirectory() as tmp:
+            tmpfile = Path(tmp) / filename.stem
+            with open(tmpfile, "wb") as decompressed:
+                subprocess.run(
+                    ["gunzip", "-c", str(filename)],
+                    stdout=decompressed,
+                    check=True
+                )
+            data = xr.load_dataset(tmpfile)
+            Path(tmpfile).unlink()
+    else:
+        data = xr.open_dataset(filename)
+    return data
 
 
 def write_preprocessor_file(input_data, output_file):
@@ -190,6 +233,7 @@ class Dataset1DBase:
         seed = int.from_bytes(os.urandom(4), "big") + os.getpid()
         self._rng = np.random.default_rng(seed)
 
+
     def _shuffle(self):
         if not self._shuffled:
             LOGGER.info("Shuffling dataset %s.", self.filename.name)
@@ -311,6 +355,7 @@ class GPROF_NN_1D_Dataset(Dataset1DBase):
         """
         super().__init__()
         self.filename = Path(filename)
+        self.dataset = decompress_and_load(self.filename)
 
         if targets is None:
             targets = ["surface_precip"]
@@ -320,17 +365,17 @@ class GPROF_NN_1D_Dataset(Dataset1DBase):
         self.shuffle = shuffle
         self.augment = augment
 
-        with xr.open_dataset(self.filename) as dataset:
-            if "sensor" not in dataset.attrs:
+        if sensor is None:
+            if "sensor" not in self.dataset.attrs:
                 raise Exception(f"Provided dataset lacks 'sensor' attribute.")
-            sensor_name = dataset.attrs["sensor"]
+            sensor_name = self.dataset.attrs["sensor"]
             sensor = getattr(sensors, sensor_name, None)
             if sensor is None:
                 raise Exception(f"Sensor {sensor_name} isn't supported yet")
         self.sensor = sensor
 
         x, y = self.sensor.load_training_data_1d(
-            filename, self.targets, self.augment, self._rng, equalizer=equalizer
+            self.dataset, self.targets, self.augment, self._rng, equalizer=equalizer
         )
         self.x = x
         self.y = y
@@ -465,8 +510,7 @@ class GPROF_NN_1D_Dataset(Dataset1DBase):
             new_dataset[k] = (dims[:n_dims], v)
 
         new_dataset = xr.Dataset(new_dataset)
-        with xr.open_dataset(self.filename) as dataset:
-            new_dataset.attrs = dataset.attrs
+        new_dataset.attrs = self.dataset.attrs
         return new_dataset
 
     def save(self, filename):
@@ -606,10 +650,11 @@ class GPROF_NN_3D_Dataset:
         batch_size=32,
         normalize=True,
         normalizer=None,
+        sensor=None,
         transform_zeros=True,
         shuffle=True,
         augment=True,
-        input_dimensions=None
+        input_dimensions=None,
     ):
         """
         Args:
@@ -623,6 +668,9 @@ class GPROF_NN_3D_Dataset:
                 be used to instantiate a new normalizer object with the loaded
                 input data. If 'None', a new ``quantnn.normalizer.MinMaxNormalizer``
                 will be created with the loaded input data.
+            sensor: Explicit sensor object that can be passed to override the
+                generic sensor information contained in the training data
+                file.
             transform_zeros: Whether or not to transform target values that are
                 zero to small random values.
             shuffle: Whether or not to shuffle the data.
@@ -632,6 +680,7 @@ class GPROF_NN_3D_Dataset:
                 each sensor are used.
         """
         self.filename = Path(filename)
+        self.dataset = decompress_and_load(self.filename)
         if targets is None:
             self.targets = ["surface_precip"]
         else:
@@ -645,19 +694,19 @@ class GPROF_NN_3D_Dataset:
         seed = int.from_bytes(os.urandom(4), "big") + os.getpid()
         self._rng = np.random.default_rng(seed)
 
-        sensor = xr.open_dataset(filename).attrs["sensor"]
-        sensor = getattr(sensors, sensor)
-
+        if sensor is None:
+            sensor = self.dataset.attrs["sensor"]
+            sensor = getattr(sensors, sensor)
+        self.sensor = sensor
 
         if input_dimensions is None:
             width, height = _INPUT_DIMENSIONS[sensor.name.upper()]
         else:
             width, height = input_dimensions
         x, y = sensor.load_training_data_3d(
-            filename, self.targets, augment, self._rng,
+            self.dataset, self.targets, augment, self._rng,
             width=width, height=height
         )
-        self.sensor = sensor
 
         indices_1h = list(range(17, 39))
         if normalizer is None:
@@ -817,7 +866,7 @@ class GPROF_NN_3D_Dataset:
             "airmass_type": (dims[:-1], at),
         }
         if eia is not None:
-            new_dataset["earth_incidence_angle"] = (dims[:1], eia)
+            new_dataset["earth_incidence_angle"] = (dims[:-1], eia)
 
         dims = ("samples", "scans", "pixels", "layers")
         for k, v in self.y.items():
@@ -827,8 +876,7 @@ class GPROF_NN_3D_Dataset:
             new_dataset[k] = (dims[:n_dims], v)
 
         new_dataset = xr.Dataset(new_dataset)
-        with xr.open_dataset(self.filename) as dataset:
-            new_dataset.attrs = dataset.attrs
+        new_dataset.attrs = self.dataset.attrs
         return new_dataset
 
     def save(self, filename):
@@ -868,6 +916,11 @@ class SimulatorDataset(GPROF_NN_3D_Dataset):
                 and to randomly permute ancillary data.
         """
         self.filename = Path(filename)
+        # Load and decompress data but keep only scenes for which
+        # contain simulated obs.
+        self.dataset = decompress_and_load(self.filename)
+        self.dataset = self.dataset[{"samples": self.dataset.source == 0}]
+
         targets = ["simulated_brightness_temperatures", "brightness_temperature_biases"]
         self.transform_zeros = False
         self.batch_size = batch_size
@@ -877,9 +930,7 @@ class SimulatorDataset(GPROF_NN_3D_Dataset):
         seed = int.from_bytes(os.urandom(4), "big") + os.getpid()
         self._rng = np.random.default_rng(seed)
 
-        dataset = xr.open_dataset(filename)
-        dataset = dataset[{"samples": dataset.source == 0}]
-        x, y = self.load_training_data_3d(dataset, targets, augment, self._rng)
+        x, y = self.load_training_data_3d(self.dataset, targets, augment, self._rng)
         indices_1h = list(range(17, 39))
         if normalizer is None:
             self.normalizer = MinMaxNormalizer(x, exclude_indices=indices_1h)
@@ -909,8 +960,10 @@ class SimulatorDataset(GPROF_NN_3D_Dataset):
         """
         Load data for training a simulator data.
 
-        This function is different from the standard loading function in that
-        the input observations are always the GMI observations.
+        This function is a replacement for the ``load_training_data3d``
+        method of the sensor that is called by the other training data
+        objects to load the data. This is required because the data
+        the input for the simulator are always the GMI Tbs.
 
         Args:
             dataset: The 'xarray.Dataset' from which to load the training
@@ -955,8 +1008,9 @@ class SimulatorDataset(GPROF_NN_3D_Dataset):
 
             lats = scene.latitude.data
             lons = scene.longitude.data
+            geometry = sensors.GMI.viewing_geometry
             coords = get_transformation_coordinates(
-                lats, lons, sensor.viewing_geometry, 96, 128, p_x_i, p_x_o, p_y
+                lats, lons, geometry, 96, 128, p_x_i, p_x_o, p_y
             )
 
             scene = remap_scene(scene, coords, targets + vs)

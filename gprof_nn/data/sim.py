@@ -13,7 +13,9 @@ GPROF-NN algorithm from these files.
 from concurrent.futures import ProcessPoolExecutor, TimeoutError
 from datetime import datetime
 import logging
+import os
 from pathlib import Path
+import subprocess
 import tempfile
 
 import numpy as np
@@ -476,7 +478,12 @@ def _add_era5_precip(input_data, l1c_data, era5_data):
     input_data["convective_precip"].data[indices] = 1000.0 * convective_precip
 
 
-def process_sim_file(sim_filename, configuration, era5_path, log_queue=None):
+def process_sim_file(
+        sim_filename,
+        sensor,
+        configuration,
+        era5_path,
+        log_queue=None):
     """
     Extract 2D training scenes from sim file.
 
@@ -493,15 +500,16 @@ def process_sim_file(sim_filename, configuration, era5_path, log_queue=None):
 
     Args:
         sim_filename: Filename of the Sim file to process.
+        sensor: The sensor for which the training data is exstracted.
         l1c_path: Base path of the directory tree containing the L1C file.
         era5_path: Base path of the directory containing the ERA5 data.
+        log_queue: Optional queue object to use for multi-process logging.
 
     Return:
         xarray.Dataset containing the data from the sim file as multiple
         2D training scenes.
     """
     import gprof_nn.logging
-
     if log_queue is not None:
         gprof_nn.logging.configure_queue_logging(log_queue)
     LOGGER.info("Processing sim file %s.", sim_filename)
@@ -512,9 +520,9 @@ def process_sim_file(sim_filename, configuration, era5_path, log_queue=None):
         sim_file.granule, sensors.GMI.l1c_file_path, sensors.GMI
     )
 
-    LOGGER.debug("Running preprocessor for sim file %s.", sim_filename)
+    LOGGER.info("Running preprocessor for sim file %s.", sim_filename)
     data_pp = run_preprocessor(
-        l1c_file.filename, sensor=sensors.GMI, configuration=configuration,
+        l1c_file.filename, sensor=sensor, configuration=configuration,
         robust=False
     )
     if data_pp is None:
@@ -651,10 +659,10 @@ def process_l1c_file(l1c_filename, sensor, configuration, era5_path, log_queue=N
         era5_path: Root of the directory tree containing the ERA5 data.
     """
     import gprof_nn.logging
-
     if log_queue is not None:
         gprof_nn.logging.configure_queue_logging(log_queue)
     LOGGER.info("Starting processing L1C file %s.", l1c_filename)
+
     data_pp = run_preprocessor(l1c_filename, sensor=sensor, configuration=configuration, robust=False)
     if data_pp is None:
         return None
@@ -916,6 +924,7 @@ class SimFileProcessor:
                     self.pool.submit(
                         process_sim_file,
                         sim_file,
+                        self.sensor,
                         self.configuration,
                         self.era5_path,
                         log_queue=log_queue,
@@ -958,6 +967,7 @@ class SimFileProcessor:
         chunk = 1
 
         with Progress(console=get_console()) as progress:
+            gprof_nn.logging.set_log_level("INFO")
             bar = progress.add_task("Extracting data:", total=len(tasks))
             for task in tasks:
                 # Log messages from processes.
@@ -988,7 +998,8 @@ class SimFileProcessor:
                         filename = output_path / (output_file + f"_{chunk:02}.nc")
                         dataset.attrs["sensor"] = self.sensor.name
                         dataset.to_netcdf(filename)
-                        LOGGER.info(f"Writing file: {filename}")
+                        os.system(f"gzip -f {filename}")
+                        LOGGER.info(f"Finished writing file: {filename}")
                         datasets = []
                         chunk += 1
 
@@ -996,5 +1007,7 @@ class SimFileProcessor:
         dataset = xr.concat(datasets, "samples")
         filename = output_path / (output_file + f"_{chunk:02}.nc")
         dataset.attrs["sensor"] = self.sensor.name
+        dataset.attrs["configuration"] = self.configuration
         LOGGER.info(f"Writing file: {filename}")
         dataset.to_netcdf(filename)
+        subprocess.run(["gzip", "-f", filename], check=True)

@@ -29,7 +29,8 @@ from gprof_nn.data.retrieval import RetrievalFile
 from gprof_nn.data.bin import BinFile
 from gprof_nn.data.preprocessor import PreprocessorFile
 from gprof_nn.data.training_data import (GPROF_NN_1D_Dataset,
-                                         GPROF_NN_3D_Dataset)
+                                         GPROF_NN_3D_Dataset,
+                                         decompress_and_load)
 from gprof_nn.data.combined import GPMCMBFile
 from gprof_nn.data.l1c import L1CFile
 
@@ -73,8 +74,8 @@ def open_file(filename):
     """
     filename = Path(filename)
     suffix = filename.suffix
-    if suffix == ".nc":
-        return xr.open_dataset(filename)
+    if re.match(r".*\.nc(\.gz)?", filename.name.lower()):
+        return decompress_and_load(filename)
     elif re.match(r"gpm.*\.bin", filename.name):
         file = BinFile(filename, include_profiles=True)
         return file.to_xarray_dataset()
@@ -1163,14 +1164,16 @@ class TrainingDataStatistics(Statistic):
                                           targets=ALL_TARGETS,
                                           normalize=False,
                                           shuffle=False,
-                                          augment=False)
+                                          augment=False,
+                                          sensor=sensor)
             dataset = dataset.to_xarray_dataset()
         elif self.kind.upper() == "3D":
             dataset = GPROF_NN_3D_Dataset(filename,
                                           targets=ALL_TARGETS,
                                           normalize=False,
                                           shuffle=False,
-                                          augment=False)
+                                          augment=False,
+                                          sensor=sensor)
             dataset = dataset.to_xarray_dataset()
         else:
             raise ValueError("'kind'  must be '1D' or '3D'.")

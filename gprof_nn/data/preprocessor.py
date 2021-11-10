@@ -690,7 +690,7 @@ def run_preprocessor(
             executable = PREPROCESSOR_EXECUTABLES[
                 (sensor_l1c.sensor_id, sensor.sensor_id)
             ]
-        LOGGER.info("Using preprocesor '%s'.", executable)
+        LOGGER.info("Using preprocesor '%s'. %s %s", executable, sensor_l1c, sensor)
 
         jobid = str(os.getpid()) + "_pp"
         args = [jobid] + get_preprocessor_settings(configuration)

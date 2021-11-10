@@ -371,7 +371,7 @@ def run_training_1d(sensor,
         dataset_factory,
         kwargs=kwargs,
         queue_size=32,
-        n_workers=4
+        n_workers=6
     )
 
     kwargs = {
@@ -387,7 +387,7 @@ def run_training_1d(sensor,
         dataset_factory,
         kwargs=kwargs,
         queue_size=32,
-        n_workers=2
+        n_workers=4
     )
 
     #
@@ -559,7 +559,7 @@ def run_training_2d(sensor,
         dataset_factory,
         queue_size=32,
         kwargs=kwargs,
-        n_workers=4)
+        n_workers=6)
 
     kwargs = {
         "batch_size": 4 * batch_size,
@@ -572,7 +572,7 @@ def run_training_2d(sensor,
         dataset_factory,
         queue_size=32,
         kwargs=kwargs,
-        n_workers=2
+        n_workers=4
     )
 
     ###############################################################################
@@ -741,7 +741,7 @@ def run_training_sim(sensor,
         dataset_factory,
         queue_size=32,
         kwargs=kwargs,
-        n_workers=4)
+        n_workers=6)
 
     kwargs = {
         "batch_size": 4 * batch_size,
@@ -753,7 +753,7 @@ def run_training_sim(sensor,
         dataset_factory,
         queue_size=32,
         kwargs=kwargs,
-        n_workers=2
+        n_workers=4
     )
 
     ###############################################################################

@@ -7,5 +7,5 @@ MODEL_PATH=${HOME}/src/gprof_nn/models/
 
 export QUANTNN_LOG_LEVEL=INFO
 export OMP_NUM_THREADS=4
-
-gprof_nn train SIM MHS ERA5 ${TRAINING_DATA} ${VALIDATION_DATA} ${MODEL_PATH} --n_neurons_body 256 --n_neurons_head 256 --n_layers_head 4  --device cuda:0 --batch_size 8
+ 
+gprof_nn train SIM MHS ERA5 ${TRAINING_DATA} ${VALIDATION_DATA} ${MODEL_PATH} --n_neurons_body 256 --n_neurons_head 256 --n_layers_head 4  --device cuda:1 --batch_size 8

@@ -288,8 +288,6 @@ class CrossTrack(ViewingGeometry):
 
     Args:
         altitude: The altitude of the sensor in m.
-        earth_incidence_angle: The approximate earth incidence angle of the
-            sensor.
         scan_range: The active scan range of the sensor.
         pixels_per_scan: The number of pixels contained in each scan.
         scan_offset: The distance between consecutive scans.

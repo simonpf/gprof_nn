@@ -23,7 +23,8 @@ from gprof_nn import sensors
 import gprof_nn.logging
 from gprof_nn.definitions import PROFILE_NAMES, ALL_TARGETS
 from gprof_nn.data.training_data import (GPROF_NN_1D_Dataset,
-                                         GPROF_NN_3D_Dataset)
+                                         GPROF_NN_3D_Dataset,
+                                         decompress_and_load)
 from gprof_nn.data.l1c import L1CFile
 
 from gprof_nn.data.preprocessor import PreprocessorFile, run_preprocessor
@@ -98,7 +99,8 @@ def combine_input_data_0d(dataset, sensor):
     n_inputs = sensor.n_inputs
 
     tbs = dataset["brightness_temperatures"].data
-    if tbs.shape[-1] < n_chans:
+    # Input from L1C file has only 13 channels.
+    if sensor == sensors.GMI and tbs.shape[-1] < n_chans:
         tbs = expand_tbs(tbs)
     tbs = tbs.reshape(-1, n_chans)
     invalid = (tbs > 500.0) + (tbs < 0.0)
@@ -1118,16 +1120,26 @@ L1CLoader2D = L1CLoader3D
 
 class SimulatorLoader(NetcdfLoader):
     """
-    Interface class to augment training data with simulated Tbs.
+    The 'SimulatorLoader' class loads and prepares the input for a simulator
+    network from a training data netCDF file. The predicted simulated
+    brightness temperatures and biases are then combined with the input data
+    to produce the results.
     """
-
     def __init__(self, filename, normalizer, batch_size=8):
+        """
+        Args:
+            filename: Path to the netCDF file from which to load the input.
+            normalizer: Normalizer object to use to normalize the retrieval
+                inputs.
+            batch_size: The batch size to use for the processing.
+        """
         super().__init__()
         self.filename = filename
+        self.dataset = decompress_and_load(self.filename)
         self.normalizer = normalizer
         self.batch_size = batch_size
 
-        sensor_name = xr.open_dataset(filename).attrs["sensor"]
+        sensor_name = self.dataset.attrs["sensor"]
         sensor = getattr(sensors, sensor_name, None)
         if sensor is None:
             raise ValueError(f"Sensor {sensor_name} isn't yet supported.")
@@ -1155,8 +1167,7 @@ class SimulatorLoader(NetcdfLoader):
         Load data from training data NetCDF format into 'input' data
         attribute.
         """
-        dataset = xr.open_dataset(self.filename)
-        dataset = dataset[{"samples": dataset.source == 0}]
+        dataset = self.dataset[{"samples": self.dataset.source == 0}]
         if self.sensor == sensors.GMI:
             input_data = combine_input_data_2d(
                 dataset,
@@ -1201,9 +1212,7 @@ class SimulatorLoader(NetcdfLoader):
         else:
             data = data.transpose("samples", "scans", "pixels", "channels")
 
-        input_data = xr.load_dataset(self.filename)
-
-        n_samples = input_data.samples.size
+        n_samples = self.dataset.samples.size
         n_scans = data.scans.size
         n_pixels = data.pixels.size
         n_channels = data.channels.size
@@ -1211,36 +1220,36 @@ class SimulatorLoader(NetcdfLoader):
         if self.sensor.n_angles > 1:
             dims = ("samples", "scans", "pixels", "angles", "channels")
             n_angles = data.angles.size
-            input_data["simulated_brightness_temperatures"] = (
+            self.dataset["simulated_brightness_temperatures"] = (
                 dims,
                 np.nan * np.zeros((n_samples, n_scans, n_pixels, n_angles, n_channels),
                                   dtype=np.float32),
             )
-            input_data["brightness_temperature_biases"] = (
+            self.dataset["brightness_temperature_biases"] = (
                 ("samples", "scans", "pixels", "channels"),
                 np.nan * np.zeros((n_samples, n_scans, n_pixels, n_channels),
                                   dtype=np.float32),
             )
         else:
             dims = ("samples", "scans", "pixels", "channels")
-            input_data["simulated_brightness_temperatures"] = (
+            self.dataset["simulated_brightness_temperatures"] = (
                 dims,
                 np.nan * np.zeros((n_samples, n_scans, n_pixels, n_channels),
                                   dtype=np.float32),
             )
-            input_data["brightness_temperature_biases"] = (
+            self.dataset["brightness_temperature_biases"] = (
                 ("samples", "scans", "pixels", "channels"),
                 np.nan * np.zeros((n_samples, n_scans, n_pixels, n_channels),
                                   dtype=np.float32),
             )
         index = 0
         for i in range(n_samples):
-            if input_data.source[i] == 0:
-                input_data["simulated_brightness_temperatures"][i] = data[
+            if self.dataset[i] == 0:
+                self.dataset["simulated_brightness_temperatures"][i] = data[
                     "simulated_brightness_temperatures"
                 ][index]
-                input_data["brightness_temperature_biases"][i] = data[
+                self.dataset["brightness_temperature_biases"][i] = data[
                     "brightness_temperature_biases"
                 ][index]
                 index += 1
-        return input_data
+        return self.dataset
