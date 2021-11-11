@@ -824,20 +824,20 @@ class CrossTrackScanner(Sensor):
     """
     Base class for cross-track-scanning sensors.
     """
-
     def __init__(
-        self,
-        name,
-        channels,
-        nedt,
-        angles,
-        platform,
-        viewing_geometry,
-        gmi_channels,
-        mrms_file_path,
-        sim_file_pattern,
-        sim_file_path,
-        correction=None
+            self,
+            name,
+            channels,
+            nedt,
+            angles,
+            platform,
+            viewing_geometry,
+            gmi_channels,
+            mrms_file_path,
+            sim_file_pattern,
+            sim_file_path,
+            correction=None,
+            modeling_error=None
     ):
         super().__init__(
             types.XTRACK, "MHS", channels, angles, platform, viewing_geometry
@@ -862,6 +862,7 @@ class CrossTrackScanner(Sensor):
             self.correction = None
         else:
             self.correction = CdfCorrection(correction)
+        self.modeling_error = modeling_error
 
     def __repr__(self):
         return f"CrossTrackScanner(name={self.name}, " f"platform={self.platform.name})"
@@ -1186,11 +1187,19 @@ class CrossTrackScanner(Sensor):
         if self.correction is not None:
             tbs = self.correction(self, st, eia, tcwv, tbs)
 
-        if augment and self.nedt is not None:
-            noise = self.rng.normal(size=tbs.shape)
-            for i in range(noise.shape[-1]):
-                noise[..., i] *= self.nedt[i]
-            tbs = tbs + noise
+        if augment:
+            if self.nedt is not None:
+                noise = self.rng.normal(size=tbs.shape)
+                for i in range(noise.shape[-1]):
+                    noise[..., i] *= self.nedt[i]
+                tbs += noise
+
+            # Apply modeling error caused by simulator.
+            if self.modeling_error is not None:
+                noise = self.rng.normal(size=self.n_chans)
+                for i, n in enumerate(noise):
+                    tbs[..., i] += self.modeling_error * n
+
 
         eia = eia[np.newaxis]
         tcwv = tcwv[np.newaxis]
@@ -1511,7 +1520,8 @@ MHS_NOAA19 = CrossTrackScanner(
     "/pdata4/veljko/MHS2MRMS_match2019/monthly_2021/",
     "MHS.dbsatTb.??????{day}.??????.sim",
     "/qdata1/pbrown/dbaseV7/simV7x",
-    correction=DATA_FOLDER / "corrections_mhs_noaa19.nc"
+    correction=DATA_FOLDER / "corrections_mhs_noaa19.nc",
+    modeling_error=2.0
 )
 
 

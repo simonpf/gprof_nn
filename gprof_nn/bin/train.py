@@ -324,6 +324,8 @@ def run_training_1d(sensor,
     from quantnn.metrics import ScatterPlot
     import torch
     from torch import optim
+    torch.multiprocessing.set_sharing_strategy('file_system')
+    torch.set_num_threads(1)
 
     n_layers_body = args.n_layers_body
     n_neurons_body = args.n_neurons_body
@@ -370,8 +372,8 @@ def run_training_1d(sensor,
         training_data,
         dataset_factory,
         kwargs=kwargs,
-        queue_size=32,
-        n_workers=6
+        queue_size=128,
+        n_workers=4
     )
 
     kwargs = {
@@ -386,8 +388,8 @@ def run_training_1d(sensor,
         validation_data,
         dataset_factory,
         kwargs=kwargs,
-        queue_size=32,
-        n_workers=4
+        queue_size=128,
+        n_workers=2
     )
 
     #
@@ -557,7 +559,7 @@ def run_training_2d(sensor,
     training_data = DataFolder(
         training_data,
         dataset_factory,
-        queue_size=32,
+        queue_size=256,
         kwargs=kwargs,
         n_workers=6)
 
@@ -570,9 +572,9 @@ def run_training_2d(sensor,
     validation_data = DataFolder(
         validation_data,
         dataset_factory,
-        queue_size=32,
+        queue_size=256,
         kwargs=kwargs,
-        n_workers=4
+        n_workers=2
     )
 
     ###############################################################################
@@ -739,7 +741,7 @@ def run_training_sim(sensor,
     training_data = DataFolder(
         training_data,
         dataset_factory,
-        queue_size=32,
+        queue_size=256,
         kwargs=kwargs,
         n_workers=6)
 
@@ -751,9 +753,9 @@ def run_training_sim(sensor,
     validation_data = DataFolder(
         validation_data,
         dataset_factory,
-        queue_size=32,
+        queue_size=256,
         kwargs=kwargs,
-        n_workers=4
+        n_workers=2
     )
 
     ###############################################################################

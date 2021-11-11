@@ -1087,6 +1087,7 @@ class PreprocessorLoader3D(ObservationLoader3D):
                 normalizer
             )
 
+PreprocessorLoader2D = PreprocessorLoader3D
 
 class L1CLoader3D(ObservationLoader3D):
     """

@@ -548,14 +548,14 @@ class GPROF_NN_1D_QRNN(MRNN):
         self.configuration = None
 
     def __repr__(self):
+        return (f"GPROF_NN_1D_DRNN(targets={self.targets})")
         trained = getattr(self, "configuration", None) is not None
         if trained:
             return (f"GPROF_NN_1D_DRNN(sensor={self.sensor}, "
                     f"configuration={self.configuration}, "
                     f"targets={self.targets})")
         else:
-            return (f"GPROF_NN_1D_DRNN(sensor={self.sensor}, "
-                    f"targets={self.targets})")
+            return (f"GPROF_NN_1D_DRNN(targets={self.targets})")
 
     def set_targets(self, targets):
         """
@@ -650,7 +650,7 @@ class GPROF_NN_1D_DRNN(MRNN):
         self.configuration = None
 
     def __repr__(self):
-        trained = getattr(self, "configuration", default=None) is not None
+        trained = getattr(self, "configuration", None) is not None
         if trained:
             return (f"GPROF_NN_1D_DRNN(sensor={self.sensor}, "
                     f"configuration={self.configuration}, "
@@ -1126,7 +1126,8 @@ class GPROF_NN_3D_QRNN(MRNN):
         self.configuration = None
 
     def __repr__(self):
-        trained = getattr(self, "configuration", default=None) is not None
+        trained = getattr(self, "configuration", None) is not None
+        return (f"GPROF_NN_3D_DRNN(targets={self.targets})")
         if trained:
             return (f"GPROF_NN_3D_DRNN(sensor={self.sensor}, "
                     f"configuration={self.configuration}, "

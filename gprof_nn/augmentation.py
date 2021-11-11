@@ -360,8 +360,7 @@ class CrossTrack(ViewingGeometry):
         and height.
         """
         i = SCANS_PER_SAMPLE // 2
-        j = ((self.pixels_per_scan + width) / 2
-             + (self.pixels_per_scan / 2 - width) * p_x) - 1.0
+        j = np.round((self.pixels_per_scan - width) * p_x + width / 2)
         return np.array([i, j]).reshape(2, 1, 1)
 
     def get_interpolation_weights(self, earth_incidence_angles):
@@ -595,6 +594,7 @@ def get_transformation_coordinates(lats,
     offset = coords_eucl_out[:, height // 2, width // 2]
     coords_rel_out = coords_eucl_out - offset[:, np.newaxis, np.newaxis]
 
+
     center_in = center_out.copy()
     center_in[1, 0, 0] = get_center_pixel_input(x_i, 48)
 
@@ -621,7 +621,7 @@ def extract_domain(data,
     Extract and reproject region from input data.
 
     Args:
-        data: Tensor of rank 2 or 3 that containing the data to remap.
+        data: Tensor of rank 2 or 3 containing the data to remap.
         coords: 3d array containing pre-computed coordinates.
         order: The interpolation order to use for the reprojection.
 
