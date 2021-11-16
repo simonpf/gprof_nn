@@ -11,13 +11,13 @@ import logging
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
-from quantnn.qrnn import QRNN
-from quantnn.normalizer import Normalizer
 from rich.progress import track
 
 import gprof_nn.logging
+from gprof_nn import sensors
 from gprof_nn.legacy import (run_gprof_training_data,
                              run_gprof_standard)
+from gprof_nn.definitions import CONFIGURATIONS
 
 
 LOGGER = logging.getLogger(__name__)
@@ -42,6 +42,10 @@ def add_parser(subparsers):
             """
             )
     )
+    parser.add_argument('sensor', metavar="sensor", type=str,
+                        help='Name of the sensor for which to run GPROF.')
+    parser.add_argument('configuration', metavar="[ERA5/GANAL]", type=str,
+                        help='Which configuration of GPROF to run.')
     parser.add_argument('input', metavar="input", type=str,
                         help='Folder or file containing the input data.')
     parser.add_argument('output',
@@ -65,7 +69,9 @@ def add_parser(subparsers):
     parser.set_defaults(func=run)
 
 
-def process_file(input_file,
+def process_file(sensor,
+                 configuration,
+                 input_file,
                  output_file,
                  profiles,
                  mode,
@@ -79,17 +85,19 @@ def process_file(input_file,
     LOGGER.info("Processing file %s.", input_file)
 
     if input_file.suffix == ".nc":
-        results = run_gprof_training_data(input_file,
+        results = run_gprof_training_data(sensor,
+                                          configuration,
+                                          input_file,
                                           mode,
                                           profiles,
                                           nedts=nedts)
     else:
-        results = run_gprof_standard(input_file,
+        results = run_gprof_standard(sensor,
+                                     configuration,
+                                     input_file,
                                      mode,
                                      profiles,
                                      nedts=nedts)
-
-    print(output_file, type(output_file))
 
     results.to_netcdf(str(output_file))
 
@@ -105,6 +113,26 @@ def run(args):
     #
     # Check and load inputs.
     #
+
+    sensor = args.sensor
+    sensor = sensor.strip().upper()
+    sensor = getattr(sensors, sensor, None)
+    if sensor is None:
+        LOGGER.error(
+            "Sensor '%s' is not supported.",
+            args.sensor.strip().upper()
+        )
+        return 1
+
+    configuration = args.configuration
+    configuration = configuration.strip().upper()
+    if configuration.upper() not in CONFIGURATIONS:
+        LOGGER.error(
+            "'configuration' should be one of $s.",
+            CONFIGURATIONS
+        )
+        return 1
+
 
     input = Path(args.input)
     output = Path(args.output)
@@ -149,9 +177,14 @@ def run(args):
             of = f.relative_to(input)
             of = of.with_suffix(".nc")
             output_files.append(output / of)
+            output_files = [output]
     else:
         input_files = [input]
-        output_files = [output]
+        if output.is_dir():
+            output_files = [output / input.name]
+        else:
+            output_files = [output]
+
 
     #
     # Run retrieval.
@@ -162,6 +195,8 @@ def run(args):
     tasks = []
     for input_file, output_file in (zip(input_files, output_files)):
         tasks += [pool.submit(process_file,
+                              sensor,
+                              configuration,
                               input_file,
                               output_file,
                               profiles,
