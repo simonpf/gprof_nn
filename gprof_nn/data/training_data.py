@@ -232,18 +232,15 @@ class Dataset1DBase:
     def __init__(self):
         seed = int.from_bytes(os.urandom(4), "big") + os.getpid()
         self._rng = np.random.default_rng(seed)
+        self.indices = None
 
 
     def _shuffle(self):
+        if self.indices is None:
+            self.indices = np.arange(self.x.shape[0])
+
         if not self._shuffled:
-            LOGGER.info("Shuffling dataset %s.", self.filename.name)
-            indices = self._rng.permutation(self.x.shape[0])
-            self.x = self.x[indices, :]
-            if isinstance(self.y, dict):
-                self.y = {k: self.y[k][indices] for k in self.y}
-            else:
-                self.y = self.y[indices]
-            self._shuffled = True
+            self.indices = self._rng.permutation(self.indices)
 
     def __getitem__(self, i):
         """
@@ -272,12 +269,13 @@ class Dataset1DBase:
 
         i_start = self.batch_size * i
         i_end = self.batch_size * (i + 1)
+        indices = self.indices[i_start:i_end]
 
-        x = torch.tensor(self.x[i_start:i_end, :])
+        x = torch.tensor(self.x[indices, :])
         if isinstance(self.y, dict):
-            y = {k: torch.tensor(self.y[k][i_start:i_end]) for k in self.y}
+            y = {k: torch.tensor(self.y[k][indices]) for k in self.y}
         else:
-            y = torch.tensor(self.y[i_start:i_end])
+            y = torch.tensor(self.y[indices])
 
         return x, y
 
@@ -733,6 +731,7 @@ class GPROF_NN_3D_Dataset:
             self.y = self.y.astype(np.float32)
 
         self._shuffled = False
+        self.indices = np.arange(self.x.shape[0])
         if self.shuffle:
             self._shuffle()
 
@@ -762,12 +761,7 @@ class GPROF_NN_3D_Dataset:
     def _shuffle(self):
         if not self._shuffled and self.shuffle:
             LOGGER.info("Shuffling dataset %s.", self.filename.name)
-            indices = self._rng.permutation(self.x.shape[0])
-            self.x = self.x[indices, :]
-            if isinstance(self.y, dict):
-                self.y = {k: self.y[k][indices] for k in self.y}
-            else:
-                self.y = self.y[indices]
+            self.indices = self._rng.permutation(self.indices)
             self._shuffled = True
 
     def __getitem__(self, i):
@@ -796,12 +790,13 @@ class GPROF_NN_3D_Dataset:
 
         i_start = self.batch_size * i
         i_end = self.batch_size * (i + 1)
+        indices = self.indices[i_start:i_end]
 
-        x = torch.tensor(self.x[i_start:i_end, :])
+        x = torch.tensor(self.x[indices])
         if isinstance(self.y, dict):
-            y = {k: torch.tensor(self.y[k][i_start:i_end]) for k in self.y}
+            y = {k: torch.tensor(self.y[k][indices]) for k in self.y}
         else:
-            y = torch.tensor(self.y[i_start:i_end])
+            y = torch.tensor(self.y[indices])
 
         return x, y
 

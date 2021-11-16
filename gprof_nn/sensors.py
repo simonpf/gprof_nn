@@ -1189,14 +1189,14 @@ class CrossTrackScanner(Sensor):
 
         if augment:
             if self.nedt is not None:
-                noise = self.rng.normal(size=tbs.shape)
+                noise = rng.normal(size=tbs.shape)
                 for i in range(noise.shape[-1]):
                     noise[..., i] *= self.nedt[i]
                 tbs += noise
 
             # Apply modeling error caused by simulator.
             if self.modeling_error is not None:
-                noise = self.rng.normal(size=self.n_chans)
+                noise = rng.normal(size=self.n_chans)
                 for i, n in enumerate(noise):
                     tbs[..., i] += self.modeling_error * n
 

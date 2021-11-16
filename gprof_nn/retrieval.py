@@ -143,7 +143,7 @@ def combine_input_data_0d(dataset, sensor):
 
     if isinstance(sensor, sensors.CrossTrackScanner):
         va = dataset["earth_incidence_angle"].data
-        features.insert(3, va.reshape(-1, 1))
+        features.insert(1, va.reshape(-1, 1))
 
     x = np.concatenate(features, axis=1)
     x[:, :n_chans][x[:, :n_chans] < 0] = np.nan
