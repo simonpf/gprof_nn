@@ -84,7 +84,7 @@ def process_file(sensor,
 
     LOGGER.info("Processing file %s.", input_file)
 
-    if input_file.suffix == ".nc":
+    if input_file.suffix in [".gz", ".nc"]:
         results = run_gprof_training_data(sensor,
                                           configuration,
                                           input_file,
@@ -169,6 +169,7 @@ def run(args):
             )
 
         input_files = list(input.glob("**/*.nc"))
+        input_files += list(input.glob("**/*.nc.gz"))
         input_files += list(input.glob("**/*.pp"))
         input_files += list(input.glob("**/*.HDF5"))
 

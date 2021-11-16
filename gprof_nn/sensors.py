@@ -1153,13 +1153,13 @@ class CrossTrackScanner(Sensor):
             GPROF-NN 3D retrieval.
         """
         if augment:
-            p_x_o = rng.random()
             p_x_i = rng.random()
             p_y = rng.random()
         else:
-            p_x_o = 0.5
             p_x_i = 0.5
             p_y = 0.5
+
+        p_x_o = rng.random()
 
         lats = scene.latitude.data
         lons = scene.longitude.data

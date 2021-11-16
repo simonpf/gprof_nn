@@ -217,6 +217,7 @@ def run_gprof_training_data(
         normalize=False,
         augment=False,
         targets=targets,
+        sensor=sensor,
         batch_size=256 * 2048,
     )
 
