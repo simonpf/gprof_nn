@@ -15,7 +15,8 @@ from torch.nn.functional import softplus
 from quantnn.qrnn import QRNN
 from quantnn.drnn import DRNN
 from quantnn.mrnn import MRNN, Mean, Quantiles, Density
-from quantnn.models.pytorch.xception import SeparableConv3x3
+from quantnn.models.pytorch.xception import (SeparableConv3x3,
+                                             SymmetricPadding)
 
 from gprof_nn.definitions import ALL_TARGETS, PROFILE_NAMES
 from gprof_nn.retrieval import (
@@ -27,7 +28,9 @@ from gprof_nn.retrieval import (
     L1CLoader3D,
     SimulatorLoader,
 )
-from gprof_nn.data.training_data import GPROF_NN_1D_Dataset, GPROF_NN_3D_Dataset
+from gprof_nn.data.training_data import (GPROF_NN_1D_Dataset,
+                                         GPROF_NN_3D_Dataset,
+                                         _INPUT_DIMENSIONS)
 
 
 # Define bins for DRNN models.
@@ -982,17 +985,58 @@ class XceptionFPN(nn.Module):
 
         self.in_block = nn.Conv2d(n_channels, n_features_body, 1)
 
-        self.down_block_2 = DownsamplingStage(n_features_body, n_blocks[0])
-        self.down_block_4 = DownsamplingStage(n_features_body, n_blocks[1])
-        self.down_block_8 = DownsamplingStage(n_features_body, n_blocks[2])
-        self.down_block_16 = DownsamplingStage(n_features_body, n_blocks[3])
-        self.down_block_32 = DownsamplingStage(n_features_body, n_blocks[4])
+        width = _INPUT_DIMENSIONS[sensor.sensor_id][0]
 
-        self.up_block_16 = UpsamplingStage(n_features_body)
-        self.up_block_8 = UpsamplingStage(n_features_body)
-        self.up_block_4 = UpsamplingStage(n_features_body)
-        self.up_block_2 = UpsamplingStage(n_features_body)
-        self.up_block = UpsamplingStage(n_features_body)
+        self.down_block_2 = DownsamplingStage(
+            n_features_body,
+            n_blocks[0],
+            across_track=width>4)
+        width //= 2
+        self.down_block_4 = DownsamplingStage(
+            n_features_body,
+            n_blocks[1],
+            across_track=width>4)
+        width //= 2
+        self.down_block_8 = DownsamplingStage(
+            n_features_body,
+            n_blocks[2],
+            across_track=width>4)
+        width //= 2
+        self.down_block_16 = DownsamplingStage(
+            n_features_body,
+            n_blocks[3],
+            across_track=width>4
+        )
+        width //= 2
+        self.down_block_32 = DownsamplingStage(
+            n_features_body,
+            n_blocks[4],
+            across_track=width>4
+        )
+
+        self.up_block_16 = UpsamplingStage(
+            n_features_body,
+            across_track=width>4
+        )
+        width *= 2
+        self.up_block_8 = UpsamplingStage(
+            n_features_body,
+            across_track=width>4
+        )
+        width *= 2
+        self.up_block_4 = UpsamplingStage(
+            n_features_body,
+            across_track=width>4
+        )
+        width *= 2
+        self.up_block_2 = UpsamplingStage(
+            n_features_body,
+            across_track=width>4
+        )
+        width *= 2
+        self.up_block = UpsamplingStage(
+            n_features_body,
+            across_track=width>4)
 
         n_inputs = 2 * n_features_body
         if self.ancillary:
