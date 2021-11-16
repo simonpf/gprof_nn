@@ -1406,7 +1406,7 @@ class Platform:
         return f"Platform(name={self.name})"
 
 
-NOAA19 = Platform("NOAA-19", "/pdata4/archive/GPM/1C_NOAA19/", "1C.NOAA19.MHS")
+NOAA19 = Platform("NOAA19", "/pdata4/archive/GPM/1C_NOAA19/", "1C.NOAA19.MHS")
 
 
 GPM = Platform("GPM-CO", "/pdata4/archive/GPM/1CR_GMI/", "1C-R.GPM.GMI")
@@ -1525,6 +1525,10 @@ MHS_NOAA19 = CrossTrackScanner(
 )
 
 
-def get_sensor(platform, sensor):
-    key = sensor.upper()
+def get_sensor(sensor, platform=None):
+    if platform is not None:
+        platform = platform.upper().replace("-", "")
+        key = f"{sensor.upper()}_{platform.upper()}"
+    else:
+        key = sensor.upper()
     return globals()[key]
