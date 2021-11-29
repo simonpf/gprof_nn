@@ -528,6 +528,7 @@ class ConicalScanner(Sensor):
         super().__init__(
             types.CONICAL, name, channels, angles, platform, viewing_geometry
         )
+        self._n_angles = 1
         n_chans = len(channels)
 
         self._mrms_file_path = mrms_file_path
@@ -862,6 +863,9 @@ class CrossTrackScanner(Sensor):
             self.correction = None
         else:
             self.correction = CdfCorrection(correction)
+        # Convert modeling error to list of channel-wise modeling errors.
+        if isinstance(modeling_error, int):
+            modeling_error = [modelling_error] * n_chans
         self.modeling_error = modeling_error
 
     def __repr__(self):
@@ -1075,7 +1079,13 @@ class CrossTrackScanner(Sensor):
                     * np.all(mask_tbs, axis=(-2, -1))
                     * np.all(mask_biases, axis=-1)
                 )
-                eia = rng.uniform(angles_min, angles_max, size=mask.sum())
+                if augment:
+                    eia = rng.uniform(angles_min, angles_max, size=mask.sum())
+                else:
+                    angles = self.viewing_geometry.get_earth_incidence_angles()
+                    indices = np.arange(mask.sum()) % angles.size
+                    eia = angles[indices]
+
                 weights = calculate_interpolation_weights(np.abs(eia), self.angles)
             else:
                 weights = None
@@ -1095,7 +1105,7 @@ class CrossTrackScanner(Sensor):
             st = scene.surface_type.data[mask]
 
             if self.correction is not None:
-                tbs = self.correction(self, st, eia, tcwv, tbs)
+                tbs = self.correction(self, st, eia, tcwv, tbs, augment=augment)
 
             if augment and self.nedt is not None:
                 noise = rng.normal(size=tbs.shape)
@@ -1175,7 +1185,7 @@ class CrossTrackScanner(Sensor):
         j_end = int(center[1, 0, 0] + width // 2)
         eia = self.viewing_geometry.get_earth_incidence_angles()
         eia = eia[j_start:j_end]
-        weights = calculate_interpolation_weights(eia, self.angles)
+        weights = calculate_interpolation_weights(np.abs(eia), self.angles)
         eia = np.repeat(eia.reshape(1, -1), height, axis=0)
         weights = np.repeat(weights.reshape(1, -1, self.n_angles), height, axis=0)
 
@@ -1185,7 +1195,7 @@ class CrossTrackScanner(Sensor):
         st = scene.surface_type.data
 
         if self.correction is not None:
-            tbs = self.correction(self, st, eia, tcwv, tbs)
+            tbs = self.correction(self, st, eia, tcwv, tbs, augment=augment)
 
         if augment:
             if self.nedt is not None:
@@ -1198,7 +1208,7 @@ class CrossTrackScanner(Sensor):
             if self.modeling_error is not None:
                 noise = rng.normal(size=self.n_chans)
                 for i, n in enumerate(noise):
-                    tbs[..., i] += self.modeling_error * n
+                    tbs[..., i] += self.modeling_error[i] * n
 
 
         eia = eia[np.newaxis]
@@ -1210,7 +1220,6 @@ class CrossTrackScanner(Sensor):
         tbs = np.transpose(tbs, (2, 0, 1))
         st = np.transpose(st, (2, 0, 1))
         am = np.transpose(am, (2, 0, 1))
-
 
         x = np.concatenate([tbs, eia, t2m, tcwv, st, am], axis=0)
 
@@ -1307,6 +1316,7 @@ class CrossTrackScanner(Sensor):
         #
         # Output data
         #
+
         y = {}
 
         for t in targets:
@@ -1521,14 +1531,31 @@ MHS_NOAA19 = CrossTrackScanner(
     "MHS.dbsatTb.??????{day}.??????.sim",
     "/qdata1/pbrown/dbaseV7/simV7x",
     correction=DATA_FOLDER / "corrections_mhs_noaa19.nc",
-    modeling_error=2.0
+    modeling_error=[3.0, 2.0, 2.0, 2.0, 2.0]
 )
 
+MHS_NOAA19_FULL = CrossTrackScanner(
+    "MHS",
+    MHS_CHANNELS,
+    MHS_NEDT,
+    MHS_ANGLES,
+    NOAA19,
+    MHS_VIEWING_GEOMETRY,
+    MHS_GMI_CHANNELS,
+    "/pdata4/veljko/MHS2MRMS_match2019/monthly_2021/",
+    "MHS.dbsatTb.??????{day}.??????.sim",
+    "/qdata1/pbrown/dbaseV7/simV7x",
+    correction=DATA_FOLDER / "corrections_mhs_noaa19_full.nc",
+    modeling_error=[3.0, 2.0, 2.0, 2.0, 2.0]
+)
 
 def get_sensor(sensor, platform=None):
     if platform is not None:
         platform = platform.upper().replace("-", "")
         key = f"{sensor.upper()}_{platform.upper()}"
-    else:
-        key = sensor.upper()
+        try:
+            return globals()[key]
+        except KeyError:
+            pass
+    key = sensor.upper()
     return globals()[key]

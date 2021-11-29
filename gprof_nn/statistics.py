@@ -14,6 +14,7 @@ class.
 """
 from abc import ABC, abstractmethod
 from concurrent.futures import ProcessPoolExecutor
+import gc
 import logging
 import multiprocessing
 from pathlib import Path
@@ -1184,11 +1185,10 @@ class TrainingDataStatistics(Statistic):
             self._initialize_data(sensor, dataset)
 
         st = dataset["surface_type"]
-        sp = dataset["surface_precip"]
 
         for i in range(18):
             # Select only TBs that are actually used for training.
-            i_st = ((st == i + 1) * (sp >= 0)).data
+            i_st = (st == i + 1).data
             tcwv = dataset["total_column_water_vapor"].data[i_st]
             tbs = dataset["brightness_temperatures"].data[i_st]
 
@@ -1896,10 +1896,13 @@ class ObservationStatistics(Statistic):
         bins = np.arange(0, 19) + 0.5
         cs, _ = np.histogram(st, bins=bins)
         self.st += cs
-        at = dataset["airmass_type"]
+        at = dataset["airmass_type"].data
         bins = np.arange(-1, 4) + 0.5
         cs, _ = np.histogram(at, bins=bins)
         self.at += cs
+
+        dataset.close()
+        del dataset
 
     def merge(self, other):
         """
@@ -1920,7 +1923,6 @@ class ObservationStatistics(Statistic):
             self.tcwv += other.tcwv
             self.st += other.st
             self.at += other.at
-
 
     def save(self, destination):
         """
@@ -2309,7 +2311,7 @@ class StatisticsProcessor:
         LOGGER.info("Starting processing of %s files.", len(self.files))
 
         pool = ProcessPoolExecutor(n_workers)
-        batches = [[f] for f in np.random.permutation(self.files)]
+        batches = _split_files(self.files, 100) #[[f] for f in np.random.permutation(self.files)]
 
         log_queue = gprof_nn.logging.get_log_queue()
         tasks = []
@@ -2326,6 +2328,8 @@ class StatisticsProcessor:
             gprof_nn.logging.log_messages()
             for s_old, s_new in zip(stats, t.result()):
                 s_old.merge(s_new)
+                del s_new
+                gc.collect()
 
         for s in stats:
             s.save(output_path)

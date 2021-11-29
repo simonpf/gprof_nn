@@ -192,7 +192,7 @@ class L1CFile:
             header = data.attrs["FileHeader"].decode().split()[6:8]
             satellite = header[0].split("=")[1][:-1]
             sensor = header[1].split("=")[1][:-1]
-            self.sensor = sensors.get_sensor(satellite, sensor)
+            self.sensor = sensors.get_sensor(sensor, platform=satellite)
 
 
     @property

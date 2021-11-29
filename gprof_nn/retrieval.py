@@ -256,7 +256,6 @@ class RetrievalDriver:
     retrieval using different neural network models and writing output to
     different formats.
     """
-
     def __init__(
         self,
         input_file,
@@ -265,6 +264,7 @@ class RetrievalDriver:
         output_file=None,
         device="cpu",
         compress=True,
+        preserve_structure=False
     ):
         """
         Create retrieval driver.
@@ -280,6 +280,8 @@ class RetrievalDriver:
             device: String identifying the device to run the retrieval on.
                 "cpu" to run on CPU or "cuda:i" to run on the ith GPU.
             compress: If set to ``True`` NetCDF output will be gzipped.
+            preserve_structure: Special option that will ensure that the
+                spatial structure is conserved even for the 1D retrieval.
         """
         input_file = Path(input_file)
         self.input_file = input_file
@@ -324,6 +326,8 @@ class RetrievalDriver:
         else:
             self.output_file = output_file
 
+        self.preserve_structure = preserve_structure
+
     def _load_input_data(self):
         """
         Load retrieval input data.
@@ -338,7 +342,10 @@ class RetrievalDriver:
                 self.input_file, self.model.normalizer
             )
         else:
-            input_data = self.model.netcdf_class(
+            loader_class = self.model.netcdf_class
+            if loader_class == NetcdfLoader1D and self.preserve_structure:
+                loader_class = NetcdfLoader1DFull
+            input_data = loader_class(
                 self.input_file, normalizer=self.model.normalizer
             )
         return input_data
@@ -455,7 +462,10 @@ class RetrievalDriver:
         results.to_netcdf(self.output_file)
         if self.compress:
             subprocess.run(["gzip", "-f", self.output_file], check=True)
-        return self.output_file
+            output_file = self.output_file.with_suffix(".nc.gz")
+        else:
+            output_file = self.output_file
+        return output_file
 
 
 class RetrievalGradientDriver(RetrievalDriver):
@@ -637,6 +647,7 @@ class NetcdfLoader1D(GPROF_NN_1D_Dataset):
         i_start = i * self.batch_size
         i_end = i_start + self.batch_size
         x = torch.tensor(self.x[i_start:i_end])
+
         return x
 
     def finalize(self, data):
@@ -747,6 +758,78 @@ class NetcdfLoader3D(GPROF_NN_3D_Dataset):
 # Kept for backwards compatibility.
 # TODO: Remove before release.
 NetcdfLoader2D = NetcdfLoader3D
+
+
+class NetcdfLoader1DFull(NetcdfLoader3D):
+    """
+    Special data loader for the 1D retrieval that retains the spatial
+    structure of the data.
+    """
+
+    def __init__(self, filename, normalizer, batch_size=32):
+        """
+        Create loader for input data in NetCDF format that provides input
+        data for the GPROF-NN 3D retrieval.
+
+        Args:
+            filename: The name of the NetCDF file containing the input data.
+            normalizer: The normalizer object to use to normalize the input
+                data.
+            batch_size: How many observations to combine into a single
+                input batch.
+        """
+        super().__init__(filename, normalizer, batch_size=batch_size)
+        self.scalar_dimensions = ("samples",)
+        self.profile_dimensions = ("samples", "layers")
+        self.dimensions = {
+            t: ("samples", "layers") if t in PROFILE_NAMES else ("samples")
+            for t in ALL_TARGETS
+        }
+
+    def __getitem__(self, i):
+        """
+        Return batch of input data.
+
+        Args:
+            The batch index.
+
+        Return:
+            PyTorch tensor containing the batch of input data.
+        """
+        i_start = i * self.batch_size
+        i_end = i_start + self.batch_size
+        x = torch.tensor(self.x[i_start:i_end])
+        x = x.permute(0, 2, 3, 1).flatten(0, 2)
+        return x
+
+    def finalize(self, data):
+        """
+        Reshape retrieval results into shape of input data.
+        """
+        pixels = self.data.pixels.data
+        scans = self.data.scans.data
+        n_samples = data.samples.size / len(pixels) / len(scans)
+        samples = np.arange(n_samples)
+        index = pd.MultiIndex.from_product(
+            (samples, scans, pixels),
+            names=('new_samples', 'scans', 'pixels')
+        )
+
+        # Reproduce scene dimensions
+        data = data.assign(samples=index).unstack("samples")
+        data = data.rename({"new_samples": "samples"})
+
+        if "layers" in data.dims:
+            dims = ["samples", "scans", "pixels", "layers"]
+            data = data.transpose(*dims)
+
+        vars = [target for target in ALL_TARGETS if target in data.variables]
+        for var in vars:
+            data[var + "_true"] = self.data[var]
+        data["latitude"] = self.data["latitude"]
+        data["longitude"] = self.data["longitude"]
+
+        return data
 
 
 ###############################################################################
@@ -1133,15 +1216,19 @@ class SimulatorLoader:
             dims_tbs = ("samples", "angles", "channels", "scans", "pixels")
             dims_bias = ("samples", "channels", "scans", "pixels")
             self.dimensions = {
-                "simulated_brightness_temperatures": dims_tbs,
-                "brightness_temperature_biases": dims_bias,
+                f"simulated_brightness_temperatures_{j}": dims_tbs
+                for j in range(sensor.n_chans)
             }
+            for j in range(sensor.n_chans):
+                self.dimensions[f"brightness_temperature_biases_{j}"] = dims_bias
         else:
             dims = ("samples", "channels", "scans", "pixels")
             self.dimensions = {
-                "simulated_brightness_temperatures": dims,
-                "brightness_temperature_biases": dims,
+                f"simulated_brightness_temperatures_{j}": dims
+                for j in range(sensor.n_chans)
             }
+            for j in range(sensor.n_chans):
+                self.dimensions[f"brightness_temperature_biases_{j}"] = dims
 
     def _load_data(self):
         """
@@ -1192,15 +1279,12 @@ class SimulatorLoader:
             }
         ]
 
-        if self.sensor.n_angles > 1:
-            data = data.transpose("samples", "scans", "pixels", "angles", "channels")
-        else:
-            data = data.transpose("samples", "scans", "pixels", "channels")
-
         n_samples = self.dataset.samples.size
         n_scans = data.scans.size
         n_pixels = data.pixels.size
-        n_channels = data.channels.size
+        n_channels = self.sensor.n_chans
+
+        data = data.transpose("samples", "scans", "pixels", "angles", "channels")
 
         if self.sensor.n_angles > 1:
             dims = ("samples", "scans", "pixels", "angles", "channels")
@@ -1239,11 +1323,15 @@ class SimulatorLoader:
         index = 0
         for i in range(n_samples):
             if self.dataset.source[i] == 0:
-                self.dataset["simulated_brightness_temperatures"][i] = data[
-                    "simulated_brightness_temperatures"
-                ][index]
-                self.dataset["brightness_temperature_biases"][i] = data[
-                    "brightness_temperature_biases"
-                ][index]
+                v = self.dataset["simulated_brightness_temperatures"].data
+                for j in range(n_channels):
+                    v_in = data[f"simulated_brightness_temperatures_{j}"].data
+                    v[i, ..., j] = v_in[index, ..., 0]
+
+                v = self.dataset["brightness_temperature_biases"]
+                for j in range(n_channels):
+                    v_in = data[f"brightness_temperature_biases_{j}"].data
+                    v[i, :, :, j] = v_in[index, ..., 0]
+
                 index += 1
         return self.dataset

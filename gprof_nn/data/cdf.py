@@ -100,6 +100,7 @@ class CdfCorrection:
         tcwv = self.corrections.total_column_water_vapor.data
         self.tcwv_min = tcwv.min()
         self.tcwv_max = tcwv.max()
+        self.surface_types = self.corrections.surface_type.size
 
     def _apply_correction_cross_track(self,
                                       sensor,
@@ -113,13 +114,16 @@ class CdfCorrection:
         tcwv = total_column_water_vapor
         tbs = brightness_temperatures.copy()
 
-        # CDF uses 3 surface type:
-        # - 1: Ocean
-        # - 2: Land
-        # - 3: Coast
-        st_inds = st.astype(np.int32)
-        st_inds[st_inds > 1] = 2
-        st_inds[st == 13] = 1
+        if self.surface_types == 3:
+            # CDF uses 3 surface type:
+            # - 1: Ocean
+            # - 2: Land
+            # - 3: Coast
+            st_inds = st.astype(np.int32)
+            st_inds[st_inds > 1] = 2
+            st_inds[st == 13] = 1
+        else:
+            st_inds = st.astype(np.int32)
 
         n_bins = sensor.n_angles
         eia_inds = np.digitize(np.abs(eia), sensor.angle_bins)
@@ -138,12 +142,15 @@ class CdfCorrection:
 
             if augment:
                 quantiles = self.corrections.cdf.data[
-                    st_inds - 1, :, eia_inds, tcwv_inds, tbs_inds
+                    st_inds - 1, i, eia_inds, tcwv_inds, tbs_inds
                 ]
                 err_lo, err_hi = np.random.normal(size=2)
                 err = (1.0 - quantiles) * err_lo + quantiles * err_hi
-                err = 0.2 * corrections * err
+                err = 0.05 * corrections * err
+                shape = corrections.shape
                 corrections += err
+
+            #corrections[st_inds > 1] = 0.0
 
             tbs[..., i] += corrections
 

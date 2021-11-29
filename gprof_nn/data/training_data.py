@@ -97,6 +97,113 @@ def decompress_and_load(filename):
     return data
 
 
+def write_preprocessor_file_xtrack(input_data, output_file):
+    if not isinstance(input_data, xr.Dataset):
+        data = xr.open_dataset(input_data)
+    else:
+        data = input_data
+
+    sensor = data.attrs["sensor"]
+    platform = data.attrs["platform"].replace("-", "")
+    sensor = sensors.get_sensor(sensor, platform)
+    sensor_name = sensor.name
+    platform_name = sensor.platform.name
+
+    eia = input_data.earth_incidence_angle.data
+    bins = sensor.viewing_geometry.get_earth_incidence_angles()
+    bins = 0.5 * (bins[1:] + bins[:-1])
+    indices = np.digitize(eia, bins)
+    cts, _ = np.histogram(indices, bins = np.arange(bins.size + 1) - 0.5)
+
+    n_scans = cts.max()
+    n_pixels = sensor.viewing_geometry.pixels_per_scan
+    n_chans = sensor.n_chans
+
+    if "pixels" not in data.dims or "scans" not in data.dims:
+        dim_offset = -1
+    else:
+        if hasattr(data, "samples"):
+            dim_offset = 1
+        else:
+            dim_offset = 0
+
+    new_dataset = {
+        "scans": np.arange(n_scans),
+        "pixels": np.arange(n_pixels),
+        "channels": np.arange(n_chans),
+    }
+
+    dims = ("scans", "pixels", "channels")
+    for k in data:
+        da = data[k]
+        if k == "scan_time":
+            t = da.data.ravel()[0]
+            new_dataset[k] = (("scans",), np.repeat(t, n_scans))
+        else:
+            new_shape = (n_scans, n_pixels) + da.shape[(2 + dim_offset) :]
+            new_shape = new_shape[: len(da.data.shape) - dim_offset]
+            dims = ("scans", "pixels") + da.dims[2 + dim_offset :]
+            if "pixels_center" in dims:
+                continue
+
+            new_data = -9999.9 * np.ones(new_shape, da.data.dtype)
+            for i in range(n_pixels):
+                mask = indices == i
+                n_elems = mask.sum()
+                new_data[:n_elems, i] = da.data[mask]
+
+            if new_data.dtype in [np.float32, np.float64]:
+                new_data = np.nan_to_num(new_data, nan=-9999.9)
+
+            if k == "airimass_type":
+                new_data[new_data <= 0] = 1
+            new_dataset[k] = (dims, new_data)
+
+    if "nominal_eia" in data.attrs:
+        new_dataset["earth_incidence_angle"] = (
+            ("scans", "pixels", "channels"),
+            np.broadcast_to(
+                data.attrs["nominal_eia"].reshape(1, 1, -1), (n_scans_r, n_pixels_r, 15)
+            ),
+        )
+
+    if "sunglint_angle" not in new_dataset:
+        new_dataset["sunglint_angle"] = (
+            ("scans", "pixels"),
+            np.zeros_like(new_dataset["surface_type"][1])
+        )
+    if "quality_flag" not in new_dataset:
+        new_dataset["quality_flag"] = (
+            ("scans", "pixels"),
+            np.zeros_like(new_dataset["surface_type"][1])
+        )
+    if "latitude" not in new_dataset:
+        new_dataset["latitude"] = (
+            ("scans", "pixels"),
+            np.zeros_like(new_dataset["surface_type"][1])
+        )
+    if "longitude" not in new_dataset:
+        new_dataset["longitude"] = (
+            ("scans", "pixels"),
+            np.zeros_like(new_dataset["surface_type"][1])
+        )
+    new_data = xr.Dataset(new_dataset)
+
+
+    template_path = (Path(__file__).parent / ".." /
+                    "files" )
+    template_file = (template_path /
+                    f"{sensor_name.lower()}_{platform_name.lower()}.pp")
+    if template_file.exists():
+        template = PreprocessorFile(template_file)
+    else:
+        template = PreprocessorFile(
+            template_path / "preprocessor_template.pp"
+        )
+    PreprocessorFile.write(output_file, new_data, sensor, template=template)
+    return new_data
+
+
 def write_preprocessor_file(input_data, output_file):
     """
     Extract samples from training dataset and write to a preprocessor
@@ -127,6 +234,16 @@ def write_preprocessor_file(input_data, output_file):
     else:
         data = input_data
 
+
+    sensor = data.attrs["sensor"]
+    platform = data.attrs["platform"].replace("-", "")
+    sensor = sensors.get_sensor(sensor, platform)
+    sensor_name = sensor.name
+    platform_name = sensor.platform.name
+
+    if "earth_incidence_angle" in input_data:
+        return write_preprocessor_file_xtrack(input_data, output_file)
+
     if "pixels" not in data.dims or "scans" not in data.dims:
         if data.samples.size < 256:
             n_pixels = data.samples.size
@@ -155,18 +272,19 @@ def write_preprocessor_file(input_data, output_file):
     n_scans_r = n_scans * n_scenes
     n_pixels_r = n_pixels
 
+    n_chans = input_data.channels.size
+
     new_dataset = {
         "scans": np.arange(n_scans_r),
         "pixels": np.arange(n_pixels_r),
-        "channels": np.arange(15),
+        "channels": np.arange(n_chans),
     }
     dims = ("scans", "pixels", "channels")
     for k in data:
+        da = data[k]
         if k == "scan_time":
-            da = data[k]
             new_dataset[k] = (("scans",), da.data.ravel()[:n_scans_r])
         else:
-            da = data[k]
             new_shape = (n_scans_r, n_pixels_r) + da.shape[(2 + dim_offset) :]
             new_shape = new_shape[: len(da.data.shape) - dim_offset]
             dims = ("scans", "pixels") + da.dims[2 + dim_offset :]
@@ -208,13 +326,19 @@ def write_preprocessor_file(input_data, output_file):
             ("scans", "pixels"),
             np.zeros_like(new_dataset["surface_type"][1])
         )
-    sensor = getattr(sensors, data.attrs["sensor"])
     new_data = xr.Dataset(new_dataset)
 
-    template_path = (Path(__file__).parent / ".." /
-                     "files" / "preprocessor_template.pp")
-    template = PreprocessorFile(template_path)
 
+    template_path = (Path(__file__).parent / ".." /
+                    "files" )
+    template_file = (template_path /
+                    f"{sensor_name.lower()}_{platform_name.lower()}.pp")
+    if template_file.exists():
+        template = PreprocessorFile(template_file)
+    else:
+        template = PreprocessorFile(
+            template_path / "preprocessor_template.pp"
+        )
     PreprocessorFile.write(output_file, new_data, sensor, template=template)
 
 
@@ -258,6 +382,9 @@ class Dataset1DBase:
                 self._shuffle()
             if self.transform_zeros:
                 self._transform_zeros()
+
+        if self.indices is None:
+            self.indices = np.arange(self.x.shape[0])
 
         self._shuffled = False
         if self.batch_size is None:
@@ -509,6 +636,8 @@ class GPROF_NN_1D_Dataset(Dataset1DBase):
 
         new_dataset = xr.Dataset(new_dataset)
         new_dataset.attrs = self.dataset.attrs
+        new_dataset.attrs["sensor"] = self.sensor.name
+        new_dataset.attrs["platform"] = self.sensor.platform.name
         return new_dataset
 
     def save(self, filename):
@@ -812,7 +941,7 @@ class GPROF_NN_3D_Dataset:
         else:
             return self.x.shape[0]
 
-    def to_xarray_dataset(self, mask=None):
+    def to_xarray_dataset(self, mask=None, batch=None):
         """
         Convert training data to xarray dataset.
 
@@ -823,12 +952,21 @@ class GPROF_NN_3D_Dataset:
             An 'xarray.Dataset' containing the training data but converted
             back to the original format.
         """
+        if batch is None:
+            x = self.x
+            y = self.y
+        else:
+            x, y = batch
+            if isinstance(x, torch.Tensor):
+                x = x.numpy()
+                y = {k: t.numpy() for k, t in y.items()}
+
         if mask is None:
             mask = slice(0, None)
         if self.normalize:
-            x = self.normalizer.invert(self.x[mask])
+            x = self.normalizer.invert(x[mask])
         else:
-            x = self.x[mask]
+            x = x[mask]
         sensor = self.sensor
 
         n_samples = x.shape[0]
@@ -872,6 +1010,8 @@ class GPROF_NN_3D_Dataset:
 
         new_dataset = xr.Dataset(new_dataset)
         new_dataset.attrs = self.dataset.attrs
+        new_dataset.attrs["sensor"] = self.sensor.name
+        new_dataset.attrs["platform"] = self.sensor.platform.name
         return new_dataset
 
     def save(self, filename):
@@ -939,7 +1079,18 @@ class SimulatorDataset(GPROF_NN_3D_Dataset):
             x = self.normalizer(x)
 
         self.x = x
-        self.y = y
+        self.y = {}
+
+        biases = y["brightness_temperature_biases"]
+        for i in range(biases.shape[1]):
+            key = f"brightness_temperature_biases_{i}"
+            self.y[key] = biases[:, [i]]
+
+        sims = y["simulated_brightness_temperatures"]
+        for i in range(biases.shape[1]):
+            key = f"simulated_brightness_temperatures_{i}"
+            self.y[key] = sims[:, :, [i]]
+
 
         self.x = self.x.astype(np.float32)
         if isinstance(self.y, dict):
@@ -948,6 +1099,7 @@ class SimulatorDataset(GPROF_NN_3D_Dataset):
             self.y = self.y.astype(np.float32)
 
         self._shuffled = False
+        self.indices = np.arange(self.x.shape[0])
         if self.shuffle:
             self._shuffle()
 
@@ -997,9 +1149,9 @@ class SimulatorDataset(GPROF_NN_3D_Dataset):
                 p_x_i = rng.random()
                 p_y = rng.random()
             else:
-                p_x_o = 0.0
-                p_x_i = 0.0
-                p_y = 0.0
+                p_x_o = 0.5
+                p_x_i = 0.5
+                p_y = 0.5
 
             lats = scene.latitude.data
             lons = scene.longitude.data

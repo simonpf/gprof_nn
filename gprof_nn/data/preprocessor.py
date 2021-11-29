@@ -12,6 +12,7 @@ Additionally, it defines functions to run the preprocessor on the CSU
 from datetime import datetime
 import logging
 import os
+import pickle
 import shutil
 import subprocess
 import tempfile
@@ -895,3 +896,11 @@ TWB_INTERP_LAND = sp.interpolate.interp1d(
 TWB_INTERP_OCEAN = sp.interpolate.interp1d(
     TWB_TABLE[:, 0] + 273.15, TWB_TABLE[:, 2], assume_sorted=True, kind="linear"
 )
+
+def get_orbit_header(sensor):
+    sensor_name = sensor.name
+    platform = sensor.platform.name
+    key = (sensor_name.upper(), platform.upper())
+    if key in ORBIT_HEADERS:
+        return pickle.loads(ORBIT_HEADERS[key])
+    return pickle.loads(DEFAULT_HEADER)

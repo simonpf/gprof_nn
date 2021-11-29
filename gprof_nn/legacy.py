@@ -15,12 +15,13 @@ import shutil
 import numpy as np
 import xarray as xr
 
-import gprof_nn.logging
 from gprof_nn import sensors
 from gprof_nn.definitions import ALL_TARGETS
 from gprof_nn.data.preprocessor import PreprocessorFile, run_preprocessor
 from gprof_nn.data.retrieval import RetrievalFile
-from gprof_nn.data.training_data import GPROF_NN_1D_Dataset, write_preprocessor_file
+from gprof_nn.data.training_data import (write_preprocessor_file,
+                                         GPROF_NN_1D_Dataset,
+                                         GPROF_NN_3D_Dataset)
 from gprof_nn.sensors import CrossTrackScanner, ConicalScanner
 
 
@@ -64,7 +65,7 @@ DEFAULT_SENSITIVITIES = np.load(
 
 def has_gprof():
     """
-    Determin whether the legacy GPROF algorithm is available
+    Determine whether the legacy GPROF algorithm is available
     on the system.
     """
     return shutil.which(EXECUTABLES["STANDARD"]) is not None
@@ -181,8 +182,7 @@ def execute_gprof(
                 error.stderr,
             )
             return None
-        else:
-            raise error
+        raise error
     results = RetrievalFile(
         output_file, has_profiles=has_profiles, has_sensitivity=has_sensitivity
     )
@@ -190,7 +190,13 @@ def execute_gprof(
 
 
 def run_gprof_training_data(
-    sensor, configuration, input_file, mode, profiles, nedts=None
+        sensor,
+        configuration,
+        input_file,
+        mode,
+        profiles,
+        nedts=None,
+        preserve_structure=False
 ):
     """
     Runs GPROF algorithm on training data in GPROF-NN format and includes
@@ -198,7 +204,8 @@ def run_gprof_training_data(
 
     Args:
         sensor: The sensor for which to run GPROF.
-        configuration: The configuration with which to run GPROF.
+        configuration: The configuration with which to run GPROF ('ERA5'
+             or 'GANAL'.
         input_file: Path to the NetCDF file containing the validation
             data.
         mode: The mode in which to run GPROF ('STANDARD', 'SENSITIVITY'
@@ -211,25 +218,41 @@ def run_gprof_training_data(
         'xarray.Dataset' containing the retrieval results.
     """
     targets = ALL_TARGETS + ["latitude", "longitude"]
-    input_data = GPROF_NN_1D_Dataset(
-        input_file,
-        shuffle=False,
-        normalize=False,
-        augment=False,
-        targets=targets,
-        sensor=sensor,
-        batch_size=256 * 2048,
-    )
+    if preserve_structure:
+        input_data = GPROF_NN_3D_Dataset(
+            input_file,
+            shuffle=False,
+            normalize=False,
+            augment=False,
+            targets=targets,
+            sensor=sensor,
+            batch_size=8,
+        )
+    else:
+        input_data = GPROF_NN_1D_Dataset(
+            input_file,
+            shuffle=False,
+            normalize=False,
+            augment=False,
+            targets=targets,
+            sensor=sensor,
+            batch_size=256 * 2048,
+        )
 
     results = []
     with TemporaryDirectory() as tmp:
         tmp = Path(tmp)
 
+
         for batch in input_data:
 
             preprocessor_file = tmp / "input.pp"
             batch_input = input_data.to_xarray_dataset(batch=batch)
-            write_preprocessor_file(batch_input, preprocessor_file)
+            new_dataset = write_preprocessor_file(batch_input, preprocessor_file)
+            if new_dataset is not None:
+                new_dataset = new_dataset.stack(
+                    {"samples": ("scans", "pixels")}
+                )
 
             data = PreprocessorFile(preprocessor_file).to_xarray_dataset()
             output_data = execute_gprof(
@@ -251,7 +274,10 @@ def run_gprof_training_data(
             batch_input = batch_input[{"samples": slice(0, n)}]
             for k in ALL_TARGETS:
                 if k in output_data.variables:
-                    output_data[k + "_true"] = batch_input[k]
+                    if new_dataset is None:
+                        output_data[k + "_true"] = batch_input[k]
+                    else:
+                        output_data[k + "_true"] = new_dataset[k]
 
             results += [output_data]
 
@@ -269,7 +295,8 @@ def run_gprof_standard(sensor, configuration, input_file, mode, profiles, nedts=
 
     Args:
         sensor: The sensor for which to run GPROF.
-        configuration: The configuration with which to run GPROF.
+        configuration: The configuration with which to run GPROF ('ERA5'
+            or 'GANAL')
         input_file: Path to the NetCDF file containing the validation
             data.
         mode: The mode in which to run GPROF ('STANDARD', 'SENSITIVITY'

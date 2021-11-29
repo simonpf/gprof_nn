@@ -91,14 +91,14 @@ def test_retrieval_read_and_write(tmp_path):
                                  rtol=1e-2))
 
 
-def test_retrieval_preprocessor_0d_gmi(tmp_path):
+def test_retrieval_preprocessor_1d_gmi(tmp_path):
     """
     Ensure that GPROF-NN 1D retrieval works with preprocessor input.
     """
     data_path = Path(__file__).parent / "data"
     input_file = data_path / "gmi" / "GMIERA5_190101_027510.pp"
 
-    qrnn = QRNN.load(data_path / "gmi" / "gprof_nn_0d_gmi_era5.pckl")
+    qrnn = QRNN.load(data_path / "gmi" / "gprof_nn_1d_gmi_era5.pckl")
     driver = RetrievalDriver(input_file,
                              qrnn,
                              ancillary_data=data_path,
@@ -107,7 +107,7 @@ def test_retrieval_preprocessor_0d_gmi(tmp_path):
     data = RetrievalFile(output_file).to_xarray_dataset()
     assert "rain_water_content" in data.variables
 
-def test_retrieval_l1c_0d_gmi_na(tmp_path):
+def test_retrieval_l1c_1d_gmi_na(tmp_path):
     """
     Ensure that GPROF-NN 1D retrieval works with preprocessor input.
     """
@@ -116,7 +116,7 @@ def test_retrieval_l1c_0d_gmi_na(tmp_path):
         data_path / "gmi" /
         "1C-R.GPM.GMI.XCAL2016-C.20180124-S000358-E013632.022190.V05A.HDF5"
     )
-    qrnn = QRNN.load(data_path / "gmi" / "gprof_nn_0d_gmi_era5_na.pckl")
+    qrnn = QRNN.load(data_path / "gmi" / "gprof_nn_1d_gmi_era5_na.pckl")
     driver = RetrievalDriver(input_file,
                              qrnn,
                              ancillary_data=data_path,
@@ -126,14 +126,14 @@ def test_retrieval_l1c_0d_gmi_na(tmp_path):
     assert "rain_water_content" in data.variables
 
 
-def test_retrieval_preprocessor_0d_mhs(tmp_path):
+def test_retrieval_preprocessor_1d_mhs(tmp_path):
     """
     Ensure that GPROF-NN 1D retrieval works with preprocessor input.
     """
     data_path = Path(__file__).parent / "data"
     input_file = data_path / "mhs" / "MHS.pp"
 
-    qrnn = QRNN.load(data_path / "gprof_nn_0d_mhs.pckl")
+    qrnn = QRNN.load(data_path / "gprof_nn_1d_mhs.pckl")
     driver = RetrievalDriver(input_file,
                              qrnn,
                              ancillary_data=data_path,
@@ -176,33 +176,56 @@ def test_retrieval_l1c_2d(tmp_path):
     driver = RetrievalDriver(input_file,
                              qrnn,
                              ancillary_data=data_path,
-                             output_file=tmp_path)
+                             output_file=tmp_path,
+                             compress=False)
     output_file = driver.run()
     data = RetrievalFile(output_file).to_xarray_dataset()
     assert "rain_water_content" in data.variables
 
 
-def test_retrieval_netcdf_0d(tmp_path):
+def test_retrieval_netcdf_1d(tmp_path):
     """
     Ensure that GPROF-NN 1D retrieval works with NetCDF input.
     """
     data_path = Path(__file__).parent / "data"
     input_file = data_path / "gmi" / "gprof_nn_gmi_era5.nc"
 
-    qrnn = QRNN.load(data_path / "gmi" / "gprof_nn_0d_gmi_era5.pckl")
+    qrnn = QRNN.load(data_path / "gmi" / "gprof_nn_1d_gmi_era5.pckl")
     qrnn.training_data_class = GPROF_NN_1D_Dataset
     qrnn.preprocessor_class = PreprocessorLoader1D
     driver = RetrievalDriver(input_file,
                              qrnn,
                              ancillary_data=data_path,
-                             output_file=tmp_path)
+                             output_file=tmp_path,
+                             compress=False)
     output_file = driver.run()
     data = xr.load_dataset(output_file)
     assert "rain_water_content" in data.variables
     assert "rain_water_content_true" in data.variables
 
 
-def test_retrieval_netcdf_0d_gradients(tmp_path):
+def test_retrieval_netcdf_1d_full(tmp_path):
+    """
+    Test running the 1D retrieval with the spatial structure retained.
+    """
+    data_path = Path(__file__).parent / "data"
+    input_file = data_path / "gmi" / "gprof_nn_gmi_era5.nc"
+
+    qrnn = QRNN.load(data_path / "gmi" / "gprof_nn_1d_gmi_era5.pckl")
+    qrnn.training_data_class = GPROF_NN_1D_Dataset
+    qrnn.preprocessor_class = PreprocessorLoader1D
+    driver = RetrievalDriver(input_file,
+                             qrnn,
+                             ancillary_data=data_path,
+                             output_file=tmp_path,
+                             compress=False,
+                             preserve_structure=True)
+    output_file = driver.run()
+    data = xr.load_dataset(output_file)
+    assert "rain_water_content" in data.variables
+    assert "rain_water_content_true" in data.variables
+
+def test_retrieval_netcdf_1d_gradients(tmp_path):
     """
     Ensure that GPROF-NN 1D retrieval with NetCDF input and gradients
     works.
@@ -210,7 +233,7 @@ def test_retrieval_netcdf_0d_gradients(tmp_path):
     data_path = Path(__file__).parent / "data"
     input_file = data_path / "gmi" / "gprof_nn_gmi_era5.nc"
 
-    qrnn = QRNN.load(data_path / "gprof_nn_0d_gmi_era5.pckl")
+    qrnn = QRNN.load(data_path / "gprof_nn_1d_gmi_era5.pckl")
     qrnn.training_data_class = GPROF_NN_1D_Dataset
     qrnn.preprocessor_class = PreprocessorLoader1D
     driver = RetrievalGradientDriver(input_file,

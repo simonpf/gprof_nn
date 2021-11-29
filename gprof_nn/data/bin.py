@@ -38,7 +38,7 @@ class BinFile:
     Attributes:
         temperature(``float``): The surface temperature corresponding to the
             bin.
-        tpw(``float``): The total precipitable water corresponding to the bin.
+        tcwv(``float``): The total precipitable water corresponding to the bin.
         surface_type(``int``): The surface type corresponding to the bin.
         airmass_type(``int``): The airmass type corresponding to the bin.
         header: Structured numpy array containing header data of the file.
@@ -60,7 +60,7 @@ class BinFile:
 
         parts = Path(filename).name[:-4].split("_")
         self.temperature = float(parts[1])
-        self.tpw = float(parts[2])
+        self.tcwv = float(parts[2])
         self.surface_type = int(parts[-1])
 
         if len(parts) == 4:
@@ -87,7 +87,7 @@ class BinFile:
 
         np.random.seed(
             np.array(
-                [(self.temperature), self.tpw, self.surface_type, self.airmass_type]
+                [(self.temperature), self.tcwv, self.surface_type, self.airmass_type]
             ).astype(np.int64)
         )
         self.indices = np.random.permutation(self.n_profiles)
@@ -181,7 +181,7 @@ class BinFile:
             source * np.ones(n_samples, dtype=np.int32),
         )
 
-        results["tpw"] = (("samples"), self.tpw * np.ones(n_samples, dtype=np.float32))
+        results["tcwv_bin"] = (("samples"), self.tcwv * np.ones(n_samples, dtype=np.float32))
         results["temperature"] = (
             ("samples",),
             self.temperature * np.ones(n_samples, np.float32),
@@ -235,8 +235,8 @@ class FileProcessor:
         path,
         t2m_min=227.0,
         t2m_max=307.0,
-        tpw_min=0.0,
-        tpw_max=76.0,
+        tcwv_min=0.0,
+        tcwv_max=76.0,
         include_profiles=False,
     ):
         """
@@ -248,8 +248,8 @@ class FileProcessor:
                 bins.
             t2m_max: The maximum bin surface temperature for which to consider
                 bins.
-            tpw_min: The minimum bin-tpw value to consider.
-            tpw_max: The maximum bin-tpw value to consider.
+            tcwv_min: The minimum bin-tcwv value to consider.
+            tcwv_max: The maximum bin-tcwv value to consider.
 
         """
         self.path = path
@@ -261,10 +261,10 @@ class FileProcessor:
             if match:
                 groups = match.groups()
                 t2m = float(groups[0])
-                tpw = float(groups[1])
+                tcwv = float(groups[1])
                 if (t2m < t2m_min or t2m > t2m_max):
                     continue
-                if (tpw < tpw_min or tpw > tpw_max):
+                if (tcwv < tcwv_min or tcwv > tcwv_max):
                     continue
                 self.files.append(input_file)
 

@@ -769,20 +769,20 @@ class XceptionBlock(nn.Module):
 
             self.block_1 = nn.Sequential(
             SeparableConv3x3(channels_in, channels_out),
-            nn.GroupNorm(1, channels_out),
+            nn.GroupNorm(32, channels_out),
             SymmetricPadding(1),
             nn.MaxPool2d(kernel_size=3, stride=stride),
             nn.GELU())
         else:
             self.block_1 = nn.Sequential(
                 SeparableConv3x3(channels_in, channels_out),
-                nn.GroupNorm(1, channels_out),
+                nn.GroupNorm(32, channels_out),
                 nn.GELU(),
             )
 
         self.block_2 = nn.Sequential(
             SeparableConv3x3(channels_out, channels_out),
-            nn.GroupNorm(1, channels_out),
+            nn.GroupNorm(32, channels_out),
             nn.GELU(),
         )
 
@@ -853,7 +853,7 @@ class UpsamplingStage(nn.Module):
                                     align_corners=False)
         self.block = nn.Sequential(
             SeparableConv3x3(n_channels * 2, n_channels),
-            nn.GroupNorm(1, n_channels),
+            nn.GroupNorm(32, n_channels),
             nn.GELU(),
         )
 
@@ -894,7 +894,7 @@ class MLPHead(nn.Module):
             self.layers.append(
                 nn.Sequential(
                     nn.Conv2d(n_inputs, n_hidden, 1),
-                    nn.GroupNorm(1, n_hidden),
+                    nn.GroupNorm(n_hidden, n_hidden),
                     nn.GELU(),
                 )
             )
@@ -1089,6 +1089,86 @@ class XceptionFPN(nn.Module):
             y = self.heads[k](x)
             results[k] = y
         return results
+
+    def copy_model(self, sensor):
+        """
+        Create a new model for a different model and copy  weights
+        from this model.
+
+        Note: Only GMI based convolutional model can be used to derive
+        models for other sensors.
+
+        Args:
+            sensor: The sensor for which to create a new model.
+
+        Return:
+            A new model for the given sensor.
+        """
+        n_blocks = [
+            len(self.down_block_2) - 1,
+            len(self.down_block_4) - 1,
+            len(self.down_block_8) - 1,
+            len(self.down_block_16) - 1,
+            len(self.down_block_32) - 1
+        ]
+
+        n_features_body = self.in_block.out_channels
+        n_layers_head = len(self.heads["surface_precip"].layers)
+        n_features_head = self.heads["surface_precip"].layers[0][0].out_channels
+        print(n_features_head)
+        ancillary = self.ancillary
+        targets = self.targets
+
+        new_model = XceptionFPN(
+            sensor,
+            self.n_outputs,
+            n_blocks,
+            n_features_body,
+            n_layers_head,
+            n_features_head,
+            targets)
+
+        #
+        # Copy relevant weights
+        #
+
+        for i, c in enumerate(sensor.gmi_channels):
+            new_model.in_block.weight[:, i] = self.in_block.weight[:, c]
+        new_model.in_block.bias[:] = self.in_block.bias[:]
+
+        blocks = [self.down_block_2,
+                  self.down_block_4,
+                  self.down_block_8,
+                  self.down_block_16,
+                  self.down_block_32,
+                  self.up_block_16,
+                  self.up_block_8,
+                  self.up_block_4,
+                  self.up_block_2]
+        new_blocks = [new_model.down_block_2,
+                      new_model.down_block_4,
+                      new_model.down_block_8,
+                      new_model.down_block_16,
+                      new_model.down_block_32,
+                      new_model.up_block_16,
+                      new_model.up_block_8,
+                      new_model.up_block_4,
+                      new_model.up_block_2]
+        for b, b_new in zip(blocks, new_blocks):
+            for p, p_new in zip(b.parameters(), b_new.parameters()):
+                p_new.data[:] = p.data[:]
+
+        for h, h_new in zip(self.heads.values(), new_model.heads.values()):
+            for p, p_new in zip(h.parameters(), h_new.parameters()):
+                if p.data.shape != p_new.data.shape:
+                    n_body = 2 * n_features_body
+                    p_new.data[:, :n_body] = p.data[:, :n_body]
+                    p_new.data[:, n_body + 1:] = p.data[:, n_body:]
+                else:
+                    p_new.data[:] = p.data
+
+        return new_model
+
 
 
 class GPROF_NN_3D_QRNN(MRNN):
@@ -1298,19 +1378,21 @@ class SimulatorNet(nn.Module):
         self.sensor = sensor
 
         if sensor.n_angles > 1:
-            n_chans_sim = sensor.n_chans * sensor.n_angles
+            n_chans_sim = sensor.n_chans
             n_biases = sensor.n_chans
+            n_angs = sensor.n_angles
         else:
             n_chans_sim = sensor.n_chans
             n_biases = sensor.n_chans
+            n_angs = 1
 
         self.in_block = nn.Conv2d(15, n_features_body, 1)
 
         self.down_block_2 = DownsamplingStage(n_features_body, 2)
         self.down_block_4 = DownsamplingStage(n_features_body, 2)
-        self.down_block_8 = DownsamplingStage(n_features_body, 4)
-        self.down_block_16 = DownsamplingStage(n_features_body, 6)
-        self.down_block_32 = DownsamplingStage(n_features_body, 6)
+        self.down_block_8 = DownsamplingStage(n_features_body, 2)
+        self.down_block_16 = DownsamplingStage(n_features_body, 2)
+        self.down_block_32 = DownsamplingStage(n_features_body, 2)
 
         self.up_block_16 = UpsamplingStage(n_features_body)
         self.up_block_8 = UpsamplingStage(n_features_body)
@@ -1319,8 +1401,15 @@ class SimulatorNet(nn.Module):
         self.up_block = UpsamplingStage(n_features_body)
 
         n_inputs = 2 * n_features_body + 24
-        self.bias_head = MLPHead(n_inputs, n_features_head, n_biases, n_layers_head)
-        self.sim_head = MLPHead(n_inputs, n_features_head, n_chans_sim, n_layers_head)
+        self.bias_heads = nn.ModuleList()
+        for i in range(n_biases):
+            self.bias_heads.append(MLPHead(n_inputs, n_features_head, 1, n_layers_head))
+
+        self.sim_heads = nn.ModuleList()
+        for i in range(n_biases):
+            self.sim_heads.append(
+                MLPHead(n_inputs, n_features_head, n_angs, n_layers_head)
+            )
 
     def forward(self, x):
         """
@@ -1350,13 +1439,16 @@ class SimulatorNet(nn.Module):
         else:
             sim_shape = x.shape[:1] + (n_chans,) + x.shape[2:4]
         bias_shape = x.shape[:1] + (n_chans,) + x.shape[2:4]
-        bias = self.bias_head(x).reshape(bias_shape)
-        sim = self.sim_head(x).reshape(sim_shape)
+        biases = [h(x) for h in self.bias_heads]
+        sims = [h(x).unsqueeze(2) for h in self.sim_heads]
 
         results = {
-            "brightness_temperature_biases": bias,
-            "simulated_brightness_temperatures": sim,
+            f"brightness_temperature_biases_{i}": b
+            for i, b in enumerate(biases)
         }
+        for i, s in enumerate(sims):
+            key = f"simulated_brightness_temperatures_{i}"
+            results[key] = s
         return results
 
 
@@ -1376,10 +1468,12 @@ class Simulator(MRNN):
             n_features_header: The number of features in each head.
         """
         model = SimulatorNet(sensor, n_features_body, n_layers_head, n_features_head)
-        losses = {
-            "simulated_brightness_temperatures": Mean(),
-            "brightness_temperature_biases": Mean(),
-        }
+
+        losses = {}
+        for i in range(sensor.n_chans):
+            losses[f"simulated_brightness_temperatures_{i}"] = Mean()
+            losses[f"brightness_temperature_biases_{i}"] = Mean()
+
         super().__init__(losses, model=model)
         self.preprocessor_class = None
         self.netcdf_class = SimulatorLoader
