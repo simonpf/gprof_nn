@@ -60,8 +60,13 @@ def add_parser(subparsers):
 
 
 STATS = {
-    "training": [
+    "training_1d": [
         statistics.TrainingDataStatistics(kind="1d"),
+        statistics.ZonalDistribution(),
+        statistics.GlobalDistribution()
+    ],
+    "training_3d": [
+        statistics.TrainingDataStatistics(kind="3d"),
         statistics.ZonalDistribution(),
         statistics.GlobalDistribution()
     ],
@@ -80,9 +85,10 @@ STATS = {
 }
 
 PATTERNS = {
-    "training": "**/*.nc*",
+    "training_1d": "**/*.nc*",
+    "training_3d": "**/*.nc*",
     "bin": "**/*.bin",
-    "observations": "**/*.HDF5",
+    "observations": "**/*.nc",
     "retrieval": "*.nc",
     "combined": "**/2B.GPM*.HDF5"
 }
@@ -108,7 +114,10 @@ def run(args):
         )
         return 1
 
-    kind = args.kind.lower()
+    kind = args.kind.lower().strip()
+    if kind == "training":
+        kind = "training_1d"
+
     if not kind in STATS.keys():
         LOGGER.error(
             f"'kind' argument must be one of {list(STATS.keys())}."

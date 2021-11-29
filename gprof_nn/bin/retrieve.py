@@ -152,7 +152,7 @@ def run(args):
         output_files = []
         for f in input_files:
             of = f.relative_to(input)
-            if of.suffix in [".nc", ".HDF5"]:
+            if of.suffix in [".nc", ".nc.gz", ".HDF5"]:
                 of = of.with_suffix(".nc")
             else:
                 of = of.with_suffix(".bin")

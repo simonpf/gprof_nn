@@ -90,7 +90,10 @@ def process_file(
             sensor,
             configuration=configuration
     )
-    
+
+    if not output.parent.exists():
+        output.parent.mkdir(parents=True, exist_ok=True)
+
     data.to_netcdf(output)
 
 

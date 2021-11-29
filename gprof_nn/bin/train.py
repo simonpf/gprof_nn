@@ -277,8 +277,8 @@ def run(args):
                         validation_data,
                         output,
                         args)
-    elif variant.upper() == "2D":
-        run_training_2d(sensor,
+    elif variant.upper() == "3D":
+        run_training_3d(sensor,
                         configuration,
                         training_data,
                         validation_data,
@@ -293,7 +293,7 @@ def run(args):
                          args)
     else:
         raise ValueError(
-                "'variant' should be one of '1D', '2D', 'SIM'."
+                "'variant' should be one of '1D', '3D', 'SIM'."
                 )
 
 
@@ -373,7 +373,7 @@ def run_training_1d(sensor,
         dataset_factory,
         kwargs=kwargs,
         queue_size=128,
-        n_workers=4
+        n_workers=6
     )
 
     kwargs = {
@@ -389,7 +389,7 @@ def run_training_1d(sensor,
         dataset_factory,
         kwargs=kwargs,
         queue_size=128,
-        n_workers=2
+        n_workers=4
     )
 
     #
@@ -495,7 +495,7 @@ def run_training_1d(sensor,
         xrnn.save(output)
 
 
-def run_training_2d(sensor,
+def run_training_3d(sensor,
                     configuration,
                     training_data,
                     validation_data,
@@ -521,6 +521,8 @@ def run_training_2d(sensor,
     from quantnn.metrics import ScatterPlot
     import torch
     from torch import optim
+    torch.multiprocessing.set_sharing_strategy('file_system')
+    torch.set_num_threads(1)
 
     n_blocks = args.n_blocks[0]
     n_neurons_body = args.n_neurons_body
@@ -597,10 +599,10 @@ def run_training_2d(sensor,
         xrnn = None
 
     if xrnn is None:
+        LOGGER.info(
+            f"Creating new model of type {network_type}."
+        )
         if network_type == "drnn":
-            LOGGER.info(
-                f"Creating new model of type {network_type}."
-            )
             xrnn = GPROF_NN_3D_DRNN(sensor,
                                     n_blocks,
                                     n_neurons_body,
@@ -706,6 +708,9 @@ def run_training_sim(sensor,
     import torch
     from torch import optim
 
+    torch.multiprocessing.set_sharing_strategy('file_system')
+    torch.set_num_threads(1)
+
     n_blocks = args.n_blocks[0]
     n_neurons_body = args.n_neurons_body
     n_layers_head = args.n_layers_head
@@ -743,7 +748,7 @@ def run_training_sim(sensor,
         dataset_factory,
         queue_size=256,
         kwargs=kwargs,
-        n_workers=6)
+        n_workers=4)
 
     kwargs = {
         "batch_size": 4 * batch_size,
@@ -804,7 +809,7 @@ def run_training_sim(sensor,
         })
 
     metrics = ["MeanSquaredError", "Bias", "CalibrationPlot", "CRPS"]
-    scatter_plot = ScatterPlot(log_scale=True)
+    scatter_plot = ScatterPlot()
     metrics.append(scatter_plot)
 
     for n, r in zip(n_epochs, lr):
