@@ -1,5 +1,6 @@
 """
-Tests for the reading and processing of .sim files.
+This file contains tests for the reading and processing of .sim files
+defined in 'gprof_nn.data.sim.py'.
 """
 from pathlib import Path
 
@@ -20,6 +21,7 @@ from gprof_nn.data.sim import (SimFile,
 from gprof_nn.data.preprocessor import PreprocessorFile
 
 
+DATA_PATH = Path(__file__).parent / "data"
 HAS_ARCHIVES = Path(sensors.GMI.l1c_file_path).exists()
 
 
@@ -28,13 +30,17 @@ def test_open_sim_file():
     Tests reading a GMI L1C file and matching it to data in
     a GMI .sim file.
     """
-    data_path = Path(__file__).parent / "data"
-    sim_file = SimFile(data_path / "GMI.dbsatTb.20190101.027510.sim")
+    input_file = DATA_PATH / "gmi" / "sim" / "GMI.dbsatTb.20190101.027510.sim"
+    sim_file = SimFile(input_file)
     data = sim_file.to_xarray_dataset()
 
+    assert "surface_precip" in data.variables.keys()
     assert "latent_heat" in data.variables.keys()
     assert "snow_water_content" in data.variables.keys()
     assert "rain_water_content" in data.variables.keys()
+
+    valid = data.surface_precip > -9999
+    assert np.all(data.surface_precip[valid] >= 0.0)
 
 
 def test_match_l1c_gmi():
@@ -42,8 +48,8 @@ def test_match_l1c_gmi():
     Tests reading a GMI L1C file and matching it to data in
     a GMI .sim file.
     """
-    data_path = Path(__file__).parent / "data"
-    l1c_file = L1CFile.open_granule(27510, data_path, sensors.GMI)
+    l1c_path = DATA_PATH / "gmi" / "l1c"
+    l1c_file = L1CFile.open_granule(27510, l1c_path, sensors.GMI)
     l1c_data = l1c_file.to_xarray_dataset()
     tbs = l1c_data.brightness_temperatures.data
     tbs_new = np.zeros(tbs.shape[:2] + (15,))
@@ -53,7 +59,8 @@ def test_match_l1c_gmi():
     l1c_data["brightness_temperatures"] = (("scans", "pixels", "channels"),
                                            tbs_new)
 
-    sim_file = SimFile(data_path / "GMI.dbsatTb.20190101.027510.sim")
+    bin_path = DATA_PATH / "gmi" / "sim"
+    sim_file = SimFile(bin_path / "GMI.dbsatTb.20190101.027510.sim")
 
     targets = ["surface_precip",
                "latent_heat",
@@ -90,15 +97,16 @@ def test_match_l1c_mhs():
     Tests reading a GMI L1C file and matching it to data in
     a MHS .sim file.
     """
-    data_path = Path(__file__).parent / "data"
-    l1c_file = L1CFile.open_granule(27510, data_path, sensors.GMI)
+    l1c_path = DATA_PATH / "gmi" / "l1c"
+    l1c_file = L1CFile.open_granule(27510, l1c_path, sensors.GMI)
     l1c_data = l1c_file.to_xarray_dataset()
     l1c_data = l1c_data.rename({
         "channels": "channels_gmi",
         "brightness_temperatures": "brightness_temperatures_gmi"}
     )
 
-    sim_file = SimFile(data_path / "MHS.dbsatTb.20190101.027510.sim")
+    sim_path = DATA_PATH / "mhs" / "sim"
+    sim_file = SimFile(sim_path / "MHS.dbsatTb.20190101.027510.sim")
 
     targets = ["surface_precip",
                "latent_heat",
@@ -139,7 +147,7 @@ def test_find_files():
     Assert that find_file functions successfully finds file in test data folder
     except when search is restricted to a different day.
     """
-    path = Path(__file__).parent / "data"
+    path = Path(__file__).parent / "data" / "gmi" / "sim"
     sim_files = SimFile.find_files(path)
     assert len(sim_files) == 1
 
@@ -154,22 +162,24 @@ def test_match_era5_precip():
     """
     Test loading and matching of data from ERA5.
     """
-    data_path = Path(__file__).parent / "data"
-    l1c_file = L1CFile.open_granule(27510, data_path, sensors.GMI)
+    l1c_path =DATA_PATH / "gmi" / "l1c"
+    l1c_file = L1CFile.open_granule(27510, l1c_path, sensors.GMI)
     l1c_data = l1c_file.to_xarray_dataset()
 
-    preprocessor_file = PreprocessorFile(
-        data_path / "gmi" / "GMIERA5_190101_027510.pp"
-    )
+    pp_path =DATA_PATH / "gmi" / "pp"
+    preprocessor_file = PreprocessorFile(pp_path  / "GMIERA5_190101_027510.pp")
     input_data = preprocessor_file.to_xarray_dataset()
 
     start_time = l1c_data["scan_time"][0].data
     end_time = l1c_data["scan_time"][-1].data
+
+    era5_path = "/qdata2/archive/ERA5"
     era5_data = _load_era5_data(start_time,
                                 end_time,
-                                data_path)
+                                era5_path)
 
-    sim_file = SimFile(data_path / "GMI.dbsatTb.20190101.027510.sim")
+    sim_path = DATA_PATH / "gmi" / "sim"
+    sim_file = SimFile(sim_path / "GMI.dbsatTb.20190101.027510.sim")
     sim_file.match_targets(input_data)
     _add_era5_precip(input_data,
                      l1c_data,
@@ -223,9 +233,12 @@ def test_extend_dataset():
 def test_process_sim_file_gmi_era5():
     sim_file = (Path(__file__).parent /
                 "data" /
-                "GMI.dbsatTb.20190101.027510.sim")#GMI.dbsatTb.20181001.026079.sim")
+                "GMI.dbsatTb.20190101.027510.sim")
     era5_path = "/qdata2/archive/ERA5/"
-    data = process_sim_file(sim_file, "ERA5", era5_path)
+    data = process_sim_file(sim_file,
+                            sensors.GMI,
+                            "ERA5",
+                            era5_path)
 
     assert np.all(data["source"].data == 0)
     sp = data["surface_precip"].data
@@ -272,7 +285,7 @@ def test_process_sim_file_mhs():
                 "data" /
                 "MHS.dbsatTb.20181001.026079.sim")
     era5_path = "/qdata2/archive/ERA5/"
-    data = process_sim_file(sim_file, "ER5", era5_path)
+    data = process_sim_file(sim_file, sensors.MHS, "ERA5", era5_path)
 
     assert np.all(data["source"].data == 0)
     sp = data["surface_precip"].data

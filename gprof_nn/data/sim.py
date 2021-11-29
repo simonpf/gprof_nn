@@ -10,7 +10,7 @@ temperatures.
 The module also provides functionality to extract the training data for the
 GPROF-NN algorithm from these files.
 """
-from concurrent.futures import ProcessPoolExecutor, TimeoutError
+from concurrent import futures
 from datetime import datetime
 import logging
 import os
@@ -66,13 +66,37 @@ GENERIC_HEADER = np.dtype(
 class SimFile:
     """
     Interface class to read GPROF .sim files.
+
+    The main purpose of this class is to provide and interface to read
+    .sim files and convert them to 'xarray.Dataset' objects via the
+    'to_xarray_dataset' method.
+
+    Attributes:
+        path: The path of the file
+        granule: The GPM CO granule number to which this file corresponds.
+        date: Date object specifying the day of the corresponding GPM orbit.
+        sensor: Sensor object representing the sensor corresponding to
+            this file.
+        header: Numpy structured array containing the header data of the
+            file.
+        data: Numpy structured array containing raw data of the file.
     """
 
     @classmethod
     def find_files(cls, path, sensor=sensors.GMI, day=None):
         """
-        Find all files that match the standard filename pattern for GMI
-        sim files.
+        Find all files that match the standard filename pattern for
+        sim files for the given sensor.
+
+        Args:
+            path: Root of the directory tree in which to look for .sim
+                files.
+            sensor: The sensor for which to find .sim files.
+            day: If given search is restricted to the given day within
+                each month.
+
+        Return:
+            A list containing the found .sim files.
         """
         if day is None:
             pattern = sensor.sim_file_pattern.format(day="??")
@@ -86,7 +110,7 @@ class SimFile:
 
     def __init__(self, path):
         """
-        Open .sim file.
+        Open a .sim file.
 
         Args:
             path: Path to the .sim file to open.
@@ -94,16 +118,18 @@ class SimFile:
         self.path = path
         parts = str(path).split(".")
         self.granule = int(parts[-2])
-        self.year = int(parts[-3][:4])
-        self.month = int(parts[-3][4:6])
-        self.day = int(parts[-3][6:])
+
+        year = int(parts[-3][:4])
+        month = int(parts[-3][4:6])
+        day = int(parts[-3][6:])
+        self.date = datetime(year, month, day)
 
         header = np.fromfile(self.path, GENERIC_HEADER, count=1)
         sensor = header["sensor"][0].decode().strip()
         try:
             sensor = getattr(sensors, sensor.upper())
         except AttributeError:
-            raise Exception(f"The sensor {sensor} isn't currently supported.")
+            raise ValueError(f"The sensor {sensor} isn't currently supported.")
         self.sensor = sensor
         self.header = np.fromfile(self.path, self.sensor.sim_file_header, count=1)
         offset = self.sensor.sim_file_header.itemsize
@@ -258,29 +284,25 @@ class SimFile:
 
     def to_xarray_dataset(self):
         """
-        Return data in sim file as 'xarray.Dataset.
+        Return data in sim file as 'xarray.Dataset'.
         """
         results = {}
         dim_dict = {
             self.sensor.n_chans: "channels",
             N_LAYERS: "layers",
         }
-        if self.sensor.n_angles > 1:
+        if isinstance(self.sensor, sensors.CrossTrackScanner):
             dim_dict[self.sensor.n_angles] = "angles"
 
         record_type = self.sensor.sim_file_record
-        for k, t, *shape in record_type.descr:
+        for key, _, *shape in record_type.descr:
             dims = ("samples",)
             if shape:
                 dims = dims + tuple([dim_dict[s] for s in shape[0]])
-                results[k] = dims, self.data[k]
+            results[key] = dims, self.data[key]
 
         dataset = xr.Dataset(results)
         return dataset
-
-
-
-
 
 
 ENHANCEMENT_FACTORS = {
@@ -310,7 +332,7 @@ def apply_orographic_enhancement(data, kind="ERA5"):
          kind: "ERA5" or "GANAL" depending on the source of ancillary data.
 
     Returns:
-        None; Correct is applied in place.
+        None; Correction is applied in place.
     """
     kind = kind.upper()
     if kind not in ["ERA5", "GANAL"]:
@@ -390,9 +412,9 @@ def _find_l1c_file(path, sim_file):
     Return:
         The corresponding L1C file.
     """
-    year = sim_file.year - 2000
-    month = sim_file.month
-    day = sim_file.day
+    year = sim_file.date.year - 2000
+    month = sim_file.date.month
+    day = sim_file.date.day
     path = Path(path) / f"{year:02}{month:02}" / f"{year:02}{month:02}{day:02}"
     files = path.glob(f"1C-R*{sim_file.granule}*.HDF5")
     return next(iter(files))
@@ -478,12 +500,7 @@ def _add_era5_precip(input_data, l1c_data, era5_data):
     input_data["convective_precip"].data[indices] = 1000.0 * convective_precip
 
 
-def process_sim_file(
-        sim_filename,
-        sensor,
-        configuration,
-        era5_path,
-        log_queue=None):
+def process_sim_file(sim_filename, sensor, configuration, era5_path, log_queue=None):
     """
     Extract 2D training scenes from sim file.
 
@@ -510,6 +527,7 @@ def process_sim_file(
         2D training scenes.
     """
     import gprof_nn.logging
+
     if log_queue is not None:
         gprof_nn.logging.configure_queue_logging(log_queue)
     LOGGER.info("Processing sim file %s.", sim_filename)
@@ -522,8 +540,7 @@ def process_sim_file(
 
     LOGGER.info("Running preprocessor for sim file %s.", sim_filename)
     data_pp = run_preprocessor(
-        l1c_file.filename, sensor=sensor, configuration=configuration,
-        robust=False
+        l1c_file.filename, sensor=sensor, configuration=configuration, robust=False
     )
     if data_pp is None:
         return None
@@ -607,21 +624,20 @@ def process_mrms_file(mrms_filename, configuration, day, log_queue=None):
 
     scenes = []
     LOGGER.debug("Found %s L1C file for MRMS file %s.", len(l1c_files), mrms_filename)
-    for f in l1c_files:
+    for file in l1c_files:
         # Extract scans over CONUS ans run preprocessor.
         _, f_roi = tempfile.mkstemp()
         try:
-            f.extract_scans(CONUS, f_roi)
+            file.extract_scans(CONUS, f_roi)
             data_pp = run_preprocessor(
-                f_roi, configuration=configuration, sensor=sensor,
-                robust=False
+                f_roi, configuration=configuration, sensor=sensor, robust=False
             )
         finally:
             Path(f_roi).unlink()
         if data_pp is None:
             continue
 
-        LOGGER.debug("Matching MRMS data for %s.", f.filename)
+        LOGGER.debug("Matching MRMS data for %s.", file.filename)
         mrms_file.match_targets(data_pp)
         surface_type = data_pp["surface_type"].data
         snow = (surface_type >= 8) * (surface_type <= 11)
@@ -659,11 +675,14 @@ def process_l1c_file(l1c_filename, sensor, configuration, era5_path, log_queue=N
         era5_path: Root of the directory tree containing the ERA5 data.
     """
     import gprof_nn.logging
+
     if log_queue is not None:
         gprof_nn.logging.configure_queue_logging(log_queue)
     LOGGER.info("Starting processing L1C file %s.", l1c_filename)
 
-    data_pp = run_preprocessor(l1c_filename, sensor=sensor, configuration=configuration, robust=False)
+    data_pp = run_preprocessor(
+        l1c_filename, sensor=sensor, configuration=configuration, robust=False
+    )
     if data_pp is None:
         return None
     data_pp = add_targets(data_pp, sensor)
@@ -723,7 +742,7 @@ def extend_pixels(data, n_pixels=221):
 
     data_new = xr.Dataset(data_new)
     data_new_sub = data_new[{"pixels": slice(left, -right)}]
-    for n, v in data.variables.items():
+    for n in data.variables:
         data_new_sub[n].data[:] = data[n].data[:]
 
     return data_new
@@ -872,7 +891,7 @@ class SimFileProcessor:
                 " any sim files."
             )
         self.era5_path = Path(era5_path)
-        self.pool = ProcessPoolExecutor(max_workers=n_workers)
+        self.pool = futures.ProcessPoolExecutor(max_workers=n_workers)
 
         if day is None:
             self.day = 1
@@ -968,7 +987,7 @@ class SimFileProcessor:
 
         with Progress(console=get_console()) as progress:
             gprof_nn.logging.set_log_level("INFO")
-            bar = progress.add_task("Extracting data:", total=len(tasks))
+            pbar = progress.add_task("Extracting data:", total=len(tasks))
             for task in tasks:
                 # Log messages from processes.
                 task_done = False
@@ -978,17 +997,17 @@ class SimFileProcessor:
                         gprof_nn.logging.log_messages()
                         dataset = task.result(timeout=1)
                         task_done = True
-                    except TimeoutError:
+                    except futures.TimeoutError:
                         pass
-                    except Exception as e:
+                    except Exception as exc:
                         LOGGER.warning(
                             "The following error was encountered while "
                             "collecting results: %s",
-                            e,
+                            exc,
                         )
                         get_console().print_exception()
                         task_done = True
-                progress.advance(bar)
+                progress.advance(pbar)
 
                 if dataset is not None:
                     dataset = add_brightness_temperatures(dataset, self.sensor)
@@ -999,7 +1018,7 @@ class SimFileProcessor:
                         dataset.attrs["sensor"] = self.sensor.name
                         dataset.to_netcdf(filename)
                         os.system(f"gzip -f {filename}")
-                        LOGGER.info(f"Finished writing file: {filename}")
+                        LOGGER.info("Finished writing file: %s", filename)
                         datasets = []
                         chunk += 1
 
@@ -1008,6 +1027,6 @@ class SimFileProcessor:
         filename = output_path / (output_file + f"_{chunk:02}.nc")
         dataset.attrs["sensor"] = self.sensor.name
         dataset.attrs["configuration"] = self.configuration
-        LOGGER.info(f"Writing file: {filename}")
+        LOGGER.info("Writing file: %s", filename)
         dataset.to_netcdf(filename)
         subprocess.run(["gzip", "-f", filename], check=True)
