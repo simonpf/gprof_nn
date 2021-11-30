@@ -55,6 +55,12 @@ def add_parser(subparsers):
     parser.add_argument('--gradients', action='store_true')
     parser.add_argument('--no_profiles', action='store_true')
     parser.add_argument(
+        '--preserve_structure',
+        action='store_true',
+        help=("Whether or not to preserve the spatial structure"
+              " of the 1D retrieval on training data.")
+    )
+    parser.add_argument(
         '--n_processes',
         metavar="n",
         type=int,
@@ -77,7 +83,8 @@ def process_file(input_file,
                  targets,
                  gradients,
                  device,
-                 log_queue):
+                 log_queue,
+                 preserve_structure=False):
     """
     Process input file.
 
@@ -102,7 +109,8 @@ def process_file(input_file,
     retrieval = driver(input_file,
                        xrnn,
                        output_file=output_file,
-                       device=device)
+                       device=device,
+                       preserve_structure=preserve_structure)
     retrieval.run()
 
 
@@ -132,6 +140,7 @@ def run(args):
     if not input.is_dir() and not output.exists():
         output.mkdir(parents=True, exist_ok=True)
 
+    preserve_structure = args.preserve_structure
     gradients = args.gradients
     n_procs = args.n_processes
     device = args.device
@@ -152,8 +161,10 @@ def run(args):
         output_files = []
         for f in input_files:
             of = f.relative_to(input)
-            if of.suffix in [".nc", ".nc.gz", ".HDF5"]:
+            if of.suffix in [".nc", ".HDF5"]:
                 of = of.with_suffix(".nc")
+            elif of.suffix in [".nc.gz"]:
+                of = of.with_suffix("")
             else:
                 of = of.with_suffix(".bin")
             output_files.append(output / of)
@@ -187,7 +198,8 @@ def run(args):
                               targets,
                               gradients,
                               device,
-                              log_queue)]
+                              log_queue,
+                              preserve_structure=preserve_structure)]
 
     for t in track(tasks, description="Processing files:"):
         gprof_nn.logging.log_messages()
