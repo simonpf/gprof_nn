@@ -13,15 +13,17 @@ from pathlib import Path
 import shutil
 
 import numpy as np
+import pandas as pd
 import xarray as xr
 
-from gprof_nn import sensors
 from gprof_nn.definitions import ALL_TARGETS
-from gprof_nn.data.preprocessor import PreprocessorFile, run_preprocessor
+from gprof_nn.data.preprocessor import run_preprocessor
 from gprof_nn.data.retrieval import RetrievalFile
-from gprof_nn.data.training_data import (write_preprocessor_file,
-                                         GPROF_NN_1D_Dataset,
-                                         GPROF_NN_3D_Dataset)
+from gprof_nn.data.training_data import (
+    write_preprocessor_file,
+    GPROF_NN_1D_Dataset,
+    GPROF_NN_3D_Dataset,
+)
 from gprof_nn.sensors import CrossTrackScanner, ConicalScanner
 
 
@@ -103,8 +105,8 @@ def execute_gprof(
     sensor,
     configuration,
     input_file,
-    mode,
-    profiles,
+    mode="Standard",
+    profiles=False,
     nedts=None,
     robust=False,
 ):
@@ -114,6 +116,9 @@ def execute_gprof(
     Args:
         working_directory: The folder to use to store temporary files and
             execute the retrieval.
+        sensor: The sensor from which the input data originates.
+        configuration: Which configuration of the retrieval to run ('ERA5'
+            or 'GANAL')
         mode: Whether to include gradients or profiles in the
             retrieval.
         profiles: Whether profiles should be retrieved.
@@ -190,13 +195,13 @@ def execute_gprof(
 
 
 def run_gprof_training_data(
-        sensor,
-        configuration,
-        input_file,
-        mode,
-        profiles,
-        nedts=None,
-        preserve_structure=False
+    sensor,
+    configuration,
+    input_file,
+    mode,
+    profiles,
+    nedts=None,
+    preserve_structure=False,
 ):
     """
     Runs GPROF algorithm on training data in GPROF-NN format and includes
@@ -243,18 +248,14 @@ def run_gprof_training_data(
     with TemporaryDirectory() as tmp:
         tmp = Path(tmp)
 
-
         for batch in input_data:
 
             preprocessor_file = tmp / "input.pp"
             batch_input = input_data.to_xarray_dataset(batch=batch)
             new_dataset = write_preprocessor_file(batch_input, preprocessor_file)
             if new_dataset is not None:
-                new_dataset = new_dataset.stack(
-                    {"samples": ("scans", "pixels")}
-                )
+                new_dataset = new_dataset.stack({"samples": ("scans", "pixels")})
 
-            data = PreprocessorFile(preprocessor_file).to_xarray_dataset()
             output_data = execute_gprof(
                 tmp,
                 sensor,
@@ -269,15 +270,27 @@ def run_gprof_training_data(
             if output_data is None:
                 continue
 
-            output_data = output_data.stack({"samples": ("scans", "pixels")})
-            n = output_data.samples.size
-            batch_input = batch_input[{"samples": slice(0, n)}]
+            if new_dataset is not None:
+                batch_input = new_dataset
+
+            if not preserve_structure:
+                output_data = output_data.stack({"samples": ("scans", "pixels")})
+                n_samples = output_data.samples.size
+                batch_input = batch_input[{"samples": slice(0, n_samples)}]
+            else:
+                scans = batch_input.scans.data
+                pixels = batch_input.pixels.data
+                samples = np.arange(output_data.scans.size // scans.size)
+                index = pd.MultiIndex.from_product(
+                    (samples, scans),
+                    names=('samples', 'new_scans')
+                )
+                output_data = output_data.assign(scans=index).unstack("scans")
+                output_data = output_data.rename({"new_scans": "scans"})
+
             for k in ALL_TARGETS:
                 if k in output_data.variables:
-                    if new_dataset is None:
-                        output_data[k + "_true"] = batch_input[k]
-                    else:
-                        output_data[k + "_true"] = new_dataset[k]
+                    output_data[k + "_true"] = batch_input[k]
 
             results += [output_data]
 
@@ -312,9 +325,7 @@ def run_gprof_standard(sensor, configuration, input_file, mode, profiles, nedts=
 
         if Path(input_file).suffix == ".HDF5":
             output_file = Path(tmp) / "input.pp"
-            run_preprocessor(
-                input_file, sensor, output_file=output_file, robust=False
-            )
+            run_preprocessor(input_file, sensor, output_file=output_file, robust=False)
             input_file = output_file
 
         results = execute_gprof(

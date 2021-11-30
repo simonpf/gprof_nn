@@ -12,6 +12,7 @@ from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
 from rich.progress import track
+import pandas as pd
 
 import gprof_nn.logging
 from gprof_nn import sensors
@@ -61,6 +62,9 @@ def add_parser(subparsers):
     parser.add_argument('--full_profiles',
                         action='store_true',
                         help="Whether to include full profiles in the results.")
+    parser.add_argument('--preserve_structure',
+                        action='store_true',
+                        help="Whether or not to preserve the spatial structure.")
     parser.add_argument('--n_processes',
                         metavar="n",
                         type=int,
@@ -74,9 +78,10 @@ def process_file(sensor,
                  input_file,
                  output_file,
                  profiles,
-                 mode,
-                 nedts,
-                 log_queue):
+                 log_queue,
+                 mode="STANDARD",
+                 nedts=None,
+                 preserve_structure=False):
     """
     Helper function for distributed processing.
     """
@@ -85,12 +90,15 @@ def process_file(sensor,
     LOGGER.info("Processing file %s.", input_file)
 
     if input_file.suffix in [".gz", ".nc"]:
-        results = run_gprof_training_data(sensor,
-                                          configuration,
-                                          input_file,
-                                          mode,
-                                          profiles,
-                                          nedts=nedts)
+        results = run_gprof_training_data(
+            sensor,
+            configuration,
+            input_file,
+            mode,
+            profiles,
+            nedts=nedts,
+            preserve_structure=preserve_structure
+        )
     else:
         results = run_gprof_standard(sensor,
                                      configuration,
@@ -155,6 +163,8 @@ def run(args):
     else:
         mode = "STANDARD"
 
+    preserve_structure = args.preserve_structure
+
     profiles = args.profiles
     n_procs = args.n_processes
 
@@ -176,16 +186,19 @@ def run(args):
         output_files = []
         for f in input_files:
             of = f.relative_to(input)
-            of = of.with_suffix(".nc")
+            if of.suffix == ".gz":
+                of = of.with_suffix("")
             output_files.append(output / of)
-            output_files = [output]
+        print(output_files)
     else:
         input_files = [input]
         if output.is_dir():
-            output_files = [output / input.name]
+            filename = input.name
+            if filename.endswith(".gz"):
+                filename = filename[:-3]
+            output_files = [output / filename]
         else:
             output_files = [output]
-
 
     #
     # Run retrieval.
@@ -195,15 +208,11 @@ def run(args):
     log_queue = gprof_nn.logging.get_log_queue()
     tasks = []
     for input_file, output_file in (zip(input_files, output_files)):
-        tasks += [pool.submit(process_file,
-                              sensor,
-                              configuration,
-                              input_file,
-                              output_file,
-                              profiles,
-                              mode,
-                              None,
-                              log_queue)]
+        tasks += [pool.submit(
+            process_file,
+            sensor, configuration, input_file, output_file, profiles, log_queue,
+            mode=mode, nedts=None, preserve_structure=preserve_structure,
+        )]
 
     for t in track(tasks, description="Processing files:"):
         gprof_nn.logging.log_messages()

@@ -1002,7 +1002,7 @@ class GPROF_NN_3D_Dataset:
             new_dataset["earth_incidence_angle"] = (dims[:-1], eia)
 
         dims = ("samples", "scans", "pixels", "layers")
-        for k, v in self.y.items():
+        for k, v in y.items():
             n_dims = v.ndim
             if n_dims > 3:
                 v = np.transpose(v, (0, 2, 3, 1))

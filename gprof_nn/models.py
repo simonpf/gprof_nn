@@ -1115,7 +1115,6 @@ class XceptionFPN(nn.Module):
         n_features_body = self.in_block.out_channels
         n_layers_head = len(self.heads["surface_precip"].layers)
         n_features_head = self.heads["surface_precip"].layers[0][0].out_channels
-        print(n_features_head)
         ancillary = self.ancillary
         targets = self.targets
 
