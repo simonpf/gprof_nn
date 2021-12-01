@@ -8,29 +8,10 @@ Collection of utility attributes and functions.
 import numpy as np
 import xarray as xr
 
+from gprof_nn.definitions import SURFACE_TYPE_NAMES
+
 # Rectangular bounding box around continental united states (CONUS).
 CONUS = (-130, 20, -60.0, 55)
-
-SURFACE_TYPE_NAMES = [
-    "Ocean",
-    "Sea-Ice",
-    "Vegetation 1",
-    "Vegetation 2",
-    "Vegetation 3",
-    "Vegetation 4",
-    "Vegetation 5",
-    "Snow 1",
-    "Snow 2",
-    "Snow 3",
-    "Snow 4",
-    "Standing Water",
-    "Land Coast",
-    "Mixed land/ocean o. water",
-    "Ocean or water Coast",
-    "Sea-ice edge",
-    "Mountain Rain",
-    "Mountain Snow",
-]
 
 
 def surface_type_to_name(surface_index):
@@ -196,3 +177,25 @@ def interpolate(variable, weights):
     shape = variable.shape[: weights.ndim] + (1,) * (variable.ndim - weights.ndim)
     weights_r = weights.reshape(shape)
     return np.sum(variable * weights_r, axis=weights.ndim - 1)
+
+def bootstrap_mean(data, n_samples=10):
+    """
+    Calculate mean and standard deviation using boostrapping.
+
+    Args:
+        data: 1D array containing the samples of which to calculate mean
+            and standard deviation.
+        n_samples: The number of bootstrap samples to perform.
+
+    Return:
+        Tuple ``(mu, std)`` containing the estimated mean ``mu`` and
+        corresponding standard deivation ``std``.
+    """
+    stats = []
+    for i in range(n_samples):
+        indices = np.random.randint(0, data.size, size=data.size)
+        stats.append(np.mean(data[indices]))
+    data_r = np.stack(stats)
+    mu = data_r.mean()
+    std = data_r.std()
+    return mu, std

@@ -59,7 +59,7 @@ DATABASE_MONTHS = [
 
 TEST_DAYS = [1, 2, 3]
 VALIDATION_DAYS = [4, 5]
-TRAINING_DAYS = list(range(6, 32))
+TRAINING_DAYS = list(range(13, 32))
 
 LIMITS = {
     "brightness_temperatures": (0, 400),
