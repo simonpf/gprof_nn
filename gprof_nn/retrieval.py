@@ -336,6 +336,9 @@ class RetrievalDriver:
             If the input data was successfully loaded the input data
             object is returned. ``None`` otherwise.
         """
+        sensor = self.model.sensor
+        platform = self.model.platform
+        sensor = sensors.get_sensor(sensor, platform)
         # Load input data.
         if self.input_format in [GPROF_BINARY, L1C]:
             input_data = self.model.preprocessor_class(
@@ -346,7 +349,7 @@ class RetrievalDriver:
             if loader_class == NetcdfLoader1D and self.preserve_structure:
                 loader_class = NetcdfLoader1DFull
             input_data = loader_class(
-                self.input_file, normalizer=self.model.normalizer
+                self.input_file, normalizer=self.model.normalizer, sensor=sensor
             )
         return input_data
 
@@ -603,7 +606,7 @@ class NetcdfLoader1D(GPROF_NN_1D_Dataset):
     in NetCDF data format.
     """
 
-    def __init__(self, filename, normalizer, batch_size=16 * 1024):
+    def __init__(self, filename, normalizer, sensor=None, batch_size=16 * 1024):
         """
         Create loader for input data in NetCDF format that provides input
         data for the GPROF-NN 1D retrieval.
@@ -624,6 +627,7 @@ class NetcdfLoader1D(GPROF_NN_1D_Dataset):
             batch_size=batch_size,
             shuffle=False,
             augment=False,
+            sensor=sensor
         )
         self.n_samples = len(self)
         self.scalar_dimensions = ("samples",)
@@ -678,7 +682,7 @@ class NetcdfLoader3D(GPROF_NN_3D_Dataset):
     in NetCDF data format.
     """
 
-    def __init__(self, filename, normalizer, batch_size=32):
+    def __init__(self, filename, normalizer, sensor=None, batch_size=32):
         """
         Create loader for input data in NetCDF format that provides input
         data for the GPROF-NN 3D retrieval.
@@ -698,6 +702,7 @@ class NetcdfLoader3D(GPROF_NN_3D_Dataset):
             batch_size=batch_size,
             shuffle=False,
             augment=False,
+            sensor=sensor,
             input_dimensions=(96, 192),
         )
         self.n_samples = len(self)

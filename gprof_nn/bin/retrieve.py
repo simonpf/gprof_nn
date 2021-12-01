@@ -121,7 +121,6 @@ def run(args):
     Args:
         args: The namespace object provided by the top-level parser.
     """
-    mp.set_start_method("spawn")
 
     #
     # Check and load inputs.
@@ -144,6 +143,8 @@ def run(args):
     gradients = args.gradients
     n_procs = args.n_processes
     device = args.device
+    if device.startswith("cuda"):
+        mp.set_start_method("spawn")
 
     # Find files and determine output names.
     if input.is_dir():
@@ -161,7 +162,7 @@ def run(args):
         output_files = []
         for f in input_files:
             of = f.relative_to(input)
-            if of.suffix in [".nc", ".HDF5"]:
+            if of.suffix in [".gz", ".nc", ".HDF5"]:
                 of = of.with_suffix(".nc")
             elif of.suffix in [".nc.gz"]:
                 of = of.with_suffix("")

@@ -111,7 +111,7 @@ def decompress_scene(scene, targets):
             dims = [d if d != "pixels_center" else "pixels" for d in dims]
             data[v] = (dims, data_r)
         else:
-            data[v] = (scene[v].dims, scene[v])
+            data[v] = (scene[v].dims, scene[v].data)
 
     return xr.Dataset(data)
 
