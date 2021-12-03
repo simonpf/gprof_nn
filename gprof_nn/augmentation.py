@@ -594,9 +594,8 @@ def get_transformation_coordinates(lats,
     offset = coords_eucl_out[:, height // 2, width // 2]
     coords_rel_out = coords_eucl_out - offset[:, np.newaxis, np.newaxis]
 
-
     center_in = center_out.copy()
-    center_in[1, 0, 0] = get_center_pixel_input(x_i, 48)
+    center_in[1, 0, 0] = get_center_pixel_input(x_i, 56)
 
     input_geometry = Swath(lats, lons)
     coords_center_in = input_geometry.pixel_coordinates_to_euclidean(center_in)
