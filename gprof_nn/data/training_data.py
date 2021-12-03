@@ -52,7 +52,7 @@ _THRESHOLDS = {
 
 _INPUT_DIMENSIONS = {
     "GMI": (96, 128),
-    "MHS": (32, 128)
+    "MHS": (48, 128)
 }
 
 
@@ -155,8 +155,8 @@ def write_preprocessor_file_xtrack(input_data, output_file):
             if new_data.dtype in [np.float32, np.float64]:
                 new_data = np.nan_to_num(new_data, nan=-9999.9)
 
-            if k == "airimass_type":
-                new_data[new_data <= 0] = 1
+            #if k == "airimass_type":
+            #    new_data[new_data <= 0] = 0
             new_dataset[k] = (dims, new_data)
 
     if "nominal_eia" in data.attrs:
@@ -294,8 +294,8 @@ def write_preprocessor_file(input_data, output_file):
             elements = da.data.ravel()[:n_elems]
             if elements.dtype in [np.float32, np.float64]:
                 elements = np.nan_to_num(elements, nan=-9999.9)
-            if k == "airmass_type":
-                elements[elements <= 0] = 1
+            #if k == "airmass_type":
+            #    elements[elements <= 0] = 1
             new_dataset[k] = (dims, elements.reshape(new_shape))
 
     if "nominal_eia" in data.attrs:
