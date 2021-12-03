@@ -89,7 +89,6 @@ def calculate_padding_dimensions(t):
     d_m = math.ceil(m / 32) * 32 - m
     p_l_m = d_m // 2
     p_r_m = d_m - p_l_m
-
     return (p_l_n, p_r_n, p_l_m, p_r_m)
 
 
@@ -203,6 +202,10 @@ def combine_input_data_2d(dataset, sensor, v_tbs="brightness_temperatures"):
 
         features += [t2m, tcwv, st_1h, am_1h]
 
+    if isinstance(sensor, sensors.CrossTrackScanner):
+        va = dataset["earth_incidence_angle"].data
+        features.insert(1, va[..., np.newaxis])
+
     input_data = np.concatenate(features, axis=-1)
     input_data = input_data.astype(np.float32)
     if input_data.ndim < 4:
@@ -264,7 +267,8 @@ class RetrievalDriver:
         output_file=None,
         device="cpu",
         compress=True,
-        preserve_structure=False
+        preserve_structure=False,
+        sensor=None
     ):
         """
         Create retrieval driver.
@@ -282,6 +286,7 @@ class RetrievalDriver:
             compress: If set to ``True`` NetCDF output will be gzipped.
             preserve_structure: Special option that will ensure that the
                 spatial structure is conserved even for the 1D retrieval.
+            sensor: Optional sensor argument to provide to the NetCDF loader.
         """
         input_file = Path(input_file)
         self.input_file = input_file
@@ -327,6 +332,7 @@ class RetrievalDriver:
             self.output_file = output_file
 
         self.preserve_structure = preserve_structure
+        self.sensor = sensor
 
     def _load_input_data(self):
         """
@@ -346,7 +352,9 @@ class RetrievalDriver:
             if loader_class == NetcdfLoader1D and self.preserve_structure:
                 loader_class = NetcdfLoader1DFull
             input_data = loader_class(
-                self.input_file, normalizer=self.model.normalizer
+                self.input_file,
+                normalizer=self.model.normalizer,
+                sensor=self.sensor
             )
         return input_data
 
@@ -365,7 +373,7 @@ class RetrievalDriver:
         """
         means = {}
         precip_1st_tercile = []
-        precip_3rd_tercile = []
+        precip_2nd_tercile = []
         pop = []
         samples = []
 
@@ -388,7 +396,7 @@ class RetrievalDriver:
                             y_pred=y, quantiles=[0.333, 0.667], key=k
                         )
                         precip_1st_tercile.append(t[:, 0].cpu())
-                        precip_3rd_tercile.append(t[:, 1].cpu())
+                        precip_2nd_tercile.append(t[:, 1].cpu())
                         p = xrnn.probability_larger_than(y_pred=y, y=1e-4, key=k)
                         pop.append(p.cpu())
                         s = xrnn.sample_posterior(
@@ -407,9 +415,9 @@ class RetrievalDriver:
                 dims,
                 np.concatenate([t.numpy() for t in precip_1st_tercile]),
             )
-            data["precip_3rd_tercile"] = (
+            data["precip_2nd_tercile"] = (
                 dims,
-                np.concatenate([t.numpy() for t in precip_3rd_tercile]),
+                np.concatenate([t.numpy() for t in precip_2nd_tercile]),
             )
             pop = np.concatenate([t.numpy() for t in pop])
             data["pop"] = (dims, pop)
@@ -512,7 +520,7 @@ class RetrievalGradientDriver(RetrievalDriver):
         means = {}
         gradients = {}
         precip_1st_tercile = []
-        precip_3rd_tercile = []
+        precip_2nd_tercile = []
         pop = []
         samples = []
 
@@ -545,7 +553,7 @@ class RetrievalGradientDriver(RetrievalDriver):
                         y_pred=y, quantiles=[0.333, 0.667], key=k
                     )
                     precip_1st_tercile.append(t[:, 0].cpu())
-                    precip_3rd_tercile.append(t[:, 1].cpu())
+                    precip_2nd_tercile.append(t[:, 1].cpu())
                     p = xrnn.probability_larger_than(y_pred=y, y=1e-4, key=k)
                     pop.append(p.cpu())
                     s = xrnn.sample_posterior(
@@ -577,9 +585,9 @@ class RetrievalGradientDriver(RetrievalDriver):
                 dims,
                 np.concatenate([t.numpy() for t in precip_1st_tercile]),
             )
-            data["precip_3rd_tercile"] = (
+            data["precip_2nd_tercile"] = (
                 dims,
-                np.concatenate([t.numpy() for t in precip_3rd_tercile]),
+                np.concatenate([t.numpy() for t in precip_2nd_tercile]),
             )
             pop = np.concatenate([t.numpy() for t in pop])
             data["pop"] = (dims, pop)
@@ -603,7 +611,12 @@ class NetcdfLoader1D(GPROF_NN_1D_Dataset):
     in NetCDF data format.
     """
 
-    def __init__(self, filename, normalizer, batch_size=16 * 1024):
+    def __init__(
+            self,
+            filename,
+            normalizer,
+            batch_size=16 * 1024,
+            sensor=None):
         """
         Create loader for input data in NetCDF format that provides input
         data for the GPROF-NN 1D retrieval.
@@ -622,6 +635,7 @@ class NetcdfLoader1D(GPROF_NN_1D_Dataset):
             targets=targets,
             normalizer=normalizer,
             batch_size=batch_size,
+            sensor=sensor,
             shuffle=False,
             augment=False,
         )
@@ -678,7 +692,7 @@ class NetcdfLoader3D(GPROF_NN_3D_Dataset):
     in NetCDF data format.
     """
 
-    def __init__(self, filename, normalizer, batch_size=32):
+    def __init__(self, filename, normalizer, batch_size=32, sensor=None):
         """
         Create loader for input data in NetCDF format that provides input
         data for the GPROF-NN 3D retrieval.
@@ -689,6 +703,8 @@ class NetcdfLoader3D(GPROF_NN_3D_Dataset):
                 data.
             batch_size: How many observations to combine into a single
                 input batch.
+            sensor: Sensor object to use to load the data. This can be used to
+                apply a specific correction to the input data.
         """
         targets = ALL_TARGETS + ["latitude", "longitude"]
         super().__init__(
@@ -698,7 +714,7 @@ class NetcdfLoader3D(GPROF_NN_3D_Dataset):
             batch_size=batch_size,
             shuffle=False,
             augment=False,
-            input_dimensions=(96, 192),
+            input_dimensions=(32, 128),
         )
         self.n_samples = len(self)
         self.scalar_dimensions = ("samples",)
@@ -1049,7 +1065,8 @@ class ObservationLoader3D:
         self.normalizer = normalizer
 
         input_file = file_class(filename)
-        self.data = input_file.to_xarray_dataset()
+        self.data = input_file.to_xarray_dataset()[{"pixels": slice(45 - 32, 45 + 32)}]
+        tcwv = self.data["total_column_water_vapor"]
         self.n_scans = self.data.scans.size
         self.n_pixels = self.data.pixels.size
 
@@ -1089,11 +1106,13 @@ class ObservationLoader3D:
         """
         Reshape retrieval results into shape of input data.
         """
+        n_scans = data.scans.size
+        n_pixels = data.pixels.size
         data = data[
             {
                 "samples": 0,
-                "scans": slice(self.padding[2], -self.padding[3]),
-                "pixels": slice(self.padding[0], -self.padding[1]),
+                "scans": slice(self.padding[2], n_scans - self.padding[3]),
+                "pixels": slice(self.padding[0], n_pixels - self.padding[1]),
             }
         ]
 
