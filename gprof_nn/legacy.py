@@ -33,11 +33,14 @@ LOGGER = logging.getLogger(__name__)
 EXECUTABLES = {
     "STANDARD": "GPROF_2021_V1",
     "SENSITIVITY": "GPROF_2020_V1_grads",
-    "PROFILES": "GPROF_2020_V1_prof",
+    "PROFILES": "GPROF_2021_V1_profs",
 }
 
 
-EXECUTABLES_X = {"STANDARD": "GPROF_2020_V1x"}
+EXECUTABLES_X = {
+    "STANDARD": "GPROF_2020_V1x",
+    "PROFILES": "GPROF_2020_V1x_profiles"
+}
 
 
 ANCILLARY_DATA = "/qdata1/pbrown/gpm/ancillary/"
@@ -244,6 +247,7 @@ def run_gprof_training_data(
             batch_size=256 * 2048,
         )
 
+    print("MODE: ", mode)
     results = []
     with TemporaryDirectory() as tmp:
         tmp = Path(tmp)
@@ -261,9 +265,9 @@ def run_gprof_training_data(
                 sensor,
                 configuration,
                 preprocessor_file,
-                mode,
-                profiles,
-                nedts,
+                mode=mode,
+                profiles=profiles,
+                nedts=nedts,
                 robust=True,
             )
 
@@ -329,6 +333,7 @@ def run_gprof_standard(sensor, configuration, input_file, mode, profiles, nedts=
             input_file = output_file
 
         results = execute_gprof(
-            tmp, sensor, configuration, input_file, mode, profiles, nedts, robust=True
+            tmp, sensor, configuration, input_file,
+            mode=mode, profiles=profiles, nedts=nedts, robust=True
         )
     return results
