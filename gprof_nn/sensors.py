@@ -1173,9 +1173,17 @@ class CrossTrackScanner(Sensor):
 
         lats = scene.latitude.data
         lons = scene.longitude.data
+
+        alt = self.viewing_geometry.altitude
+        if augment:
+            alt_new = rng.uniform(0.9, 1.1) * alt
+        else:
+            alt_new = alt
+        self.viewing_geometry.altitude = alt_new
         coords = get_transformation_coordinates(
             lats, lons, self.viewing_geometry, width, height, p_x_i, p_x_o, p_y
         )
+        self.viewing_geometry.altitude = alt
 
         vs = ["simulated_brightness_temperatures", "brightness_temperature_biases"]
         scene = remap_scene(scene, coords, targets + vs)
@@ -1210,8 +1218,18 @@ class CrossTrackScanner(Sensor):
                 for i, n in enumerate(noise):
                     tbs[..., i] += self.modeling_error[i] * n
 
+            r = rng.random()
+            if r > 0.80:
+                n_p = rng.integers(6, 16)
+                tbs[:, :n_p] = np.nan
+            r = rng.random()
+            if r > 0.80:
+                n_p = rng.integers(6, 16)
+                tbs[:, -n_p:] = np.nan
 
         eia = eia[np.newaxis]
+        if augment:
+            eia = eia + rng.uniform(-0.5, 0.5, size=eia.shape)
         tcwv = tcwv[np.newaxis]
         t2m = t2m[np.newaxis]
         st = self.load_surface_type(scene)
@@ -1296,6 +1314,15 @@ class CrossTrackScanner(Sensor):
         tbs = self.load_brightness_temperatures(scene, None)
         tbs = tbs[i_start:i_end, j_start:j_end]
         tbs = np.transpose(tbs, (2, 0, 1))
+
+        r = rng.random()
+        if r > 0.80:
+            n_p = rng.integers(6, 16)
+            tbs[:, :n_p] = np.nan
+        r = rng.random()
+        if r > 0.80:
+            n_p = rng.integers(6, 16)
+            tbs[:, -n_p:] = np.nan
 
         eia = self.load_earth_incidence_angle(scene)
         eia = eia[np.newaxis, i_start:i_end, j_start:j_end, 0]

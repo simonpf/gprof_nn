@@ -189,7 +189,6 @@ def run(args):
             if of.suffix == ".gz":
                 of = of.with_suffix("")
             output_files.append(output / of)
-        print(output_files)
     else:
         input_files = [input]
         if output.is_dir():

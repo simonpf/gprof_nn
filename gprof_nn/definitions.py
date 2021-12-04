@@ -31,6 +31,27 @@ PROFILE_NAMES = [
     "latent_heat",
 ]
 
+SURFACE_TYPE_NAMES = [
+    "Ocean",
+    "Sea-Ice",
+    "Vegetation 1",
+    "Vegetation 2",
+    "Vegetation 3",
+    "Vegetation 4",
+    "Vegetation 5",
+    "Snow 1",
+    "Snow 2",
+    "Snow 3",
+    "Snow 4",
+    "Standing Water",
+    "Land Coast",
+    "Mixed land/ocean o. water",
+    "Ocean or water Coast",
+    "Sea-ice edge",
+    "Mountain Rain",
+    "Mountain Snow",
+]
+
 # Minimum and maximum two-meter temperature. Defined in GPM_arraydef.f.
 T2M_MIN = 220
 T2M_MAX = 320
@@ -59,7 +80,7 @@ DATABASE_MONTHS = [
 
 TEST_DAYS = [1, 2, 3]
 VALIDATION_DAYS = [4, 5]
-TRAINING_DAYS = list(range(13, 32))
+TRAINING_DAYS = list(range(25, 32))
 
 LIMITS = {
     "brightness_temperatures": (0, 400),

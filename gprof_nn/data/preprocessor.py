@@ -503,7 +503,7 @@ class PreprocessorFile:
             precip_mean: 1D array containing the mean retrieved precipitation for
                  each pixel.
             precip_1st_tertial: 1D array containing the 1st tertial retrieved from the data.
-            precip_3rd_tertial: 1D array containing the 3rd tertial retrieved from the data
+            precip_2nd_tertial: 1D array containing the 2nd tertial retrieved from the data
             precip_pop: 1D array containing the probability of precipitation in the scan.
         """
         data = retrieval_data[{"scans": scan_index}]
@@ -570,7 +570,7 @@ class PreprocessorFile:
         out_data["ice_water_path"] = data["ice_water_path"]
         out_data["most_likely_precip"] = data["most_likely_precip"]
         out_data["precip_1st_tercile"] = data["precip_1st_tercile"]
-        out_data["precip_3rd_tercile"] = data["precip_3rd_tercile"]
+        out_data["precip_2nd_tercile"] = data["precip_2nd_tercile"]
         if "pixel_status" in data.variables:
             out_data["pixel_status"] = data["pixel_status"]
         if "quality_flag" in data.variables:

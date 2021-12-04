@@ -16,6 +16,7 @@ from quantnn.qrnn import QRNN
 from rich.progress import track
 
 import gprof_nn.logging
+from gprof_nn import sensors
 from gprof_nn.retrieval import RetrievalDriver, RetrievalGradientDriver
 from gprof_nn.definitions import ALL_TARGETS, PROFILE_NAMES
 
@@ -55,6 +56,13 @@ def add_parser(subparsers):
     parser.add_argument('--gradients', action='store_true')
     parser.add_argument('--no_profiles', action='store_true')
     parser.add_argument(
+        '--sensor',
+        type=str,
+        metavar="sensor",
+        help="Name of a sensor object to use to load training data.",
+        default=None
+    )
+    parser.add_argument(
         '--preserve_structure',
         action='store_true',
         help=("Whether or not to preserve the spatial structure"
@@ -84,7 +92,8 @@ def process_file(input_file,
                  gradients,
                  device,
                  log_queue,
-                 preserve_structure=False):
+                 preserve_structure=False,
+                 sensor=None):
     """
     Process input file.
 
@@ -110,7 +119,8 @@ def process_file(input_file,
                        xrnn,
                        output_file=output_file,
                        device=device,
-                       preserve_structure=preserve_structure)
+                       preserve_structure=preserve_structure,
+                       sensor=sensor)
     retrieval.run()
 
 
@@ -129,17 +139,34 @@ def run(args):
     model = Path(args.model)
     if not model.exists():
         LOGGER.error("Given model is not an existing file.")
+        return 1
 
     input = Path(args.input)
     output = Path(args.output)
 
     if not input.exists():
         LOGGER.error("Input must be an existing file or folder.")
+        return 1
 
     if not input.is_dir() and not output.exists():
-        output.mkdir(parents=True, exist_ok=True)
+        if not output.suffix:
+            output.mkdir(parents=True, exist_ok=True)
 
     preserve_structure = args.preserve_structure
+
+    sensor_name = args.sensor
+    if sensor_name is not None:
+        try:
+            sensor = sensors.get_sensor(sensor_name)
+        except KeyError:
+            LOGGER.error(
+                "If provided, sensor must be a valid sensor name not '%s'.",
+                sensor_name
+            )
+            return 1
+    else:
+        sensor = None
+
     gradients = args.gradients
     n_procs = args.n_processes
     device = args.device
@@ -156,6 +183,7 @@ def run(args):
 
         input_files = list(input.glob("**/*.nc"))
         input_files += list(input.glob("**/*.nc.gz"))
+        input_files += list(input.glob("**/*.nc.bin.gz"))
         input_files += list(input.glob("**/*.pp"))
         input_files += list(input.glob("**/*.HDF5"))
 
@@ -164,7 +192,7 @@ def run(args):
             of = f.relative_to(input)
             if of.suffix in [".gz", ".nc", ".HDF5"]:
                 of = of.with_suffix(".nc")
-            elif of.suffix in [".nc.gz"]:
+            elif of.suffix == ".gz":
                 of = of.with_suffix("")
             else:
                 of = of.with_suffix(".bin")
@@ -200,6 +228,7 @@ def run(args):
                               gradients,
                               device,
                               log_queue,
+                              sensor=sensor,
                               preserve_structure=preserve_structure)]
 
     for t in track(tasks, description="Processing files:"):
