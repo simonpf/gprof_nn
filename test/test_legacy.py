@@ -4,6 +4,7 @@ Tests for the gprof_nn.legacy module.
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 import pytest
 
 from gprof_nn import sensors
@@ -63,7 +64,7 @@ def test_run_gprof_training_data_preserve_structure():
                                       input_file,
                                       "STANDARD",
                                       False,
-                                      presever_structure=True)
+                                      preserve_structure=True)
     assert "surface_precip" in results.variables
     assert "surface_precip_true" in results.variables
 

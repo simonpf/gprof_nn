@@ -39,8 +39,13 @@ def test_open_sim_file():
     assert "snow_water_content" in data.variables.keys()
     assert "rain_water_content" in data.variables.keys()
 
-    valid = data.surface_precip > -9999
+    valid = data.surface_precip.data > -9999
     assert np.all(data.surface_precip[valid] >= 0.0)
+    assert np.all(data.surface_precip[valid] <= 1000.0)
+    assert np.all(data.latitude >= -90.0)
+    assert np.all(data.latitude <= 90.0)
+    assert np.all(data.longitude >= -180.0)
+    assert np.all(data.longitude <= 180.0)
 
 
 def test_match_l1c_gmi():
