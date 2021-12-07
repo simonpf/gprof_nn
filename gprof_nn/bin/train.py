@@ -102,7 +102,6 @@ def add_parser(subparsers):
         '--n_layers_body',
         metavar='n',
         type=int,
-        nargs=1,
         default=6,
         help=("For GPROF-NN 1D: The number of hidden layers in the shared body"
               " of the network.")
@@ -181,6 +180,11 @@ def add_parser(subparsers):
         '--no_ancillary',
         action="store_false",
         help="Don't use acillary data in retrieval."
+    )
+    parser.add_argument(
+        '--no_validation',
+        action="store_true",
+        help="Disable performance monitoring a validation set"
     )
 
     # Other
@@ -553,6 +557,7 @@ def run_training_3d(sensor,
                        f"normalizer_{sensor.name.lower()}.pckl")
     normalizer = Normalizer.load(normalizer_path)
     kwargs = {
+        "sensor": sensor,
         "batch_size": batch_size,
         "normalizer": normalizer,
         "targets": targets,
@@ -565,19 +570,24 @@ def run_training_3d(sensor,
         kwargs=kwargs,
         n_workers=4)
 
-    kwargs = {
-        "batch_size": 4 * batch_size,
-        "normalizer": normalizer,
-        "targets": targets,
-        "augment": False
-    }
-    validation_data = DataFolder(
-        validation_data,
-        dataset_factory,
-        queue_size=256,
-        kwargs=kwargs,
-        n_workers=2
-    )
+
+    if args.no_validation:
+        validation_data = None
+    else:
+        kwargs = {
+            "sensor": sensor,
+            "batch_size": 4 * batch_size,
+            "normalizer": normalizer,
+            "targets": targets,
+            "augment": False
+        }
+        validation_data = DataFolder(
+            validation_data,
+            dataset_factory,
+            queue_size=256,
+            kwargs=kwargs,
+            n_workers=2
+        )
 
     ###############################################################################
     # Prepare in- and output.

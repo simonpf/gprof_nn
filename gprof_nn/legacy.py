@@ -234,7 +234,7 @@ def run_gprof_training_data(
             augment=False,
             targets=targets,
             sensor=sensor,
-            batch_size=8,
+            batch_size=32
         )
     else:
         input_data = GPROF_NN_1D_Dataset(

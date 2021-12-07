@@ -715,6 +715,7 @@ class NetcdfLoader3D(GPROF_NN_3D_Dataset):
             shuffle=False,
             augment=False,
             input_dimensions=(32, 128),
+            sensor=sensor,
         )
         self.n_samples = len(self)
         self.scalar_dimensions = ("samples",)
@@ -782,7 +783,13 @@ class NetcdfLoader1DFull(NetcdfLoader3D):
     structure of the data.
     """
 
-    def __init__(self, filename, normalizer, batch_size=32):
+    def __init__(
+            self,
+            filename,
+            normalizer,
+            batch_size=32,
+            sensor=None
+    ):
         """
         Create loader for input data in NetCDF format that provides input
         data for the GPROF-NN 3D retrieval.
@@ -794,7 +801,7 @@ class NetcdfLoader1DFull(NetcdfLoader3D):
             batch_size: How many observations to combine into a single
                 input batch.
         """
-        super().__init__(filename, normalizer, batch_size=batch_size)
+        super().__init__(filename, normalizer, batch_size=batch_size, sensor=sensor)
         self.scalar_dimensions = ("samples",)
         self.profile_dimensions = ("samples", "layers")
         self.dimensions = {
@@ -1065,7 +1072,7 @@ class ObservationLoader3D:
         self.normalizer = normalizer
 
         input_file = file_class(filename)
-        self.data = input_file.to_xarray_dataset()[{"pixels": slice(45 - 32, 45 + 32)}]
+        self.data = input_file.to_xarray_dataset()
         tcwv = self.data["total_column_water_vapor"]
         self.n_scans = self.data.scans.size
         self.n_pixels = self.data.pixels.size
