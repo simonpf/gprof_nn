@@ -3,10 +3,10 @@
 gprof_nn.statistics
 ===================
 
-This module provides functionality to calculate task-specific statistics over
- large datasets split across multiple files.
+This module provides functionality to calculate various statistics over
+large datasets split across multiple files.
 
-Different task or data related statistics are implemented by statistics
+Different task or data related statistics are implemented by statistic
 classes that define how a single file is treated and how results from two
 files should be merged. Arbitrary selections of these classes can then
 be applied to a sequence of files using the generic StatisticsProcessor
@@ -16,7 +16,6 @@ from abc import ABC, abstractmethod
 from concurrent.futures import ProcessPoolExecutor
 import gc
 import logging
-import multiprocessing
 from pathlib import Path
 import re
 
@@ -29,9 +28,11 @@ from gprof_nn.definitions import ALL_TARGETS
 from gprof_nn.data.retrieval import RetrievalFile
 from gprof_nn.data.bin import BinFile
 from gprof_nn.data.preprocessor import PreprocessorFile
-from gprof_nn.data.training_data import (GPROF_NN_1D_Dataset,
-                                         GPROF_NN_3D_Dataset,
-                                         decompress_and_load)
+from gprof_nn.data.training_data import (
+    GPROF_NN_1D_Dataset,
+    GPROF_NN_3D_Dataset,
+    decompress_and_load,
+)
 from gprof_nn.data.combined import GPMCMBFile
 from gprof_nn.data.l1c import L1CFile
 
@@ -41,26 +42,6 @@ LOGGER = logging.getLogger(__name__)
 ###############################################################################
 # Statistics
 ###############################################################################
-
-
-def calculate_angle_bins(angles):
-    """
-    Helper function to create sequence of angle bin boundaries
-    the simulated viewing angles of a sensor.
-
-    Args:
-        angles: 1D array containing the N viewing angles in ascending
-            order.
-
-    Return:
-        1D array containing N + 1 angle bin boundaries.
-    """
-    angle_bins = np.zeros(angles.size + 1)
-    angle_bins[1:-1] = 0.5 * (angles[1:] + angles[:-1])
-    angle_bins[0] = 2.0 * angle_bins[1] - angle_bins[2]
-    angle_bins[-1] = 2.0 * angle_bins[-2] - angle_bins[-3]
-    return angle_bins
-
 
 def open_file(filename):
     """
@@ -89,9 +70,7 @@ def open_file(filename):
     elif filename.name.startswith("1C"):
         file = L1CFile(filename)
         return file.to_xarray_dataset()
-    raise ValueError(
-        f"Could not figure out how handle the file {filename.name}."
-    )
+    raise ValueError(f"Could not figure out how handle the file {filename.name}.")
 
 
 ###############################################################################
@@ -101,9 +80,10 @@ def open_file(filename):
 
 class Statistic(ABC):
     """
-    The basic interface for statistics that can be computed with the generic
+    The basic interface for statistics that can be computed with the
     'StatisticsProcessor' class.
     """
+
     @abstractmethod
     def process_file(self, sensor, filename):
         """
@@ -117,7 +97,7 @@ class Statistic(ABC):
         """
 
     @abstractmethod
-    def merge(self, statistic):
+    def merge(self, other):
         """
         Merge the data of 'self' with the 'statistic' object calculated
         on a different file. After this function was called the 'self'
@@ -141,8 +121,8 @@ class ScanPositionMean(Statistic):
     """
     Calculates the mean of a retrieval variable across scan positions.
     """
-    def __init__(self,
-                 variable="surface_precip"):
+
+    def __init__(self, variable="surface_precip"):
         """
         Instantiate scan position mean statistic for given variable.
 
@@ -163,16 +143,16 @@ class ScanPositionMean(Statistic):
         """
         data = open_file(filename)
 
-        v = data[self.variable]
-        s = v.fillna(0).sum(dim="scans")
-        c = v.scans.size
+        var = data[self.variable]
+        var_sum = var.fillna(0).sum(dim="scans")
+        var_counts = var.scans.size
 
         if self.sum is None:
-            self.sum = s
-            self.counts = c
+            self.sum = var_sum
+            self.counts = var_counts
         else:
-            self.sum += s
-            self.counts += c
+            self.sum += var_sum
+            self.counts += var_counts
 
     def merge(self, other):
         """
@@ -204,6 +184,7 @@ class ZonalDistribution(Statistic):
     This statistics class calculates zonal distributions of retrieval
     results in either GPROF binary format or NetCDF format.
     """
+
     def __init__(self, monthly=False):
         """
         Args:
@@ -236,28 +217,16 @@ class ZonalDistribution(Statistic):
                     self.counts[k] = np.zeros((12, n_lats), dtype=np.float32)
 
             # Surface precip distributions.
-            self.surface_precip_mean = np.zeros(
-                (12, n_lats, n_sp),
-                dtype=np.float32
-            )
-            self.surface_precip_samples = np.zeros(
-                (12, n_lats, n_sp),
-                dtype=np.float32
-            )
+            self.surface_precip_mean = np.zeros((12, n_lats, n_sp), dtype=np.float32)
+            self.surface_precip_samples = np.zeros((12, n_lats, n_sp), dtype=np.float32)
         else:
             self.has_time = False
             for k in ALL_TARGETS:
                 if k in data.variables:
                     self.sums[k] = np.zeros(n_lats, dtype=np.float32)
                     self.counts[k] = np.zeros(n_lats, dtype=np.float32)
-            self.surface_precip_mean = np.zeros(
-                (n_lats, n_sp),
-                dtype=np.float32
-            )
-            self.surface_precip_samples = np.zeros(
-                (n_lats, n_sp),
-                dtype=np.float32
-            )
+            self.surface_precip_mean = np.zeros((n_lats, n_sp), dtype=np.float32)
+            self.surface_precip_samples = np.zeros((n_lats, n_sp), dtype=np.float32)
 
     def _process_file_monthly(self, sensor, data):
         """
@@ -274,12 +243,12 @@ class ZonalDistribution(Statistic):
                 if k in self.counts:
                     lats = data.latitude[indices].data
                     data[k].load()
-                    v = data[k][indices].data
+                    var = data[k][indices].data
 
                     selection = []
                     for i in range(lats.ndim):
                         n_lats = lats.shape[i]
-                        n_v = v.shape[i]
+                        n_v = var.shape[i]
                         d_n = (n_lats - n_v) // 2
                         if d_n > 0:
                             selection.append(slice(d_n, -d_n))
@@ -287,25 +256,24 @@ class ZonalDistribution(Statistic):
                             selection.append(slice(0, None))
                     lats = lats[tuple(selection)]
 
-                    if v.ndim > lats.ndim:
-                        shape = (lats.shape  +
-                                    tuple([1] * (v.ndim - lats.ndim)))
+                    if var.ndim > lats.ndim:
+                        shape = lats.shape + tuple([1] * (var.ndim - lats.ndim))
                         lats_v = lats.reshape(shape)
-                        lats_v = np.broadcast_to(lats_v, v.shape)
+                        lats_v = np.broadcast_to(lats_v, var.shape)
                     else:
                         lats_v = lats
-                    weights = np.isfinite(v).astype(np.float32)
-                    weights[v < -500] = 0.0
-                    cs, _ = np.histogram(lats_v.ravel(),
-                                            bins=self.latitude_bins,
-                                            weights=weights.ravel())
-                    self.counts[k][month] += cs
-                    weights = np.nan_to_num(v, nan=0.0)
-                    weights[v < -500] = 0.0
-                    cs, _ = np.histogram(lats_v.ravel(),
-                                            bins=self.latitude_bins,
-                                            weights=weights.ravel())
-                    self.sums[k][month] += cs
+                    weights = np.isfinite(var).astype(np.float32)
+                    weights[var < -500] = 0.0
+                    counts, _ = np.histogram(
+                        lats_v.ravel(), bins=self.latitude_bins, weights=weights.ravel()
+                    )
+                    self.counts[k][month] += counts
+                    weights = np.nan_to_num(var, nan=0.0)
+                    weights[var < -500] = 0.0
+                    counts, _ = np.histogram(
+                        lats_v.ravel(), bins=self.latitude_bins, weights=weights.ravel()
+                    )
+                    self.sums[k][month] += counts
 
                     if k == "surface_precip":
                         if "surface_precip_true" in data.variables:
@@ -313,14 +281,11 @@ class ZonalDistribution(Statistic):
                         else:
                             inds = data.surface_precip.data[indices] >= 0.0
 
-                        bins = (self.latitude_bins,
-                                self.surface_precip_bins)
-                        cs, _, _ = np.histogram2d(
-                            lats_v[inds].ravel(),
-                            v[inds].ravel(),
-                            bins=bins
+                        bins = (self.latitude_bins, self.surface_precip_bins)
+                        counts, _, _ = np.histogram2d(
+                            lats_v[inds].ravel(), var[inds].ravel(), bins=bins
                         )
-                        self.surface_precip_mean[month] += cs
+                        self.surface_precip_mean[month] += counts
 
             if "surface_precip_samples" in data.variables:
                 if "surface_precip_true" in data.variables:
@@ -328,15 +293,10 @@ class ZonalDistribution(Statistic):
                 else:
                     indices *= data.surface_precip.data >= 0.0
                 lats = data.latitude[indices].data
-                v = data["surface_precip_samples"][indices].data
-                bins = (self.latitude_bins,
-                        self.surface_precip_bins)
-                cs, _, _ = np.histogram2d(
-                    lats.ravel(),
-                    v.ravel(),
-                    bins=bins
-                )
-                self.surface_precip_samples[month] += cs
+                var = data["surface_precip_samples"][indices].data
+                bins = (self.latitude_bins, self.surface_precip_bins)
+                counts, _, _ = np.histogram2d(lats.ravel(), var.ravel(), bins=bins)
+                self.surface_precip_samples[month] += counts
 
     def process_file(self, sensor, filename):
         """
@@ -352,21 +312,20 @@ class ZonalDistribution(Statistic):
 
         # Handle monthly statistics separately.
         if self.has_time:
-            self._process_file_monthly(self, sensor, data)
+            self._process_file_monthly(sensor, data)
             return None
 
         data.latitude.load()
         for k in ALL_TARGETS:
             if k in self.counts:
-                v = data[k].data
                 lats = data.latitude.data
                 data[k].load()
-                v = data[k].data
+                var = data[k].data
 
                 selection = []
                 for i in range(lats.ndim):
                     n_lats = lats.shape[i]
-                    n_v = v.shape[i]
+                    n_v = var.shape[i]
                     d_n = (n_lats - n_v) // 2
                     if d_n > 0:
                         selection.append(slice(d_n, -d_n))
@@ -374,25 +333,24 @@ class ZonalDistribution(Statistic):
                         selection.append(slice(0, None))
                 lats = lats[tuple(selection)]
 
-                if v.ndim > lats.ndim:
-                    shape = (lats.shape  +
-                                tuple([1] * (v.ndim - lats.ndim)))
+                if var.ndim > lats.ndim:
+                    shape = lats.shape + tuple([1] * (var.ndim - lats.ndim))
                     lats_v = lats.reshape(shape)
-                    lats_v = np.broadcast_to(lats_v, v.shape)
+                    lats_v = np.broadcast_to(lats_v, var.shape)
                 else:
                     lats_v = lats
-                weights = np.isfinite(v).astype(np.float32)
-                weights[v < -500] = 0.0
-                cs, _ = np.histogram(lats_v.ravel(),
-                                     bins=self.latitude_bins,
-                                     weights=weights.ravel())
-                self.counts[k] += cs
-                weights = np.nan_to_num(v, nan=0.0)
-                weights[v < -500] = 0.0
-                cs, _ = np.histogram(lats_v.ravel(),
-                                     bins=self.latitude_bins,
-                                     weights=weights.ravel())
-                self.sums[k] += cs
+                weights = np.isfinite(var).astype(np.float32)
+                weights[var < -500] = 0.0
+                counts, _ = np.histogram(
+                    lats_v.ravel(), bins=self.latitude_bins, weights=weights.ravel()
+                )
+                self.counts[k] += counts
+                weights = np.nan_to_num(var, nan=0.0)
+                weights[var < -500] = 0.0
+                counts, _ = np.histogram(
+                    lats_v.ravel(), bins=self.latitude_bins, weights=weights.ravel()
+                )
+                self.sums[k] += counts
 
                 if k == "surface_precip":
                     if "surface_precip_true" in data.variables:
@@ -400,14 +358,11 @@ class ZonalDistribution(Statistic):
                     else:
                         inds = data.surface_precip.data >= 0.0
 
-                    bins = (self.latitude_bins,
-                            self.surface_precip_bins)
-                    cs, _, _ = np.histogram2d(
-                        lats_v[inds].ravel(),
-                        v[inds].ravel(),
-                        bins=bins
+                    bins = (self.latitude_bins, self.surface_precip_bins)
+                    counts, _, _ = np.histogram2d(
+                        lats_v[inds].ravel(), var[inds].ravel(), bins=bins
                     )
-                    self.surface_precip_mean += cs
+                    self.surface_precip_mean += counts
 
         if "surface_precip_samples" in data.variables:
             if "surface_precip_true" in data.variables:
@@ -415,15 +370,10 @@ class ZonalDistribution(Statistic):
             else:
                 indices = data.surface_precip.data >= 0.0
             lats = data.latitude.data[indices]
-            v = data["surface_precip_samples"].data[indices]
-            bins = (self.latitude_bins,
-                    self.surface_precip_bins)
-            cs, _, _ = np.histogram2d(
-                lats.ravel(),
-                v.ravel(),
-                bins=bins
-            )
-            self.surface_precip_samples += cs
+            var = data["surface_precip_samples"].data[indices]
+            bins = (self.latitude_bins, self.surface_precip_bins)
+            counts, _, _ = np.histogram2d(lats.ravel(), var.ravel(), bins=bins)
+            self.surface_precip_samples += counts
 
     def merge(self, other):
         """
@@ -447,45 +397,41 @@ class ZonalDistribution(Statistic):
         Save results to file in NetCDF format.
         """
         lats = 0.5 * (self.latitude_bins[1:] + self.latitude_bins[:-1])
-        sp = 0.5 * (self.surface_precip_bins[1:] +
-                    self.surface_precip_bins[:-1])
-        data = xr.Dataset({
-            "latitude": (("latitude",), lats),
-            "surface_precip_bins": (("surface_precip_bins"), sp)
-        })
+        sp = 0.5 * (self.surface_precip_bins[1:] + self.surface_precip_bins[:-1])
+        data = xr.Dataset(
+            {
+                "latitude": (("latitude",), lats),
+                "surface_precip_bins": (("surface_precip_bins"), sp),
+            }
+        )
         if self.has_time:
             data["months"] = (("months"), np.arange(1, 13))
             for k in self.counts:
-                data[k] = (("months", "latitude"),
-                           self.sums[k] / self.counts[k])
-                data[k + "_counts"] = (("months", "latitude"),
-                                       self.counts[k])
+                data[k] = (("months", "latitude"), self.sums[k] / self.counts[k])
+                data[k + "_counts"] = (("months", "latitude"), self.counts[k])
                 data["surface_precip_mean"] = (
                     ("months", "latitude", "surface_precip_bins"),
-                    self.surface_precip_mean
+                    self.surface_precip_mean,
                 )
                 data["surface_precip_samples"] = (
                     ("months", "latitude", "surface_precip_bins"),
-                    self.surface_precip_samples
+                    self.surface_precip_samples,
                 )
         else:
             for k in self.counts:
-                data[k] = (("latitude",),
-                           self.sums[k] / self.counts[k])
-                data[k + "_counts"] = (("latitude",),
-                                       self.counts[k])
+                data[k] = (("latitude",), self.sums[k] / self.counts[k])
+                data[k + "_counts"] = (("latitude",), self.counts[k])
                 data["surface_precip_mean"] = (
                     ("latitude", "surface_precip_bins"),
-                    self.surface_precip_mean
+                    self.surface_precip_mean,
                 )
                 data["surface_precip_samples"] = (
                     ("latitude", "surface_precip_bins"),
-                    self.surface_precip_samples
+                    self.surface_precip_samples,
                 )
 
         destination = Path(destination)
-        output_file = (destination /
-                       f"zonal_distribution_{self.sensor.name.lower()}.nc")
+        output_file = destination / f"zonal_distribution_{self.sensor.name.lower()}.nc"
         data.to_netcdf(output_file)
 
 
@@ -494,9 +440,8 @@ class GPMCMBStatistics(Statistic):
     This class calculates zonal means of surface precipitation from GPM
     CMB files.
     """
-    def __init__(self,
-                 monthly=False,
-                 resolution=5.0):
+
+    def __init__(self, monthly=False, resolution=5.0):
         """
         Args:
             Name of the retrieval variable for which to compute the
@@ -516,31 +461,15 @@ class GPMCMBStatistics(Statistic):
         n_lons = self.longitude_bins.size - 1
         n_sp = self.surface_precip_bins.size - 1
         if self.has_time:
-            self.surface_precip_sums = np.zeros(
-                (12, n_lats, n_lons),
-                dtype=np.float32
-            )
+            self.surface_precip_sums = np.zeros((12, n_lats, n_lons), dtype=np.float32)
             self.surface_precip_counts = np.zeros(
-                (12, n_lats, n_lons),
-                dtype=np.float32
+                (12, n_lats, n_lons), dtype=np.float32
             )
-            self.surface_precip = np.zeros(
-                (12, n_lats, n_lons, n_sp),
-                dtype=np.float32
-            )
+            self.surface_precip = np.zeros((12, n_lats, n_lons, n_sp), dtype=np.float32)
         else:
-            self.surface_precip_sums = np.zeros(
-                (n_lats, n_lons),
-                dtype=np.float32
-            )
-            self.surface_precip_counts = np.zeros(
-                (n_lats, n_lons),
-                dtype=np.float32
-            )
-            self.surface_precip = np.zeros(
-                (n_lats, n_lons, n_sp),
-                dtype=np.float32
-            )
+            self.surface_precip_sums = np.zeros((n_lats, n_lons), dtype=np.float32)
+            self.surface_precip_counts = np.zeros((n_lats, n_lons), dtype=np.float32)
+            self.surface_precip = np.zeros((n_lats, n_lons, n_sp), dtype=np.float32)
 
     def process_file(self, sensor, filename):
         """
@@ -570,22 +499,19 @@ class GPMCMBStatistics(Statistic):
                 sp = sp[valid]
 
                 bins = (self.latitude_bins, self.longitude_bins)
-                cs, _ = np.histogram2d(lats, lons, bins=bins, weights=sp)
-                self.surface_precip_sums[month] += cs
-                cs, _ = np.histogram(lats, lons, bins=bins)
-                self.surface_precip_counts[month] += cs
+                counts, _ = np.histogram2d(lats, lons, bins=bins, weights=sp)
+                self.surface_precip_sums[month] += counts
+                counts, _ = np.histogram2d(lats, lons, bins=bins)
+                self.surface_precip_counts[month] += counts
 
                 bins = (
                     self.latitude_bins,
-                    self.longidue_bins,
-                    self.surface_precip_bins
+                    self.longitude_bins,
+                    self.surface_precip_bins,
                 )
-                vals = np.stack(
-                    [lats, lons, sp],
-                    axis=-1
-                )
-                cs, _ = np.histogramdd(vals, bins=bins)
-                self.surface_precip[month] += cs
+                vals = np.stack([lats, lons, sp], axis=-1)
+                counts, _ = np.histogramdd(vals, bins=bins)
+                self.surface_precip[month] += counts
         else:
             lats = data.latitude.data
             lons = data.longitude.data
@@ -596,22 +522,15 @@ class GPMCMBStatistics(Statistic):
             sp = sp[valid]
 
             bins = (self.latitude_bins, self.longitude_bins)
-            cs, _, _ = np.histogram2d(lats, lons, bins=bins, weights=sp)
-            self.surface_precip_sums += cs
-            cs, _, _ = np.histogram2d(lats, lons, bins=bins)
-            self.surface_precip_counts += cs
+            counts, _, _ = np.histogram2d(lats, lons, bins=bins, weights=sp)
+            self.surface_precip_sums += counts
+            counts, _, _ = np.histogram2d(lats, lons, bins=bins)
+            self.surface_precip_counts += counts
 
-            bins = (
-                self.latitude_bins,
-                self.longitude_bins,
-                self.surface_precip_bins
-            )
-            vals = np.stack(
-                [lats, lons, sp],
-                axis=-1
-            )
-            cs, _ = np.histogramdd(vals, bins=bins)
-            self.surface_precip += cs
+            bins = (self.latitude_bins, self.longitude_bins, self.surface_precip_bins)
+            vals = np.stack([lats, lons, sp], axis=-1)
+            counts, _ = np.histogramdd(vals, bins=bins)
+            self.surface_precip += counts
 
     def merge(self, other):
         """
@@ -633,52 +552,52 @@ class GPMCMBStatistics(Statistic):
         """
         lats = 0.5 * (self.latitude_bins[1:] + self.latitude_bins[:-1])
         lons = 0.5 * (self.longitude_bins[1:] + self.longitude_bins[:-1])
-        sp = 0.5 * (self.surface_precip_bins[1:] +
-                    self.surface_precip_bins[:-1])
-        data = xr.Dataset({
-            "latitude": (("latitude",), lats),
-            "longitude": (("longitude",), lons),
-            "surface_precip_bins": (("surface_precip_bins"), sp)
-        })
+        sp = 0.5 * (self.surface_precip_bins[1:] + self.surface_precip_bins[:-1])
+        data = xr.Dataset(
+            {
+                "latitude": (("latitude",), lats),
+                "longitude": (("longitude",), lons),
+                "surface_precip_bins": (("surface_precip_bins"), sp),
+            }
+        )
         if self.has_time:
             data["months"] = (("months"), np.arange(1, 13))
             data["mean_surface_precip"] = (
                 ("months", "latitude", "longitude"),
-                self.surface_precip_sums / self.surface_precip_counts
+                self.surface_precip_sums / self.surface_precip_counts,
             )
             data["surface_precip_sums"] = (
                 ("months", "latitude", "longitude"),
-                self.surface_precip_sums
+                self.surface_precip_sums,
             )
             data["surface_precip_counts"] = (
                 ("months", "latitude", "longitude"),
-                self.surface_precip_counts
+                self.surface_precip_counts,
             )
             data["surface_precip"] = (
                 ("months", "latitude", "longitude", "surface_precip_bins"),
-                self.surface_precip
+                self.surface_precip,
             )
         else:
             data["mean_surface_precip"] = (
                 ("latitude", "longitude"),
-                self.surface_precip_sums / self.surface_precip_counts
+                self.surface_precip_sums / self.surface_precip_counts,
             )
             data["surface_precip_sums"] = (
                 ("latitude", "longitude"),
-                self.surface_precip_sums
+                self.surface_precip_sums,
             )
             data["surface_precip_counts"] = (
                 ("latitude", "longitude"),
-                self.surface_precip_counts
+                self.surface_precip_counts,
             )
             data["surface_precip"] = (
                 ("latitude", "longitude", "surface_precip_bins"),
-                self.surface_precip
+                self.surface_precip,
             )
 
         destination = Path(destination)
-        output_file = (destination /
-                       f"gpm_combined_statistics.nc")
+        output_file = destination / "gpm_combined_statistics.nc"
         data.to_netcdf(output_file)
 
 
@@ -688,9 +607,8 @@ class GlobalDistribution(Statistic):
     from retrieval results files either in GPROF binary format or NetCDF
     format.
     """
-    def __init__(self,
-                 monthly=False,
-                 resolution=5.0):
+
+    def __init__(self, monthly=False, resolution=5.0):
         """
         Args:
             monthly: If set to True and input data contains time stamps,
@@ -701,7 +619,7 @@ class GlobalDistribution(Statistic):
         self.latitude_bins = np.arange(-90, 90 + 1e-3, resolution)
         self.longitude_bins = np.arange(-180, 180 + 1e-3, resolution)
         self.surface_precip_bins = np.logspace(-2, 2.5, 201)
-        self.has_time = None
+        self.has_time = monthly
         self.counts = None
         self.sums = None
         self.sensor = None
@@ -720,12 +638,10 @@ class GlobalDistribution(Statistic):
                     self.sums[k] = np.zeros((12, n_lons, n_lats))
                     self.counts[k] = np.zeros((12, n_lons, n_lats))
             self.surface_precip_mean = np.zeros(
-                (12, n_lats, n_lons, n_sp),
-                dtype=np.float32
+                (12, n_lats, n_lons, n_sp), dtype=np.float32
             )
             self.surface_precip_samples = np.zeros(
-                (12, n_lats, n_lons, n_sp),
-                dtype=np.float32
+                (12, n_lats, n_lons, n_sp), dtype=np.float32
             )
         else:
             for k in ALL_TARGETS:
@@ -733,12 +649,10 @@ class GlobalDistribution(Statistic):
                     self.counts[k] = np.zeros((n_lats, n_lons))
                     self.sums[k] = np.zeros((n_lats, n_lons))
             self.surface_precip_mean = np.zeros(
-                (n_lats, n_lons, n_sp),
-                dtype=np.float32
+                (n_lats, n_lons, n_sp), dtype=np.float32
             )
             self.surface_precip_samples = np.zeros(
-                (n_lats, n_lons, n_sp),
-                dtype=np.float32
+                (n_lats, n_lons, n_sp), dtype=np.float32
             )
 
     def process_file(self, sensor, filename):
@@ -766,12 +680,12 @@ class GlobalDistribution(Statistic):
                         lats = data.latitude[indices].data
                         lons = data.longitude[indices].data
                         data[k].load()
-                        v = data[k][indices].data
+                        var = data[k][indices].data
 
                         selection = []
                         for i in range(lats.ndim):
                             n_lats = lats.shape[i]
-                            n_v = v.shape[i]
+                            n_v = var.shape[i]
                             d_n = (n_lats - n_v) // 2
                             if d_n > 0:
                                 selection.append(slice(d_n, -d_n))
@@ -780,49 +694,54 @@ class GlobalDistribution(Statistic):
                         lats = lats[tuple(selection)]
                         lons = lons[tuple(selection)]
 
-                        if v.ndim > lats.ndim:
-                            shape = (lats.shape  +
-                                     tuple([1] * (v.ndim - lats.ndim)))
+                        if var.ndim > lats.ndim:
+                            shape = lats.shape + tuple([1] * (var.ndim - lats.ndim))
                             lats_v = lats.reshape(shape)
-                            lats_v = np.broadcast_to(lats_v, v.shape)
+                            lats_v = np.broadcast_to(lats_v, var.shape)
                             lons_v = lons.reshape(shape)
-                            lons_v = np.broadcast_to(lons_v, v.shape)
+                            lons_v = np.broadcast_to(lons_v, var.shape)
                         else:
                             lats_v = lats
                             lons_v = lons
-                        weights = np.isfinite(v).astype(np.float32)
-                        weights[v < -500] = 0.0
-                        cs, _, _ = np.histogram2d(lats_v.ravel(),
-                                                  lons_v.ravel(),
-                                                  bins=(self.latitude_bins,
-                                                        self.longitude_bins),
-                                                  weights=weights.ravel())
-                        self.counts[k][month] += cs
-                        weights = np.nan_to_num(v, nan=0.0)
-                        weights[v < -500] = 0.0
-                        cs, _, _ = np.histogram2d(lats_v.ravel(),
-                                                  lons_v.ravel(),
-                                                  bins=(self.latitude_bins,
-                                                        self.longitude_bins),
-                                                  weights=weights.ravel())
-                        self.sums[k][month] += cs
+                        weights = np.isfinite(var).astype(np.float32)
+                        weights[var < -500] = 0.0
+                        counts, _, _ = np.histogram2d(
+                            lats_v.ravel(),
+                            lons_v.ravel(),
+                            bins=(self.latitude_bins, self.longitude_bins),
+                            weights=weights.ravel(),
+                        )
+                        self.counts[k][month] += counts
+                        weights = np.nan_to_num(var, nan=0.0)
+                        weights[var < -500] = 0.0
+                        counts, _, _ = np.histogram2d(
+                            lats_v.ravel(),
+                            lons_v.ravel(),
+                            bins=(self.latitude_bins, self.longitude_bins),
+                            weights=weights.ravel(),
+                        )
+                        self.sums[k][month] += counts
 
                         if k == "surface_precip":
                             if "surface_precip_true" in data.variables:
                                 inds = data.surface_precip_true.data[indices] > 0.0
                             else:
                                 inds = data.surface_precip.data[indices] >= 0.0
-                            bins = (self.latitude_bins,
-                                    self.longitude.bins,
-                                    self.surface_precip_bins)
-                            vals = np.stack(
-                                [lats_v[inds].ravel(),
-                                 lons_v[inds].ravel(),
-                                 v[inds].ravel()],
-                                bins=bins
+                            bins = (
+                                self.latitude_bins,
+                                self.longitude_bins,
+                                self.surface_precip_bins,
                             )
-                            cs, _ = np.histogramdd(vals, bins=bins)
-                            self.surface_precip_mean[month] += cs
+                            vals = np.stack(
+                                [
+                                    lats_v[inds].ravel(),
+                                    lons_v[inds].ravel(),
+                                    var[inds].ravel(),
+                                ],
+                                axis=1,
+                            )
+                            counts, _ = np.histogramdd(vals, bins=bins)
+                            self.surface_precip_mean[month] += counts
 
                 if "surface_precip_samples" in data.variables:
                     if "surface_precip_true" in data.variables:
@@ -831,19 +750,15 @@ class GlobalDistribution(Statistic):
                         indices *= data.surface_precip.data >= 0.0
                     lons = data.longitude.data[indices]
                     lats = data.latitude.data[indices]
-                    v = data["surface_precip_samples"].data[indices]
-                    bins = (self.latitude_bins,
-                            self.longitude_bins,
-                            self.surface_precip_bins)
-                    vals = np.stack(
-                        [lats.ravel(), lons.ravel(), v.ravel()],
-                        bins=bins
+                    var = data["surface_precip_samples"].data[indices]
+                    bins = (
+                        self.latitude_bins,
+                        self.longitude_bins,
+                        self.surface_precip_bins,
                     )
-                    cs, _ = np.histogramdd(
-                        vals,
-                        bins=bins
-                    )
-                    self.surface_precip_samples[month] += cs
+                    vals = np.stack([lats.ravel(), lons.ravel(), var.ravel()])
+                    counts, _ = np.histogramdd(vals, bins=bins)
+                    self.surface_precip_samples[month] += counts
         else:
             data.latitude.load()
             data.longitude.load()
@@ -852,12 +767,12 @@ class GlobalDistribution(Statistic):
                     lats = data.latitude.data
                     lons = data.longitude.data
                     data[k].load()
-                    v = data[k].data
+                    var = data[k].data
 
                     selection = []
                     for i in range(lats.ndim):
                         n_lats = lats.shape[i]
-                        n_v = v.shape[i]
+                        n_v = var.shape[i]
                         d_n = (n_lats - n_v) // 2
                         if d_n > 0:
                             selection.append(slice(d_n, -d_n))
@@ -866,49 +781,57 @@ class GlobalDistribution(Statistic):
                     lats = lats[tuple(selection)]
                     lons = lons[tuple(selection)]
 
-                    if v.ndim > lats.ndim:
-                        shape = (lats.shape  +
-                                 tuple([1] * (v.ndim - lats.ndim)))
+                    if var.ndim > lats.ndim:
+                        shape = lats.shape + tuple([1] * (var.ndim - lats.ndim))
                         lats_v = lats.reshape(shape)
-                        lats_v = np.broadcast_to(lats_v, v.shape)
+                        lats_v = np.broadcast_to(lats_v, var.shape)
                         lons_v = lons.reshape(shape)
-                        lons_v = np.broadcast_to(lons_v, v.shape)
+                        lons_v = np.broadcast_to(lons_v, var.shape)
                     else:
                         lats_v = lats
                         lons_v = lons
-                    weights = np.isfinite(v).astype(np.float32)
-                    weights[v < -500] = 0.0
-                    cs, _, _ = np.histogram2d(lats_v.ravel(),
-                                              lons_v.ravel(),
-                                              bins=(self.latitude_bins,
-                                                    self.longitude_bins),
-                                              weights=weights.ravel())
-                    self.counts[k] += cs
-                    weights = np.nan_to_num(v, nan=0.0)
-                    weights[v < -500] = 0.0
-                    cs, _, _ = np.histogram2d(lats_v.ravel(),
-                                              lons_v.ravel(),
-                                              bins=(self.latitude_bins,
-                                                    self.longitude_bins),
-                                              weights=weights.ravel())
-                    self.sums[k] += cs
+                    weights = np.isfinite(var).astype(np.float32)
+                    weights[var < -500] = 0.0
+                    counts, _, _ = np.histogram2d(
+                        lats_v.ravel(),
+                        lons_v.ravel(),
+                        bins=(self.latitude_bins, self.longitude_bins),
+                        weights=weights.ravel(),
+                    )
+                    self.counts[k] += counts
+                    weights = np.nan_to_num(var, nan=0.0)
+                    weights[var < -500] = 0.0
+                    counts, _, _ = np.histogram2d(
+                        lats_v.ravel(),
+                        lons_v.ravel(),
+                        bins=(self.latitude_bins, self.longitude_bins),
+                        weights=weights.ravel(),
+                    )
+                    self.sums[k] += counts
 
                     if k == "surface_precip":
                         if "surface_precip_true" in data.variables:
                             inds = data.surface_precip_true.data > 0.0
                         else:
                             inds = data.surface_precip.data >= 0.0
-                        bins = (self.latitude_bins,
-                                self.longitude_bins,
-                                self.surface_precip_bins)
-                        vals = np.stack(
-                            [lats_v[inds].ravel(),
-                             lons_v[inds].ravel(),
-                             v[inds].ravel()],
-                            axis=1
+                        bins = (
+                            self.latitude_bins,
+                            self.longitude_bins,
+                            self.surface_precip_bins,
                         )
-                        cs, _, = np.histogramdd(vals, bins=bins)
-                        self.surface_precip_mean += cs
+                        vals = np.stack(
+                            [
+                                lats_v[inds].ravel(),
+                                lons_v[inds].ravel(),
+                                var[inds].ravel(),
+                            ],
+                            axis=1,
+                        )
+                        (
+                            counts,
+                            _,
+                        ) = np.histogramdd(vals, bins=bins)
+                        self.surface_precip_mean += counts
 
             if "surface_precip_samples" in data.variables:
                 if "surface_precip_true" in data.variables:
@@ -917,16 +840,18 @@ class GlobalDistribution(Statistic):
                     indices = data.surface_precip.data >= 0.0
                 lats = data.latitude.data[indices]
                 lons = data.longitude.data[indices]
-                v = data["surface_precip_samples"].data[indices]
-                bins = (self.latitude_bins,
-                        self.longitude_bins,
-                        self.surface_precip_bins)
-                vals = np.stack(
-                    [lats.ravel(), lons.ravel(), v.ravel()],
-                    axis=1
+                var = data["surface_precip_samples"].data[indices]
+                bins = (
+                    self.latitude_bins,
+                    self.longitude_bins,
+                    self.surface_precip_bins,
                 )
-                cs, _, = np.histogramdd(vals, bins=bins)
-                self.surface_precip_samples += cs
+                vals = np.stack([lats.ravel(), lons.ravel(), var.ravel()], axis=1)
+                (
+                    counts,
+                    _,
+                ) = np.histogramdd(vals, bins=bins)
+                self.surface_precip_samples += counts
 
     def merge(self, other):
         """
@@ -951,42 +876,42 @@ class GlobalDistribution(Statistic):
         """
         lats = 0.5 * (self.latitude_bins[1:] + self.latitude_bins[:-1])
         lons = 0.5 * (self.longitude_bins[1:] + self.longitude_bins[:-1])
-        data = xr.Dataset({
-            "latitude": (("latitude",), lats),
-            "longitude": (("longitude",), lons)
-        })
+        data = xr.Dataset(
+            {"latitude": (("latitude",), lats), "longitude": (("longitude",), lons)}
+        )
         if self.has_time:
             data["months"] = (("months"), np.arange(1, 13))
             for k in self.counts:
-                data[k] = (("months", "latitude", "longitude"),
-                           self.sums[k] / self.counts[k])
-                data[k + "_counts"] = (("months", "latitude", "longitude"),
-                                       self.counts[k])
+                data[k] = (
+                    ("months", "latitude", "longitude"),
+                    self.sums[k] / self.counts[k],
+                )
+                data[k + "_counts"] = (
+                    ("months", "latitude", "longitude"),
+                    self.counts[k],
+                )
                 data["surface_precip_mean"] = (
                     ("months", "latitude", "longitude", "surface_precip_bins"),
-                    self.surface_precip_mean
+                    self.surface_precip_mean,
                 )
                 data["surface_precip_samples"] = (
                     ("months", "latitude", "longitude", "surface_precip_bins"),
-                    self.surface_precip_samples
+                    self.surface_precip_samples,
                 )
         else:
             for k in self.counts:
-                data[k] = (("latitude", "longitude"),
-                           self.sums[k] / self.counts[k])
-                data[k + "_counts"] = (("latitude", "longitude"),
-                                       self.counts[k])
+                data[k] = (("latitude", "longitude"), self.sums[k] / self.counts[k])
+                data[k + "_counts"] = (("latitude", "longitude"), self.counts[k])
                 data["surface_precip_mean"] = (
                     ("latitude", "longitude", "surface_precip_bins"),
-                    self.surface_precip_mean
+                    self.surface_precip_mean,
                 )
                 data["surface_precip_samples"] = (
                     ("latitude", "longitude", "surface_precip_bins"),
-                    self.surface_precip_samples
+                    self.surface_precip_samples,
                 )
         destination = Path(destination)
-        output_file = (destination /
-                       f"global_distribution_{self.sensor.name.lower()}.nc")
+        output_file = destination / f"global_distribution_{self.sensor.name.lower()}.nc"
         data.to_netcdf(output_file)
 
 
@@ -995,8 +920,8 @@ class PositionalZonalMean(Statistic):
     Calculates zonal mean on a 1-degree latitude grid for all scan
     positions.
     """
-    def __init__(self,
-                 variable="surface_precip"):
+
+    def __init__(self, variable="surface_precip"):
         """
         Instantiate scan position mean statistic for given variable.
 
@@ -1024,11 +949,11 @@ class PositionalZonalMean(Statistic):
 
         for i in range(n_pixels):
             d_s = data[{"pixels": i}]
-            v = d_s[self.variable]
+            var = d_s[self.variable]
             lats = d_s.latitude.data.ravel()
 
             indices = np.digitize(lats, self.bins) - 1
-            self.sum[i, indices] += v
+            self.sum[i, indices] += var
             self.counts[i, indices] += 1.0
 
     def merge(self, other):
@@ -1049,11 +974,25 @@ class PositionalZonalMean(Statistic):
         Save results to file in NetCDF format.
         """
         lats = 0.5 * (self.bins[1:] + self.bins[:-1])
-        data = xr.Dataset({
-            "latitude": (("latitude",), lats),
-            "mean": (("pixels", "latitude",), self.sum / self.counts),
-            "counts": (("pixels", "latitude",),  self.counts)
-            })
+        data = xr.Dataset(
+            {
+                "latitude": (("latitude",), lats),
+                "mean": (
+                    (
+                        "pixels",
+                        "latitude",
+                    ),
+                    self.sum / self.counts,
+                ),
+                "counts": (
+                    (
+                        "pixels",
+                        "latitude",
+                    ),
+                    self.counts,
+                ),
+            }
+        )
 
         destination = Path(destination)
         output_file = destination / "positional_zonal_mean.nc"
@@ -1080,8 +1019,8 @@ class TrainingDataStatistics(Statistic):
     Calculates statistics of brightness temperatures, retrieval targets
     as well as ancillary data.
     """
-    def __init__(self,
-                 kind="1D"):
+
+    def __init__(self, kind="1D"):
         """
         Args:
             kind: The kind of dataset to use to load the data: '1D' or
@@ -1108,9 +1047,7 @@ class TrainingDataStatistics(Statistic):
         self.counts_tcwv = {}
         self.has_angles = False
 
-    def _initialize_data(self,
-                         sensor,
-                         data):
+    def _initialize_data(self, sensor, data):
         """
         Initialize internal storage that depends on data.
 
@@ -1123,19 +1060,30 @@ class TrainingDataStatistics(Statistic):
         self.has_angles = sensor.n_angles > 1
         if self.has_angles:
             n_angles = sensor.n_angles
-            self.angle_bins = calculate_angle_bins(sensor.angles[::-1])[::-1]
-            self.tbs = np.zeros((18, n_chans, n_angles, self.tb_bins.size - 1),
-                                dtype=np.float32)
+            self.angle_bins = sensor.angle_bins
+            self.tbs = np.zeros(
+                (18, n_chans, n_angles, self.tb_bins.size - 1), dtype=np.float32
+            )
             self.tbs_tcwv = np.zeros(
-                (18, n_chans, n_angles, 100, self.tb_bins.size - 1,),
-                dtype=np.float32
+                (
+                    18,
+                    n_chans,
+                    n_angles,
+                    100,
+                    self.tb_bins.size - 1,
+                ),
+                dtype=np.float32,
             )
         else:
-            self.tbs = np.zeros((18, n_chans, self.tb_bins.size - 1),
-                                dtype=np.float32)
+            self.tbs = np.zeros((18, n_chans, self.tb_bins.size - 1), dtype=np.float32)
             self.tbs_tcwv = np.zeros(
-                (18, n_chans, 100, self.tb_bins.size - 1,),
-                dtype=np.float32
+                (
+                    18,
+                    n_chans,
+                    100,
+                    self.tb_bins.size - 1,
+                ),
+                dtype=np.float32,
             )
 
         for k in ALL_TARGETS:
@@ -1151,9 +1099,7 @@ class TrainingDataStatistics(Statistic):
                 self.sums_tcwv[k] = np.zeros((18, 100))
                 self.counts_tcwv[k] = np.zeros((18, 100))
 
-    def process_file(self,
-                     sensor,
-                     filename):
+    def process_file(self, sensor, filename):
         """
         Process data from a single file.
 
@@ -1161,20 +1107,24 @@ class TrainingDataStatistics(Statistic):
             filename: The path of the data to process.
         """
         if self.kind.upper() == "1D":
-            dataset = GPROF_NN_1D_Dataset(filename,
-                                          targets=ALL_TARGETS,
-                                          normalize=False,
-                                          shuffle=False,
-                                          augment=False,
-                                          sensor=sensor)
+            dataset = GPROF_NN_1D_Dataset(
+                filename,
+                targets=ALL_TARGETS,
+                normalize=False,
+                shuffle=False,
+                augment=False,
+                sensor=sensor,
+            )
             dataset = dataset.to_xarray_dataset()
         elif self.kind.upper() == "3D":
-            dataset = GPROF_NN_3D_Dataset(filename,
-                                          targets=ALL_TARGETS,
-                                          normalize=False,
-                                          shuffle=False,
-                                          augment=False,
-                                          sensor=sensor)
+            dataset = GPROF_NN_3D_Dataset(
+                filename,
+                targets=ALL_TARGETS,
+                normalize=False,
+                shuffle=False,
+                augment=False,
+                sensor=sensor,
+            )
             dataset = dataset.to_xarray_dataset()
         else:
             raise ValueError("'kind'  must be '1D' or '3D'.")
@@ -1200,34 +1150,30 @@ class TrainingDataStatistics(Statistic):
                         upper = self.angle_bins[j]
                         i_a = (eia >= lower) * (eia < upper)
 
-                        cs, _ = np.histogram(
-                            tbs[i_a, i_c],
-                            bins=self.tb_bins
-                        )
-                        self.tbs[i, i_c, j] += cs
+                        counts, _ = np.histogram(tbs[i_a, i_c], bins=self.tb_bins)
+                        self.tbs[i, i_c, j] += counts
 
-                        cs, _, _ = np.histogram2d(
-                            tcwv[i_a], tbs[i_a, i_c],
-                            bins=(self.tcwv_bins, self.tb_bins)
+                        counts, _, _ = np.histogram2d(
+                            tcwv[i_a],
+                            tbs[i_a, i_c],
+                            bins=(self.tcwv_bins, self.tb_bins),
                         )
-                        self.tbs_tcwv[i, i_c, j] += cs
+                        self.tbs_tcwv[i, i_c, j] += counts
                 else:
-                    cs, _ = np.histogram(tbs[..., i_c], bins=self.tb_bins)
-                    self.tbs[i, i_c] += cs
-                    cs, _, _ = np.histogram2d(
-                        tcwv, tbs[..., i_c],
-                        bins=(self.tcwv_bins, self.tb_bins)
+                    counts, _ = np.histogram(tbs[..., i_c], bins=self.tb_bins)
+                    self.tbs[i, i_c] += counts
+                    counts, _, _ = np.histogram2d(
+                        tcwv, tbs[..., i_c], bins=(self.tcwv_bins, self.tb_bins)
                     )
-                    self.tbs_tcwv[i, i_c] += cs
+                    self.tbs_tcwv[i, i_c] += counts
 
             # Retrieval targets
             for k in self.bins:
                 v = dataset[k].data[i_st]
                 # Surface precip and convective precip must be treated
                 # separately.
-                cs, _ = np.histogram(v, bins=self.bins[k])
-                self.targets[k][i] += cs
-
+                counts, _ = np.histogram(v, bins=self.bins[k])
+                self.targets[k][i] += counts
 
                 # Conditional mean
                 tcwv = dataset["total_column_water_vapor"].data[i_st]
@@ -1245,23 +1191,21 @@ class TrainingDataStatistics(Statistic):
                     tcwv, bins=self.tcwv_bins, weights=mask.astype(np.float64)
                 )[0]
 
-
             # Ancillary data
             v = dataset["two_meter_temperature"].data[i_st]
-            cs, _ = np.histogram(v, bins=self.t2m_bins)
-            self.t2m[i] += cs
+            counts, _ = np.histogram(v, bins=self.t2m_bins)
+            self.t2m[i] += counts
             v = dataset["total_column_water_vapor"].data[i_st]
-            cs, _ = np.histogram(v, bins=self.tcwv_bins)
-            self.tcwv[i] += cs
-
+            counts, _ = np.histogram(v, bins=self.tcwv_bins)
+            self.tcwv[i] += counts
 
         bins = np.arange(0, 19) + 0.5
-        cs, _ = np.histogram(st, bins=bins)
-        self.st += cs
+        counts, _ = np.histogram(st, bins=bins)
+        self.st += counts
         at = dataset["airmass_type"]
         bins = np.arange(-1, 4) + 0.5
-        cs, _ = np.histogram(at, bins=bins)
-        self.at += cs
+        counts, _ = np.histogram(at, bins=bins)
+        self.at += counts
 
     def merge(self, other):
         """
@@ -1299,39 +1243,43 @@ class TrainingDataStatistics(Statistic):
         tb_bins = 0.5 * (self.tb_bins[1:] + self.tb_bins[:-1])
         data["brightness_temperature_bins"] = (
             ("brightness_temperature_bins",),
-            tb_bins
+            tb_bins,
         )
 
         if self.has_angles:
             data["brightness_temperatures"] = (
-                ("surface_type_bins",
-                 "channels",
-                 "angles",
-                 "brightness_temperature_bins"),
-                self.tbs
+                (
+                    "surface_type_bins",
+                    "channels",
+                    "angles",
+                    "brightness_temperature_bins",
+                ),
+                self.tbs,
             )
             data["brightness_temperatures_tcwv"] = (
-                ("surface_type_bins",
-                 "channels",
-                 "angles",
-                 "total_column_water_vapor_bins",
-                 "brightness_temperature_bins"),
-                self.tbs_tcwv
-                )
+                (
+                    "surface_type_bins",
+                    "channels",
+                    "angles",
+                    "total_column_water_vapor_bins",
+                    "brightness_temperature_bins",
+                ),
+                self.tbs_tcwv,
+            )
         else:
             data["brightness_temperatures"] = (
-                ("surface_type_bins",
-                 "channels",
-                 "brightness_temperature_bins"),
-                self.tbs
+                ("surface_type_bins", "channels", "brightness_temperature_bins"),
+                self.tbs,
             )
             data["brightness_temperatures_tcwv"] = (
-                ("surface_type_bins",
-                 "channels",
-                 "total_column_water_vapor_bins",
-                 "brightness_temperature_bins"),
-                self.tbs_tcwv
-                )
+                (
+                    "surface_type_bins",
+                    "channels",
+                    "total_column_water_vapor_bins",
+                    "brightness_temperature_bins",
+                ),
+                self.tbs_tcwv,
+            )
 
         for k in self.targets:
             bins = 0.5 * (self.bins[k][1:] + self.bins[k][:-1])
@@ -1341,15 +1289,12 @@ class TrainingDataStatistics(Statistic):
 
             data[k + "_mean_tcwv"] = (
                 ("surface_type", "tcwv_bins"),
-                self.sums_tcwv[k] / self.counts_tcwv[k]
+                self.sums_tcwv[k] / self.counts_tcwv[k],
             )
-            data[k + "_sums_tcwv"] = (
-                ("surface_type", "tcwv_bins"),
-                self.sums_tcwv[k]
-            )
+            data[k + "_sums_tcwv"] = (("surface_type", "tcwv_bins"), self.sums_tcwv[k])
             data[k + "_counts_tcwv"] = (
                 ("surface_type", "tcwv_bins"),
-                self.counts_tcwv[k]
+                self.counts_tcwv[k],
             )
 
         bins = 0.5 * (self.t2m_bins[1:] + self.t2m_bins[:-1])
@@ -1368,145 +1313,9 @@ class TrainingDataStatistics(Statistic):
         data = xr.Dataset(data)
 
         destination = Path(destination)
-        output_file = (destination /
-                       (f"training_data_statistics_{self.sensor.name.lower()}"
-                        ".nc"))
-        data.to_netcdf(output_file)
-
-
-class CorrectedObservations(Statistic):
-    """
-    Class to calculate relevant statistics from training data files.
-    Calculates statistics of brightness temperatures, retrieval targets
-    as well as ancillary data.
-    """
-    def __init__(self,
-                 equalizer):
-        """
-        Args:
-            conditional: If provided should identify a channel for which
-                conditional of all other channels will be calculated.
-        """
-        self.tbs = None
-        self.angle_bins = None
-        self.tb_bins = np.linspace(0, 400, 401)
-        self.equalizer = equalizer
-
-    def _initialize_data(self,
-                         sensor,
-                         data):
-        """
-        Initialize internal storage that depends on data.
-
-        Args:
-            sensor: Sensor object identifying the sensor from which the data
-                stems.
-            data: ``xarray.Dataset`` containing the data to process.
-        """
-        n_chans = sensor.n_chans
-        self.has_angles = sensor.n_angles > 1
-        if self.has_angles:
-            n_angles = sensor.n_angles
-            self.angle_bins = np.zeros(sensor.angles.size + 1)
-            self.angle_bins[1:-1] = 0.5 * (sensor.angles[1:] +
-                                           sensor.angles[:-1])
-            self.angle_bins[0] = 2.0 * self.angle_bins[1] - self.angle_bins[2]
-            self.angle_bins[-1] = (2.0 * self.angle_bins[-2] -
-                                   self.angle_bins[-3])
-            self.tbs = np.zeros((18, n_chans, n_angles, self.tb_bins.size - 1),
-                                dtype=np.float32)
-        else:
-            self.tbs = np.zeros((18, n_chans, self.tb_bins.size - 1),
-                                dtype=np.float32)
-
-    def process_file(self,
-                     sensor,
-                     filename):
-        """
-        Process data from a single file.
-
-        Args:
-            filename: The path of the data to process.
-        """
-        self.sensor = sensor
-        dataset = xr.open_dataset(filename)
-        if self.tbs is None:
-            self._initialize_data(sensor, dataset)
-
-        x, y = sensor.load_training_data_0d(filename,
-                                            [],
-                                            False,
-                                            np.random.default_rng(),
-                                            equalizer=self.equalizer)
-
-        st = np.copy(x[:, -22:-4])
-        st[np.all(st == 0, axis=-1), 0] = 1
-        st = np.where(st)[1]
-        tbs = x[:, :sensor.n_chans]
-
-        for i in range(18):
-            # Select only TBs that are actually used for training.
-            i_st = (st == i)
-
-            # Sensor with varying EIA (cross track).
-            if self.has_angles:
-                eia = np.abs(x[:, sensor.n_chans])
-                for j in range(sensor.n_angles):
-                    lower = self.angle_bins[j + 1]
-                    upper = self.angle_bins[j]
-                    inds = i_st * (eia >= lower) * (eia < upper)
-                    for k in range(sensor.n_chans):
-                        cs, _ = np.histogram(tbs[inds, k],
-                                             bins=self.tb_bins)
-                        self.tbs[i, k, j] += cs
-            # Sensor with constant EIA
-            else:
-                for j in range(sensor.n_chans):
-                    cs, _ = np.histogram(tbs[i_st, j], bins=self.tb_bins)
-                    self.tbs[i, j] += cs
-
-    def merge(self, other):
-        """
-        Merge the data of this statistic with that calculated in a different
-        process.
-        """
-        if self.tbs is None:
-            self.tbs = other.tbs
-        elif other.tbs is not None:
-            self.tbs += other.tbs
-
-    def save(self, destination):
-        """
-        Save results to file in NetCDF format.
-        """
-        data = {}
-        tb_bins = 0.5 * (self.tb_bins[1:] + self.tb_bins[:-1])
-        data["brightness_temperature_bins"] = (
-            ("brightness_temperature_bins",),
-            tb_bins
+        output_file = destination / (
+            f"training_data_statistics_{self.sensor.name.lower()}" ".nc"
         )
-
-        if self.has_angles:
-            data["brightness_temperatures"] = (
-                ("surface_type_bins",
-                 "channels",
-                 "angles",
-                 "brightness_temperature_bins"),
-                self.tbs
-            )
-        else:
-            data["brightness_temperatures"] = (
-                ("surface_type_bins",
-                 "channels",
-                 "brightness_temperature_bins"),
-                self.tbs
-            )
-
-        data = xr.Dataset(data)
-        destination = Path(destination)
-        output_file = (destination /
-                       (f"corrected_observation_statistics_{self.sensor.name.lower()}"
-                        ".nc"))
         data.to_netcdf(output_file)
 
 
@@ -1516,6 +1325,7 @@ class BinFileStatistics(Statistic):
     Calculates statistics of brightness temperatures, retrieval targets
     as well as ancillary data.
     """
+
     def __init__(self):
         self.targets = {}
         self.sums_t2m = {}
@@ -1523,38 +1333,31 @@ class BinFileStatistics(Statistic):
         self.sums_tcwv = {}
         self.counts_tcwv = {}
 
-    def _initialize_data(self,
-                         sensor,
-                         data):
+    def _initialize_data(self, sensor, data):
         self.tb_bins = np.linspace(0, 400, 401)
         n_chans = sensor.n_chans
         self.has_angles = sensor.n_angles > 1
         if self.has_angles:
             n_angles = sensor.n_angles
             self.angle_bins = np.zeros(sensor.angles.size + 1)
-            self.angle_bins[1:-1] = 0.5 * (sensor.angles[1:] +
-                                           sensor.angles[:-1])
+            self.angle_bins[1:-1] = 0.5 * (sensor.angles[1:] + sensor.angles[:-1])
             self.angle_bins[0] = 2.0 * self.angle_bins[1] - self.angle_bins[2]
-            self.angle_bins[-1] = (2.0 * self.angle_bins[-2] -
-                                   self.angle_bins[-3])
-            self.tbs = np.zeros((18, n_chans, n_angles, self.tb_bins.size - 1),
-                                dtype=np.float32)
+            self.angle_bins[-1] = 2.0 * self.angle_bins[-2] - self.angle_bins[-3]
+            self.tbs = np.zeros(
+                (18, n_chans, n_angles, self.tb_bins.size - 1), dtype=np.float32
+            )
         else:
-            self.tbs = np.zeros((18, n_chans, self.tb_bins.size - 1),
-                                dtype=np.float32)
+            self.tbs = np.zeros((18, n_chans, self.tb_bins.size - 1), dtype=np.float32)
 
         self.targets = {}
         self.bins = {}
         for k in ALL_TARGETS:
             if k in data.variables:
                 # Surface and convective precip have angle depen
-                if (k in ["surface_precip", "convective_precip"] and
-                    self.has_angles):
-                    self.targets[k] = np.zeros((18, n_angles, 200),
-                                               dtype=np.float32)
+                if k in ["surface_precip", "convective_precip"] and self.has_angles:
+                    self.targets[k] = np.zeros((18, n_angles, 200), dtype=np.float32)
                 else:
-                    self.targets[k] = np.zeros((18, 200),
-                                               dtype=np.float32)
+                    self.targets[k] = np.zeros((18, 200), dtype=np.float32)
                 l, h = LIMITS[k]
                 if l > 0:
                     self.bins[k] = np.logspace(np.log10(l), np.log10(h), 201)
@@ -1573,8 +1376,7 @@ class BinFileStatistics(Statistic):
         self.st = np.zeros(18, dtype=np.float32)
         self.at = np.zeros(4, dtype=np.float32)
 
-    def open_file(self,
-                  filename):
+    def open_file(self, filename):
         """
         Open input file with given name and returns data as 'xarray.Dataset'.
 
@@ -1586,9 +1388,7 @@ class BinFileStatistics(Statistic):
         """
         return BinFile(filename).to_xarray_dataset()
 
-    def process_file(self,
-                     sensor,
-                     filename):
+    def process_file(self, sensor, filename):
         """
         Process data from a single file.
 
@@ -1613,45 +1413,40 @@ class BinFileStatistics(Statistic):
                     i_a = dataset["pixel_position"].data == (a + 1)
                     tbs = dataset["brightness_temperatures"].data[i_a]
                     for k in range(sensor.n_chans):
-                        cs, _ = np.histogram(tbs[:, k],
-                                             bins=self.tb_bins)
-                        self.tbs[st - 1, k, a] += cs
+                        counts, _ = np.histogram(tbs[:, k], bins=self.tb_bins)
+                        self.tbs[st - 1, k, a] += counts
             else:
                 for a in range(sensor.n_angles):
                     tbs = dataset["brightness_temperatures"].data
                     for k in range(sensor.n_chans):
-                        cs, _ = np.histogram(tbs[:, a, k],
-                                             bins=self.tb_bins)
-                        self.tbs[st - 1, k, a] += cs
+                        counts, _ = np.histogram(tbs[:, a, k], bins=self.tb_bins)
+                        self.tbs[st - 1, k, a] += counts
         # Sensor with constant EIA.
         else:
             tbs = dataset["brightness_temperatures"]
             for k in range(sensor.n_chans):
-                cs, _ = np.histogram(tbs[:, k],
-                                     bins=self.tb_bins)
-                self.tbs[st - 1, k] += cs
+                counts, _ = np.histogram(tbs[:, k], bins=self.tb_bins)
+                self.tbs[st - 1, k] += counts
 
         # Retrieval targets
         for k in self.bins:
             v = dataset[k].data
             # Surface precip and convective precip must be treated
             # separately.
-            if ((k in ["surface_precip", "convective_precip"]) and
-                self.has_angles):
+            if (k in ["surface_precip", "convective_precip"]) and self.has_angles:
                 if st in [2, 8, 9, 10, 11, 16]:
                     for a in range(sensor.n_angles):
                         i_a = dataset["pixel_position"].data == (a + 1)
-                        cs, _ = np.histogram(v[i_a], bins=self.bins[k])
-                        self.targets[k][st - 1, a] += cs
+                        counts, _ = np.histogram(v[i_a], bins=self.bins[k])
+                        self.targets[k][st - 1, a] += counts
                 else:
                     for a in range(sensor.n_angles):
-                        cs, _ = np.histogram(v[:, a], bins=self.bins[k])
-                        self.targets[k][st - 1, a] += cs
-
+                        counts, _ = np.histogram(v[:, a], bins=self.bins[k])
+                        self.targets[k][st - 1, a] += counts
 
             else:
-                cs, _ = np.histogram(v, bins=self.bins[k])
-                self.targets[k][st - 1] += cs
+                counts, _ = np.histogram(v, bins=self.bins[k])
+                self.targets[k][st - 1] += counts
 
             t2m = dataset["two_meter_temperature"].data
             tcwv = dataset["total_column_water_vapor"].data
@@ -1665,9 +1460,7 @@ class BinFileStatistics(Statistic):
             self.sums_t2m[k][st - 1] += np.histogram(
                 t2m[inds], bins=self.t2m_bins, weights=v[inds]
             )[0]
-            self.counts_t2m[k][st - 1] += np.histogram(
-                t2m[inds], bins=self.t2m_bins
-            )[0]
+            self.counts_t2m[k][st - 1] += np.histogram(t2m[inds], bins=self.t2m_bins)[0]
             self.sums_tcwv[k][st - 1] += np.histogram(
                 tcwv[inds], bins=self.tcwv_bins, weights=v[inds]
             )[0]
@@ -1677,19 +1470,19 @@ class BinFileStatistics(Statistic):
 
         # Ancillary data
         v = dataset["two_meter_temperature"].data
-        cs, _ = np.histogram(v, bins=self.t2m_bins)
-        self.t2m[st - 1] += cs
+        counts, _ = np.histogram(v, bins=self.t2m_bins)
+        self.t2m[st - 1] += counts
         v = dataset["total_column_water_vapor"].data
-        cs, _ = np.histogram(v, bins=self.tcwv_bins)
-        self.tcwv[st - 1] += cs
+        counts, _ = np.histogram(v, bins=self.tcwv_bins)
+        self.tcwv[st - 1] += counts
 
         bins = np.arange(0, 19) + 0.5
-        cs, _ = np.histogram(dataset["surface_type"].data, bins=bins)
-        self.st += cs
+        counts, _ = np.histogram(dataset["surface_type"].data, bins=bins)
+        self.st += counts
         at = dataset["airmass_type"].data
         bins = np.arange(-1, 4) + 0.5
-        cs, _ = np.histogram(at, bins=bins)
-        self.at += cs
+        counts, _ = np.histogram(at, bins=bins)
+        self.at += counts
 
     def merge(self, other):
         """
@@ -1718,49 +1511,45 @@ class BinFileStatistics(Statistic):
         tb_bins = 0.5 * (self.tb_bins[1:] + self.tb_bins[:-1])
         data["brightness_temperature_bins"] = (
             ("brightness_temperature_bins",),
-            tb_bins
+            tb_bins,
         )
 
         if self.has_angles:
             data["brightness_temperatures"] = (
-                ("surface_type_bins",
-                 "channels",
-                 "angles",
-                 "brightness_temperature_bins"),
-                self.tbs
+                (
+                    "surface_type_bins",
+                    "channels",
+                    "angles",
+                    "brightness_temperature_bins",
+                ),
+                self.tbs,
             )
         else:
             data["brightness_temperatures"] = (
-                ("surface_type_bins",
-                 "channels",
-                 "brightness_temperature_bins"),
-                self.tbs
+                ("surface_type_bins", "channels", "brightness_temperature_bins"),
+                self.tbs,
             )
 
         for k in self.targets:
             bins = 0.5 * (self.bins[k][1:] + self.bins[k][:-1])
             bin_dim = k + "_bins"
             data[bin_dim] = (bin_dim,), bins
-            if (self.has_angles
-                and k in ["surface_precip", "convective_precip"]):
+            if self.has_angles and k in ["surface_precip", "convective_precip"]:
                 data[k] = ("surface_type", "angles", bin_dim), self.targets[k]
             else:
                 data[k] = ("surface_type", bin_dim), self.targets[k]
             data[k + "_mean_tcwv"] = (
                 ("surface_type", "tcwv_bins"),
-                self.sums_tcwv[k] / self.counts_tcwv[k]
+                self.sums_tcwv[k] / self.counts_tcwv[k],
             )
-            data[k + "_sums_tcwv"] = (
-                ("surface_type", "tcwv_bins"),
-                self.sums_tcwv[k]
-            )
+            data[k + "_sums_tcwv"] = (("surface_type", "tcwv_bins"), self.sums_tcwv[k])
             data[k + "_counts_tcwv"] = (
                 ("surface_type", "tcwv_bins"),
-                self.counts_tcwv[k]
+                self.counts_tcwv[k],
             )
             data[k + "_mean_t2m"] = (
                 ("surface_type", "t2m_bins"),
-                self.sums_t2m[k] / self.counts_t2m[k]
+                self.sums_t2m[k] / self.counts_t2m[k],
             )
 
         bins = 0.5 * (self.t2m_bins[1:] + self.t2m_bins[:-1])
@@ -1779,9 +1568,9 @@ class BinFileStatistics(Statistic):
         data = xr.Dataset(data)
 
         destination = Path(destination)
-        output_file = (destination /
-                       (f"bin_file_statistics_{self.sensor.name.lower()}"
-                        ".nc"))
+        output_file = destination / (
+            f"bin_file_statistics_{self.sensor.name.lower()}" ".nc"
+        )
         data.to_netcdf(output_file)
 
 
@@ -1789,8 +1578,8 @@ class ObservationStatistics(Statistic):
     """
     This statistic calculates TB distributions from L1C files.
     """
-    def __init__(self,
-                 conditional=None):
+
+    def __init__(self, conditional=None):
         """
         Args:
             conditional: If provided should identify a channel for which
@@ -1808,37 +1597,42 @@ class ObservationStatistics(Statistic):
         self.st = np.zeros(18, dtype=np.float32)
         self.at = np.zeros(4, dtype=np.float32)
 
-    def _initialize_data(self,
-                         sensor,
-                         data):
+    def _initialize_data(self, sensor, data):
         n_chans = sensor.n_chans
         self.has_angles = sensor.n_angles > 1
         if self.has_angles:
             n_angles = sensor.n_angles
             self.angle_bins = np.zeros(sensor.angles.size + 1)
-            self.angle_bins[1:-1] = 0.5 * (sensor.angles[1:] +
-                                           sensor.angles[:-1])
+            self.angle_bins[1:-1] = 0.5 * (sensor.angles[1:] + sensor.angles[:-1])
             self.angle_bins[0] = 2.0 * self.angle_bins[1] - self.angle_bins[2]
-            self.angle_bins[-1] = (2.0 * self.angle_bins[-2] -
-                                   self.angle_bins[-3])
-            self.tbs = np.zeros((18, n_chans, n_angles, self.tb_bins.size - 1),
-                                dtype=np.float32)
+            self.angle_bins[-1] = 2.0 * self.angle_bins[-2] - self.angle_bins[-3]
+            self.tbs = np.zeros(
+                (18, n_chans, n_angles, self.tb_bins.size - 1), dtype=np.float32
+            )
             self.tbs_tcwv = np.zeros(
-                (18, n_chans, n_angles, 100, self.tb_bins.size - 1,),
-                dtype=np.float32
+                (
+                    18,
+                    n_chans,
+                    n_angles,
+                    100,
+                    self.tb_bins.size - 1,
+                ),
+                dtype=np.float32,
             )
 
         else:
-            self.tbs = np.zeros((18, n_chans, self.tb_bins.size - 1),
-                                dtype=np.float32)
+            self.tbs = np.zeros((18, n_chans, self.tb_bins.size - 1), dtype=np.float32)
             self.tbs_tcwv = np.zeros(
-                (18, n_chans, 100, self.tb_bins.size - 1,),
-                dtype=np.float32
+                (
+                    18,
+                    n_chans,
+                    100,
+                    self.tb_bins.size - 1,
+                ),
+                dtype=np.float32,
             )
 
-    def process_file(self,
-                     sensor,
-                     filename):
+    def process_file(self, sensor, filename):
         """
         Process data from a single file.
 
@@ -1856,7 +1650,7 @@ class ObservationStatistics(Statistic):
             tcwv = dataset["total_column_water_vapor"].data[i_st]
 
             # Sensor with varying EIA (cross track).
-            tbs = (dataset["brightness_temperatures"] .data[i_st.data])
+            tbs = dataset["brightness_temperatures"].data[i_st.data]
             if self.has_angles:
                 eia = np.abs(dataset["earth_incidence_angle"].data[i_st])
                 for j in range(sensor.n_angles):
@@ -1864,42 +1658,39 @@ class ObservationStatistics(Statistic):
                     upper = self.angle_bins[j]
                     i_a = (eia >= lower) * (eia < upper)
                     for k in range(sensor.n_chans):
-                        cs, _ = np.histogram(tbs[i_a, k],
-                                             bins=self.tb_bins)
-                        self.tbs[i, k, j] += cs
+                        counts, _ = np.histogram(tbs[i_a, k], bins=self.tb_bins)
+                        self.tbs[i, k, j] += counts
 
-                        cs, _, _ = np.histogram2d(
-                            tcwv[i_a], tbs[i_a, k],
-                            bins=(self.tcwv_bins, self.tb_bins)
+                        counts, _, _ = np.histogram2d(
+                            tcwv[i_a], tbs[i_a, k], bins=(self.tcwv_bins, self.tb_bins)
                         )
-                        self.tbs_tcwv[i, k, j] += cs
+                        self.tbs_tcwv[i, k, j] += counts
 
             # Sensor with constant EIA
             else:
                 for j in range(sensor.n_chans):
-                    cs, _ = np.histogram(tbs[:, j], bins=self.tb_bins)
-                    self.tbs[i, j] += cs
-                    cs, _, _ = np.histogram2d(
-                        tcwv, tbs[:, j],
-                        bins=(self.tcwv_bins, self.tb_bins)
+                    counts, _ = np.histogram(tbs[:, j], bins=self.tb_bins)
+                    self.tbs[i, j] += counts
+                    counts, _, _ = np.histogram2d(
+                        tcwv, tbs[:, j], bins=(self.tcwv_bins, self.tb_bins)
                     )
-                    self.tbs_tcwv[i, j] += cs
+                    self.tbs_tcwv[i, j] += counts
 
             # Ancillary data
             v = dataset["two_meter_temperature"].data[i_st]
-            cs, _ = np.histogram(v, bins=self.t2m_bins)
-            self.t2m[i] += cs
+            counts, _ = np.histogram(v, bins=self.t2m_bins)
+            self.t2m[i] += counts
             v = dataset["total_column_water_vapor"].data[i_st]
-            cs, _ = np.histogram(v, bins=self.tcwv_bins)
-            self.tcwv[i] += cs
+            counts, _ = np.histogram(v, bins=self.tcwv_bins)
+            self.tcwv[i] += counts
 
         bins = np.arange(0, 19) + 0.5
-        cs, _ = np.histogram(st, bins=bins)
-        self.st += cs
+        counts, _ = np.histogram(st, bins=bins)
+        self.st += counts
         at = dataset["airmass_type"].data
         bins = np.arange(-1, 4) + 0.5
-        cs, _ = np.histogram(at, bins=bins)
-        self.at += cs
+        counts, _ = np.histogram(at, bins=bins)
+        self.at += counts
 
         dataset.close()
         del dataset
@@ -1932,39 +1723,43 @@ class ObservationStatistics(Statistic):
         tb_bins = 0.5 * (self.tb_bins[1:] + self.tb_bins[:-1])
         data["brightness_temperature_bins"] = (
             ("brightness_temperature_bins",),
-            tb_bins
+            tb_bins,
         )
 
         if self.has_angles:
             data["brightness_temperatures"] = (
-                ("surface_type_bins",
-                 "channels",
-                 "angles",
-                 "brightness_temperature_bins"),
-                self.tbs
+                (
+                    "surface_type_bins",
+                    "channels",
+                    "angles",
+                    "brightness_temperature_bins",
+                ),
+                self.tbs,
             )
             data["brightness_temperatures_tcwv"] = (
-                ("surface_type_bins",
-                 "channels",
-                 "angles",
-                 "total_column_water_vapor_bins",
-                 "brightness_temperature_bins"),
-                self.tbs_tcwv
-                )
+                (
+                    "surface_type_bins",
+                    "channels",
+                    "angles",
+                    "total_column_water_vapor_bins",
+                    "brightness_temperature_bins",
+                ),
+                self.tbs_tcwv,
+            )
         else:
             data["brightness_temperatures"] = (
-                ("surface_type_bins",
-                 "channels",
-                 "brightness_temperature_bins"),
-                self.tbs
+                ("surface_type_bins", "channels", "brightness_temperature_bins"),
+                self.tbs,
             )
             data["brightness_temperatures_tcwv"] = (
-                ("surface_type_bins",
-                 "channels",
-                 "total_column_water_vapor_bins",
-                 "brightness_temperature_bins"),
-                self.tbs_tcwv
-                )
+                (
+                    "surface_type_bins",
+                    "channels",
+                    "total_column_water_vapor_bins",
+                    "brightness_temperature_bins",
+                ),
+                self.tbs_tcwv,
+            )
 
         bins = 0.5 * (self.t2m_bins[1:] + self.t2m_bins[:-1])
         bin_dim = "two_meter_temperature_bins"
@@ -1982,9 +1777,9 @@ class ObservationStatistics(Statistic):
         data = xr.Dataset(data)
 
         destination = Path(destination)
-        output_file = (destination /
-                       (f"observation_statistics_{self.sensor.name.lower()}"
-                        ".nc"))
+        output_file = destination / (
+            f"observation_statistics_{self.sensor.name.lower()}" ".nc"
+        )
         data.to_netcdf(output_file)
 
 
@@ -2011,9 +1806,7 @@ class RetrievalStatistics(Statistic):
         self.t2m_bins = np.linspace(239.5, 339.5, 101)
         self.tcwv_bins = np.linspace(-0.5, 99.5, 101)
 
-    def _initialize_data(self,
-                         sensor,
-                         data):
+    def _initialize_data(self, sensor, data):
         """
         Initialize internal storage that depends on data.
 
@@ -2027,8 +1820,7 @@ class RetrievalStatistics(Statistic):
 
         for k in ALL_TARGETS:
             if k in data.variables:
-                self.targets[k] = np.zeros((18, 200),
-                                           dtype=np.float32)
+                self.targets[k] = np.zeros((18, 200), dtype=np.float32)
                 l, h = LIMITS[k]
                 if l > 0:
                     self.bins[k] = np.logspace(np.log10(l), np.log10(h), 201)
@@ -2042,9 +1834,7 @@ class RetrievalStatistics(Statistic):
                 self.sums_tcwv_center[k] = np.zeros((18, 100))
                 self.counts_tcwv_center[k] = np.zeros((18, 100))
 
-    def process_file(self,
-                     sensor,
-                     filename):
+    def process_file(self, sensor, filename):
         """
         Process data from a single file.
 
@@ -2053,8 +1843,8 @@ class RetrievalStatistics(Statistic):
             filename: The path of the data to process.
         """
         self.sensor = sensor
-        dataset = xr.open_dataset(filename)
-        if not len(self.targets):
+        dataset = open_file(filename)
+        if len(self.targets) == 0:
             self._initialize_data(sensor, dataset)
 
         t_s = dataset["surface_type"].data
@@ -2062,47 +1852,48 @@ class RetrievalStatistics(Statistic):
         for i in range(18):
 
             # Select obs for given surface type.
-            i_s = (t_s == i + 1)
+            i_s = t_s == i + 1
 
             # Retrieval targets
             for k in self.bins:
 
-                v = dataset[k].data
-                if v.ndim <= 2:
-                    inds = i_s * (v > -999)
+                var = dataset[k].data
+                if var.ndim <= 2:
+                    inds = i_s * (var > -999)
                 else:
-                    inds = i_s * np.all(v > -999, axis=-1)
+                    inds = i_s * np.all(var > -999, axis=-1)
 
-                v = v[inds]
+                var = var[inds]
                 t2m = dataset["two_meter_temperature"].data[inds]
                 tcwv = dataset["total_column_water_vapor"].data[inds]
 
                 # Histogram
-                cs, _ = np.histogram(v, bins=self.bins[k])
-                self.targets[k][i] += cs
+                counts, _ = np.histogram(var, bins=self.bins[k])
+                self.targets[k][i] += counts
 
-                if v.ndim > t2m.ndim:
+                if var.ndim > t2m.ndim:
                     t2m = np.repeat(t2m.reshape(-1, 1), 28, axis=-1)
                     tcwv = np.repeat(tcwv.reshape(-1, 1), 28, axis=-1)
 
                 # Conditional mean
-                mask = v > -999
-                v = v.copy()
-                v[~mask] = 0.0
+                mask = var > -999
+                var = var.copy()
+                var[~mask] = 0.0
 
-                self.sums_t2m[k][i] += np.histogram(
-                    t2m, bins=self.t2m_bins, weights=v
-                )[0]
+                self.sums_t2m[k][i] += np.histogram(t2m, bins=self.t2m_bins, weights=var)[
+                    0
+                ]
                 self.counts_t2m[k][i] += np.histogram(
-                    t2m, bins=self.t2m_bins, weights=mask.astype(np.float64),
+                    t2m,
+                    bins=self.t2m_bins,
+                    weights=mask.astype(np.float64),
                 )[0]
                 self.sums_tcwv[k][i] += np.histogram(
-                    tcwv, bins=self.tcwv_bins, weights=v
+                    tcwv, bins=self.tcwv_bins, weights=var
                 )[0]
                 self.counts_tcwv[k][i] += np.histogram(
                     tcwv, bins=self.tcwv_bins, weights=mask.astype(np.float64)
                 )[0]
-
 
                 #
                 # Swath center
@@ -2112,23 +1903,23 @@ class RetrievalStatistics(Statistic):
                 if dataset["two_meter_temperature"].data.ndim > 1:
                     i_start = 110 - 12
                     i_end = 110 + 13
-                    v = dataset[k].data[:, i_start:i_end]
-                    if v.ndim <= 2:
-                        inds = i_s[:, i_start:i_end] * (v > -999)
+                    var = dataset[k].data[:, i_start:i_end]
+                    if var.ndim <= 2:
+                        inds = i_s[:, i_start:i_end] * (var > -999)
                     else:
-                        inds = i_s[:, i_start:i_end] * np.all(v > -999, axis=-1)
-                    v = v[inds]
-                    mask = v > -999
-                    v = v.copy()
-                    v[~mask] = 0.0
+                        inds = i_s[:, i_start:i_end] * np.all(var > -999, axis=-1)
+                    var = var[inds]
+                    mask = var > -999
+                    var = var.copy()
+                    var[~mask] = 0.0
                     t2m = dataset["two_meter_temperature"]
                     t2m = t2m.data[:, i_start:i_end][inds]
                     tcwv = dataset["total_column_water_vapor"]
                     tcwv = tcwv.data[:, i_start:i_end][inds]
-                    if v.ndim > t2m.ndim:
+                    if var.ndim > t2m.ndim:
                         tcwv = np.repeat(tcwv.reshape(-1, 1), 28, axis=-1)
                     self.sums_tcwv_center[k][i] += np.histogram(
-                        tcwv, bins=self.tcwv_bins, weights=v
+                        tcwv, bins=self.tcwv_bins, weights=var
                     )[0]
                     self.counts_tcwv_center[k][i] += np.histogram(
                         tcwv, bins=self.tcwv_bins, weights=mask.astype(np.float64)
@@ -2139,15 +1930,14 @@ class RetrievalStatistics(Statistic):
         Merge the data of this statistic with that calculated in a different
         process.
         """
-        if not len(self.targets):
+        if len(self.targets) == 0:
             self.targets = other.targets
             self.bins = other.bins
             self.sums_t2m = other.sums_t2m
             self.counts_t2m = other.counts_t2m
             self.sums_tcwv = other.sums_tcwv
             self.counts_tcwv = other.counts_tcwv
-
-        elif len(self.targets):
+        elif len(other.targets) > 0:
             for k in self.targets:
                 self.targets[k] += other.targets[k]
                 self.sums_t2m[k] += other.sums_t2m[k]
@@ -2164,14 +1954,11 @@ class RetrievalStatistics(Statistic):
         data = {}
 
         t2m_bins = 0.5 * (self.t2m_bins[1:] + self.t2m_bins[:-1])
-        data["two_meter_temperature_bins"] = (
-            ("two_meter_temperature_bins",),
-            t2m_bins
-        )
+        data["two_meter_temperature_bins"] = (("two_meter_temperature_bins",), t2m_bins)
         tcwv_bins = 0.5 * (self.tcwv_bins[1:] + self.tcwv_bins[:-1])
         data["total_column_water_vapor_bins"] = (
             ("total_column_water_vapor_bins",),
-            tcwv_bins
+            tcwv_bins,
         )
 
         for k in self.targets:
@@ -2182,46 +1969,37 @@ class RetrievalStatistics(Statistic):
 
             data[k + "_mean_tcwv"] = (
                 ("surface_type", "tcwv_bins"),
-                self.sums_tcwv[k] / self.counts_tcwv[k]
+                self.sums_tcwv[k] / self.counts_tcwv[k],
             )
-            data[k + "_sums_tcwv"] = (
-                ("surface_type", "tcwv_bins"),
-                self.sums_tcwv[k]
-            )
+            data[k + "_sums_tcwv"] = (("surface_type", "tcwv_bins"), self.sums_tcwv[k])
             data[k + "_counts_tcwv"] = (
                 ("surface_type", "tcwv_bins"),
-                self.counts_tcwv[k]
+                self.counts_tcwv[k],
             )
             data[k + "_mean_tcwv_center"] = (
                 ("surface_type", "tcwv_bins"),
-                self.sums_tcwv_center[k] / self.counts_tcwv_center[k]
+                self.sums_tcwv_center[k] / self.counts_tcwv_center[k],
             )
             data[k + "_sums_tcwv_center"] = (
                 ("surface_type", "tcwv_bins"),
-                self.sums_tcwv_center[k]
+                self.sums_tcwv_center[k],
             )
             data[k + "_counts_tcwv_center"] = (
                 ("surface_type", "tcwv_bins"),
-                self.counts_tcwv_center[k]
+                self.counts_tcwv_center[k],
             )
             data[k + "_mean_t2m"] = (
                 ("surface_type", "t2m_bins"),
-                self.sums_t2m[k] / self.counts_t2m[k]
+                self.sums_t2m[k] / self.counts_t2m[k],
             )
-            data[k + "_sums_t2m"] = (
-                ("surface_type", "t2m_bins"),
-                self.sums_t2m[k]
-            )
-            data[k + "_counts_t2m"] = (
-                ("surface_type", "t2m_bins"),
-                self.counts_t2m[k]
-            )
+            data[k + "_sums_t2m"] = (("surface_type", "t2m_bins"), self.sums_t2m[k])
+            data[k + "_counts_t2m"] = (("surface_type", "t2m_bins"), self.counts_t2m[k])
 
         data = xr.Dataset(data)
         destination = Path(destination)
-        output_file = (destination /
-                       (f"retrieval_statistics_{self.sensor.name.lower()}"
-                        ".nc"))
+        output_file = destination / (
+            f"retrieval_statistics_{self.sensor.name.lower()}" ".nc"
+        )
         data.to_netcdf(output_file)
 
 
@@ -2230,10 +2008,7 @@ class RetrievalStatistics(Statistic):
 ################################################################################
 
 
-def process_files(sensor,
-                  files,
-                  statistics,
-                  log_queue):
+def process_files(sensor, files, statistics, log_queue):
     """
     Helper function to process a list of files in a separate
     process.
@@ -2248,12 +2023,12 @@ def process_files(sensor,
         List of the calculated statistics.
     """
     gprof_nn.logging.configure_queue_logging(log_queue)
-    for f in files:
-        for s in statistics:
+    for file in files:
+        for stat in statistics:
             try:
-                s.process_file(sensor, f)
-            except Exception as e:
-                LOGGER.error( "Error during processing of %s: %s", f, e)
+                stat.process_file(sensor, file)
+            except Exception as exc:
+                LOGGER.error("Error during processing of %s: %s", file, exc)
 
     return statistics
 
@@ -2265,6 +2040,8 @@ def _split_files(files, n):
     start = 0
     n_files = len(files)
     for i in range(n):
+        if start == len(files):
+            break
         n_batch = n_files // n
         if i < n_files % n:
             n_batch += 1
@@ -2281,10 +2058,8 @@ class StatisticsProcessor:
         files: List of the files to process.
         statistics: Statistics objects defining the statistics to compute.
     """
-    def __init__(self,
-                 sensor,
-                 files,
-                 statistics):
+
+    def __init__(self, sensor, files, statistics):
         """
         Args:
             sensor: Sensor object defining the sensor to which the files to
@@ -2296,10 +2071,7 @@ class StatisticsProcessor:
         self.files = files
         self.statistics = statistics
 
-
-    def run(self,
-            n_workers,
-            output_path):
+    def run(self, n_workers, output_path):
         """
         Start calculation of statistics over given files.
 
@@ -2311,20 +2083,28 @@ class StatisticsProcessor:
         LOGGER.info("Starting processing of %s files.", len(self.files))
 
         pool = ProcessPoolExecutor(n_workers)
-        batches = _split_files(self.files, 100) #[[f] for f in np.random.permutation(self.files)]
+        batches = _split_files(
+            self.files, 100
+        )  # [[f] for f in np.random.permutation(self.files)]
 
         log_queue = gprof_nn.logging.get_log_queue()
         tasks = []
-        for b in batches:
-            tasks.append(pool.submit(process_files,
-                                     self.sensor,
-                                     b,
-                                     self.statistics,
-                                     log_queue))
+        for batch in batches:
+            tasks.append(
+                pool.submit(
+                    process_files,
+                    self.sensor,
+                    batch,
+                    self.statistics,
+                    log_queue
+                )
+            )
         stats = tasks.pop(0).result()
-        for t in track(tasks,
-                       description="Processing files:",
-                       console=gprof_nn.logging.get_console()):
+        for t in track(
+            tasks,
+            description="Processing files:",
+            console=gprof_nn.logging.get_console(),
+        ):
             gprof_nn.logging.log_messages()
             for s_old, s_new in zip(stats, t.result()):
                 s_old.merge(s_new)
