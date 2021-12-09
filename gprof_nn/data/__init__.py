@@ -21,7 +21,8 @@ _DATA_DIR.mkdir(parents=True, exist_ok=True)
 _MODEL_DIR = _DATA_DIR / "models"
 _MODEL_DIR.mkdir(parents=True, exist_ok=True)
 
-_DATA_URL = "http://0.0.0.0:8000/"
+
+_DATA_URL = "http://rain.atmos.colostate.edu/gprof_nn/"
 
 
 def get_file(path):
@@ -73,10 +74,18 @@ def get_model_path(kind, sensor, configuration):
 
     try:
         return get_file(path)
-    except urllib.error.HTTPError:
+    except urllib.error.URLError:
         pass
 
     sensor_name = sensor.sensor_name.lower()
     model_name = f"gprof_nn_{kind}_{sensor_name}_{configuration}.pckl"
     path = Path("models") / model_name
-    return get_file(path)
+    try:
+        return get_file(path)
+    except urllib.error.HTTPError:
+        raise ValueError(
+            f"Couldn't find a model for sensor '{sensor.name}' and "
+            f"configuration '{configuration}' neither locally nor on "
+            f"the server. Maybe it doesn't exist yet?"
+        )
+
