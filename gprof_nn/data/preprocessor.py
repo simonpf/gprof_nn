@@ -20,7 +20,6 @@ import tempfile
 import numpy as np
 import scipy as sp
 import scipy.interpolate
-import torch
 import xarray as xr
 
 from gprof_nn.definitions import (
@@ -319,7 +318,7 @@ class PreprocessorFile:
         dataset.attrs["preprocessor"] = preprocessor
         return dataset
 
-    def write_retrieval_results(self, path, results, ancillary_data=None):
+    def write_retrieval_results(self, path, results, ancillary_data=None, suffix=None):
         """
         Write retrieval result to GPROF binary format.
 
@@ -327,13 +326,17 @@ class PreprocessorFile:
             path: The folder to which to write the result. The filename
                   itself follows the GPORF naming scheme.
             results: Dictionary containing the retrieval results.
+            ancillary_data: The folder containing the profile clusters.
+            suffix: Suffix to append to algorithm name in filename.
 
         Returns:
 
             Path object to the created binary file.
         """
         path = Path(path)
-        filename = path / self._get_retrieval_filename()
+        filename = path / self._get_retrieval_filename(suffix=suffix)
+
+        LOGGER.info("Writing retrieval results to file '%s'.", str(filename))
 
         if ancillary_data is not None:
             profiles_raining = ProfileClusters(ancillary_data, True)
@@ -358,14 +361,16 @@ class PreprocessorFile:
                 )
         return filename
 
-    def _get_retrieval_filename(self):
+    def _get_retrieval_filename(self, suffix=""):
         """
         Produces GPROF compliant filename from retrieval results dict.
         """
         start_date = self.get_scan_header(0)["scan_date"]
         end_date = self.get_scan_header(-1)["scan_date"]
 
-        name = "2A.GCORE-NN.GMI.V7."
+        if suffix != "":
+            suffix = "_" + suffix
+        name = f"2A.GPROF-NN{suffix}.GMI.V0."
 
         year, month, day = [start_date[k][0] for k in ["year", "month", "day"]]
         name += f"{year:02}{month:02}{day:02}-"
@@ -583,7 +588,6 @@ class PreprocessorFile:
 
             profile_indices = np.zeros((self.n_pixels, N_SPECIES), dtype=np.float32)
             profile_scales = np.zeros((self.n_pixels, N_SPECIES), dtype=np.float32)
-            precip_flag = data["precip_flag"].data
             for i, s in enumerate(
                 [
                     "rain_water_content",
@@ -740,15 +744,15 @@ def calculate_frozen_precip(wet_bulb_temperature, surface_type, surface_precip):
         Array of same shape as 'surface_precip' containing the corresponding,
         estimated amount of frozen precipitation.
     """
-    t = np.clip(
+    t_wb = np.clip(
         wet_bulb_temperature, TWB_TABLE[0, 0] + 273.15, TWB_TABLE[-1, 0] + 273.15
     )
-    f_ocean = TWB_INTERP_OCEAN(t)
-    f_land = TWB_INTERP_LAND(t)
+    f_ocean = TWB_INTERP_OCEAN(t_wb)
+    f_land = TWB_INTERP_LAND(t_wb)
 
     ocean_pixels = surface_type == 1
-    f = 1.0 - np.where(ocean_pixels, f_ocean, f_land) / 100.0
-    return f * surface_precip
+    frac = 1.0 - np.where(ocean_pixels, f_ocean, f_land) / 100.0
+    return frac * surface_precip
 
 
 TWB_TABLE = np.array(
@@ -896,11 +900,3 @@ TWB_INTERP_LAND = sp.interpolate.interp1d(
 TWB_INTERP_OCEAN = sp.interpolate.interp1d(
     TWB_TABLE[:, 0] + 273.15, TWB_TABLE[:, 2], assume_sorted=True, kind="linear"
 )
-
-def get_orbit_header(sensor):
-    sensor_name = sensor.name
-    platform = sensor.platform.name
-    key = (sensor_name.upper(), platform.upper())
-    if key in ORBIT_HEADERS:
-        return pickle.loads(ORBIT_HEADERS[key])
-    return pickle.loads(DEFAULT_HEADER)

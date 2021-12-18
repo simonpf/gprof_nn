@@ -3,12 +3,13 @@
 gprof_nn.augmentation
 =====================
 
-This module defines functions for augmenting GPROF-NN training
-data.
+This module defines functions for to apply perspective transformations
+to GPM GMI observation and to transform them to other viewing
+ geometries.
 """
 from abc import ABC, abstractmethod
 import numpy as np
-import scipy as sp
+import scipy
 from scipy.ndimage import map_coordinates
 from scipy.interpolate import interp1d
 import pyproj
@@ -21,8 +22,8 @@ R_EARTH = 6_371_000
 
 
 LATLON_TO_ECEF = pyproj.Transformer.from_crs(
-    {"proj":'latlong', "ellps":'WGS84', "datum":'WGS84'},
-    {"proj":'geocent', "ellps":'WGS84', "datum":'WGS84'}
+    {"proj": "latlong", "ellps": "WGS84", "datum": "WGS84"},
+    {"proj": "geocent", "ellps": "WGS84", "datum": "WGS84"},
 )
 
 ###############################################################################
@@ -38,6 +39,7 @@ class ViewingGeometry(ABC):
     pixel coordinates to euclidean coordinates and back
 
     """
+
     @abstractmethod
     def pixel_coordinates_to_euclidean(self, c_p):
         """
@@ -82,9 +84,8 @@ class Swath(ViewingGeometry):
         f_y: Interpolator object to interpolate pixel indies to along-track
             offsets.
     """
-    def __init__(self,
-                 lats,
-                 lons):
+
+    def __init__(self, lats, lons):
         """
         Args:
             lats: 2D array containing the latitude coordinates of the swath.
@@ -111,7 +112,7 @@ class Swath(ViewingGeometry):
             lons[m // 2: m // 2 + 2],
             lats[m // 2: m // 2 + 2],
             np.zeros((2, lats.shape[1]), dtype=np.float32),
-            radians=False
+            radians=False,
         )
         xyz = np.stack(xyz, axis=-1)
         c = xyz[0, n // 2]
@@ -122,8 +123,7 @@ class Swath(ViewingGeometry):
         d_a = d_a / np.sqrt(np.sum(d_a ** 2))
 
         # Unit vector perpendicular to surface
-        d_z = np.stack(LATLON_TO_ECEF.transform(lon_c, lat_c, 1.0,
-                                                radians=False))
+        d_z = np.stack(LATLON_TO_ECEF.transform(lon_c, lat_c, 1.0, radians=False))
         d_z -= c
 
         # Unit vector in across-track direction
@@ -154,7 +154,6 @@ class Swath(ViewingGeometry):
         y = self.y_a * c_p[0] + d_y
         return np.stack([y, x])
 
-
     def euclidean_to_pixel_coordinates(self, c_x):
         """
         Transform euclidean distances to pixel coordinates.
@@ -175,16 +174,13 @@ class Swath(ViewingGeometry):
         i = y / self.y_a
         return np.stack([i, j])
 
-    def get_window_center(self,
-                          p_x,
-                          width,
-                          height):
+    def get_window_center(self, p_x, width, height):
         """
         Calculate pixel positions of the center of a window with given width
         and height.
         """
-        i = self.xy.shape[0] // 2
-        j = np.round((self.xy.shape[1] - width) * p_x + width / 2)
+        i = self.y.shape[0] // 2
+        j = np.round((self.y.shape[1] - width) * p_x + width / 2)
         return np.array([i, j]).reshape(2, 1, 1)
 
 
@@ -192,12 +188,9 @@ class Conical(ViewingGeometry):
     """
     Viewing geometry of a conically-scanning sensor.
     """
-    def __init__(self,
-                 altitude,
-                 earth_incidence_angle,
-                 scan_range,
-                 pixels_per_scan,
-                 scan_offset
+
+    def __init__(
+        self, altitude, earth_incidence_angle, scan_range, pixels_per_scan, scan_offset
     ):
         """
         Args:
@@ -209,12 +202,11 @@ class Conical(ViewingGeometry):
             scan_offset: The distance between consecutive scans.
         """
         eia_rad = np.deg2rad(earth_incidence_angle)
-        beta = np.arcsin(
-            np.sin(np.pi - eia_rad) / (R_EARTH + altitude) * R_EARTH
-        )
+        beta = np.arcsin(np.sin(np.pi - eia_rad) / (R_EARTH + altitude) * R_EARTH)
         self.zenith_angle = beta
-        self.hypotenuse = (R_EARTH / np.sin(self.zenith_angle) *
-                           np.sin(eia_rad - self.zenith_angle))
+        self.hypotenuse = (
+            R_EARTH / np.sin(self.zenith_angle) * np.sin(eia_rad - self.zenith_angle)
+        )
         self.scan_radius = self.hypotenuse * np.sin(self.zenith_angle)
         self.scan_range = scan_range
         self.pixels_per_scan = pixels_per_scan
@@ -243,7 +235,6 @@ class Conical(ViewingGeometry):
 
         return np.stack([y, x])
 
-
     def euclidean_to_pixel_coordinates(self, c_x):
         """
         Transform euclidean distances to pixel coordinates.
@@ -269,10 +260,7 @@ class Conical(ViewingGeometry):
 
         return np.stack([i, j])
 
-    def get_window_center(self,
-                          p_x,
-                          width,
-                          height):
+    def get_window_center(self, p_x, width, height):
         """
         Calculate pixel positions of the center of a window with given width
         and height.
@@ -292,12 +280,8 @@ class CrossTrack(ViewingGeometry):
         pixels_per_scan: The number of pixels contained in each scan.
         scan_offset: The distance between consecutive scans.
     """
-    def __init__(self,
-                 altitude,
-                 scan_range,
-                 pixels_per_scan,
-                 scan_offset
-    ):
+
+    def __init__(self, altitude, scan_range, pixels_per_scan, scan_offset):
         self.altitude = altitude
         self.scan_range = scan_range
         self.pixels_per_scan = pixels_per_scan
@@ -341,8 +325,10 @@ class CrossTrack(ViewingGeometry):
             ``c_p[0]`` and the column pixel coordinates in ``c_p[1]``.
         """
         alpha = c_x[1] / R_EARTH
-        a = np.sqrt((self.altitude + (1 - np.cos(alpha)) * R_EARTH) ** 2 +
-                    (R_EARTH * np.sin(alpha)) ** 2)
+        a = np.sqrt(
+            (self.altitude + (1 - np.cos(alpha)) * R_EARTH) ** 2
+            + (R_EARTH * np.sin(alpha)) ** 2
+        )
 
         beta = np.arcsin(np.sin(alpha) / a * R_EARTH)
         j = np.rad2deg(beta) / self.scan_range * self.pixels_per_scan
@@ -351,10 +337,7 @@ class CrossTrack(ViewingGeometry):
         i = c_x[0] / self.scan_offset
         return np.stack([i, j])
 
-    def get_window_center(self,
-                          p_x,
-                          width,
-                          height):
+    def get_window_center(self, p_x, width, height):
         """
         Calculate pixel positions of the center of a window with given width
         and height.
@@ -365,24 +348,28 @@ class CrossTrack(ViewingGeometry):
 
     def get_interpolation_weights(self, earth_incidence_angles):
         # Reverse angle so they are in ascending order.
-        sin_ang = (R_EARTH / (R_EARTH + self.altitude) *
-                   np.sin(np.pi - np.deg2rad(earth_incidence_angles)))
+        sin_ang = (
+            R_EARTH
+            / (R_EARTH + self.altitude)
+            * np.sin(np.pi - np.deg2rad(earth_incidence_angles))
+        )
         angles = np.rad2deg(np.arcsin(sin_ang))
         angles = angles[::-1]
 
-        weights = np.zeros((self.pixels_per_scan, angles.size),
-                           np.float32)
-        scan_angles = np.abs(np.linspace(-self.scan_range / 2,
-                                         self.scan_range / 2,
-                                         self.pixels_per_scan))
+        weights = np.zeros((self.pixels_per_scan, angles.size), np.float32)
+        scan_angles = np.abs(
+            np.linspace(-self.scan_range / 2, self.scan_range / 2, self.pixels_per_scan)
+        )
         indices = np.digitize(scan_angles, angles)
 
         for i in range(angles.size - 1):
             mask = (indices - 1) == i
-            weights[mask, i] = ((angles[i + 1] - scan_angles[mask]) /
-                                (angles[i + 1] - angles[i]))
-            weights[mask, i + 1] = ((scan_angles[mask] - angles[i]) /
-                                    (angles[i + 1] - angles[i]))
+            weights[mask, i] = (angles[i + 1] - scan_angles[mask]) / (
+                angles[i + 1] - angles[i]
+            )
+            weights[mask, i + 1] = (scan_angles[mask] - angles[i]) / (
+                angles[i + 1] - angles[i]
+            )
 
         weights[indices == 0] = 0.0
         weights[indices == 0, 0] = 1.0
@@ -398,9 +385,9 @@ class CrossTrack(ViewingGeometry):
             A numpy array containing the earth incidence angles across a scan
             of the sensor in degrees.
         """
-        beta = np.linspace(-self.scan_range / 2,
-                           self.scan_range / 2,
-                           self.pixels_per_scan)
+        beta = np.linspace(
+            -self.scan_range / 2, self.scan_range / 2, self.pixels_per_scan
+        )
         a = np.sin(np.deg2rad(beta)) / R_EARTH * (R_EARTH + self.altitude)
         gamma = -np.arcsin(a) + np.pi
         return np.rad2deg(np.pi - gamma)
@@ -417,13 +404,16 @@ class CrossTrack(ViewingGeometry):
             Array containing the across-track resolution in meters.
         """
         # Convert earth incidence angle to viewing angle
-        sin_ang = (R_EARTH / (R_EARTH + self.altitude) *
-                   np.sin(np.pi - np.deg2rad(earth_incidence_angles)))
+        sin_ang = (
+            R_EARTH
+            / (R_EARTH + self.altitude)
+            * np.sin(np.pi - np.deg2rad(earth_incidence_angles))
+        )
         beta = np.arcsin(sin_ang)
 
         c = (R_EARTH + self.altitude) / R_EARTH
-        dg_db = - c * np.cos(beta) / np.sqrt(1 - np.sin(beta * c) ** 2)
-        da_db = - (dg_db + 1)
+        dg_db = -c * np.cos(beta) / np.sqrt(1 - np.sin(beta * c) ** 2)
+        da_db = -(dg_db + 1)
 
         r = da_db * R_EARTH * np.deg2rad(1.1)
         return r
@@ -433,32 +423,6 @@ class CrossTrack(ViewingGeometry):
         The along-track resolution.
         """
         return self.scan_offset
-
-
-def pixel_to_x(j):
-    """
-    Calculate across-track coordinates of pixel indices.
-
-    Input:
-        j: The pixel indices.
-
-    Returns:
-        Across-track coordinates in m
-    """
-    return R * np.sin(np.deg2rad((j - 110.0) / 220 * 150))
-
-
-def x_to_pixel(x):
-     return np.rad2deg(np.arcsin(x / R)) * 220 / 150 + 110
-
-
-def pixel_to_y(i, j):
-    """
-    Calculate along track coordinates of pixel indices.
-    """
-    y = (i * D_A).reshape(-1, 1)
-    dy = R * np.cos(np.deg2rad((j.reshape(1, -1) - 110.0) / 220 * 150)) - 1.0
-    return y + dy
 
 
 def get_center_pixels(p_o, p_i):
@@ -483,61 +447,6 @@ def get_center_pixels(p_o, p_i):
     return c_o, c_i
 
 
-def offset_x(p_o, p_i):
-    """
-    Calculate the pixel coordinates of the N pixels within a given
-    output window relative to the center of a given input window.
-
-    Args:
-        p_o: Across-track, fractional position of the output window given as
-            a fraction within [-1, 1].
-        p_o: Across-track, fractional position of the input window give as
-            a fraction within [-1, 1].
-
-    Return:
-        Array of size N containing the across-track pixel coordinates of
-        the pixels in the output window transformed to the coordinates system
-        of the input window.
-    """
-    c_o, c_i = get_center_pixels(p_o, p_i)
-    x_o = np.arange(c_o - N // 2, c_o + N // 2)
-    d_o = pixel_to_x(x_o)
-    d_o = d_o - d_o[N // 2] + pixel_to_x(c_i)
-    coords = x_to_pixel(d_o)
-    coords -= coords[N // 2]
-    return coords
-
-
-def offset_y(p_o, p_i):
-    """
-    Calculate the vertical pixel coordinates of the a M x N output window
-    output window relative to the center of a given input window.
-
-    Args:
-        p_o: Across-track, fractional position of the output window given as
-            a fraction within [-1, 1].
-        p_o: Across-track, fractional position of the input window given as
-            a fraction within [-1, 1].
-
-    Return:
-        Image of size M x N containing the y-coordinates of the pixels in
-        the output window transformed to the coordinate system of the input
-        window.
-    """
-    c_o, c_i = get_center_pixels(p_o, p_i)
-    x_o = np.arange(c_o - N // 2, c_o + N // 2)
-    y = np.arange(1)
-
-    d_o = pixel_to_x(x_o)
-    d_o = d_o - d_o[N // 2] + pixel_to_x(c_i)
-    x_coords = x_to_pixel(d_o)
-
-    dy_i = pixel_to_y(y, x_coords)
-    dy_o = pixel_to_y(y, x_o)
-
-    return (dy_o - dy_i) / D_A
-
-
 def get_center_pixel_input(x, width):
     """
     Returns pixel coordinate of the center of a window of given with
@@ -548,14 +457,9 @@ def get_center_pixel_input(x, width):
     return int(np.round(l + (r - l) * x))
 
 
-def get_transformation_coordinates(lats,
-                                   lons,
-                                   viewing_geometry,
-                                   width,
-                                   height,
-                                   x_i,
-                                   x_o,
-                                   y):
+def get_transformation_coordinates(
+    lats, lons, viewing_geometry, width, height, x_i, x_o, y
+):
     """
     Calculate transformation coordinates that reprojects data from GMI
     swath to a window of size 'width' and 'height' in a given viewing
@@ -587,8 +491,8 @@ def get_transformation_coordinates(lats,
     """
 
     center_out = viewing_geometry.get_window_center(x_o, width, height)
-    d_i = (np.arange(height) - np.floor(height / 2.0))
-    d_j = (np.arange(width) - np.floor(width / 2.0))
+    d_i = np.arange(height) - np.floor(height / 2.0)
+    d_j = np.arange(width) - np.floor(width / 2.0)
     coords_pixel_out = center_out + np.meshgrid(d_i, d_j, indexing="ij")
     coords_eucl_out = viewing_geometry.pixel_coordinates_to_euclidean(coords_pixel_out)
     offset = coords_eucl_out[:, height // 2, width // 2]
@@ -606,16 +510,14 @@ def get_transformation_coordinates(lats,
     c = coords_rel_out + coords_center_in
 
     y_min = coords_pixel_in[0].min()
-    y_max = (SCANS_PER_SAMPLE - coords_pixel_in[0].max() - 1)
+    y_max = SCANS_PER_SAMPLE - coords_pixel_in[0].max() - 1
     y = -y_min + y * (y_max + y_min)
     coords_pixel_in[0] += y
 
     return coords_pixel_in
 
 
-def extract_domain(data,
-                   coordinates,
-                   order=1):
+def extract_domain(data, coordinates, order=1):
     """
     Extract and reproject region from input data.
 
@@ -632,12 +534,9 @@ def extract_domain(data,
         data_c = data.reshape(old_shape[:2] + (-1,))
         results = []
         for i in range(data_c.shape[2]):
-            results.append(map_coordinates(
-                data_c[:, :, i],
-                coordinates,
-                order=order,
-                cval=np.nan
-            ))
+            results.append(
+                map_coordinates(data_c[:, :, i], coordinates, order=order, cval=np.nan)
+            )
         results = np.stack(results, axis=-1)
         results = results.reshape(coordinates.shape[1:] + old_shape[2:])
     else:

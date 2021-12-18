@@ -7,9 +7,14 @@ import numpy as np
 import xarray as xr
 
 from gprof_nn import sensors
+from gprof_nn.data import get_test_data_path
+from gprof_nn.data.training_data import decompress_and_load
 
-TEST_FILE_GMI = Path("gmi") / "gprof_nn_gmi_era5.nc"
-TEST_FILE_MHS = "gprof_nn_mhs_era5_5.nc"
+TEST_FILE_GMI = Path("gmi") / "gprof_nn_gmi_era5.nc.gz"
+TEST_FILE_MHS = Path("mhs") / "gprof_nn_mhs_era5.nc.gz"
+
+
+DATA_PATH = get_test_data_path()
 
 
 def test_calculate_smoothing_kernel():
@@ -52,44 +57,20 @@ def test_smooth_gmi_field():
     assert np.all(np.isclose(field_s[:, :, 0], field_s[:, :, 1], atol=1e-3))
 
 
-def test_load_data_mhs():
-    """
-    Ensure that loading data for MHS produces realistic values.
-    """
-    path = Path(__file__).parent
-    input_file = path / "data" / TEST_FILE_MHS
-    input_data = xr.open_dataset(input_file)
-
-    sensor = sensors.MHS
-    targets = ["surface_precip", "rain_water_content"]
-    rng = np.random.default_rng()
-
-    x = sensor.load_data_0d(input_file)
-
-    mask = np.all(np.isfinite(x[:, :5]), axis=1)
-    assert np.all(x[mask, :5] > 20)
-    assert np.all(x[mask, :5] < 500)
-
-    # Make sure all observation angles are withing expected limits.
-    assert np.all(np.abs(x[mask, 5]) <= sensor.angles[0] + 1.0)
-    assert np.all(np.abs(x[mask, 5]) >= sensor.angles[-1])
-
-
 def test_load_training_data_gmi():
     """
     Ensure that loading the training data for GMI produces realistic
     values.
     """
-    path = Path(__file__).parent
-    input_file = path / "data" / TEST_FILE_GMI
-    input_data = xr.load_dataset(input_file)
+    input_file = DATA_PATH / TEST_FILE_GMI
+    input_data = decompress_and_load(input_file)
 
     sensor = sensors.GMI
 
     targets = ["surface_precip", "rain_water_content"]
     rng = np.random.default_rng()
 
-    x, y = sensor.load_training_data_0d(input_file, targets, False, rng)
+    x, y = sensor.load_training_data_1d(input_data, targets, False, rng)
 
     # TB ranges
     assert np.all(x[:, :5] > 20)
@@ -126,16 +107,15 @@ def test_load_training_data_mhs():
     Ensure that loading the training data for MHS produces realistic
     values.
     """
-    path = Path(__file__).parent
-    input_file = path / "data" / TEST_FILE_MHS
-    input_data = xr.load_dataset(input_file)
+    input_file = DATA_PATH / TEST_FILE_MHS
+    input_data = decompress_and_load(input_file)
 
     sensor = sensors.MHS
 
     targets = ["surface_precip", "rain_water_content"]
     rng = np.random.default_rng()
 
-    x, y = sensor.load_training_data_0d(input_file, targets, False, rng)
+    x, y = sensor.load_training_data_1d(input_data, targets, False, rng)
 
     # TB ranges
     assert np.all(x[:, :5] > 20)
@@ -159,9 +139,8 @@ def test_interpolation_mhs(tmp_path):
     Ensure that interpolation of surface precipitation
     works.
     """
-    path = Path(__file__).parent
-    input_file = path / "data" / TEST_FILE_MHS
-    input_data = xr.open_dataset(input_file)
+    input_file = DATA_PATH / TEST_FILE_MHS
+    input_data = decompress_and_load(input_file)
 
     input_data = input_data.sel({"samples": input_data.source == 0})
 
@@ -176,7 +155,7 @@ def test_interpolation_mhs(tmp_path):
     targets = ["surface_precip", "rain_water_content"]
     rng = np.random.default_rng()
 
-    x, y = sensor.load_training_data_0d(tmp_path / "test.nc", targets, False, rng)
+    x, y = sensor.load_training_data_1d(tmp_path / "test.nc", targets, False, rng)
 
     # Assert all targets are loaded
     sp = y["surface_precip"]

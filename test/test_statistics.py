@@ -8,11 +8,12 @@ import xarray as xr
 
 from gprof_nn import sensors
 from gprof_nn.data.bin import BinFile
+from gprof_nn.data import get_test_data_path
 from gprof_nn.definitions import ALL_TARGETS
-from gprof_nn.equalizer import QuantileEqualizer
 from gprof_nn.data.preprocessor import PreprocessorFile
 from gprof_nn.data.retrieval import RetrievalFile
-from gprof_nn.data.training_data import GPROF_NN_1D_Dataset
+from gprof_nn.data.training_data import (GPROF_NN_1D_Dataset,
+                                         decompress_and_load)
 from gprof_nn.data.combined import GPMCMBFile
 from gprof_nn.statistics import (StatisticsProcessor,
                                  TrainingDataStatistics,
@@ -20,9 +21,11 @@ from gprof_nn.statistics import (StatisticsProcessor,
                                  ObservationStatistics,
                                  GlobalDistribution,
                                  ZonalDistribution,
-                                 CorrectedObservations,
                                  RetrievalStatistics,
                                  GPMCMBStatistics)
+
+
+DATA_PATH = get_test_data_path()
 
 
 def test_training_statistics_gmi(tmpdir):
@@ -30,8 +33,7 @@ def test_training_statistics_gmi(tmpdir):
     Ensure that TrainingDataStatistics class reproduces statistic of
     GMI training data file.
     """
-    data_path = Path(__file__).parent / "data"
-    files = [data_path / "gmi" / "gprof_nn_gmi_era5.nc"] * 2
+    files = [DATA_PATH / "gmi" / "gprof_nn_gmi_era5.nc.gz"] * 2
 
 
     stats = [TrainingDataStatistics(kind="1d"),
@@ -59,11 +61,9 @@ def test_training_statistics_gmi(tmpdir):
                 (input_data.surface_precip >= 0)).data
 
         tbs = input_data["brightness_temperatures"].data[i_st]
-        print("TBS :: ", tbs.shape, input_data["brightness_temperatures"].shape)
         counts_ref, _ = np.histogram(tbs[:, 0], bins=bins)
         counts = results["brightness_temperatures"][st - 1, 0].data
 
-        print(tbs.shape)
         assert np.all(np.isclose(counts, 2.0 * counts_ref))
 
         tcwv = input_data["total_column_water_vapor"].data[i_st]
@@ -107,7 +107,7 @@ def test_training_statistics_gmi(tmpdir):
     # Zonal distributions
     #
 
-    input_data = xr.open_dataset(files[0])
+    input_data = decompress_and_load(files[0])
     results = xr.open_dataset(str(tmpdir / "zonal_distribution_gmi.nc"))
     lat_bins = np.linspace(-90, 90, 181)
     sp_bins = np.logspace(-2, 2.5, 201)
@@ -125,7 +125,7 @@ def test_training_statistics_gmi(tmpdir):
     # Global distributions
     #
 
-    input_data = xr.open_dataset(files[0])
+    input_data = decompress_and_load(files[0])
     results = xr.open_dataset(str(tmpdir / "global_distribution_gmi.nc"))
     lat_bins = np.arange(-90, 90 + 1e-3, 5)
     lon_bins = np.arange(-180, 180 + 1e-3, 5)
@@ -141,7 +141,6 @@ def test_training_statistics_gmi(tmpdir):
     vals = np.stack([lats, lons, sp], axis=-1)
     cs_ref, _ = np.histogramdd(vals, bins=bins)
     cs = results["surface_precip_mean"].data
-    print((2 * cs_ref - cs).max())
     assert np.all(np.isclose(2.0 * cs_ref, cs))
 
 
@@ -150,8 +149,7 @@ def test_training_statistics_mhs(tmpdir):
     Ensure that TrainingDataStatistics class reproduces statistic of
     MHS training data file.
     """
-    data_path = Path(__file__).parent / "data"
-    files = [data_path / "mhs" / "gprof_nn_mhs_era5.nc"] * 2
+    files = [DATA_PATH / "mhs" / "gprof_nn_mhs_era5.nc"] * 2
 
 
     stats = [TrainingDataStatistics(kind="1D"),
@@ -186,10 +184,9 @@ def test_training_statistics_mhs(tmpdir):
 def test_bin_statistics_gmi(tmpdir):
     """
     Ensure that TrainingDataStatistics class reproduces statistic of
-    GMI bin file.
+    GMI bin files.
     """
-    data_path = Path(__file__).parent / "data"
-    files = [data_path / "gmi" / "gpm_291_55_04.bin"] * 2
+    files = [DATA_PATH / "gmi" / "bin" / "gpm_269_00_16.bin"] * 2
 
 
     stats = [BinFileStatistics(),
@@ -248,14 +245,14 @@ def test_bin_statistics_gmi(tmpdir):
 
     # Ensure conditional means match
     st = input_data.surface_type.data[0]
-    i_t2m = int(np.round(input_data.two_meter_temperature.data - 240))
+    i_t2m = int(np.round(input_data.two_meter_temperature.data[0] - 240))
     mean_sp = results["surface_precip_mean_t2m"][st - 1, i_t2m]
     mean_sp_ref = input_data.surface_precip.data.mean()
     assert np.isclose(mean_sp_ref, mean_sp)
 
     # Ensure conditional means match
     st = input_data.surface_type.data[0]
-    i_tcwv = int(np.round(input_data.total_column_water_vapor.data))
+    i_tcwv = int(np.round(input_data.total_column_water_vapor.data[0]))
     mean_sp = results["surface_precip_mean_tcwv"][st - 1, i_tcwv]
     mean_sp_ref = input_data.surface_precip.data.mean()
     assert np.isclose(mean_sp_ref, mean_sp)
@@ -266,8 +263,7 @@ def test_bin_statistics_mhs_sea_ice(tmpdir):
     Ensure that TrainingDataStatistics class reproduces statistic of
     MHS bin file for a sea ice surface.
     """
-    data_path = Path(__file__).parent / "data"
-    files = [data_path / "mhs" / "gpm_266_21_02.bin"] * 2
+    files = [DATA_PATH / "mhs" / "bin" / "gpm_271_20_16.bin"] * 2
 
 
     stats = [BinFileStatistics(),
@@ -328,10 +324,9 @@ def test_bin_statistics_mhs_sea_ice(tmpdir):
 def test_bin_statistics_mhs_ocean(tmpdir):
     """
     Ensure that TrainingDataStatistics class reproduces statistic of
-    MHS bin file for an ocean surface.
+    MHS bin file for a land surface.
     """
-    data_path = Path(__file__).parent / "data"
-    files = [data_path / "mhs" / "gpm_290_60_01.bin"] * 2
+    files = [DATA_PATH / "mhs" / "gpm_289_52_04.bin"] * 2
 
 
     stats = [BinFileStatistics(),
@@ -393,8 +388,7 @@ def test_observation_statistics_gmi(tmpdir):
     Ensure that TrainingDataStatistics class reproduces statistic of
     MHS bin file for an ocean surface.
     """
-    data_path = Path(__file__).parent / "data"
-    files = [data_path / "gmi" / "GMIERA5_190101_027510.pp"] * 2
+    files = [DATA_PATH / "gmi" / "pp" / "GMIERA5_190101_027510.pp"] * 2
 
     stats = [ObservationStatistics(conditional=1),
              ZonalDistribution(),
@@ -449,8 +443,7 @@ def test_observation_statistics_mhs(tmpdir):
     Ensure that TrainingDataStatistics class reproduces statistic of
     MHS bin file for an ocean surface.
     """
-    data_path = Path(__file__).parent / "data"
-    files = [data_path / "mhs" / "MHS.pp"] * 2
+    files = [DATA_PATH / "mhs" / "pp" / "MHS.pp"] * 2
 
     stats = [ObservationStatistics(),
              ZonalDistribution(),
@@ -509,34 +502,18 @@ def test_observation_statistics_mhs(tmpdir):
     assert np.all(np.isclose(counts, 2.0 * counts_ref))
 
 
-def test_corrected_observation_statistics(tmpdir):
-    data_path = Path(__file__).parent / "data" / "statistics"
-    source_file = data_path / "training_data_statistics_mhs.nc"
-    target_file = data_path / "observation_statistics_mhs.nc"
-    equalizer = QuantileEqualizer(sensors.MHS,
-                                  source_file,
-                                  target_file)
-
-    data_path = Path(__file__).parent / "data"
-    files = [data_path / "gprof_nn_mhs_era5_5.nc"] * 2
-    stats = [CorrectedObservations(equalizer)]
-    processor = StatisticsProcessor(sensors.MHS,
-                                    files,
-                                    stats)
-    processor.run(2, tmpdir)
-
-
-def test_retrieval_statistics(tmpdir):
+def test_retrieval_statistics_gmi(tmpdir):
     """
     Ensure that calculated means of retrieval results statistics match
     directly calculated ones.
     """
-    data_path = Path(__file__).parent / "data"
-    source_file = data_path / "GMIERA5_190101_027510.bin"
+    source_file = DATA_PATH / "gmi" / "retrieval" / "GMIERA5_190101_027510.bin"
+    # This retrieval file contains profiles so it has to be converted
+    # to a netcdf file first.
     data = RetrievalFile(source_file, has_profiles=True).to_xarray_dataset()
     data.to_netcdf(tmpdir / "input.nc")
 
-    files = [str(tmpdir / "input.nc")] * 2
+    files = [tmpdir / "input.nc"] * 2
     stats = [RetrievalStatistics()]
     processor = StatisticsProcessor(sensors.GMI,
                                     files,
@@ -549,7 +526,7 @@ def test_retrieval_statistics(tmpdir):
     st = data.surface_type.data
     l_t2m, r_t2m = np.linspace(239.5, 339.5, 101)[33:35]
     indices = ((data.surface_type.data == 1) *
-               (data.two_meter_temperature.data > l_t2m) *
+               (data.two_meter_temperature.data >= l_t2m) *
                (data.two_meter_temperature.data < r_t2m) *
                (data.surface_precip.data > -999))
     mean_sp_ref = data.surface_precip.data[indices].mean()
@@ -560,7 +537,7 @@ def test_retrieval_statistics(tmpdir):
     st = data.surface_type.data
     l_tcwv, r_tcwv = np.linspace(-0.5, 99.5, 101)[10:12]
     indices = ((data.surface_type.data == 1) *
-               (data.total_column_water_vapor.data > l_tcwv) *
+               (data.total_column_water_vapor.data >= l_tcwv) *
                (data.total_column_water_vapor.data < r_tcwv) *
                (data.surface_precip.data > -999))
     mean_sp_ref = data.surface_precip.data[indices].mean()
@@ -569,9 +546,10 @@ def test_retrieval_statistics(tmpdir):
 
 
 def test_gpm_cmb_statistics(tmpdir):
-    data_path = Path(__file__).parent / "data" / "gmi"
-    input_file = data_path / ("2B.GPM.DPRGMI.CORRA2018.20210829-S205206"
-                              "-E222439.042628.V06A.HDF5")
+    input_file = (
+        DATA_PATH / "cmb" /
+        "2B.GPM.DPRGMI.CORRA2018.20210829-S205206-E222439.042628.V06A.HDF5"
+    )
     files = [input_file] * 2
     stats = [GPMCMBStatistics()]
     processor = StatisticsProcessor(sensors.GMI,

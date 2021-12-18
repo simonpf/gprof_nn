@@ -178,7 +178,7 @@ def interpolate(variable, weights):
     weights_r = weights.reshape(shape)
     return np.sum(variable * weights_r, axis=weights.ndim - 1)
 
-def bootstrap_mean(data, n_samples=10):
+def bootstrap_mean(data, n_samples=10, weights=None):
     """
     Calculate mean and standard deviation using boostrapping.
 
@@ -186,6 +186,8 @@ def bootstrap_mean(data, n_samples=10):
         data: 1D array containing the samples of which to calculate mean
             and standard deviation.
         n_samples: The number of bootstrap samples to perform.
+        weights: If provided used to calculate a weighted mean of
+            the results.
 
     Return:
         Tuple ``(mu, std)`` containing the estimated mean ``mu`` and
@@ -194,7 +196,12 @@ def bootstrap_mean(data, n_samples=10):
     stats = []
     for i in range(n_samples):
         indices = np.random.randint(0, data.size, size=data.size)
-        stats.append(np.mean(data[indices]))
+        if weights is None:
+            stats.append(np.mean(data[indices]))
+        else:
+            ws = weights[indices]
+            samples = data[indices]
+            stats.append(np.sum(samples * ws) / ws.sum())
     data_r = np.stack(stats)
     mu = data_r.mean()
     std = data_r.std()

@@ -8,9 +8,14 @@ import numpy as np
 import pytest
 
 from gprof_nn import sensors
+from gprof_nn.data import get_test_data_path
 from gprof_nn.data.mrms import MRMSMatchFile, has_snowdas_ratios
 from gprof_nn.data.l1c import L1CFile
 from gprof_nn.utils import CONUS
+
+
+DATA_PATH = get_test_data_path()
+
 
 TEST_FILE_GMI = "1801_MRMS2GMI_gprof_db_08all.bin.gz"
 TEST_FILE_MHS = "1801_MRMS2MHS_DB1_01.bin.gz"
@@ -22,7 +27,7 @@ def test_read_file_gmi():
     Read GMI match file and ensure that all latitudes roughly match
     CONUS coordinates.
     """
-    path = Path(__file__).parent / "data" / TEST_FILE_GMI
+    path = DATA_PATH / "gmi" / "mrms" / TEST_FILE_GMI
     ms = MRMSMatchFile(path)
 
     assert np.all(ms.data["latitude"] > 20.0)
@@ -38,7 +43,7 @@ def test_read_file_mhs():
     Read MHS match file and ensure that all latitudes roughly match
     CONUS coordinates.
     """
-    path = Path(__file__).parent / "data" / TEST_FILE_MHS
+    path = DATA_PATH / "mhs" / "mrms" / TEST_FILE_MHS
     ms = MRMSMatchFile(path)
 
     assert np.all(ms.data["latitude"] > 20.0)
@@ -57,7 +62,7 @@ def test_match_precip_gmi():
 
     date = np.datetime64("2018-01-24T00:00:00")
     roi = CONUS
-    path = Path(__file__).parent / "data"
+    path = DATA_PATH / "gmi" / "mrms"
 
     mrms_file = MRMSMatchFile(path / TEST_FILE_GMI)
     l1c_files = L1CFile.find_files(date, path, roi=roi)
@@ -75,7 +80,7 @@ def test_match_precip_mhs():
 
     date = np.datetime64("2018-01-01T01:00:00")
     roi = CONUS
-    path = Path(__file__).parent / "data"
+    path = DATA_PATH / "mhs" / "mrms"
 
     mrms_file = MRMSMatchFile(path / TEST_FILE_MHS, sensor=sensors.MHS)
     l1c_files = L1CFile.find_files(date, path, roi=roi, sensor=sensors.MHS)
@@ -87,7 +92,7 @@ def test_find_files_gmi():
     """
     Ensure that exactly one GMI MRMS file is found in test data.
     """
-    path = Path(__file__).parent / "data"
+    path = DATA_PATH / "gmi" / "mrms"
     files = MRMSMatchFile.find_files(path, sensor=sensors.GMI)
     assert len(files) == 1
 
@@ -96,6 +101,6 @@ def test_find_files_mhs():
     """
     Ensure that exactly one GMI MRMS file is found in test data.
     """
-    path = Path(__file__).parent / "data"
+    path = DATA_PATH / "mhs" / "mrms"
     files = MRMSMatchFile.find_files(path, sensor=sensors.MHS)
     assert len(files) == 1
