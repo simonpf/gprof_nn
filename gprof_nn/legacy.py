@@ -234,7 +234,7 @@ def run_gprof_training_data(
             augment=False,
             targets=targets,
             sensor=sensor,
-            batch_size=32
+            batch_size=16
         )
     else:
         input_data = GPROF_NN_1D_Dataset(
@@ -247,7 +247,6 @@ def run_gprof_training_data(
             batch_size=256 * 2048,
         )
 
-    print("MODE: ", mode)
     results = []
     with TemporaryDirectory() as tmp:
         tmp = Path(tmp)
@@ -258,7 +257,7 @@ def run_gprof_training_data(
             batch_input = input_data.to_xarray_dataset(batch=batch)
             new_dataset = write_preprocessor_file(batch_input, preprocessor_file)
             if new_dataset is not None:
-                new_dataset = new_dataset.stack({"samples": ("scans", "pixels")})
+                batch_input = new_dataset
 
             output_data = execute_gprof(
                 tmp,
@@ -274,10 +273,10 @@ def run_gprof_training_data(
             if output_data is None:
                 continue
 
-            if new_dataset is not None:
-                batch_input = new_dataset
 
             if not preserve_structure:
+                if "scans" in batch_input.dims:
+                    batch_input = batch_input.stack({"samples": ("scans", "pixels")})
                 output_data = output_data.stack({"samples": ("scans", "pixels")})
                 n_samples = output_data.samples.size
                 batch_input = batch_input[{"samples": slice(0, n_samples)}]

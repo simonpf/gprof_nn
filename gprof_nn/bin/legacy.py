@@ -136,7 +136,7 @@ def run(args):
     configuration = configuration.strip().upper()
     if configuration.upper() not in CONFIGURATIONS:
         LOGGER.error(
-            "'configuration' should be one of $s.",
+            "'configuration' should be one of %s.",
             CONFIGURATIONS
         )
         return 1
