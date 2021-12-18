@@ -8,11 +8,12 @@ import numpy as np
 import xarray as xr
 
 from gprof_nn import sensors
+from gprof_nn.data import get_test_data_path
 from gprof_nn.data.bin import FileProcessor, BinFile
 from gprof_nn.data.training_data import GPROF_NN_1D_Dataset
 
 
-DATA_PATH = Path(__file__).parent / "data"
+DATA_PATH = get_test_data_path()
 
 
 def test_bin_file_gmi():

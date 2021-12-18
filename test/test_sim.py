@@ -9,6 +9,7 @@ import pytest
 import xarray as xr
 
 from gprof_nn import sensors
+from gprof_nn.data import get_test_data_path
 from gprof_nn.data.l1c import L1CFile
 from gprof_nn.data.sim import (SimFile,
                                _load_era5_data,
@@ -21,7 +22,7 @@ from gprof_nn.data.sim import (SimFile,
 from gprof_nn.data.preprocessor import PreprocessorFile
 
 
-DATA_PATH = Path(__file__).parent / "data"
+DATA_PATH = get_test_data_path()
 HAS_ARCHIVES = Path(sensors.GMI.l1c_file_path).exists()
 
 
@@ -64,8 +65,8 @@ def test_match_l1c_gmi():
     l1c_data["brightness_temperatures"] = (("scans", "pixels", "channels"),
                                            tbs_new)
 
-    bin_path = DATA_PATH / "gmi" / "sim"
-    sim_file = SimFile(bin_path / "GMI.dbsatTb.20190101.027510.sim")
+    sim_path = DATA_PATH / "gmi" / "sim"
+    sim_file = SimFile(sim_path / "GMI.dbsatTb.20190101.027510.sim")
 
     targets = ["surface_precip",
                "latent_heat",
@@ -152,7 +153,7 @@ def test_find_files():
     Assert that find_file functions successfully finds file in test data folder
     except when search is restricted to a different day.
     """
-    path = Path(__file__).parent / "data" / "gmi" / "sim"
+    path = DATA_PATH / "gmi" / "sim"
     sim_files = SimFile.find_files(path)
     assert len(sim_files) == 1
 
@@ -163,15 +164,16 @@ def test_find_files():
     assert len(sim_files) == 0
 
 
+@pytest.mark.skipif(not HAS_ARCHIVES, reason="Data archives not available.")
 def test_match_era5_precip():
     """
     Test loading and matching of data from ERA5.
     """
-    l1c_path =DATA_PATH / "gmi" / "l1c"
+    l1c_path = DATA_PATH / "gmi" / "l1c"
     l1c_file = L1CFile.open_granule(27510, l1c_path, sensors.GMI)
-    l1c_data = l1c_file.to_xarray_dataset()
+    l1c_data = l1c_file.to_xarray_dataset()[{"scans": slice(0, 2)}]
 
-    pp_path =DATA_PATH / "gmi" / "pp"
+    pp_path = DATA_PATH / "gmi" / "pp"
     preprocessor_file = PreprocessorFile(pp_path  / "GMIERA5_190101_027510.pp")
     input_data = preprocessor_file.to_xarray_dataset()
 
@@ -185,6 +187,7 @@ def test_match_era5_precip():
 
     sim_path = DATA_PATH / "gmi" / "sim"
     sim_file = SimFile(sim_path / "GMI.dbsatTb.20190101.027510.sim")
+    print(input_data, era5_data)
     sim_file.match_targets(input_data)
     _add_era5_precip(input_data,
                      l1c_data,
@@ -197,11 +200,11 @@ def test_orographic_enhancement():
     data from the preprocessor file matches that in the original
     dataset.
     """
-    path = Path(__file__).parent / "data"
-
-    preprocessor_file = PreprocessorFile(path / "gmi" / "GMIERA5_190101_027510.pp")
+    preprocessor_file = PreprocessorFile(
+        DATA_PATH / "gmi" / "pp" / "GMIERA5_190101_027510.pp"
+    )
     input_data = preprocessor_file.to_xarray_dataset()
-    sim_file = SimFile(path / "GMI.dbsatTb.20190101.027510.sim")
+    sim_file = SimFile(DATA_PATH / "gmi" / "sim" / "GMI.dbsatTb.20190101.027510.sim")
     sim_file.match_targets(input_data)
 
     st = input_data["surface_type"].data
@@ -236,9 +239,7 @@ def test_extend_dataset():
 
 @pytest.mark.skipif(not HAS_ARCHIVES, reason="Data archives not available.")
 def test_process_sim_file_gmi_era5():
-    sim_file = (Path(__file__).parent /
-                "data" /
-                "GMI.dbsatTb.20190101.027510.sim")
+    sim_file = DATA_PATH / "gmi" / "sim" / "GMI.dbsatTb.20190101.027510.sim"
     era5_path = "/qdata2/archive/ERA5/"
     data = process_sim_file(sim_file,
                             sensors.GMI,
@@ -257,9 +258,7 @@ def test_process_mrms_file_gmi():
     """
     Test processing of MRMS-GMI matches for a given day.
     """
-    mrms_file = (Path(__file__).parent /
-                 "data" /
-                 "1801_MRMS2GMI_gprof_db_08all.bin.gz")
+    mrms_file = DATA_PATH / "gmi" / "mrms" / "1801_MRMS2GMI_gprof_db_08all.bin.gz"
     era5_path = "/qdata2/archive/ERA5/"
     data = process_mrms_file(mrms_file, "ERA5", 24)
     assert data is not None
@@ -271,7 +270,9 @@ def test_process_mrms_file_gmi():
 def test_process_l1c_file_gmi():
     l1c_file = (Path(__file__).parent /
                 "data" /
-                "1C-R.GPM.GMI.XCAL2016-C.20180124-S000358-E013632.022190.V05A.HDF5")
+                "gmi" /
+                "l1c" /
+                "1C-R.GPM.GMI.XCAL2016-C.20190101-S001447-E014719.027510.V05A.HDF5")
     era5_path = "/qdata2/archive/ERA5/"
     data = process_l1c_file(l1c_file, sensors.GMI, "ERA5", era5_path)
 
@@ -286,9 +287,7 @@ def test_process_l1c_file_gmi():
 
 @pytest.mark.skipif(not HAS_ARCHIVES, reason="Data archives not available.")
 def test_process_sim_file_mhs():
-    sim_file = (Path(__file__).parent /
-                "data" /
-                "MHS.dbsatTb.20181001.026079.sim")
+    sim_file = DATA_PATH / "mhs" / "sim" / "MHS.dbsatTb.20190101.027510.sim"
     era5_path = "/qdata2/archive/ERA5/"
     data = process_sim_file(sim_file, sensors.MHS, "ERA5", era5_path)
 
@@ -306,9 +305,7 @@ def test_process_mrms_file_mhs():
     """
     Test processing of MRMS-MHS (NOAA-19) matches for a given day.
     """
-    mrms_file = (Path(__file__).parent /
-                 "data" /
-                 "1801_MRMS2MHS_DB1_01.bin.gz")
+    mrms_file = DATA_PATH / "mhs" / "mrms" / "1801_MRMS2MHS_DB1_01.bin.gz"
     era5_path = "/qdata2/archive/ERA5/"
     data = process_mrms_file(mrms_file, "ERA5", 23)
     assert data is not None
@@ -318,9 +315,12 @@ def test_process_mrms_file_mhs():
 
 @pytest.mark.skipif(not HAS_ARCHIVES, reason="Data archives not available.")
 def test_process_l1c_file_mhs():
-    l1c_file = (Path(__file__).parent /
-                "data" /
-                "1C.METOPB.MHS.XCAL2016-V.20190101-S011834-E025954.032624.V05A.HDF5")
+    l1c_file = (
+        DATA_PATH /
+        "mhs" /
+        "l1c" /
+        "1C.NOAA19.MHS.XCAL2016-V.20190101-S013203-E031403.051010.V05A.HDF5"
+    )
     era5_path = "/qdata2/archive/ERA5/"
     data = process_l1c_file(l1c_file, sensors.MHS, "ERA5", era5_path)
 

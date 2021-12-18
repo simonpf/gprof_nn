@@ -9,6 +9,7 @@ import pytest
 from quantnn.normalizer import Normalizer
 
 from gprof_nn import sensors
+from gprof_nn.data import get_test_data_path
 from gprof_nn.data.preprocessor import (
     PreprocessorFile,
     has_preprocessor,
@@ -21,6 +22,9 @@ from gprof_nn.data.training_data import GPROF_NN_1D_Dataset, write_preprocessor_
 from gprof_nn.data.l1c import L1CFile
 
 
+DATA_PATH = get_test_data_path()
+
+
 HAS_PREPROCESSOR = has_preprocessor()
 
 
@@ -28,8 +32,7 @@ def test_read_preprocessor_gmi():
     """
     Tests reading a GMI preprocessor file.
     """
-    path = Path(__file__).parent
-    input_file = PreprocessorFile(path / "data" / "gmi" / "GMIERA5_190101_027510.pp")
+    input_file = PreprocessorFile(DATA_PATH / "gmi" / "GMIERA5_190101_027510.pp")
     input_data = input_file.to_xarray_dataset()
 
     assert input_file.n_pixels == 221
@@ -62,8 +65,7 @@ def test_read_preprocessor_mhs():
     """
     Tests reading a GMI preprocessor file.
     """
-    path = Path(__file__).parent
-    input_file = PreprocessorFile(path / "data" / "mhs" / "pp" / "MHS.pp")
+    input_file = PreprocessorFile(DATA_PATH / "mhs" / "pp" / "MHS.pp")
     input_data = input_file.to_xarray_dataset()
 
     assert input_file.n_pixels == 90
@@ -98,8 +100,7 @@ def test_write_preprocessor_file(tmp_path):
     data from the preprocessor file matches that in the original
     dataset.
     """
-    path = Path(__file__).parent
-    input_file = path / "data" / "gmi" / "gprof_nn_gmi_era5.nc"
+    input_file = DATA_PATH / "gmi" / "gprof_nn_gmi_era5.nc"
 
     targets = [
         "surface_precip",

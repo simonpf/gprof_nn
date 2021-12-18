@@ -11,15 +11,27 @@ data formats required for the processing of training data.
 """
 from pathlib import Path
 import shutil
+import subprocess
+from tempfile import mkdtemp
 import urllib
 
 from appdirs import user_config_dir
 
-_DATA_DIR = Path(user_config_dir("pansat", "pansat"))
-_DATA_DIR.mkdir(parents=True, exist_ok=True)
+_DATA_DIR = Path(user_config_dir("gprof_nn", "gprof_nn"))
+if not _DATA_DIR.exists():
+    _DATA_DIR.mkdir(parents=True)
 
 _MODEL_DIR = _DATA_DIR / "models"
-_MODEL_DIR.mkdir(parents=True, exist_ok=True)
+if not _MODEL_DIR.exists():
+    _MODEL_DIR.mkdir(parents=True)
+
+_PROFILE_DIR = _DATA_DIR / "profiles"
+if not _PROFILE_DIR.exists():
+    _PROFILE_DIR.mkdir(parents=True, exist_ok=True)
+
+_TEST_DIR = _DATA_DIR / "test"
+if not _TEST_DIR.exists():
+    _TEST_DIR.mkdir(parents=True, exist_ok=True)
 
 
 _DATA_URL = "http://rain.atmos.colostate.edu/gprof_nn/"
@@ -40,6 +52,7 @@ def get_file(path):
     local_path = _DATA_DIR / path
     if not local_path.exists():
         url = _DATA_URL + str(path)
+        print(url)
         with urllib.request.urlopen(url) as response:
             with open(local_path, "wb") as output:
                 shutil.copyfileobj(response, output)
@@ -62,7 +75,7 @@ def get_model_path(kind, sensor, configuration):
         Local path to the requested model.
     """
     kind = kind.lower()
-    if kind not in ["1d", "2d"]:
+    if kind not in ["1d", "3d"]:
         raise ValueError("'kind' must be one of: '1D', '3D'")
     configuration = configuration.lower()
     if configuration not in ["era5", "ganal"]:
@@ -89,3 +102,36 @@ def get_model_path(kind, sensor, configuration):
             f"the server. Maybe it doesn't exist yet?"
         )
 
+
+def get_profile_clusters():
+    """
+    Return local path to the directory containing the profile cluster
+    files.
+
+    Return:
+        Absolute path of directory containing the profile clusters.
+    """
+    path_raining = "profiles/GPM_profile_clustersV7.dat"
+    get_file(path_raining)
+    path_non_raining = "profiles/GPM_profile_clustersNRV7.dat"
+    path = get_file(path_non_raining)
+    print(path)
+    return path.parent
+
+
+def get_test_data_path():
+    """
+    Return path to test data and download it if not alread
+    available.
+    """
+    test_data_path = _TEST_DIR / "data"
+    if not test_data_path.exists():
+        tmp = None
+        get_file("test/data.tar.gz")
+        subprocess.run(
+            ["tar", "-xvf", str(_TEST_DIR / "data.tar.gz")],
+            capture_output=True,
+            cwd=_TEST_DIR
+        )
+        (_TEST_DIR / "data.tar.gz").unlink()
+    return test_data_path

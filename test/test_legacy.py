@@ -8,6 +8,7 @@ import pandas as pd
 import pytest
 
 from gprof_nn import sensors
+from gprof_nn.data import get_test_data_path
 from gprof_nn.data.training_data import (GPROF_NN_1D_Dataset,
                                          write_preprocessor_file)
 from gprof_nn.legacy import (has_gprof,
@@ -16,6 +17,9 @@ from gprof_nn.legacy import (has_gprof,
                              run_gprof_training_data,
                              run_gprof_standard)
 from gprof_nn.data.preprocessor import PreprocessorFile
+
+
+DATA_PATH = get_test_data_path()
 
 
 HAS_GPROF = has_gprof()
@@ -39,7 +43,7 @@ def test_run_gprof_training_data():
     Test running the legacy GPROF algorithm on training data.
     """
     path = Path(__file__).parent
-    input_file = path / "data" / "gmi" / "gprof_nn_gmi_era5.nc"
+    input_file = DATA_PATH / "gmi" / "gprof_nn_gmi_era5.nc"
 
     results = run_gprof_training_data(sensors.GMI,
                                       "ERA5",
@@ -56,8 +60,7 @@ def test_run_gprof_training_data_preserve_structure():
     Test running the legacy GPROF algorithm on training data while
     preserving the spatial structure.
     """
-    path = Path(__file__).parent
-    input_file = path / "data" / "gmi" / "gprof_nn_gmi_era5.nc"
+    input_file = DATA_PATH / "gmi" / "gprof_nn_gmi_era5.nc"
 
     results = run_gprof_training_data(sensors.GMI,
                                       "ERA5",
@@ -74,8 +77,7 @@ def test_run_gprof_standard():
     """
     Test running legacy GPROF on a preprocessor input file.
     """
-    path = Path(__file__).parent
-    input_file = path / "data" / "gmi" / "GMIERA5_190101_027510.pp"
+    input_file = DATA_PATH / "gmi" / "pp" / "GMIERA5_190101_027510.pp"
     results = run_gprof_standard(sensors.GMI,
                                  "ERA5",
                                  input_file,

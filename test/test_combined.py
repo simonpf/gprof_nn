@@ -5,8 +5,13 @@ from pathlib import Path
 
 import numpy as np
 
+from gprof_nn.data import get_test_data_path
 from gprof_nn.data.combined import (GPMCMBFile,
                                     calculate_smoothing_kernels)
+
+
+DATA_PATH = get_test_data_path()
+
 
 def test_read_gpm_cmb_file():
     """
@@ -14,7 +19,7 @@ def test_read_gpm_cmb_file():
     """
     path = Path(__file__).parent
     filename = (
-        path / "data" / "gmi" /
+        path / "data" / "cmb" /
         "2B.GPM.DPRGMI.CORRA2018.20210829-S205206-E222439.042628.V06A.HDF5"
     )
     data = GPMCMBFile(filename).to_xarray_dataset()
@@ -29,7 +34,7 @@ def test_read_gpm_cmb_file_smoothed():
     """
     path = Path(__file__).parent
     filename = (
-        path / "data" / "gmi" /
+        path / "data" / "cmb" /
         "2B.GPM.DPRGMI.CORRA2018.20210829-S205206-E222439.042628.V06A.HDF5"
     )
     data = GPMCMBFile(filename).to_xarray_dataset(smooth=True)
@@ -43,7 +48,7 @@ def test_read_gpm_cmb_file_profiles_smoothed():
     """
     path = Path(__file__).parent
     filename = (
-        path / "data" / "gmi" /
+        path / "data" / "cmb" /
         "2B.GPM.DPRGMI.CORRA2018.20210829-S205206-E222439.042628.V06A.HDF5"
     )
     data = GPMCMBFile(filename).to_xarray_dataset(profiles=True, smooth=True)
