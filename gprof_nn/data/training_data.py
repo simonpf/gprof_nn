@@ -13,29 +13,22 @@ from pathlib import Path
 import subprocess
 from tempfile import TemporaryDirectory
 
-from scipy.signal import convolve
 import numpy as np
 import torch
 import xarray as xr
-from netCDF4 import Dataset
 
 from quantnn.normalizer import MinMaxNormalizer
 
 from gprof_nn import sensors
-from gprof_nn.utils import apply_limits
 from gprof_nn.data.utils import load_variable, decompress_scene, remap_scene
-from gprof_nn.definitions import MASKED_OUTPUT, LIMITS
-from gprof_nn.data.utils import expand_pixels
+from gprof_nn.definitions import MASKED_OUTPUT
 from gprof_nn.data.preprocessor import PreprocessorFile
 from gprof_nn.augmentation import (
-    extract_domain,
     get_transformation_coordinates
 )
 
 LOGGER = logging.getLogger(__name__)
-_DEVICE = torch.device("cpu")
-if torch.cuda.is_available():
-    _DEVICE = torch.device("cuda")
+
 
 _THRESHOLDS = {
     "surface_precip": 1e-4,
@@ -73,13 +66,13 @@ def decompress_and_load(filename):
             raise ValueError(
                 f"The file '{filename}' doesn't exist. "
             )
-        else:
-            filename_gz = Path(str(filename) + ".gz")
-            if not filename_gz.exists():
-                raise ValueError(
-                    f"Neither the file '{filename}' nor '{filename}.gz' exist."
-            )
-            filename = filename_gz
+
+        filename_gz = Path(str(filename) + ".gz")
+        if not filename_gz.exists():
+            raise ValueError(
+                f"Neither the file '{filename}' nor '{filename}.gz' exist."
+        )
+        filename = filename_gz
 
     if Path(filename).suffix == ".gz":
         with TemporaryDirectory() as tmp:
@@ -163,7 +156,7 @@ def write_preprocessor_file_xtrack(input_data, output_file):
         new_dataset["earth_incidence_angle"] = (
             ("scans", "pixels", "channels"),
             np.broadcast_to(
-                data.attrs["nominal_eia"].reshape(1, 1, -1), (n_scans_r, n_pixels_r, 15)
+                data.attrs["nominal_eia"].reshape(1, 1, -1), (n_scans, n_pixels, 15)
             ),
         )
 
