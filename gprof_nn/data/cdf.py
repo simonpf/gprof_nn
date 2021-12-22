@@ -93,7 +93,8 @@ class CdfCorrection:
             correction_file: Path to the NetCDF file containing the prepared
                 correction data.
         """
-        self.corrections = xr.load_dataset(correction_file)
+        self.correction_file = correction_file
+        self._corrections = None
         tbs = self.corrections.brightness_temperatures.data
         self.tbs_min = tbs.min()
         self.tbs_max = tbs.max()
@@ -101,6 +102,15 @@ class CdfCorrection:
         self.tcwv_min = tcwv.min()
         self.tcwv_max = tcwv.max()
         self.surface_types = self.corrections.surface_type.size
+
+    @property
+    def corrections(self):
+        """
+        Lazily loaded correctionas as 'xarray.Dataset'.
+        """
+        if self._corrections is None:
+            self._corrections = xr.load_dataset(self.correction_file)
+        return self._corrections
 
     def _apply_correction_cross_track(self,
                                       sensor,
