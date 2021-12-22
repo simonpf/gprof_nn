@@ -76,10 +76,10 @@ STATS = {
     ],
     "observations": [statistics.ObservationStatistics()],
     "retrieval": [
-        #statistics.RetrievalStatistics(),
+        statistics.RetrievalStatistics(),
         statistics.ZonalDistribution(),
         statistics.GlobalDistribution(),
-        #statistics.ScanPositionMean()
+        statistics.ScanPositionMean()
         ],
     "combined": [statistics.GPMCMBStatistics(monthly=False)]
 }
@@ -89,7 +89,7 @@ PATTERNS = {
     "training_3d": "**/*.nc*",
     "bin": "**/*.bin",
     "observations": "**/*.nc",
-    "retrieval": "*.nc",
+    "retrieval": "**/*.nc.gz",
     "combined": "**/2B.GPM*.HDF5"
 }
 
