@@ -21,14 +21,15 @@ import pandas as pd
 
 from gprof_nn import sensors
 from gprof_nn.definitions import PROFILE_NAMES, ALL_TARGETS
+from gprof_nn.data import get_profile_clusters
 from gprof_nn.data.training_data import (
     GPROF_NN_1D_Dataset,
     GPROF_NN_3D_Dataset,
     decompress_and_load,
 )
 from gprof_nn.data.l1c import L1CFile
-
 from gprof_nn.data.preprocessor import PreprocessorFile, run_preprocessor
+from gprof_nn.data.utils import load_variable
 
 
 LOGGER = logging.getLogger(__name__)
@@ -92,7 +93,7 @@ def calculate_padding_dimensions(t):
     return (p_l_n, p_r_n, p_l_m, p_r_m)
 
 
-def combine_input_data_0d(dataset, sensor):
+def combine_input_data_1d(dataset, sensor):
     """
     Combine retrieval input data into input matrix for the single-pixel
     retrieval.
@@ -110,7 +111,7 @@ def combine_input_data_0d(dataset, sensor):
     """
     n_chans = sensor.n_chans
 
-    tbs = dataset["brightness_temperatures"].data
+    tbs = dataset["brightness_temperatures"].data.copy()
     # Input from L1C file has only 13 channels.
     if sensor == sensors.GMI and tbs.shape[-1] < n_chans:
         tbs = expand_tbs(tbs)
@@ -120,9 +121,9 @@ def combine_input_data_0d(dataset, sensor):
     features = [tbs]
 
     if "two_meter_temperature" in dataset.variables:
-        t2m = dataset["two_meter_temperature"].data
+        t2m = load_variable(dataset, "two_meter_temperature")
         t2m = t2m.reshape(-1, 1)
-        tcwv = dataset["total_column_water_vapor"].data
+        tcwv = load_variable(dataset, "total_column_water_vapor")
         tcwv = tcwv.reshape(-1, 1)
 
         st = dataset["surface_type"].data.ravel()
@@ -149,7 +150,7 @@ def combine_input_data_0d(dataset, sensor):
     return x
 
 
-def combine_input_data_2d(dataset, sensor, v_tbs="brightness_temperatures"):
+def combine_input_data_3d(dataset, sensor, v_tbs="brightness_temperatures"):
     """
     Combine retrieval input data into input tensor format for convolutional
     retrieval.
@@ -178,9 +179,10 @@ def combine_input_data_2d(dataset, sensor, v_tbs="brightness_temperatures"):
     features = [tbs]
     if "two_meter_temperature" in dataset:
         # 2m temperature
-        t2m = dataset["two_meter_temperature"][:].data[..., np.newaxis]
+        t2m = load_variable(dataset, "two_meter_temperature")[..., np.newaxis]
         # Total precipitable water.
-        tcwv = dataset["total_column_water_vapor"][:].data[..., np.newaxis]
+        tcwv = load_variable(dataset, "total_column_water_vapor")[..., np.newaxis]
+
         # Surface type
         st = dataset["surface_type"][:].data
         n_types = 18
@@ -263,7 +265,6 @@ class RetrievalDriver:
         self,
         input_file,
         model,
-        ancillary_data=None,
         output_file=None,
         device="cpu",
         compress=True,
@@ -277,8 +278,6 @@ class RetrievalDriver:
             input_file: Path to the preprocessor or NetCDF file containing the
                 input data for the retrieval.
             model: The neural network to use for the retrieval.
-            ancillary_data: Path pointing to the folder containing the profile
-                clusters.
             output_file: If given and output format is not 'GPROF_BINARY' the
                 retrieval results will be written to this file.
             device: String identifying the device to run the retrieval on.
@@ -291,8 +290,6 @@ class RetrievalDriver:
         input_file = Path(input_file)
         self.input_file = input_file
         self.model = model
-        self.ancillary_data = ancillary_data
-        self.device = device
         self.compress = compress
 
         # Determine input format.
@@ -305,7 +302,8 @@ class RetrievalDriver:
             self.input_format = NETCDF
 
         # Determine output format.
-        if output_file is None:
+        output_file = Path(output_file)
+        if output_file is None or output_file.is_dir():
             self.output_format = self.input_format
         else:
             if self.input_format in [NETCDF, L1C]:
@@ -331,6 +329,7 @@ class RetrievalDriver:
         else:
             self.output_file = output_file
 
+        self.device = device
         self.preserve_structure = preserve_structure
         self.sensor = sensor
 
@@ -442,15 +441,21 @@ class RetrievalDriver:
         input_data = self._load_input_data()
         if input_data is None:
             return None
+
+        LOGGER.info("Running retrieval for file '%s'.", self.input_file)
         results = self._run(self.model, input_data)
 
         # Make sure output folder exists.
         folder = Path(self.output_file).parent
         folder.mkdir(parents=True, exist_ok=True)
 
+        ancillary_data = get_profile_clusters()
         if self.output_format == GPROF_BINARY:
             return input_data.write_retrieval_results(
-                self.output_file.parent, results, ancillary_data=self.ancillary_data
+                self.output_file.parent,
+                results,
+                ancillary_data=ancillary_data,
+                suffix=self.model.suffix
             )
 
         # Output format is NetCDF.
@@ -467,12 +472,16 @@ class RetrievalDriver:
             for var in variables:
                 if var in input_data.data.variables:
                     results[var] = input_data.data[var]
+
+        LOGGER.info("Writing retrieval results to file '%s'.", self.output_file)
         results.to_netcdf(self.output_file)
         if self.compress:
+            LOGGER.info("Compressing file '%s'.", self.output_file)
             subprocess.run(["gzip", "-f", self.output_file], check=True)
             output_file = self.output_file.with_suffix(".nc.gz")
         else:
             output_file = self.output_file
+
         return output_file
 
 
@@ -484,7 +493,7 @@ class RetrievalGradientDriver(RetrievalDriver):
 
     N_CHANNELS = 15
 
-    def __init__(self, input_file, model, ancillary_data=None, output_file=None):
+    def __init__(self, input_file, model, output_file=None, compress=True):
         """
         Create retrieval driver.
 
@@ -492,16 +501,16 @@ class RetrievalGradientDriver(RetrievalDriver):
             input_file: Path to the preprocessor or NetCDF file containing the
                 input data for the retrieval.
             model: The neural network to use for the retrieval.
-            ancillary_data: Path pointing to the folder containing the profile
-                clusters.
             output_file: If given and output format is not 'GPROF_BINARY' the
                 retrieval results will be written to this file.
+            compress: If set to ``True`` NetCDF output will be gzipped.
         """
+        ancillary_data = get_profile_clusters()
         super().__init__(
             input_file,
             model,
-            ancillary_data=ancillary_data,
             output_file=output_file,
+            compress=compress
         )
 
     def _run(self, xrnn, input_data):
@@ -668,7 +677,7 @@ class NetcdfLoader1D(GPROF_NN_1D_Dataset):
         """
         Reshape retrieval results into shape of input data.
         """
-        invalid = np.all(self.x[:, : self.sensor.n_chans] <= -1.5, axis=-1)
+        invalid = np.all(self.x[:, :self.sensor.n_chans] <= -1.5, axis=-1)
         for v in ALL_TARGETS:
             data[v].data[invalid] = np.nan
 
@@ -677,6 +686,8 @@ class NetcdfLoader1D(GPROF_NN_1D_Dataset):
             data[var + "_true"] = self.data[var]
         data["latitude"] = self.data["latitude"]
         data["longitude"] = self.data["longitude"]
+        if "earth_incidence_angle" in self.data.variables:
+            data["earth_incidence_angle"] = self.data["earth_incidence_angle"]
 
         return data
 
@@ -714,8 +725,8 @@ class NetcdfLoader3D(GPROF_NN_3D_Dataset):
             batch_size=batch_size,
             shuffle=False,
             augment=False,
-            input_dimensions=(32, 128),
-            sensor=sensor,
+            input_dimensions=None,
+            sensor=sensor
         )
         self.n_samples = len(self)
         self.scalar_dimensions = ("samples",)
@@ -768,6 +779,8 @@ class NetcdfLoader3D(GPROF_NN_3D_Dataset):
             data[var + "_true"] = self.data[var]
         data["latitude"] = self.data["latitude"]
         data["longitude"] = self.data["longitude"]
+        if "earth_incidence_angle" in self.data.variables:
+            data["earth_incidence_angle"] = self.data["earth_incidence_angle"]
 
         return data
 
@@ -896,7 +909,7 @@ class ObservationLoader1D:
             for t in ALL_TARGETS
         }
 
-        x = combine_input_data_0d(self.data, self.sensor)
+        x = combine_input_data_1d(self.data, self.sensor)
         self.x = torch.tensor(self.normalizer(x))
 
     def __len__(self):
@@ -951,7 +964,13 @@ class ObservationLoader1D:
 
         return data
 
-    def write_retrieval_results(self, output_path, results, ancillary_data=None):
+    def write_retrieval_results(
+            self,
+            output_path,
+            results,
+            ancillary_data=None,
+            suffix=None
+    ):
         """
         Write retrieval results to file.
 
@@ -959,13 +978,14 @@ class ObservationLoader1D:
             output_path: The folder to which to write the output.
             results: ``xarray.Dataset`` containing the retrieval results.
             ancillary_data: The folder containing the profile clusters.
+            suffix: Suffix to append to algorithm name in filename.
 
         Return:
             The filename of the retrieval output file.
         """
         preprocessor_file = PreprocessorFile(self.filename)
         return preprocessor_file.write_retrieval_results(
-            output_path, results, ancillary_data=ancillary_data
+            output_path, results, ancillary_data=ancillary_data, suffix=suffix
         )
 
 
@@ -1030,23 +1050,6 @@ class L1CLoader1D(ObservationLoader1D):
         """
         super().__init__(filename, L1CFile, normalizer, batch_size=batch_size)
 
-    def write_retrieval_results(self, output_path, results, ancillary_data=None):
-        """
-        Write retrieval results to file.
-
-        Args:
-            output_path: The folder to which to write the output.
-            results: ``xarray.Dataset`` containing the retrieval results.
-            ancillary_data: The folder containing the profile clusters.
-
-        Return:
-            The filename of the retrieval output file.
-        """
-        preprocessor_file = PreprocessorFile(self.filename)
-        return preprocessor_file.write_retrieval_results(
-            output_path, results, ancillary_data=ancillary_data
-        )
-
 
 L1CLoader0D = L1CLoader1D
 
@@ -1077,7 +1080,7 @@ class ObservationLoader3D:
         self.n_scans = self.data.scans.size
         self.n_pixels = self.data.pixels.size
 
-        input_data = combine_input_data_2d(self.data, input_file.sensor)
+        input_data = combine_input_data_3d(self.data, input_file.sensor)
         self.input_data = self.normalizer(input_data)
         self.padding = calculate_padding_dimensions(input_data)
 
@@ -1128,7 +1131,12 @@ class ObservationLoader3D:
             data = data.transpose(*dims)
         return data
 
-    def write_retrieval_results(self, output_path, results, ancillary_data=None):
+    def write_retrieval_results(
+            self,
+            output_path,
+            results,
+            ancillary_data=None,
+            suffix=None):
         """
         Write retrieval results to file.
 
@@ -1136,13 +1144,14 @@ class ObservationLoader3D:
             output_path: The folder to which to write the output.
             results: ``xarray.Dataset`` containing the retrieval results.
             ancillary_data: The folder containing the profile clusters.
+            suffix: Suffix to append to algorithm name in filename.
 
         Return:
             The filename of the retrieval output file.
         """
         preprocessor_file = PreprocessorFile(self.filename)
         return preprocessor_file.write_retrieval_results(
-            output_path, results, ancillary_data=ancillary_data
+            output_path, results, ancillary_data=ancillary_data, suffix=suffix
         )
 
 
@@ -1215,7 +1224,7 @@ class SimulatorLoader:
     to produce the results.
     """
 
-    def __init__(self, filename, normalizer, batch_size=8):
+    def __init__(self, filename, normalizer, batch_size=8, **kwargs):
         """
         Args:
             filename: Path to the netCDF file from which to load the input.
@@ -1235,8 +1244,10 @@ class SimulatorLoader:
             raise ValueError(f"Sensor {sensor_name} isn't yet supported.")
         self.sensor = sensor
 
+        print(sensor)
         self._load_data()
         self.n_samples = self.input_data.shape[0]
+
 
         if sensor.n_angles > 1:
             dims_tbs = ("samples", "angles", "channels", "scans", "pixels")
@@ -1263,12 +1274,12 @@ class SimulatorLoader:
         """
         dataset = self.dataset[{"samples": self.dataset.source == 0}]
         if self.sensor == sensors.GMI:
-            input_data = combine_input_data_2d(
+            input_data = combine_input_data_3d(
                 dataset, self.sensor, v_tbs="brightness_temperatures"
             )
         else:
-            input_data = combine_input_data_2d(
-                dataset, self.sensor, v_tbs="brightness_temperatures_gmi"
+            input_data = combine_input_data_3d(
+                dataset, sensors.GMI, v_tbs="brightness_temperatures_gmi"
             )
         self.input_data = self.normalizer(input_data)
         self.padding = calculate_padding_dimensions(input_data)
