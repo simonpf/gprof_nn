@@ -12,13 +12,12 @@ from h5py import File
 
 import numpy as np
 import pandas as pd
-import scipy as sp
+import scipy
 from scipy.signal import convolve
 import xarray as xr
 
-def calculate_smoothing_kernels(
-        fwhm_a,
-        fwhm_x):
+
+def calculate_smoothing_kernels(fwhm_a, fwhm_x):
     """
     Calculate smoothing kernels for GPM combined data.
 
@@ -35,13 +34,12 @@ def calculate_smoothing_kernels(
     n_a = int(2.0 * fwhm_a / d_a)
     n_x = int(2.0 * fwhm_x / d_x)
 
-    k = np.ones((2 * n_a + 1, 2 * n_x + 1), dtype=np.float32)
     x_a = np.arange(-n_a, n_a + 1).reshape(-1, 1) * d_a
     x_x = np.arange(-n_x, n_x + 1).reshape(1, -1) * d_x
-    r = np.sqrt((2.0 * x_a / fwhm_a) ** 2 + (2.0 * x_x / fwhm_x) ** 2)
-    k = np.exp(np.log(0.5) * r ** 2)
-    k /= k.sum()
-    return k
+    radius = np.sqrt((2.0 * x_a / fwhm_a) ** 2 + (2.0 * x_x / fwhm_x) ** 2)
+    kernel = np.exp(np.log(0.5) * radius ** 2)
+    kernel /= kernel.sum()
+    return kernel
 
 
 def smooth_field(field, kernel):
@@ -74,6 +72,7 @@ class GPMCMBFile:
     """
     Class to read in GPM combined data.
     """
+
     def __init__(self, filename):
         """
         Create GPMCMB object to read a given file.
@@ -84,14 +83,9 @@ class GPMCMBFile:
         """
         self.filename = Path(filename)
         time = self.filename.stem.split(".")[4][:-8]
-        self.start_time = datetime.strptime(
-            time,
-            "%Y%m%d-S%H%M%S"
-        )
+        self.start_time = datetime.strptime(time, "%Y%m%d-S%H%M%S")
 
-    def to_xarray_dataset(self, smooth=False,
-                          profiles=False,
-                          roi=None):
+    def to_xarray_dataset(self, smooth=False, profiles=False, roi=None):
         """
         Load data in file into 'xarray.Dataset'.
 
@@ -107,16 +101,18 @@ class GPMCMBFile:
         """
         with File(str(self.filename), "r") as data:
 
-            data = data['NS']
+            data = data["NS"]
             latitude = data["Latitude"][:]
             longitude = data["Longitude"][:]
 
             if roi is not None:
                 lon_0, lat_0, lon_1, lat_1 = roi
-                inside = ((longitude >= lon_0) *
-                          (latitude >= lat_0) *
-                          (longitude < lon_1) *
-                          (latitude < lat_1))
+                inside = (
+                    (longitude >= lon_0)
+                    * (latitude >= lat_0)
+                    * (longitude < lon_1)
+                    * (latitude < lat_1)
+                )
                 inside = np.any(inside, axis=1)
                 i_start, i_end = np.where(inside)[0][[0, -1]]
             else:
@@ -132,7 +128,7 @@ class GPMCMBFile:
                 "day": data["ScanTime"]["DayOfMonth"][i_start:i_end],
                 "hour": data["ScanTime"]["Hour"][i_start:i_end],
                 "minute": data["ScanTime"]["Minute"][i_start:i_end],
-                "second": data["ScanTime"]["Second"][i_start:i_end]
+                "second": data["ScanTime"]["Second"][i_start:i_end],
             }
             date = pd.to_datetime(date)
 
@@ -145,25 +141,25 @@ class GPMCMBFile:
                 "scan_time": (("scans",), date),
                 "latitude": (("scans", "pixels"), latitude),
                 "longitude": (("scans", "pixels"), longitude),
-                "surface_precip": (("scans", "pixels"), surface_precip)
+                "surface_precip": (("scans", "pixels"), surface_precip),
             }
 
             if profiles:
-                twc = data['precipTotWaterCont'][i_start:i_end]
-                lf = data['liqMassFracTrans'][i_start:i_end]
-                lf[lf < 0] = 1.0
+                twc = data["precipTotWaterCont"][i_start:i_end]
+                l_frac = data["liqMassFracTrans"][i_start:i_end]
+                l_frac[l_frac < 0] = 1.0
                 levels = (np.arange(88) + 1).reshape(1, 1, -1)
                 phases = data["phaseBinNodes"][i_start:i_end]
                 top = np.expand_dims(phases[..., 1], 2)
 
                 rwc = twc.copy()
-                indices = (levels < top)
+                indices = levels < top
                 rwc[indices] = 0.0
                 indices = (levels >= top) * (levels < top + 10.0)
 
                 lf_mask = (np.arange(10)).reshape(1, 1, -1) + top
                 lf_mask = lf_mask <= 88
-                rwc[indices] *= lf[lf_mask].ravel()
+                rwc[indices] *= l_frac[lf_mask].ravel()
                 rwc[twc < -1000] = np.nan
 
                 swc = twc - rwc
@@ -177,15 +173,15 @@ class GPMCMBFile:
                 dataset["layers"] = (("layers"), np.arange(0.125e3, 22e3, 0.25e3))
                 dataset["rain_water_content"] = (
                     ("scans", "pixels", "layers"),
-                    rwc[..., ::-1]
+                    rwc[..., ::-1],
                 )
                 dataset["snow_water_content"] = (
                     ("scans", "pixels", "layers"),
-                    swc[..., ::-1]
+                    swc[..., ::-1],
                 )
                 dataset["total_water_content"] = (
                     ("scans", "pixels", "layers"),
-                    twc[..., ::-1]
+                    twc[..., ::-1],
                 )
             return xr.Dataset(dataset)
 
@@ -204,14 +200,9 @@ class GPMLHFile:
         """
         self.filename = Path(filename)
         time = self.filename.stem.split(".")[4][:-8]
-        self.start_time = datetime.strptime(
-            time,
-            "%Y%m%d-S%H%M%S"
-        )
+        self.start_time = datetime.strptime(time, "%Y%m%d-S%H%M%S")
 
-    def to_xarray_dataset(self, smooth=False,
-                          profiles=False,
-                          roi=None):
+    def to_xarray_dataset(self, smooth=False, roi=None):
         """
         Load data in file into 'xarray.Dataset'.
 
@@ -231,10 +222,12 @@ class GPMLHFile:
 
             if roi is not None:
                 lon_0, lat_0, lon_1, lat_1 = roi
-                inside = ((longitude >= lon_0) *
-                          (latitude >= lat_0) *
-                          (longitude < lon_1) *
-                          (latitude < lat_1))
+                inside = (
+                    (longitude >= lon_0)
+                    * (latitude >= lat_0)
+                    * (longitude < lon_1)
+                    * (latitude < lat_1)
+                )
                 inside = np.any(inside, axis=1)
                 i_start, i_end = np.where(inside)[0][[0, -1]]
             else:
@@ -247,7 +240,7 @@ class GPMLHFile:
             date = {
                 "year": data["Swath_ScanTime_Year"].data[i_start:i_end],
                 "month": data["Swath_ScanTime_Month"].data[i_start:i_end],
-                "day": 1
+                "day": 1,
             }
             date = np.array(pd.to_datetime(date))
             date = date + data["Swath_ScanTime_DayOfMonth"].data[i_start:i_end]
@@ -263,6 +256,6 @@ class GPMLHFile:
                 "scan_time": (("scans",), date),
                 "latitude": (("scans", "pixels"), latitude),
                 "longitude": (("scans", "pixels"), longitude),
-                "latent_heat": (("scans", "pixels", "levels"), latent_heat)
+                "latent_heat": (("scans", "pixels", "levels"), latent_heat),
             }
             return xr.Dataset(dataset)
