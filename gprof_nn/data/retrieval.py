@@ -12,10 +12,7 @@ from pathlib import Path
 
 import numpy as np
 from quantnn.normalizer import Normalizer
-import torch
 import xarray
-import scipy as sp
-import scipy.interpolate
 
 from gprof_nn.definitions import MISSING
 
@@ -234,12 +231,12 @@ class RetrievalFile:
 
     @property
     def satellite(self):
-        """The satellite platform from which the input observations stem. """
+        """The satellite platform from which the input observations stem."""
         return self.orbit_header["satellite"]
 
     @property
     def sensor(self):
-        """The sensor from which the input observations stem. """
+        """The sensor from which the input observations stem."""
         return self.orbit_header["sensor"]
 
     @property
@@ -250,6 +247,12 @@ class RetrievalFile:
         """
         for i in range(self.n_scans):
             yield self.get_scan(i)
+
+    def __repr__(self):
+        return (
+            f"RetrievalFile(filename={self.filename}, "
+            f"satellite={self.satellite}, sensor={self.sensor})"
+        )
 
     def get_scan(self, i):
         """
@@ -283,6 +286,31 @@ class RetrievalFile:
         )
         return np.frombuffer(self.data, SCAN_HEADER_TYPES, count=1, offset=offset)
 
+    def write(self, filename, n_scans=None):
+        """
+        Write the data in this retrieval file to another file.
+
+        Args:
+            filename: Name of the file to which write the content of this
+                file.
+            n_scans: Limit of the number of scans in the file to write.
+        """
+        if n_scans is None:
+            n_scans = self.n_scans
+        n_scans = min(self.n_scans, n_scans)
+        with open(filename, "wb") as output:
+            orbit_header = self.orbit_header.copy()
+            orbit_header["number_of_scans"][:] = n_scans
+
+            # Write orbit header.
+            orbit_header.tofile(output)
+
+            self.profile_info.tofile(output)
+
+            for i in range(n_scans):
+                self.get_scan_header(i).tofile(output)
+                self.get_scan(i).tofile(output)
+
     def to_xarray_dataset(self, full_profiles=True):
         """
         Return retrieval results as xarray dataset.
@@ -296,9 +324,9 @@ class RetrievalFile:
             'xarray.Dataset' containing all variables in the retrieval file.
         """
         data = {}
-        for s in self.scans:
-            for k in self.data_record_types.fields:
-                data.setdefault(k, []).append(s[k])
+        for scan in self.scans:
+            for key in self.data_record_types.fields:
+                data.setdefault(key, []).append(scan[key])
 
         for k in data:
             data[k] = np.stack(data[k], axis=0)
@@ -312,10 +340,11 @@ class RetrievalFile:
             ]
             dataset = {}
             dims = ("scans", "pixels", "levels")
-            for i, s in enumerate(species):
+            for i, spec in enumerate(species):
                 i_start = i * 28
                 i_end = i_start + 28
-                dataset[s] = (dims, data["profiles"][..., i_start:i_end])
+                dataset[spec] = (dims, data["profiles"][..., i_start:i_end])
+
         elif "profile_scale" in data:
             shape = (N_SPECIES, N_TEMPERATURES, N_LAYERS, N_PROFILES)
             profiles = self.profile_info["profiles"].reshape(shape, order="f")
