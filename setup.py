@@ -14,7 +14,10 @@ setup(
     url="https://github.com/simonpf/gprof_nn",
     author="Simon Pfreundschuh",
     author_email="simon.pfreundschuh@chalmers.se",
-    install_requires=["numpy", "scipy", "xarray", "torch", "appdirs", "rich"],
+    install_requires=[
+        "numpy", "scipy", "xarray", "torch", "appdirs", "rich",
+        "quantnn"
+    ],
     entry_points = {
         'console_scripts': ['gprof_nn=gprof_nn.bin:gprof_nn'],
     },
