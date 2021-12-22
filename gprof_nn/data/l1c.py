@@ -12,7 +12,6 @@ from pathlib import Path
 import re
 
 import numpy as np
-import h5py
 import pandas as pd
 from rich.progress import track
 import xarray as xr
@@ -188,6 +187,7 @@ class L1CFile:
         self.filename = path
         self.path = Path(path)
 
+        import h5py
         with h5py.File(self.path, "r") as data:
             header = data.attrs["FileHeader"].decode().split()[6:8]
             satellite = header[0].split("=")[1][:-1]
@@ -197,6 +197,7 @@ class L1CFile:
 
     @property
     def start_time(self):
+        import h5py
         with h5py.File(self.path, "r") as input:
             year = input["S1/ScanTime/Year"][0]
             month = input["S1/ScanTime/Month"][0]
@@ -210,6 +211,7 @@ class L1CFile:
 
     @property
     def end_time(self):
+        import h5py
         with h5py.File(self.path, "r") as input:
             year = input["S1/ScanTime/Year"][-1]
             month = input["S1/ScanTime/Month"][-1]
@@ -239,6 +241,7 @@ class L1CFile:
         """
         lon_min, lat_min, lon_max, lat_max = roi
 
+        import h5py
         with h5py.File(self.path, "r") as input:
             lats = input["S1/Latitude"][:]
             lons = input["S1/Longitude"][:]
@@ -331,6 +334,7 @@ class L1CFile:
             output_filename: Name of the file to which to write the extracted
                  scans.
         """
+        import h5py
         with h5py.File(self.path, "r") as input:
             lats = input["S1/Latitude"][scans, 0]
             lons = input["S1/Longitude"][scans, 0]
@@ -433,6 +437,7 @@ class L1CFile:
         Returns:
             True if the file contains any observations over the given ROI.
         """
+        import h5py
         lon_min, lat_min, lon_max, lat_max = roi
         with h5py.File(self.path, "r") as input:
             lats = input["S1/Latitude"][:]
@@ -458,6 +463,7 @@ class L1CFile:
         Returns:
             An xarray.Dataset containing the data from this L1C file.
         """
+        import h5py
         with h5py.File(self.path, "r") as input:
 
             lats = input["S1/Latitude"][:]
