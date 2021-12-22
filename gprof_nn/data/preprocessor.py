@@ -243,6 +243,29 @@ class PreprocessorFile:
         for i in range(self.n_scans):
             yield self.get_scan(i)
 
+    def write_subset(self, filename, n_scans=None):
+        """
+        Write the data in this retrieval file to another file.
+
+        Args:
+            filename: Name of the file to which write the content of this
+                file.
+            n_scans: Limit of the number of scans in the file to write.
+        """
+        if n_scans is None:
+            n_scans = self.n_scans
+        n_scans = min(self.n_scans, n_scans)
+        with open(filename, "wb") as output:
+            orbit_header = self.orbit_header.copy()
+            orbit_header["number_of_scans"][:] = n_scans
+
+            # Write orbit header.
+            orbit_header.tofile(output)
+
+            for i in range(n_scans):
+                self.get_scan_header(i).tofile(output)
+                self.get_scan(i).tofile(output)
+
     def get_scan(self, i):
         """
         Args:
@@ -318,7 +341,7 @@ class PreprocessorFile:
         dataset.attrs["preprocessor"] = preprocessor
         return dataset
 
-    def write_retrieval_results(self, path, results, ancillary_data=None, suffix=None):
+    def write_retrieval_results(self, path, results, ancillary_data=None, suffix=""):
         """
         Write retrieval result to GPROF binary format.
 
@@ -345,12 +368,13 @@ class PreprocessorFile:
             profiles_raining = None
             profiles_non_raining = None
 
+        n_scans = results.scans.size
         with open(filename, "wb") as file:
             self._write_retrieval_orbit_header(file)
             self._write_retrieval_profile_info(
                 file, profiles_raining, profiles_non_raining
             )
-            for i in range(self.n_scans):
+            for i in range(n_scans):
                 self._write_retrieval_scan_header(file, i)
                 self._write_retrieval_scan(
                     file,
