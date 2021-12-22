@@ -52,7 +52,7 @@ _THRESHOLDS = {
 
 _INPUT_DIMENSIONS = {
     "GMI": (96, 128),
-    "MHS": (48, 128)
+    "MHS": (24, 128)
 }
 
 
@@ -448,8 +448,7 @@ class GPROF_NN_1D_Dataset(Dataset1DBase):
         shuffle=True,
         augment=True,
         sensor=None,
-        permute=None,
-        equalizer=None,
+        permute=None
     ):
         """
         Create GPROF 1D dataset.
@@ -500,7 +499,7 @@ class GPROF_NN_1D_Dataset(Dataset1DBase):
         self.sensor = sensor
 
         x, y = self.sensor.load_training_data_1d(
-            self.dataset, self.targets, self.augment, self._rng, equalizer=equalizer
+            self.dataset, self.targets, self.augment, self._rng
         )
         self.x = x
         self.y = y
@@ -1081,6 +1080,8 @@ class SimulatorDataset(GPROF_NN_3D_Dataset):
         self.x = x
         self.y = {}
 
+        sensor = getattr(sensors, self.dataset.attrs["sensor"])
+
         biases = y["brightness_temperature_biases"]
         for i in range(biases.shape[1]):
             key = f"brightness_temperature_biases_{i}"
@@ -1089,8 +1090,10 @@ class SimulatorDataset(GPROF_NN_3D_Dataset):
         sims = y["simulated_brightness_temperatures"]
         for i in range(biases.shape[1]):
             key = f"simulated_brightness_temperatures_{i}"
-            self.y[key] = sims[:, :, [i]]
-
+            if isinstance(sensor, sensors.ConicalScanner):
+                self.y[key] = sims[:, [i]]
+            else:
+                self.y[key] = sims[:, :, [i]]
 
         self.x = self.x.astype(np.float32)
         if isinstance(self.y, dict):
