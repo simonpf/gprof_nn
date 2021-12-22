@@ -854,9 +854,9 @@ class CrossTrackScanner(Sensor):
         self._sim_file_path = sim_file_path
 
         if correction is None:
-            self.correction = None
+            self._correction = None
         else:
-            self.correction = CdfCorrection(correction)
+            self._correction = correction
         # Convert modeling error to list of channel-wise modeling errors.
         if isinstance(modeling_error, int):
             modeling_error = [modelling_error] * n_chans
@@ -864,6 +864,13 @@ class CrossTrackScanner(Sensor):
 
     def __repr__(self):
         return f"CrossTrackScanner(name={self.name}, " f"platform={self.platform.name})"
+
+    @property
+    def correction(self):
+        if self._correction is not None:
+            if not isinstance(self._correction, CdfCorrection):
+                self.correction = CdfCorrection(self._correction)
+        return self._correction
 
     @property
     def n_inputs(self):
