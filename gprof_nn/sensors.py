@@ -22,6 +22,7 @@ GPM constellation. Most sensors exist in two or three variants:
      quantile-matching correction to the training data.
 """
 from abc import ABC, abstractmethod, abstractproperty
+from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
 from netCDF4 import Dataset
@@ -218,11 +219,27 @@ class Sensor(ABC):
         return self._name
 
     @property
-    def sensor_id(self):
+    def sensor_name(self):
         """
-        String that uniquely identifies the sensor.
+        The name of the sensor only.
         """
         return self._name
+
+    @property
+    def sensor_id(self):
+        """
+        The name of the sensor only.
+        """
+        return self._name
+
+    @property
+    def full_name(self):
+        """
+        A combination of sensor and platform name.
+        """
+        platform = self.platform.name.upper().replace("-", "")
+        sensor = self.name.upper()
+        return f"{sensor}_{platform}"
 
     @property
     def channels(self):
@@ -371,25 +388,6 @@ class Sensor(ABC):
         return self._preprocessor_pixel_record
 
     @abstractmethod
-    def load_data_1d(self, filename):
-        """
-        Load input data for GPROF-NN 1D algorithm from NetCDF file.
-
-        Args:
-            filename: Path of the file from which to load the data.
-            targets: List of target names to load.
-            augment: Flag indicating whether or not to augment the training
-                data.
-            rng: Numpy random number generator to use for the data
-                augmentation.
-
-        Return:
-            Rank-2 tensor ``x`` with input features oriented along its
-            last dimension.
-        """
-        pass
-
-    @abstractmethod
     def load_training_data_1d(self, dataset, targets, augment, rng):
         """
         Load training data for GPROF-NN 1D algorithm from NetCDF file.
@@ -409,24 +407,6 @@ class Sensor(ABC):
             inputs in ``x``.
         """
         pass
-
-    def load_data_2d(self, filename, targets):
-        """
-        Load input data for GPROF-NN 3D algorithm from NetCDF file.
-
-        Args:
-            filename: Path of the file from which to load the data.
-            targets: List of target names to load.
-            augment: Flag indicating whether or not to augment the training
-                data.
-            rng: Numpy random number generator to use for the data
-                augmentation.
-
-        Return:
-            Rank-4 tensor ``x`` with input features oriented along
-            the second dimension and along- and across-track
-            dimensions along the third and fourth, respectively.
-        """
 
     def load_training_data_3d(self, filename, targets):
         """
@@ -564,36 +544,48 @@ class ConicalScanner(Sensor):
     def load_brightness_temperatures(self, data, angles=None, mask=None):
         return load_variable(data, "brightness_temperatures", mask=mask)
 
-    def load_data_1d(self, filename):
+    def _load_scene_1d(self, scene, targets, augment, rng):
         """
-        Load all samples in training data as input for GPROF-NN 1D retrieval.
-
-        Args:
-            filename: The filename of the NetCDF file containing the training
-                data.
-
-        Return:
-            Numpy array with two dimensions containing all samples in the give
-            file as input for the GPROF-NN 1D retrieval.
+        Helper function to parallelize loading of 1D training data.
         """
-        x = []
-        with xr.open_dataset(filename) as dataset:
-            n_samples = dataset.samples.size
-            for i in range(n_samples):
-                scene = dataset[{"samples": i}]
-                tbs = self.load_brightness_temperatures(scene)
-                tbs = tbs.reshape(-1, self.n_chans)
-                t2m = self.load_two_meter_temperature(scene)
-                t2m = t2m.reshape(-1, 1)
-                tcwv = self.load_total_column_water_vapor(scene)
-                mask = np.ones(tcwv.shape, dtype=np.bool)
-                tcwv = tcwv.reshape(-1, 1)
-                st = self.load_surface_type(scene, mask)
-                am = self.load_airmass_type(scene, mask)
-                x.append(np.concatenate([tbs, t2m, tcwv, st, am], axis=1))
-        return np.concatenate(x, axis=0)
+        pass
+        if "surface_precip" not in targets:
+            ts = targets + ["surface_precip"]
+        else:
+            ts = targets
+        scene = decompress_scene(scene, ts)
 
-    def load_training_data_1d(self, dataset, targets, augment, rng, equalizer=None):
+        #
+        # Input data
+        #
+
+        # Select only samples that have a finite surface precip value.
+        sp = self.load_target(scene, "surface_precip")
+        valid = sp >= 0
+
+        tbs = self.load_brightness_temperatures(scene, mask=valid)
+        if augment:
+            r = rng.random(tbs.shape[0])
+            tbs[r > 0.9, 10:15] = np.nan
+        t2m = self.load_two_meter_temperature(scene, valid)[..., np.newaxis]
+        tcwv = self.load_total_column_water_vapor(scene, valid)
+        tcwv = tcwv[..., np.newaxis]
+        st = self.load_surface_type(scene, valid)
+        am = self.load_airmass_type(scene, valid)
+        x = np.concatenate([tbs, t2m, tcwv, st, am], axis=1)
+
+        #
+        # Output data
+        #
+
+        y = {}
+        for t in targets:
+            y_t = self.load_target(scene, t, valid)
+            y_t = np.nan_to_num(y_t, nan=MASKED_OUTPUT)
+            y[t] = y_t
+        return x, y
+
+    def load_training_data_1d(self, dataset, targets, augment, rng, n_workers=1):
         """
         Load training data for GPROF-NN 1D retrieval. This function will
         only load pixels that with a finite surface precip value in order
@@ -609,7 +601,6 @@ class ConicalScanner(Sensor):
             targets: List of the targets to load.
             augment: Whether or not to augment the training data.
             rng: Numpy random number generator to use for augmentation.
-            equalizer: Not used.
 
         Return:
             Tuple ``(x, y)`` containing the un-batched, un-shuffled training
@@ -624,93 +615,123 @@ class ConicalScanner(Sensor):
         else:
             loaded = False
 
-        n_samples = dataset.samples.size
-        for i in range(n_samples):
+        n_scenes = dataset.samples.size
 
-            if "surface_precip" not in targets:
-                ts = targets + ["surface_precip"]
-            else:
-                ts = targets
-            scene = decompress_scene(dataset[{"samples": i}], ts)
+        # Multi-process loading.
+        if n_workers > 1:
+            pool = ProcessPoolExecutor(max_workers=n_workers)
+            # Distribute tasks to workers
+            tasks = []
+            for i in range(n_scenes):
+                scene = dataset[{"samples": i}]
+                tasks.append(pool.submit(
+                    ConicalScanner._load_scene_1d,
+                    self, scene, targets,
+                    augment,  rng
+                ))
 
-            #
-            # Input data
-            #
+            # Collect results
+            for task in tasks:
+                x_i, y_i = task.result()
+                x.append(x_i)
+                for target in targets:
+                    y.setdefault(target, []).append(y_i[target])
+        # Single-process loading.
+        else:
+            for i in range(n_scenes):
+                scene = dataset[{"samples": i}]
+                x_i, y_i = self._load_scene_1d(
+                    scene,
+                    targets,
+                    augment,
+                    rng)
+                x.append(x_i)
+                for target in targets:
+                    y.setdefault(target, []).append(y_i[target])
 
-            # Select only samples that have a finite surface precip value.
-            sp = self.load_target(scene, "surface_precip")
-            valid = sp >= 0
-
-            tbs = self.load_brightness_temperatures(scene, mask=valid)
-            if augment:
-                r = rng.random(tbs.shape[0])
-                tbs[r > 0.9, 10:15] = np.nan
-            t2m = self.load_two_meter_temperature(scene, valid)[..., np.newaxis]
-            tcwv = self.load_total_column_water_vapor(scene, valid)
-            tcwv = tcwv[..., np.newaxis]
-            st = self.load_surface_type(scene, valid)
-            am = self.load_airmass_type(scene, valid)
-            x.append(np.concatenate([tbs, t2m, tcwv, st, am], axis=1))
-
-            #
-            # Output data
-            #
-
-            for t in targets:
-                y_t = self.load_target(scene, t, valid)
-                y_t = np.nan_to_num(y_t, nan=MASKED_OUTPUT)
-                y.setdefault(t, []).append(y_t)
-
-        x = np.concatenate(x)
-        y = {k: np.concatenate(y[k]) for k in y}
+        x = np.concatenate(x, axis=0)
+        for k in targets:
+            y[k] = np.concatenate(y[k], axis=0)
 
         if loaded:
             dataset.close()
 
         return x, y
 
-    def load_data_2d(self, filename):
+    def _load_scene_3d(self, scene, targets, augment, variables, rng, width, height):
         """
-        Load all scenes in training data as input for GPROF-NN 1D retrieval.
-
-        Args:
-            filename: The filename of the NetCDF file containing the training
-                data.
-
-        Return:
-            Numpy array with with shape
-            ``(n_samples, n_features, height, widht)`` containing all scenes
-            from the training data file.
+        Helper function for parallelized loading of training samples.
         """
-        if isinstance(dataset, (str, Path)):
-            dataset = xr.open_dataset(dataset)
+        scene = decompress_scene(scene, targets + variables)
+
+        if augment:
+            p_x_o = rng.random()
+            p_x_i = rng.random()
+            p_y = rng.random()
+        else:
+            p_x_o = 0.5
+            p_x_i = 0.5
+            p_y = 0.5
+
+        lats = scene.latitude.data
+        lons = scene.longitude.data
+        coords = get_transformation_coordinates(
+            lats, lons, self.viewing_geometry, width, height, p_x_i, p_x_o, p_y
+        )
+
+        scene = remap_scene(scene, coords, targets)
 
         #
         # Input data
         #
 
-        # Brightness temperatures
-        n = dataset.samples.size
+        tbs = self.load_brightness_temperatures(scene)
+        tbs = np.transpose(tbs, (2, 0, 1))
+        if augment:
+            r = rng.random()
+            n_p = rng.integers(10, 30)
+            if r > 0.80:
+                tbs[10:15, :, :n_p] = np.nan
+        t2m = self.load_two_meter_temperature(scene)[np.newaxis]
+        tcwv = self.load_total_column_water_vapor(scene)[np.newaxis]
+        st = self.load_surface_type(scene)
+        st = np.transpose(st, (2, 0, 1))
+        am = self.load_airmass_type(scene)
+        am = np.transpose(am, (2, 0, 1))
 
-        x = []
+        x = np.concatenate([tbs, t2m, tcwv, st, am], axis=0)
 
-        for i in range(n):
-            scene = dataset[{"samples": i}]
+        #
+        # Output data
+        #
+        y = {}
 
-            tbs = self.load_brightness_temperatures(scene)
-            tbs = np.transpose(tbs, (2, 0, 1))
-            t2m = self.load_two_meter_temperature(dataset)[np.newaxis]
-            tcwv = self.load_two_meter_temperature(dataset)[np.newaxis]
-            st = self.load_surface_type(dataset)
-            st = np.transpose(st, (2, 0, 1))
-            am = self.load_airmass_type(dataset)
-            am = np.transpose(am, (2, 0, 1))
-            x.append(np.concatenate([tbs, t2m, tcwv, st, am], axis=0))
+        for t in targets:
+            y_t = self.load_target(scene, t)
+            y_t = np.nan_to_num(y_t, nan=MASKED_OUTPUT)
 
-        return np.stack(x)
+            dims_sp = tuple(range(2))
+            dims_t = tuple(range(2, y_t.ndim))
+
+            y[t] = np.transpose(y_t, dims_t + dims_sp).astype(np.float32)
+
+        # Also flip data if requested.
+        if augment:
+            r = rng.random()
+            if r > 0.5:
+                x = np.flip(x, -2)
+                for k in targets:
+                    y[k] = np.flip(y[k], -2)
+
+            r = rng.random()
+            if r > 0.5:
+                x = np.flip(x, -1)
+                for k in targets:
+                    y[k] = np.flip(y[k], -1)
+        return x, y
 
     def load_training_data_3d(
-        self, dataset, targets, augment, rng, width=96, height=128
+            self, dataset, targets, augment, rng, width=96, height=128, n_workers=1
     ):
         """
         Load training data for GPROF-NN 3D retrieval. This function extracts
@@ -725,6 +746,8 @@ class ConicalScanner(Sensor):
             rng: Numpy random number generator to use for augmentation.
             width: The width of each input image.
             height: The height of each input image.
+            n_workers: If larger than 1, a process pool with that many workers
+                 will be used to load the data in parallel.
 
         Return:
             Tuple ``(x, y)`` containing the un-batched, un-shuffled training
@@ -740,76 +763,48 @@ class ConicalScanner(Sensor):
             loaded = True
         else:
             loaded = False
+        n_scenes = dataset.samples.size
 
-        n = dataset.samples.size
-        for i in range(n):
-            scene = decompress_scene(dataset[{"samples": i}], targets + vs)
+        # Multi-process loading.
+        if n_workers > 1:
+            pool = ProcessPoolExecutor(max_workers=n_workers)
+            # Distribute tasks to workers
+            tasks = []
+            for i in range(n_scenes):
+                scene = dataset[{"samples": i}]
+                tasks.append(pool.submit(
+                    ConicalScanner._load_scene_3d,
+                    self, scene, targets,
+                    augment, vs, rng,
+                    width, height
+                ))
 
-            if augment:
-                p_x_o = rng.random()
-                p_x_i = rng.random()
-                p_y = rng.random()
-            else:
-                p_x_o = 0.5
-                p_x_i = 0.5
-                p_y = 0.5
-
-            lats = scene.latitude.data
-            lons = scene.longitude.data
-            coords = get_transformation_coordinates(
-                lats, lons, self.viewing_geometry, width, height, p_x_i, p_x_o, p_y
-            )
-
-            scene = remap_scene(scene, coords, targets)
-
-            #
-            # Input data
-            #
-
-            tbs = self.load_brightness_temperatures(scene)
-            tbs = np.transpose(tbs, (2, 0, 1))
-            if augment:
-                r = rng.random()
-                n_p = rng.integers(10, 30)
-                if r > 0.80:
-                    tbs[10:15, :, :n_p] = np.nan
-            t2m = self.load_two_meter_temperature(scene)[np.newaxis]
-            tcwv = self.load_total_column_water_vapor(scene)[np.newaxis]
-            st = self.load_surface_type(scene)
-            st = np.transpose(st, (2, 0, 1))
-            am = self.load_airmass_type(scene)
-            am = np.transpose(am, (2, 0, 1))
-
-            x_i = np.concatenate([tbs, t2m, tcwv, st, am], axis=0)
-            x.append(x_i.astype(np.float32))
-
-            #
-            # Output data
-            #
-
-            for t in targets:
-                y_t = self.load_target(scene, t)
-                y_t = np.nan_to_num(y_t, nan=MASKED_OUTPUT)
-
-                dims_sp = tuple(range(2))
-                dims_t = tuple(range(2, y_t.ndim))
-
-                y_i = np.transpose(y_t, dims_t + dims_sp).astype(np.float32)
-                y.setdefault(t, []).append(y_i)
-
-            # Also flip data if requested.
-            if augment:
-                r = rng.random()
-                if r > 0.5:
-                    x[i] = np.flip(x[i], -2)
-                    for k in targets:
-                        y[k][i] = np.flip(y[k][i], -2)
-
-                r = rng.random()
-                if r > 0.5:
-                    x[i] = np.flip(x[i], -1)
-                    for k in targets:
-                        y[k][i] = np.flip(y[k][i], -1)
+            # Collect results
+            for task in tasks:
+                x_i, y_i = task.result()
+                x.append(x_i)
+                for target in targets:
+                    y.setdefault(target, []).append(y_i[target])
+        # Single-process loading.
+        else:
+            for i in range(n_scenes):
+                scene = dataset[{"samples": i}]
+                if scene.source == 0:
+                    n = 1
+                else:
+                    n = 5
+                for j in range(n):
+                    x_i, y_i = self._load_scene_3d(
+                        scene,
+                        targets,
+                        augment,
+                        vs,
+                        rng,
+                        width,
+                        height)
+                    x.append(x_i)
+                    for target in targets:
+                        y.setdefault(target, []).append(y_i[target])
 
         x = np.stack(x)
         for k in targets:
@@ -949,64 +944,7 @@ class CrossTrackScanner(Sensor):
                 v = v[..., 0]
         return v
 
-    def load_data_1d(self, filename):
-        """
-        Load all samples in training data as input for GPROF-NN 1D retrieval.
-
-        Args:
-            filename: The filename of the NetCDF file containing the training
-                data.
-
-        Return:
-            Numpy array with two dimensions containing all samples in the give
-            file as input for the GPROF-NN 1D retrieval.
-        """
-        with xr.open_dataset(filename) as dataset:
-            n_samples = dataset.samples.size
-
-            x = []
-
-            for i in range(n_samples):
-                vs = [
-                    "simulated_brightness_temperatures",
-                    "brightness_temperature_biases",
-                    "earth_incidence_angle",
-                ]
-                scene = decompress_scene(dataset[{"samples": i}], vs)
-                source = dataset.source[i]
-
-                n_scans = scene.scans.size
-                n_pixels = scene.pixels.size
-
-                mask = np.ones((n_scans, n_pixels)).astype(np.bool)
-
-                if source == 0:
-                    eia = np.arange(n_scans * n_pixels)
-                    eia = eia.reshape(n_scans, n_pixels)
-                    eia = self.angles[eia % self.n_angles]
-                    eia = eia[mask]
-                    weights = calculate_interpolation_weights(eia, self.angles)
-                    eia = eia[..., np.newaxis]
-                else:
-                    weights = None
-                    eia = load_variable(scene, "earth_incidence_angle", mask=mask)
-                    eia = eia[..., :1]
-
-                tbs = self.load_brightness_temperatures(scene, weights, mask=mask)
-
-                t2m = self.load_two_meter_temperature(scene, mask=mask)
-                t2m = t2m[..., np.newaxis]
-                tcwv = self.load_two_meter_temperature(scene, mask=mask)
-                tcwv = tcwv[..., np.newaxis]
-                st = self.load_surface_type(scene, mask=mask)
-                am = self.load_airmass_type(scene, mask=mask)
-
-                x.append(np.concatenate([tbs, eia, t2m, tcwv, st, am], axis=1))
-
-        x = np.concatenate(x, axis=0)
-        return x
-
-    def load_training_data_1d(self, dataset, targets, augment, rng, equalizer=None):
+    def load_training_data_1d(self, dataset, targets, augment, rng):
         """
         Load training data for GPROF-NN 1D retrieval. This function will
         only load pixels that with a finite surface precip value in order
@@ -1027,7 +965,6 @@ class CrossTrackScanner(Sensor):
             targets: List of the targets to load.
             augment: Whether or not to augment the training data.
             rng: Numpy random number generator to use for augmentation.
-            equalizer: Not used.
 
         Return:
             Tuple ``(x, y)`` containing the un-batched, un-shuffled training
@@ -1137,9 +1074,6 @@ class CrossTrackScanner(Sensor):
             dataset.close()
 
         return x, y
-
-    def load_data_2d(self, filename, targets, augment, rng):
-        pass
 
     def _load_training_data_3d_sim(
         self, scene, targets, augment, rng, width=32, height=128
@@ -1586,3 +1520,60 @@ def get_sensor(sensor, platform=None):
             pass
     key = sensor.upper()
     return globals()[key]
+
+###############################################################################
+# TMI
+###############################################################################
+
+TMI_CHANNELS = [
+    (10.65, "V"),
+    (10.65, "H"),
+    (19.35, "V"),
+    (19.35, "H"),
+    (21.3, "V"),
+    (37.0, "V"),
+    (37.0, "H"),
+    (85.5, "V"),
+    (85.5, "H"),
+]
+
+TMI_ANGLES = np.array([
+    52.8,
+    52.8,
+    52.8,
+    52.8,
+    52.8,
+    52.8,
+    52.8,
+    52.8,
+    52.8,
+])
+
+
+TMI_PRE_VIEWING_GEOMETRY = Conical(
+    altitude=350e3,
+    earth_incidence_angle=53.0,
+    scan_range=130.0,
+    pixels_per_scan=208,
+    scan_offset=13.4e3,
+)
+
+TMI_POST_VIEWING_GEOMETRY = Conical(
+    altitude=400e3,
+    earth_incidence_angle=53.0,
+    scan_range=130.0,
+    pixels_per_scan=208,
+    scan_offset=13.4e3,
+)
+
+
+GMI = ConicalScanner(
+    "GMI",
+    GMI_CHANNELS,
+    GMI_ANGLES,
+    GPM,
+    GMI_VIEWING_GEOMETRY,
+    "/pdata4/veljko/GMI2MRMS_match2019/db_mrms4GMI/",
+    "GMI.dbsatTb.??????{day}.??????.sim",
+    "/qdata1/pbrown/dbaseV7/simV7",
+)
