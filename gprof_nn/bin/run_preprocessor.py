@@ -119,9 +119,10 @@ def run(args):
 
     configuration = args.configuration.upper()
     if not configuration in ["ERA5", "GANAL"]:
-        raise LOGGER.error(
-                "Configuration must be one of 'ERA5' or 'GANAL'."
-                )
+        LOGGER.error(
+            "Configuration must be one of 'ERA5' or 'GANAL'."
+        )
+        return 1
 
 
     inputs = [Path(f) for f in args.input]
