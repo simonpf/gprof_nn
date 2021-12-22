@@ -376,8 +376,8 @@ def run_training_1d(sensor,
         training_data,
         dataset_factory,
         kwargs=kwargs,
-        queue_size=128,
-        n_workers=6
+        queue_size=64,
+        n_workers=4
     )
 
     kwargs = {
@@ -392,8 +392,8 @@ def run_training_1d(sensor,
         validation_data,
         dataset_factory,
         kwargs=kwargs,
-        queue_size=128,
-        n_workers=4
+        queue_size=64,
+        n_workers=2
     )
 
     #
@@ -451,10 +451,11 @@ def run_training_1d(sensor,
     model = xrnn.model
     xrnn.normalizer = normalizer
     xrnn.configuration = configuration
+    xrnn.sensor = sensor.full_name
 
-    #
-    # Run training
-    #
+    ###############################################################################
+    # Run the training.
+    ###############################################################################
 
     n_epochs_tot = sum(n_epochs)
     logger = TensorBoardLogger(n_epochs_tot)
@@ -568,7 +569,7 @@ def run_training_3d(sensor,
         dataset_factory,
         queue_size=256,
         kwargs=kwargs,
-        n_workers=4)
+        n_workers=6)
 
 
     if args.no_validation:
@@ -646,6 +647,7 @@ def run_training_3d(sensor,
     model = xrnn.model
     xrnn.normalizer = normalizer
     xrnn.configuration = configuration
+    xrnn.sensor = sensor.full_name
 
     ###############################################################################
     # Run the training.
@@ -803,6 +805,7 @@ def run_training_sim(sensor,
     model = xrnn.model
     xrnn.normalizer = normalizer
     xrnn.configuration = configuration
+    xrnn.sensor = sensor.full_name
 
     ###############################################################################
     # Run the training.
