@@ -12,19 +12,29 @@ import numpy as np
 import scipy
 from scipy.ndimage import map_coordinates
 from scipy.interpolate import interp1d
-import pyproj
 
 M = 128
 N = 96
 
 SCANS_PER_SAMPLE = 221
 R_EARTH = 6_371_000
+_LATLON_TO_ECEF = None
 
 
-LATLON_TO_ECEF = pyproj.Transformer.from_crs(
-    {"proj": "latlong", "ellps": "WGS84", "datum": "WGS84"},
-    {"proj": "geocent", "ellps": "WGS84", "datum": "WGS84"},
-)
+def latlon_to_ecef():
+    """
+    Return pyproj transformer object to transform lat/lon to cartesian
+    coordinates.
+    """
+    global _LATLON_TO_ECEF
+    if _LATLON_TO_ECEF is None:
+        import pyproj
+        _LATLON_TO_ECEF =  pyproj.Transformer.from_crs(
+            {"proj": "latlong", "ellps": "WGS84", "datum": "WGS84"},
+            {"proj": "geocent", "ellps": "WGS84", "datum": "WGS84"},
+        )
+    return _LATLON_TO_ECEF
+
 
 ###############################################################################
 # Viewing geometries
@@ -108,7 +118,7 @@ class Swath(ViewingGeometry):
         lat_c = lats[m // 2, n // 2]
         lon_c = lons[m // 2, n // 2]
 
-        xyz = LATLON_TO_ECEF.transform(
+        xyz = latlon_to_ecef().transform(
             lons[m // 2: m // 2 + 2],
             lats[m // 2: m // 2 + 2],
             np.zeros((2, lats.shape[1]), dtype=np.float32),
@@ -123,7 +133,7 @@ class Swath(ViewingGeometry):
         d_a = d_a / np.sqrt(np.sum(d_a ** 2))
 
         # Unit vector perpendicular to surface
-        d_z = np.stack(LATLON_TO_ECEF.transform(lon_c, lat_c, 1.0, radians=False))
+        d_z = np.stack(latlon_to_ecef().transform(lon_c, lat_c, 1.0, radians=False))
         d_z -= c
 
         # Unit vector in across-track direction
