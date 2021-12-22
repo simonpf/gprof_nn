@@ -25,7 +25,6 @@ from abc import ABC, abstractmethod, abstractproperty
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
-from netCDF4 import Dataset
 import numpy as np
 from scipy.signal import convolve
 import xarray as xr
