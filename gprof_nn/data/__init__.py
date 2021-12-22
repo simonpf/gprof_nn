@@ -52,7 +52,6 @@ def get_file(path):
     local_path = _DATA_DIR / path
     if not local_path.exists():
         url = _DATA_URL + str(path)
-        print(url)
         with urllib.request.urlopen(url) as response:
             with open(local_path, "wb") as output:
                 shutil.copyfileobj(response, output)
@@ -115,7 +114,6 @@ def get_profile_clusters():
     get_file(path_raining)
     path_non_raining = "profiles/GPM_profile_clustersNRV7.dat"
     path = get_file(path_non_raining)
-    print(path)
     return path.parent
 
 
