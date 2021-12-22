@@ -550,6 +550,10 @@ class GPROF_NN_1D_QRNN(MRNN):
         self.normalizer = None
         self.configuration = None
 
+    @property
+    def suffix(self):
+        return "1D"
+
     def __repr__(self):
         return (f"GPROF_NN_1D_DRNN(targets={self.targets})")
         trained = getattr(self, "configuration", None) is not None
@@ -651,6 +655,10 @@ class GPROF_NN_1D_DRNN(MRNN):
         # Initialize attributes that will be set during training.
         self.normalizer = None
         self.configuration = None
+
+    @property
+    def suffix(self):
+        return "1D"
 
     def __repr__(self):
         trained = getattr(self, "configuration", None) is not None
@@ -1248,15 +1256,19 @@ class GPROF_NN_3D_QRNN(MRNN):
         self.normalizer = None
         self.configuration = None
 
+    @property
+    def suffix(self):
+        return "3D"
+
     def __repr__(self):
         trained = getattr(self, "configuration", None) is not None
-        return (f"GPROF_NN_3D_DRNN(targets={self.targets})")
+        return (f"GPROF_NN_3D_QRNN(targets={self.targets})")
         if trained:
-            return (f"GPROF_NN_3D_DRNN(sensor={self.sensor}, "
+            return (f"GPROF_NN_3D_QRNN(sensor={self.sensor}, "
                     f"configuration={self.configuration}, "
                     f"targets={self.targets})")
         else:
-            return (f"GPROF_NN_3D_DRNN(sensor={self.sensor}, "
+            return (f"GPROF_NN_3D_QRNN(sensor={self.sensor}, "
                     f"targets={self.targets})")
 
     def set_targets(self, targets):
@@ -1331,6 +1343,10 @@ class GPROF_NN_3D_DRNN(MRNN):
             self.preprocessor_class = L1CLoader3D
 
         self.netcdf_class = NetcdfLoader3D
+
+    @property
+    def suffix(self):
+        return "3D"
 
     def set_targets(self, targets):
         """
