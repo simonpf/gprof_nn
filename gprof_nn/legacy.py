@@ -16,6 +16,7 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 
+from gprof_nn.augmentation import SCANS_PER_SAMPLE
 from gprof_nn.definitions import ALL_TARGETS
 from gprof_nn.data.preprocessor import run_preprocessor
 from gprof_nn.data.retrieval import RetrievalFile
@@ -227,6 +228,8 @@ def run_gprof_training_data(
     """
     targets = ALL_TARGETS + ["latitude", "longitude"]
     if preserve_structure:
+        dims = (sensor.viewing_geometry.pixels_per_scan,
+                128)
         input_data = GPROF_NN_3D_Dataset(
             input_file,
             shuffle=False,
@@ -234,7 +237,8 @@ def run_gprof_training_data(
             augment=False,
             targets=targets,
             sensor=sensor,
-            batch_size=16
+            batch_size=16,
+            input_dimensions=dims
         )
     else:
         input_data = GPROF_NN_1D_Dataset(
@@ -283,7 +287,7 @@ def run_gprof_training_data(
             else:
                 scans = batch_input.scans.data
                 pixels = batch_input.pixels.data
-                samples = np.arange(output_data.scans.size // scans.size)
+                samples = np.arange(output_data.scans.size // SCANS_PER_SAMPLE)
                 index = pd.MultiIndex.from_product(
                     (samples, scans),
                     names=('samples', 'new_scans')
