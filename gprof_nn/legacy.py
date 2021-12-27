@@ -259,6 +259,14 @@ def run_gprof_training_data(
 
             preprocessor_file = tmp / "input.pp"
             batch_input = input_data.to_xarray_dataset(batch=batch)
+
+            # Discard scenes that have nans in EIA because they can't
+            # be fully reproduced anyways.
+            if preserve_structure and "earth_incidence_angle" in batch_input:
+                eia = batch_input.earth_incidence_angle.data
+                valid = np.all(np.isfinite(eia), axis=(-2, -1))
+                batch_input = batch_input[{"samples": valid}]
+
             new_dataset = write_preprocessor_file(batch_input, preprocessor_file)
             if new_dataset is not None:
                 batch_input = new_dataset
@@ -285,9 +293,9 @@ def run_gprof_training_data(
                 n_samples = output_data.samples.size
                 batch_input = batch_input[{"samples": slice(0, n_samples)}]
             else:
-                scans = batch_input.scans.data
+                scans = np.arange(128)
                 pixels = batch_input.pixels.data
-                samples = np.arange(output_data.scans.size // SCANS_PER_SAMPLE)
+                samples = np.arange(output_data.scans.size // 128)
                 index = pd.MultiIndex.from_product(
                     (samples, scans),
                     names=('samples', 'new_scans')

@@ -569,7 +569,7 @@ def run_training_3d(sensor,
         dataset_factory,
         queue_size=256,
         kwargs=kwargs,
-        n_workers=6)
+        n_workers=4)
 
 
     if args.no_validation:

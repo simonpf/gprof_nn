@@ -91,6 +91,12 @@ def decompress_and_load(filename):
 
 
 def write_preprocessor_file_xtrack(input_data, output_file):
+    """
+    Handle the special case of writing preprocessor files for cross
+    track scanning sensors. The difficulty here is that GPROF expects
+    pixels to be organized into pixel positions according to their
+    viewing angle.
+    """
     if not isinstance(input_data, xr.Dataset):
         data = xr.open_dataset(input_data)
     else:
@@ -106,7 +112,7 @@ def write_preprocessor_file_xtrack(input_data, output_file):
     bins = sensor.viewing_geometry.get_earth_incidence_angles()
     bins = 0.5 * (bins[1:] + bins[:-1])
     indices = np.digitize(eia, bins)
-    cts, _ = np.histogram(indices, bins = np.arange(bins.size + 1) - 0.5)
+    cts, _ = np.histogram(indices, bins=np.arange(bins.size + 2) - 0.5)
 
     n_scans = cts.max()
     n_pixels = sensor.viewing_geometry.pixels_per_scan

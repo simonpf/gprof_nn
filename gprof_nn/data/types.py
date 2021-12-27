@@ -12,7 +12,7 @@ CONICAL = "CONICAL"
 XTRACK = "XTRACK"
 
 
-def get_preprocessor_orbit_header(n_chans):
+def get_preprocessor_orbit_header(n_chans, kind):
     """
     Args:
         n_chans: The number of frequencies of the sensor.
@@ -21,38 +21,40 @@ def get_preprocessor_orbit_header(n_chans):
         The numpy datatype corresponding to the orbit header of the
         binary preprocessor file format.
     """
-    dtype = np.dtype(
-        [
-            ("satellite", "a12"),
-            ("sensor", "a12"),
-            ("preprocessor", "a12"),
-            ("profile_database_file", "a128"),
-            ("radiometer_file", "a128"),
-            ("calibration_file", "a128"),
-            ("granule_number", "i"),
-            ("number_of_scans", "i"),
-            ("number_of_pixels", "i"),
-            ("n_channels", "i"),
-            ("frequencies", f"{n_chans}f4"),
-            ("comment", "a40"),
-        ]
-    )
-    dtype = np.dtype(
-        [
-            ("satellite", "a12"),
-            ("sensor", "a12"),
-            ("preprocessor", "a12"),
-            ("profile_database_file", "a128"),
-            ("radiometer_file", "a128"),
-            ("calibration_file", "a128"),
-            ("granule_number", "i"),
-            ("number_of_scans", "i"),
-            ("number_of_pixels", "i"),
-            ("n_channels", "i"),
-            ("frequencies", f"{n_chans}f4"),
-            ("comment", "a40"),
-        ]
-    )
+    if kind == CONICAL:
+        dtype = np.dtype(
+            [
+                ("satellite", "a12"),
+                ("sensor", "a12"),
+                ("preprocessor", "a12"),
+                ("profile_database_file", "a128"),
+                ("radiometer_file", "a128"),
+                ("calibration_file", "a128"),
+                ("granule_number", "i"),
+                ("number_of_scans", "i"),
+                ("number_of_pixels", "i"),
+                ("n_channels", "i"),
+                ("frequencies", f"15f4"),
+                ("comment", "a40"),
+            ]
+        )
+    else:
+        dtype = np.dtype(
+            [
+                ("satellite", "a12"),
+                ("sensor", "a12"),
+                ("preprocessor", "a12"),
+                ("profile_database_file", "a128"),
+                ("radiometer_file", "a128"),
+                ("calibration_file", "a128"),
+                ("granule_number", "i"),
+                ("number_of_scans", "i"),
+                ("number_of_pixels", "i"),
+                ("n_channels", "i"),
+                ("frequencies", f"{n_chans}f4"),
+                ("comment", "a40"),
+            ]
+        )
     return dtype
 
 
@@ -70,8 +72,8 @@ def get_preprocessor_pixel_record(n_chans, kind):
             [
                 ("latitude", "f4"),
                 ("longitude", "f4"),
-                ("brightness_temperatures", f"{n_chans}f4"),
-                ("earth_incidence_angle", f"{n_chans}f4"),
+                ("brightness_temperatures", f"15f4"),
+                ("earth_incidence_angle", f"15f4"),
                 ("wet_bulb_temperature", "f4"),
                 ("lapse_rate", "f4"),
                 ("total_column_water_vapor", "f4"),
@@ -106,6 +108,7 @@ def get_preprocessor_pixel_record(n_chans, kind):
 
 def get_bin_file_header(n_chans, n_angles, kind):
     if kind == CONICAL:
+        n_chans = 15
         dtype = np.dtype(
             [
                 ("satellite_code", "a5"),
@@ -143,6 +146,7 @@ def get_bin_file_record(n_chans, n_angles, n_layers, surface_type, kind):
         a numpy structured array.
     """
     if kind == CONICAL:
+        n_chans = 15
         dtype = np.dtype(
             [
                 ("dataset_number", "i4"),
@@ -229,8 +233,8 @@ def get_sim_file_header(n_chans, n_angles, kind):
             [
                 ("satellite_code", "a5"),
                 ("sensor", "a5"),
-                ("frequencies", "f4", (n_chans,)),
-                ("nominal_eia", "f4", (n_chans,)),
+                ("frequencies", "f4", (15,)),
+                ("nominal_eia", "f4", (15,)),
                 ("start_pixel", "i4"),
                 ("end_pixel", "i4"),
                 ("start_scan", "i4"),
@@ -294,15 +298,15 @@ def get_sim_file_record(n_chans, n_angles, n_layers, kind):
                 ("surface_precip_mirs", "f4"),
                 ("surface_precip", "f4"),
                 ("convective_precip", "f4"),
-                ("emissivity", "f4", (n_chans,)),
+                ("emissivity", "f4", (15,)),
                 ("rain_water_content", "f4", (n_layers,)),
                 ("snow_water_content", "f4", (n_layers,)),
                 ("cloud_water_content", "f4", (n_layers,)),
                 ("latent_heat", "f4", (n_layers,)),
-                ("tbs_observed", "f4", (n_chans,)),
-                ("tbs_simulated", "f4", (n_chans,)),
-                ("d_tbs", "f4", (n_chans,)),
-                ("tbs_bias", "f4", (n_chans,)),
+                ("tbs_observed", "f4", (15,)),
+                ("tbs_simulated", "f4", (15,)),
+                ("d_tbs", "f4", (15,)),
+                ("tbs_bias", "f4", (15,)),
             ]
         )
     else:

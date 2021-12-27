@@ -198,7 +198,12 @@ class SimFile:
             matched[:] = np.nan
             assert np.all(indices[dists < 10e3] < matched.shape[0])
             indices = np.clip(indices, 0, matched.shape[0] - 1)
-            tbs = self.data["tbs_simulated"].reshape((-1,) + shape[2:])
+
+            tbs = self.data["tbs_simulated"]
+            if isinstance(self.sensor, sensors.ConstellationScanner):
+                tbs = tbs[..., self.sensor.gmi_channels]
+            #tbs = tbs.reshape((-1,) + shape[2:])
+
             matched[indices, ...] = tbs
             matched[indices, ...][dists > 10e3] = np.nan
             matched = matched.reshape(shape)
@@ -218,7 +223,12 @@ class SimFile:
             matched = np.zeros((n_scans * (w_c + 1), n_chans))
 
             matched[:] = np.nan
-            matched[indices, ...] = self.data["tbs_bias"]
+
+            biases = self.data["tbs_bias"]
+            if isinstance(self.sensor, sensors.ConstellationScanner):
+                biases = biases[..., self.sensor.gmi_channels]
+            matched[indices, ...] = biases
+
             matched[indices, ...][dists > 10e3] = np.nan
             matched = matched.reshape(shape)
 
@@ -296,9 +306,20 @@ class SimFile:
 
         record_type = self.sensor.sim_file_record
         for key, _, *shape in record_type.descr:
+
+            data = self.data[key]
+            if key in ["emissivity",
+                       "tbs_observed",
+                       "tbs_simulated",
+                       "tbs_bias",
+                       "d_tbs"]:
+                if isinstance(self.sensor, sensors.ConstellationScanner):
+                    data = data[..., self.sensor.gmi_channels]
+
             dims = ("samples",)
-            if shape:
-                dims = dims + tuple([dim_dict[s] for s in shape[0]])
+            if len(data.shape) > 1:
+                dims = dims + tuple([dim_dict[s] for s in data.shape[1:]])
+
             results[key] = dims, self.data[key]
 
         dataset = xr.Dataset(results)
@@ -595,7 +616,12 @@ def process_sim_file(sim_filename, sensor, configuration, era5_path, log_queue=N
     return data
 
 
-def process_mrms_file(mrms_filename, configuration, day, log_queue=None):
+def process_mrms_file(
+        sensor,
+        mrms_filename,
+        configuration,
+        day,
+        log_queue=None):
     """
     Extract training data from MRMS-GMI match up files for given day.
     Matches the observations in the MRMS file with input data from the
@@ -612,14 +638,18 @@ def process_mrms_file(mrms_filename, configuration, day, log_queue=None):
         gprof_nn.logging.configure_queue_logging(log_queue)
     LOGGER.info("Processing MRMS file %s.", mrms_filename)
     mrms_file = MRMSMatchFile(mrms_filename)
-    sensor = mrms_file.sensor
+    mrms_sensor = mrms_file.sensor
 
     indices = np.where(mrms_file.data["scan_time"][:, 2] == day)[0]
     if len(indices) <= 0:
         return None
     date = mrms_file.scan_time[indices[len(indices) // 2]]
     l1c_files = list(
-        L1CFile.find_files(date, sensor.l1c_file_path, roi=CONUS, sensor=sensor)
+        L1CFile.find_files(
+            date,
+            mrms_sensor.l1c_file_path,
+            roi=CONUS,
+            sensor=mrms_sensor)
     )
 
     scenes = []
@@ -636,6 +666,8 @@ def process_mrms_file(mrms_filename, configuration, day, log_queue=None):
             Path(f_roi).unlink()
         if data_pp is None:
             continue
+        if data_pp.channels.size > sensor.n_chans:
+            data_pp = data_pp[{"channels": sensor.gmi_channels}]
 
         LOGGER.debug("Matching MRMS data for %s.", file.filename)
         mrms_file.match_targets(data_pp)
@@ -698,6 +730,9 @@ def process_l1c_file(l1c_filename, sensor, configuration, era5_path, log_queue=N
     sea_ice = (surface_type == 2) + (surface_type == 16)
     for v in ["surface_precip", "convective_precip"]:
         data_pp[v].data[~sea_ice] = np.nan
+
+    if data_pp.channels.size > sensor.n_chans:
+        data_pp = data_pp[{"channels": sensor.gmi_channels}]
 
     scenes = _extract_scenes(data_pp)
     scenes["source"] = (("samples",), 2 * np.ones(scenes.samples.size, dtype=np.int8))
@@ -954,6 +989,7 @@ class SimFileProcessor:
                 tasks.append(
                     self.pool.submit(
                         process_mrms_file,
+                        self.sensor,
                         mrms_file,
                         self.configuration,
                         self.day,

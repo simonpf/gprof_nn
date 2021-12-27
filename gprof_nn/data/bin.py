@@ -158,10 +158,15 @@ class BinFile:
                 )
                 results[key] = (("samples",), pd.to_datetime(date, errors="coerce"))
             else:
+                data = self.handle[key]
+                if key in ["brightness_temperatures",
+                           "delta_tb"]:
+                    if isinstance(self.sensor, sensors.ConstellationScanner):
+                        data = data[..., self.sensor.gmi_channels]
                 dims = ("samples",)
-                if shape:
-                    dims = dims + tuple([dim_dict[s] for s in shape[0]])
-                results[key] = dims, self.handle[key][indices]
+                if len(data.shape) > 1:
+                    dims = dims + tuple([dim_dict[s] for s in data.shape[1:]])
+                results[key] = dims, data[indices]
 
         results["surface_type"] = (
             ("samples",),

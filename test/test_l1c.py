@@ -27,6 +27,10 @@ def test_open_granule_gmi():
     assert l1c_data.scans.size == 2962
     assert l1c_file.sensor == sensors.GMI
 
+    tbs = l1c_data.brightness_temperatures.data
+    valid = np.all(tbs > 0, axis=-1)
+    tbs = tbs[valid]
+    assert np.all((tbs > 20) * (tbs <= 350))
 
 def test_open_granule_mhs():
     """
@@ -41,6 +45,32 @@ def test_open_granule_mhs():
     assert l1c_data.pixels.size == 90
     assert l1c_data.scans.size == 2295
     assert l1c_file.sensor == sensors.MHS
+
+    tbs = l1c_data.brightness_temperatures.data
+    valid = np.all(tbs > 0, axis=-1)
+    tbs = tbs[valid]
+    assert np.all((tbs > 20) * (tbs <= 350))
+
+
+def test_open_granule_tmi():
+    """
+    Test finding of specific TMI L1C file and reading data into
+    xarray.Dataset.
+    """
+
+    DATA_PATH = Path(__file__).parent / "data"
+    l1c_path = DATA_PATH / "tmi" / "l1c"
+
+    l1c_file = L1CFile.open_granule(69095, l1c_path, sensors.TMI)
+    l1c_data = l1c_file.to_xarray_dataset()
+
+    assert l1c_data.pixels.size == 208
+    assert l1c_file.sensor == sensors.TMI
+
+    tbs = l1c_data.brightness_temperatures.data
+    valid = np.all(tbs > 0, axis=-1)
+    tbs = tbs[valid]
+    assert np.all((tbs > 20) * (tbs <= 350))
 
 
 def test_find_file_gmi():
@@ -69,6 +99,21 @@ def test_find_file_mhs():
     assert date < data.scan_time[-1]
     assert l1c_file.sensor == sensors.MHS
     assert "incidence_angle" in data.variables
+
+
+def test_find_file_tmi():
+    """
+    Tests finding an TMI file for a given date.
+    """
+    DATA_PATH = Path(__file__).parent / "data"
+    l1c_path = DATA_PATH / "tmi" / "l1c"
+    date = np.datetime64("2010-01-01T01:00:00")
+    l1c_file = L1CFile.find_file(date, l1c_path, sensor=sensors.TMI)
+    data = l1c_file.to_xarray_dataset()
+
+    assert date > data.scan_time[0]
+    assert date < data.scan_time[-1]
+    assert l1c_file.sensor == sensors.TMI
 
 
 def test_find_files():

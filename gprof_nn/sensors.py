@@ -193,7 +193,9 @@ class Sensor(ABC):
         self._bin_file_header = types.get_bin_file_header(n_chans, n_angles, kind)
 
         # Preprocessor types
-        self._preprocessor_orbit_header = types.get_preprocessor_orbit_header(n_chans)
+        self._preprocessor_orbit_header = types.get_preprocessor_orbit_header(
+            n_chans, self.kind
+        )
         self._preprocessor_pixel_record = types.get_preprocessor_pixel_record(
             n_chans, self.kind
         )
@@ -492,7 +494,6 @@ class ConicalScanner(Sensor):
     """
     Base class for conically-scanning sensors.
     """
-
     def __init__(
         self,
         name,
@@ -791,7 +792,7 @@ class ConicalScanner(Sensor):
                 if scene.source == 0:
                     n = 1
                 else:
-                    n = 5
+                    n = 2
                 for j in range(n):
                     x_i, y_i = self._load_scene_3d(
                         scene,
@@ -814,6 +815,29 @@ class ConicalScanner(Sensor):
 
         return x, y
 
+class ConstellationScanner(ConicalScanner):
+    """
+    This class represents conically-scanning sensors that are for which
+    observations can only be simulated.
+    """
+    def __init__(
+        self,
+        name,
+        channels,
+        angles,
+        platform,
+        viewing_geometry,
+        mrms_file_path,
+        sim_file_pattern,
+        sim_file_path,
+        gmi_channels,
+    ):
+        super().__init__(
+            name, channels, angles, platform, viewing_geometry,
+            mrms_file_path, sim_file_pattern, sim_file_path
+        )
+        self.gmi_channels=gmi_channels
+
 
 class CrossTrackScanner(Sensor):
     """
@@ -827,10 +851,10 @@ class CrossTrackScanner(Sensor):
             angles,
             platform,
             viewing_geometry,
-            gmi_channels,
             mrms_file_path,
             sim_file_pattern,
             sim_file_path,
+            gmi_channels,
             correction=None,
             modeling_error=None
     ):
@@ -869,7 +893,7 @@ class CrossTrackScanner(Sensor):
     def correction(self):
         if self._correction is not None:
             if not isinstance(self._correction, CdfCorrection):
-                self.correction = CdfCorrection(self._correction)
+                self._correction = CdfCorrection(self._correction)
         return self._correction
 
     @property
@@ -1383,9 +1407,8 @@ class Platform:
         return f"Platform(name={self.name})"
 
 
+TRMM = Platform("TRMM", "/pdata4/archive/GPM/1C_TMI/", "1C.TRMM.TMI")
 NOAA19 = Platform("NOAA19", "/pdata4/archive/GPM/1C_NOAA19/", "1C.NOAA19.MHS")
-
-
 GPM = Platform("GPM-CO", "/pdata4/archive/GPM/1CR_GMI/", "1C-R.GPM.GMI")
 
 ###############################################################################
@@ -1480,10 +1503,10 @@ MHS = CrossTrackScanner(
     MHS_ANGLES,
     NOAA19,
     MHS_VIEWING_GEOMETRY,
-    MHS_GMI_CHANNELS,
     "/pdata4/veljko/MHS2MRMS_match2019/monthly_2021/",
     "MHS.dbsatTb.??????{day}.??????.sim",
     "/qdata1/pbrown/dbaseV7/simV7x",
+    MHS_GMI_CHANNELS,
 )
 
 MHS_NOAA19 = CrossTrackScanner(
@@ -1493,10 +1516,10 @@ MHS_NOAA19 = CrossTrackScanner(
     MHS_ANGLES,
     NOAA19,
     MHS_VIEWING_GEOMETRY,
-    MHS_GMI_CHANNELS,
     "/pdata4/veljko/MHS2MRMS_match2019/monthly_2021/",
     "MHS.dbsatTb.??????{day}.??????.sim",
     "/qdata1/pbrown/dbaseV7/simV7x",
+    MHS_GMI_CHANNELS,
     correction=DATA_FOLDER / "corrections_mhs_noaa19.nc",
     modeling_error=[3.0, 2.0, 2.0, 2.0, 2.0]
 )
@@ -1508,13 +1531,14 @@ MHS_NOAA19_FULL = CrossTrackScanner(
     MHS_ANGLES,
     NOAA19,
     MHS_VIEWING_GEOMETRY,
-    MHS_GMI_CHANNELS,
     "/pdata4/veljko/MHS2MRMS_match2019/monthly_2021/",
     "MHS.dbsatTb.??????{day}.??????.sim",
     "/qdata1/pbrown/dbaseV7/simV7x",
+    MHS_GMI_CHANNELS,
     correction=DATA_FOLDER / "corrections_mhs_noaa19_full.nc",
     modeling_error=[3.0, 2.0, 2.0, 2.0, 2.0]
 )
+
 
 def get_sensor(sensor, platform=None):
     if platform is not None:
@@ -1556,7 +1580,10 @@ TMI_ANGLES = np.array([
 ])
 
 
-TMI_PRE_VIEWING_GEOMETRY = Conical(
+TMI_GMI_CHANNELS = [0, 1, 2, 3, 4, 6, 7, 8, 9]
+
+
+TMIPR_VIEWING_GEOMETRY = Conical(
     altitude=350e3,
     earth_incidence_angle=53.0,
     scan_range=130.0,
@@ -1564,7 +1591,7 @@ TMI_PRE_VIEWING_GEOMETRY = Conical(
     scan_offset=13.4e3,
 )
 
-TMI_POST_VIEWING_GEOMETRY = Conical(
+TMIPO_VIEWING_GEOMETRY = Conical(
     altitude=400e3,
     earth_incidence_angle=53.0,
     scan_range=130.0,
@@ -1573,13 +1600,29 @@ TMI_POST_VIEWING_GEOMETRY = Conical(
 )
 
 
-GMI = ConicalScanner(
-    "GMI",
-    GMI_CHANNELS,
-    GMI_ANGLES,
-    GPM,
-    GMI_VIEWING_GEOMETRY,
+TMIPR = ConstellationScanner(
+    "TMI",
+    TMI_CHANNELS,
+    TMI_ANGLES,
+    TRMM,
+    TMIPR_VIEWING_GEOMETRY,
     "/pdata4/veljko/GMI2MRMS_match2019/db_mrms4GMI/",
-    "GMI.dbsatTb.??????{day}.??????.sim",
-    "/qdata1/pbrown/dbaseV7/simV7",
+    "TMIPR.dbsatTb.??????{day}.??????.sim",
+    "/qdata1/pbrown/dbaseV7/simV7_tmi",
+    TMI_GMI_CHANNELS
 )
+
+
+TMIPO = ConstellationScanner(
+    "TMI",
+    TMI_CHANNELS,
+    TMI_ANGLES,
+    TRMM,
+    TMIPO_VIEWING_GEOMETRY,
+    "/pdata4/veljko/GMI2MRMS_match2019/db_mrms4GMI/",
+    "TMIPO.dbsatTb.??????{day}.??????.sim",
+    "/qdata1/pbrown/dbaseV7/simV7_tmi",
+    TMI_GMI_CHANNELS
+)
+
+TMI = TMIPR

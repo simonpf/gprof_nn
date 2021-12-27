@@ -214,6 +214,7 @@ class PreprocessorFile:
         )
         self.n_scans = self.orbit_header["number_of_scans"][0]
         self.n_pixels = self.orbit_header["number_of_pixels"][0]
+        print(self.n_scans, self.n_pixels)
 
     def __repr__(self):
         """String representation for file."""
@@ -661,7 +662,9 @@ def has_preprocessor():
 PREPROCESSOR_EXECUTABLES = {
     "GMI": "gprof2020pp_GMI_L1C",
     "MHS": "gprof2020pp_MHS_L1C",
+    "TMI": "gprof2021pp_TMI_L1C",
     ("GMI", "MHS"): "gprof2020pp_GMI_MHS_L1C",
+    ("GMI", "TMI"): "gprof2020pp_GMI_TMI_L1C"
 }
 
 
@@ -713,13 +716,18 @@ def run_preprocessor(
         file = tempfile.NamedTemporaryFile()
         output_file = file.name
     try:
-        executable = PREPROCESSOR_EXECUTABLES[sensor.sensor_id]
         sensor_l1c = L1CFile(l1c_file).sensor
-        if sensor_l1c.sensor_id != sensor.sensor_id:
-            executable = PREPROCESSOR_EXECUTABLES[
-                (sensor_l1c.sensor_id, sensor.sensor_id)
-            ]
-        LOGGER.info("Using preprocesor '%s'. %s %s", executable, sensor_l1c, sensor)
+        if sensor_l1c.sensor_id == sensor.sensor_id:
+            key = sensor.sensor_id
+        else:
+            key = (sensor_l1c.sensor_id, sensor.sensor_id)
+        executable = PREPROCESSOR_EXECUTABLES.get(key, None)
+
+        if executable is None:
+            raise ValueError(
+                f"Could not find preprocessor executable for the key '{key}'."
+            )
+        LOGGER.info("Using preprocesor '%s'.")
 
         jobid = str(os.getpid()) + "_pp"
         args = [jobid] + get_preprocessor_settings(configuration)
