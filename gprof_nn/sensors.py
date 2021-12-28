@@ -104,8 +104,8 @@ def calculate_smoothing_kernels(sensor):
         A list of 2D Gaussian convolution kernels.
     """
     geometry = sensor.viewing_geometry
-    res_x_source = 14.4e3
-    res_a_source = 8.6e3
+    res_x_source = 5.5e3
+    res_a_source = 12.5e3
     angles = sensor.angles
     res_x_target = geometry.get_resolution_x(angles)
     res_a_target = geometry.get_resolution_a()
@@ -831,12 +831,411 @@ class ConstellationScanner(ConicalScanner):
         sim_file_pattern,
         sim_file_path,
         gmi_channels,
+        correction=None
     ):
         super().__init__(
             name, channels, angles, platform, viewing_geometry,
             mrms_file_path, sim_file_pattern, sim_file_path
         )
         self.gmi_channels=gmi_channels
+        self.correction = correction
+        self.apply_biases = True
+
+    def load_brightness_temperatures(self, data, mask=None):
+        """
+        Load and bias-correct simulated brightness temperatures.
+
+        Args:
+            data: 'xarray.Dataset' containing from which to load the
+                brightness temperatures.
+            mask: A mask to subset the samples to load.
+
+        Return:
+            Array containing the interpolated and bias corrected simulated
+            brightness temperatures.
+        """
+        if data.source == 0:
+            tbs_sim = load_variable(
+                data, "simulated_brightness_temperatures", mask=mask
+            )
+
+            if self.apply_biases:
+                bias = load_variable(data, "brightness_temperature_biases")
+                # Apply scaling of biases
+
+            if mask is not None:
+                bias = bias[mask]
+            tbs = tbs_sim - bias
+
+        else:
+            tbs = load_variable(data, "brightness_temperatures", mask=mask)
+        return tbs
+
+    def load_training_data_1d(self, dataset, targets, augment, rng):
+        """
+        Load training data for GPROF-NN 1D retrieval. This function will
+        only load pixels that with a finite surface precip value in order
+        to avoid training on samples that don't provide any information to
+        the 1D retrieval.
+
+        Output values that may be missing for a given pixel are masked using
+        the 'MASKED_OUTPUT' value.
+
+        Args:
+            dataset:: 'xarray.Dattaset' containing the raw training data.
+            targets: List of the targets to load.
+            augment: Whether or not to augment the training data.
+            rng: Numpy random number generator to use for augmentation.
+
+        Return:
+            Tuple ``(x, y)`` containing the un-batched, un-shuffled training
+            data as it is contained in the given NetCDF file.
+        """
+        x = []
+        y = {}
+
+        if isinstance(dataset, (str, Path)):
+            dataset = xr.open_dataset(dataset)
+            loaded = True
+        else:
+            loaded = False
+
+        n_samples = dataset.samples.size
+
+        # Iterate over samples in training data (scenes of size 221 x 221)
+        # and extract only pixels for which surface precip is defined.
+
+        vs = [
+            "simulated_brightness_temperatures",
+            "brightness_temperature_biases",
+            "earth_incidence_angle",
+        ]
+        if "surface_precip" not in targets:
+            vs += ["surface_precip"]
+
+        for i in range(n_samples):
+            scene = decompress_scene(dataset[{"samples": i}], targets + vs)
+            source = dataset.source[i]
+
+            sp = scene["surface_precip"].data
+            mask = np.all(sp >= 0, axis=-1)
+
+            if source == 0:
+                tbs = scene["simulated_brightness_temperatures"].data
+                mask_tbs = get_mask(
+                    tbs, *LIMITS["simulated_brightness_temperatures"]
+                )
+                biases = scene["brightness_temperature_biases"].data
+                mask_biases = get_mask(
+                    biases, *LIMITS["brightness_temperature_biases"]
+                )
+                mask = (
+                    mask
+                    * np.all(mask_tbs, axis=(-2, -1))
+                    * np.all(mask_biases, axis=-1)
+                )
+            else:
+                tbs = scene["brightness_temperatures"].data
+                mask = mask * np.all((tbs > 0) * (tbs < 500), axis=-1)
+
+            #
+            # Input data
+            #
+
+            tbs = self.load_brightness_temperatures(scene, mask=mask)
+            t2m = self.load_two_meter_temperature(scene, mask=mask)
+            tcwv = self.load_total_column_water_vapor(scene, mask=mask)
+            st = scene.surface_type.data[mask]
+
+            if self.correction is not None:
+                tbs = self.correction(self, st, None, tcwv, tbs, augment=augment)
+
+            if augment and self.nedt is not None:
+                noise = rng.normal(size=tbs.shape)
+                for i in range(noise.shape[-1]):
+                    noise[..., i] *= self.nedt[i]
+                tbs = tbs + noise
+
+            st = self.load_surface_type(scene, mask=mask)
+            t2m = t2m[..., np.newaxis]
+            tcwv = tcwv[..., np.newaxis]
+            am = self.load_airmass_type(scene, mask=mask)
+
+            x.append(np.concatenate([tbs, t2m, tcwv, st, am], axis=1))
+
+            #
+            # Output data
+            #
+
+            for t in targets:
+                y_t = self.load_target(scene, t, mask=mask)
+                y_t = np.nan_to_num(y_t, nan=MASKED_OUTPUT)
+                y.setdefault(t, []).append(y_t)
+
+        x = np.concatenate(x, axis=0)
+        y = {t: np.concatenate(y[t], axis=0) for t in y}
+
+        if loaded:
+            dataset.close()
+
+        return x, y
+
+    def _load_training_data_3d_sim(
+        self, scene, targets, augment, rng, width=32, height=128
+    ):
+        """
+        Load training data for scene extracted from a sim file. Since
+        these scenes are located on the GMI swath, they need to remapped
+        to match
+
+        Args:
+            scene: 'xarray.Dataset' containing the training data sample
+                to load.
+            targets: List of the retrieval targets to load as output data.
+            augment: Whether or not to augment the training data.
+            rng: 'numpy.random.Generator' to use to generate random numbers.
+            width: The width of each input image.
+            height: The height of each input image.
+
+        Returns:
+            Tuple ``x, y`` containing one sample of training data for the
+            GPROF-NN 3D retrieval.
+        """
+        if augment:
+            p_x_i = rng.random()
+            p_y = rng.random()
+        else:
+            p_x_i = 0.5
+            p_y = 0.5
+            p_x_o = 0.5
+
+        lats = scene.latitude.data
+        lons = scene.longitude.data
+
+        alt = self.viewing_geometry.altitude
+        if augment:
+            alt_new = rng.uniform(0.9, 1.1) * alt
+        else:
+            alt_new = alt
+        self.viewing_geometry.altitude = alt_new
+        coords = get_transformation_coordinates(
+            lats, lons, self.viewing_geometry, width, height, p_x_i, p_x_o, p_y
+        )
+        self.viewing_geometry.altitude = alt
+
+        vs = ["simulated_brightness_temperatures", "brightness_temperature_biases"]
+        scene = remap_scene(scene, coords, targets + vs)
+
+        tbs = self.load_brightness_temperatures(scene)
+        t2m = self.load_two_meter_temperature(scene)
+        tcwv = self.load_total_column_water_vapor(scene)
+        st = scene.surface_type.data
+
+        if self.correction is not None:
+            tbs = self.correction(self, st, eia, tcwv, tbs, augment=augment)
+
+        if augment:
+            if self.nedt is not None:
+                noise = rng.normal(size=tbs.shape)
+                for i in range(noise.shape[-1]):
+                    noise[..., i] *= self.nedt[i]
+                tbs += noise
+
+            # Apply modeling error caused by simulator.
+            if self.modeling_error is not None:
+                noise = rng.normal(size=self.n_chans)
+                for i, n in enumerate(noise):
+                    tbs[..., i] += self.modeling_error[i] * n
+
+            r = rng.random()
+            if r > 0.80:
+                n_p = rng.integers(6, 16)
+                tbs[:, :n_p] = np.nan
+            r = rng.random()
+            if r > 0.80:
+                n_p = rng.integers(6, 16)
+                tbs[:, -n_p:] = np.nan
+
+        tcwv = tcwv[np.newaxis]
+        t2m = t2m[np.newaxis]
+        st = self.load_surface_type(scene)
+        am = self.load_airmass_type(scene)
+
+        tbs = np.transpose(tbs, (2, 0, 1))
+        st = np.transpose(st, (2, 0, 1))
+        am = np.transpose(am, (2, 0, 1))
+
+        x = np.concatenate([tbs, t2m, tcwv, st, am], axis=0)
+
+        #
+        # Output data
+        #
+
+        y = {}
+
+        for t in targets:
+            y_t = self.load_target(scene, t)
+            y_t = np.nan_to_num(y_t, nan=MASKED_OUTPUT)
+
+            dims_sp = tuple(range(2))
+            dims_t = tuple(range(2, y_t.ndim))
+
+            y[t] = np.transpose(y_t, dims_t + dims_sp)
+
+        # Also flip data if requested.
+        if augment:
+            r = rng.random()
+            if r > 0.5:
+                x = np.flip(x, -2)
+                x[self.n_chans] *= -1.0
+                for k in targets:
+                    y[k] = np.flip(y[k], -2)
+
+            r = rng.random()
+            if r > 0.5:
+                x = np.flip(x, -1)
+                for k in targets:
+                    y[k] = np.flip(y[k], -1)
+        return x, y
+
+    def _load_training_data_3d_other(
+        self, scene, targets, augment, rng, width=32, height=128
+    ):
+        """
+        Load training data for sea ice or snow surfaces. These observations
+        were extracted directly from L1C files and are on the original MHS
+        grid.
+
+        Args:
+            scene: 'xarray.Dataset' containing the training data sample
+                to load.
+            targets: List of the retrieval targets to load as output data.
+            augment: Whether or not to augment the training data.
+            rng: 'numpy.random.Generator' to use to generate random numbers.
+            width: The width of each input image.
+            height: The height of each input image.
+
+        Returns:
+            Tuple ``x, y`` containing one sample of training data for the
+            GPROF-NN 3D retrieval.
+        """
+        if augment:
+            p_x = rng.random()
+            p_y = rng.random()
+        else:
+            p_x = 0.5
+            p_y = 0.5
+
+        n_scans = SCANS_PER_SAMPLE
+        n_pixels = self.viewing_geometry.pixels_per_scan
+
+        i = height // 2 + (n_scans - height) * p_y
+        j = (SCANS_PER_SAMPLE - n_pixels + width) // 2 + (n_pixels - width) * p_x
+
+        i_start = int(i - height // 2)
+        i_end = int(i + height // 2)
+        j_start = int(j - width // 2)
+        j_end = int(j + width // 2)
+
+        tbs = self.load_brightness_temperatures(scene, None)
+        tbs = tbs[i_start:i_end, j_start:j_end]
+        tbs = np.transpose(tbs, (2, 0, 1))
+
+        r = rng.random()
+        if r > 0.80:
+            n_p = rng.integers(6, 16)
+            tbs[:, :n_p] = np.nan
+        r = rng.random()
+        if r > 0.80:
+            n_p = rng.integers(6, 16)
+            tbs[:, -n_p:] = np.nan
+
+        t2m = self.load_two_meter_temperature(scene)
+        t2m = t2m[np.newaxis, i_start:i_end, j_start:j_end]
+
+        tcwv = self.load_total_column_water_vapor(scene)
+        tcwv = tcwv[np.newaxis, i_start:i_end, j_start:j_end]
+
+        st = self.load_surface_type(scene)
+        st = np.transpose(st[i_start:i_end, j_start:j_end], (2, 0, 1))
+        am = self.load_airmass_type(scene)
+        am = np.transpose(am[i_start:i_end, j_start:j_end], (2, 0, 1))
+
+        x = np.concatenate([tbs, t2m, tcwv, st, am], axis=0)
+
+        #
+        # Output data
+        #
+
+        y = {}
+
+        for t in targets:
+            y_t = self.load_target(scene, t, None)
+            y_t = y_t[i_start:i_end, j_start:j_end]
+            y_t = np.nan_to_num(y_t, nan=MASKED_OUTPUT)
+
+            dims_sp = tuple(range(2))
+            dims_t = tuple(range(2, y_t.ndim))
+
+            y[t] = np.transpose(y_t, dims_t + dims_sp)
+
+        # Also flip data if requested.
+        if augment:
+            r = rng.random()
+            if r > 0.5:
+                x = np.flip(x, -2)
+                for k in targets:
+                    y[k] = np.flip(y[k], -2)
+
+            r = rng.random()
+            if r > 0.5:
+                x = np.flip(x, -1)
+                for k in targets:
+                    y[k] = np.flip(y[k], -1)
+
+        return x, y
+
+    def load_training_data_3d(
+        self, dataset, targets, augment, rng, width=32, height=128
+    ):
+        if isinstance(dataset, (str, Path)):
+            dataset = xr.open_dataset(dataset)
+
+        # Brightness temperatures
+        n = dataset.samples.size
+
+        x = []
+        y = []
+
+        vs = [
+            "simulated_brightness_temperatures",
+            "brightness_temperature_biases",
+            "earth_incidence_angle",
+            "source",
+            "latitude",
+            "longitude",
+        ]
+        if "surface_precip" not in targets:
+            vs += ["surface_precip"]
+
+        for i in range(n):
+            scene = decompress_scene(dataset[{"samples": i}], targets + vs)
+            source = scene.source
+            if source == 0:
+                x_i, y_i = self._load_training_data_3d_sim(
+                    scene, targets, augment, rng, width=width, height=height
+                )
+            else:
+                x_i, y_i = self._load_training_data_3d_other(
+                    scene, targets, augment, rng, width=width, height=height
+                )
+            x.append(x_i)
+            y.append(y_i)
+
+        x = np.stack(x)
+        y = {k: np.stack([y_i[k] for y_i in y]) for k in y[0]}
+
+        return x, y
 
 
 class CrossTrackScanner(Sensor):
@@ -1606,7 +2005,7 @@ TMIPR = ConstellationScanner(
     TMI_ANGLES,
     TRMM,
     TMIPR_VIEWING_GEOMETRY,
-    "/pdata4/veljko/GMI2MRMS_match2019/db_mrms4GMI/",
+    None,
     "TMIPR.dbsatTb.??????{day}.??????.sim",
     "/qdata1/pbrown/dbaseV7/simV7_tmi",
     TMI_GMI_CHANNELS
@@ -1619,7 +2018,7 @@ TMIPO = ConstellationScanner(
     TMI_ANGLES,
     TRMM,
     TMIPO_VIEWING_GEOMETRY,
-    "/pdata4/veljko/GMI2MRMS_match2019/db_mrms4GMI/",
+    None,
     "TMIPO.dbsatTb.??????{day}.??????.sim",
     "/qdata1/pbrown/dbaseV7/simV7_tmi",
     TMI_GMI_CHANNELS
