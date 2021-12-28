@@ -946,8 +946,14 @@ class SimFileProcessor:
         sim_files = np.random.permutation(sim_files)
 
         mrms_file_path = self.sensor.mrms_file_path
-        mrms_files = MRMSMatchFile.find_files(mrms_file_path, sensor=self.sensor)
-        mrms_files = np.random.permutation(mrms_files)
+        if mrms_file_path is None:
+            mrms_files = MRMSMatchFile.find_files(
+                sensors.GMI.mrms_file_path,
+                sensor=sensors.GMI
+            )
+        else:
+            mrms_files = MRMSMatchFile.find_files(mrms_file_path, sensor=self.sensor)
+            mrms_files = np.random.permutation(mrms_files)
 
         l1c_file_path = self.sensor.l1c_file_path
         l1c_files = []
@@ -958,7 +964,21 @@ class SimFileProcessor:
             except ValueError:
                 pass
         l1c_files = [f.filename for f in l1c_files]
+
+        # If no L1C files are found use GMI co-locations.
+        if len(l1c_files) < 1:
+            for year, month in DATABASE_MONTHS:
+                try:
+                    date = datetime(year, month, self.day)
+                    l1c_file_path = sensors.GMI.l1c_file_path
+                    l1c_files += L1CFile.find_files(date,
+                                                    l1c_file_path,
+                                                    sensor=sensors.GMI)
+                except ValueError:
+                    pass
         l1c_files = np.random.permutation(l1c_files)
+        l1c_files = []
+        mrms_files = []
 
         n_sim_files = len(sim_files)
         LOGGER.debug("Found %s SIM files.", n_sim_files)
