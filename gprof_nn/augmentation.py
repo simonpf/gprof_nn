@@ -211,8 +211,10 @@ class Conical(ViewingGeometry):
             pixels_per_scan: The number of pixels contained in each scan.
             scan_offset: The distance between consecutive scans.
         """
-        eia_rad = np.deg2rad(earth_incidence_angle)
+        self.earth_incidence_angle = earth_incidence_angle
+        eia_rad = np.deg2rad(self.earth_incidence_angle)
         beta = np.arcsin(np.sin(np.pi - eia_rad) / (R_EARTH + altitude) * R_EARTH)
+        self._altitude = altitude
         self.zenith_angle = beta
         self.hypotenuse = (
             R_EARTH / np.sin(self.zenith_angle) * np.sin(eia_rad - self.zenith_angle)
@@ -221,6 +223,21 @@ class Conical(ViewingGeometry):
         self.scan_range = scan_range
         self.pixels_per_scan = pixels_per_scan
         self.scan_offset = scan_offset
+
+    @property
+    def altitude(self):
+        return self._altitude
+
+    @altitude.setter
+    def altitude(self, altitude):
+        eia_rad = np.deg2rad(self.earth_incidence_angle)
+        beta = np.arcsin(np.sin(np.pi - eia_rad) / (R_EARTH + altitude) * R_EARTH)
+        self._altitude = altitude
+        self.zenith_angle = beta
+        self.hypotenuse = (
+            R_EARTH / np.sin(self.zenith_angle) * np.sin(eia_rad - self.zenith_angle)
+        )
+        self.scan_radius = self.hypotenuse * np.sin(self.zenith_angle)
 
     def pixel_coordinates_to_euclidean(self, c_p):
         """
