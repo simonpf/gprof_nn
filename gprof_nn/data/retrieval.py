@@ -339,7 +339,7 @@ class RetrievalFile:
                 "latent_heat",
             ]
             dataset = {}
-            dims = ("scans", "pixels", "levels")
+            dims = ("scans", "pixels", "layers")
             for i, spec in enumerate(species):
                 i_start = i * 28
                 i_end = i_start + 28
@@ -379,15 +379,15 @@ class RetrievalFile:
             )
             lh[invalid[..., 4]] = MISSING
             dataset = {
-                "rain_water_content": (("scans", "pixels", "levels"), rwc),
-                "cloud_water_content": (("scans", "pixels", "levels"), cwc),
-                "snow_water_content": (("scans", "pixels", "levels"), swc),
-                "latent_heat": (("scans", "pixels", "levels"), lh),
+                "rain_water_content": (("scans", "pixels", "layers"), rwc),
+                "cloud_water_content": (("scans", "pixels", "layers"), cwc),
+                "snow_water_content": (("scans", "pixels", "layers"), swc),
+                "latent_heat": (("scans", "pixels", "layers"), lh),
             }
         else:
             dataset = {}
 
-        dims = ["scans", "pixels", "channels", "levels"]
+        dims = ["scans", "pixels", "channels", "layers"]
         for k, d in data.items():
             if "profile" not in k:
                 dataset[k] = (dims[: len(d.shape)], d)
