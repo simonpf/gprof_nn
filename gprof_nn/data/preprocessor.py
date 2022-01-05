@@ -315,6 +315,12 @@ class PreprocessorFile:
             for k, d in data.items():
                 d[i] = s[k]
 
+        if isinstance(self.sensor, sensors.ConstellationScanner):
+            tbs = data["brightness_temperatures"]
+            data["brightness_temperatures"] = tbs[..., self.sensor.gmi_channels]
+            eia = data["earth_incidence_angle"]
+            data["earth_incidence_angle"] = eia[..., self.sensor.gmi_channels]
+
         dims = ["scans", "pixels", "channels"]
         data = {k: (dims[: len(d.shape)], d) for k, d in data.items()}
 
