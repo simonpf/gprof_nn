@@ -228,8 +228,6 @@ def run_gprof_training_data(
     """
     targets = ALL_TARGETS + ["latitude", "longitude"]
     if preserve_structure:
-        dims = (sensor.viewing_geometry.pixels_per_scan,
-                128)
         input_data = GPROF_NN_3D_Dataset(
             input_file,
             shuffle=False,
@@ -238,7 +236,6 @@ def run_gprof_training_data(
             targets=targets,
             sensor=sensor,
             batch_size=16,
-            input_dimensions=dims
         )
     else:
         input_data = GPROF_NN_1D_Dataset(
@@ -302,6 +299,9 @@ def run_gprof_training_data(
                 )
                 output_data = output_data.assign(scans=index).unstack("scans")
                 output_data = output_data.rename({"new_scans": "scans"})
+                if "samples" not in batch_input.dims:
+                    batch_input = batch_input.assign(scans=index).unstack("scans")
+                    batch_input = batch_input.rename({"new_scans": "scans"})
 
             for k in ALL_TARGETS:
                 if k in output_data.variables:
