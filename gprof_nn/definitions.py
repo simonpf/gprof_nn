@@ -86,7 +86,7 @@ LIMITS = {
     "brightness_temperatures": (0, 400),
     "brightness_temperatures_gmi": (0, 400),
     "simulated_brightness_temperatures": (0, 400),
-    "brightness_temperature_biases": (-50, 50),
+    "brightness_temperature_biases": (-100, 100),
     "total_column_water_vapor": (0, None),
     "two_meter_temperature": (150, 400),
     "viewing_angle": (-180, 180),
