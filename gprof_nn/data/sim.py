@@ -538,7 +538,7 @@ def process_sim_file(sim_filename, sensor, configuration, era5_path, log_queue=N
 
     Args:
         sim_filename: Filename of the Sim file to process.
-        sensor: The sensor for which the training data is exstracted.
+        sensor: The sensor for which the training data is extracted.
         l1c_path: Base path of the directory tree containing the L1C file.
         era5_path: Base path of the directory containing the ERA5 data.
         log_queue: Optional queue object to use for multi-process logging.
@@ -1086,3 +1086,7 @@ class SimFileProcessor:
         LOGGER.info("Writing file: %s", filename)
         dataset.to_netcdf(filename)
         subprocess.run(["gzip", "-f", filename], check=True)
+
+        # Explicit clean up to avoid memory leak.
+        del datasets
+        del dataset
