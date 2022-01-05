@@ -104,8 +104,8 @@ def calculate_smoothing_kernels(sensor):
         A list of 2D Gaussian convolution kernels.
     """
     geometry = sensor.viewing_geometry
-    res_x_source = 5.5e3
-    res_a_source = 12.5e3
+    res_x_source = 14.4e3
+    res_a_source = 8.6e3
     angles = sensor.angles
     res_x_target = geometry.get_resolution_x(angles)
     res_a_target = geometry.get_resolution_a()
@@ -824,6 +824,7 @@ class ConstellationScanner(ConicalScanner):
         self,
         name,
         channels,
+        nedt,
         angles,
         platform,
         viewing_geometry,
@@ -837,6 +838,7 @@ class ConstellationScanner(ConicalScanner):
             name, channels, angles, platform, viewing_geometry,
             mrms_file_path, sim_file_pattern, sim_file_path
         )
+        self.nedt = nedt
         self.gmi_channels=gmi_channels
         self.correction = correction
         self.apply_biases = True
@@ -918,7 +920,7 @@ class ConstellationScanner(ConicalScanner):
             source = dataset.source[i]
 
             sp = scene["surface_precip"].data
-            mask = np.all(sp >= 0, axis=-1)
+            mask = sp >= 0
 
             if source == 0:
                 tbs = scene["simulated_brightness_temperatures"].data
@@ -931,7 +933,7 @@ class ConstellationScanner(ConicalScanner):
                 )
                 mask = (
                     mask
-                    * np.all(mask_tbs, axis=(-2, -1))
+                    * np.all(mask_tbs, axis=-1)
                     * np.all(mask_biases, axis=-1)
                 )
             else:
@@ -1978,6 +1980,17 @@ TMI_ANGLES = np.array([
     52.8,
 ])
 
+TMI_NEDT = np.array([
+    0.63,
+ 	0.54,
+ 	0.50,
+ 	0.47,
+ 	0.71,
+ 	0.36,
+ 	0.31,
+ 	0.52,
+ 	0.93
+])
 
 TMI_GMI_CHANNELS = [0, 1, 2, 3, 4, 6, 7, 8, 9]
 
@@ -2002,6 +2015,7 @@ TMIPO_VIEWING_GEOMETRY = Conical(
 TMIPR = ConstellationScanner(
     "TMI",
     TMI_CHANNELS,
+    TMI_NEDT,
     TMI_ANGLES,
     TRMM,
     TMIPR_VIEWING_GEOMETRY,
@@ -2015,6 +2029,7 @@ TMIPR = ConstellationScanner(
 TMIPO = ConstellationScanner(
     "TMI",
     TMI_CHANNELS,
+    TMI_NEDT,
     TMI_ANGLES,
     TRMM,
     TMIPO_VIEWING_GEOMETRY,
