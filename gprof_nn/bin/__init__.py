@@ -30,8 +30,10 @@ def gprof_nn():
 
     set_log_level("INFO")
 
-    description = ("Neural-network based implementation of the Goddard "
-                   "PROFiling algorithm (GPROF)")
+    description = (
+        "GPROF-NN: A neural-network based implementation of the Goddard "
+        "Profiling algorithm."
+    )
 
     parser = argparse.ArgumentParser(
             prog='gprof_nn',

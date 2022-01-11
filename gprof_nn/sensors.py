@@ -815,6 +815,7 @@ class ConicalScanner(Sensor):
 
         return x, y
 
+
 class ConstellationScanner(ConicalScanner):
     """
     This class represents conically-scanning sensors that are for which

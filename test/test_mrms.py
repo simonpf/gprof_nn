@@ -21,6 +21,7 @@ TEST_FILE_GMI = "1801_MRMS2GMI_gprof_db_08all.bin.gz"
 TEST_FILE_MHS = "1801_MRMS2MHS_DB1_01.bin.gz"
 
 HAS_SNOWDAS_RATIOS = has_snowdas_ratios()
+print("SNOWDAS :: ", HAS_SNOWDAS_RATIOS)
 
 def test_read_file_gmi():
     """
@@ -53,8 +54,8 @@ def test_read_file_mhs():
 
     data = ms.to_xarray_dataset(day=23)
 
-@pytest.mark.xfail(condition=~HAS_SNOWDAS_RATIOS,
-                   reason="SNOWDAS files not available.")
+#@pytest.mark.skipif(HAS_SNOWDAS_RATIOS,
+#                    reason="SNOWDAS files not available.")
 def test_match_precip_gmi():
     """
     Match surface precip from MRMS file to observations in L1C file.
@@ -71,8 +72,8 @@ def test_match_precip_gmi():
         data.to_netcdf("test.nc")
 
 
-@pytest.mark.xfail(condition=~HAS_SNOWDAS_RATIOS,
-                   reason="SNOWDAS files not available.")
+#@pytest.mark.skipif(HAS_SNOWDAS_RATIOS,
+#                    reason="SNOWDAS files not available.")
 def test_match_precip_mhs():
     """
     Match surface precip from MRMS file to observations in L1C file.

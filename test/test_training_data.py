@@ -20,7 +20,6 @@ from gprof_nn.data.training_data import (
     decompress_and_load,
     remap_scene,
     GPROF_NN_1D_Dataset,
-    TrainingObsDataset1D,
     GPROF_NN_3D_Dataset,
     SimulatorDataset,
 )
@@ -445,28 +444,38 @@ def test_gprof_1d_dataset_input_mhs():
     assert np.all((tcwv > 0) * (tcwv < 100))
 
 
-def test_observation_dataset_1d():
+def test_gprof_1d_dataset_pretraining_mhs():
     """
-    Test loading of observations data from MHS training data.
+    Test that the correct inputs are loaded when loading a pre-training dataset
+    for MHS.
     """
-    input_file = DATA_PATH / "mhs" / "gprof_nn_mhs_era5.nc.gz"
-    input_data = decompress_and_load(input_file)
-    dataset = TrainingObsDataset1D(
-        input_file, batch_size=1, sensor=sensors.MHS, normalize=False, shuffle=False
+    input_file = DATA_PATH / "gmi" / "gprof_nn_gmi_era5.nc.gz"
+    dataset = GPROF_NN_1D_Dataset(
+        input_file, batch_size=1, normalize=False, targets=["surface_precip"],
+        sensor=sensors.MHS
     )
 
-    x, y = dataset[0]
-    x = x.detach().numpy()
-    y = y.detach().numpy()
+    x, _ = dataset[0]
+    x = x.numpy()
 
-    assert x.shape[1] == 19
-    assert y.shape[1] == 5
+    assert x.shape[1] == 5 + 3 + 18 + 4
 
-    sp = input_data["surface_precip"].data
-    valid = np.all(sp >= 0, axis=-1)
-    st = input_data["surface_type"].data[valid]
-    st_x = np.where(x[0, 1:])[0][0] + 1
-    assert st[0] == st_x
+
+def test_gprof_1d_dataset_pretraining_tmi():
+    """
+    Test that the correct inputs are loaded when loading a pre-training dataset
+    for TMI.
+    """
+    input_file = DATA_PATH / "gmi" / "gprof_nn_gmi_era5.nc.gz"
+    dataset = GPROF_NN_1D_Dataset(
+        input_file, batch_size=1, normalize=False, targets=["surface_precip"],
+        sensor=sensors.TMIPR
+    )
+
+    x, _ = dataset[0]
+    x = x.numpy()
+
+    assert x.shape[1] == 9 + 2 + 18 + 4
 
 
 def test_profile_variables():
@@ -709,3 +718,37 @@ def test_simulator_dataset_mhs():
     assert len(y["brightness_temperature_biases_0"].shape) == 4
     assert "simulated_brightness_temperatures_0" in y
     assert len(y["simulated_brightness_temperatures_0"].shape) == 5
+
+
+def test_gprof_3d_dataset_pretraining_mhs():
+    """
+    Test that the correct inputs are loaded when loading a pre-training dataset
+    for MHS.
+    """
+    input_file = DATA_PATH / "gmi" / "gprof_nn_gmi_era5.nc.gz"
+    dataset = GPROF_NN_3D_Dataset(
+        input_file, batch_size=1, normalize=False, targets=["surface_precip"],
+        sensor=sensors.MHS
+    )
+
+    x, _ = dataset[0]
+    x = x.numpy()
+
+    assert x.shape[1] == 5 + 3 + 18 + 4
+
+
+def test_gprof_3d_dataset_pretraining_tmi():
+    """
+    Test that the correct inputs are loaded when loading a pre-training dataset
+    for TMI.
+    """
+    input_file = DATA_PATH / "gmi" / "gprof_nn_gmi_era5.nc.gz"
+    dataset = GPROF_NN_3D_Dataset(
+        input_file, batch_size=1, normalize=False, targets=["surface_precip"],
+        sensor=sensors.TMIPR
+    )
+
+    x, _ = dataset[0]
+    x = x.numpy()
+
+    assert x.shape[1] == 9 + 2 + 18 + 4

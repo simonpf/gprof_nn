@@ -21,7 +21,7 @@ setup(
     entry_points = {
         'console_scripts': ['gprof_nn=gprof_nn.bin:gprof_nn'],
     },
-    packages=["gprof_nn"],
+    packages=find_packages(),
     python_requires=">=3.6",
     project_urls={
         "Source": "https://github.com/simonpf/gprof_nn/",
