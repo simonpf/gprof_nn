@@ -744,13 +744,13 @@ def run_preprocessor(
             data = PreprocessorFile(output_file).to_xarray_dataset()
 
     except subprocess.CalledProcessError as error:
+        LOGGER.error(
+            "Running the preprocessor for file %s failed with the following"
+            " error: %s",
+            l1c_file,
+            error.stdout + error.stderr,
+        )
         if robust:
-            LOGGER.error(
-                "Running the preprocessor for file %s failed with the following"
-                " error: %s",
-                l1c_file,
-                error.stdout + error.stderr,
-            )
             return None
         else:
             raise error
