@@ -3,10 +3,8 @@
 gprof_nn.data.bin
 =================
 
-This module contains interfaces to read the binned database database
-format of GPROF V7.
+This module contains interfaces to read the GPROF V7 bin files.
 """
-import asyncio
 import logging
 from pathlib import Path
 from concurrent.futures import ProcessPoolExecutor
@@ -14,11 +12,10 @@ import re
 
 import numpy as np
 import pandas as pd
+from rich.progress import track
 import xarray as xr
-import tqdm.asyncio
 
 from gprof_nn import sensors
-from gprof_nn.definitions import PROFILE_NAMES
 
 LOGGER = logging.getLogger(__name__)
 N_LAYERS = 28
@@ -41,7 +38,7 @@ class BinFile:
     Attributes:
         temperature(``float``): The surface temperature corresponding to the
             bin.
-        tpw(``float``): The total precipitable water corresponding to the bin.
+        tcwv(``float``): The total precipitable water corresponding to the bin.
         surface_type(``int``): The surface type corresponding to the bin.
         airmass_type(``int``): The airmass type corresponding to the bin.
         header: Structured numpy array containing header data of the file.
@@ -63,7 +60,7 @@ class BinFile:
 
         parts = Path(filename).name[:-4].split("_")
         self.temperature = float(parts[1])
-        self.tpw = float(parts[2])
+        self.tcwv = float(parts[2])
         self.surface_type = int(parts[-1])
 
         if len(parts) == 4:
@@ -90,7 +87,7 @@ class BinFile:
 
         np.random.seed(
             np.array(
-                [(self.temperature), self.tpw, self.surface_type, self.airmass_type]
+                [(self.temperature), self.tcwv, self.surface_type, self.airmass_type]
             ).astype(np.int64)
         )
         self.indices = np.random.permutation(self.n_profiles)
@@ -146,9 +143,9 @@ class BinFile:
             dim_dict[self.sensor.n_angles] = "angles"
 
         record_type = self.sensor.get_bin_file_record(self.surface_type)
-        for k, t, *shape in record_type.descr:
-            if k == "scan_time":
-                data = self.handle[k]
+        for key, _, *shape in record_type.descr:
+            if key == "scan_time":
+                data = self.handle[key]
                 date = pd.DataFrame(
                     {
                         "year": data[:, 0],
@@ -159,20 +156,25 @@ class BinFile:
                         "second": data[:, 5],
                     }
                 )
-                results[k] = (("samples",), pd.to_datetime(date, errors="coerce"))
+                results[key] = (("samples",), pd.to_datetime(date, errors="coerce"))
             else:
+                data = self.handle[key]
+                if key in ["brightness_temperatures",
+                           "delta_tb"]:
+                    if isinstance(self.sensor, sensors.ConstellationScanner):
+                        data = data[..., self.sensor.gmi_channels]
                 dims = ("samples",)
-                if shape:
-                    dims = dims + tuple([dim_dict[s] for s in shape[0]])
-                results[k] = dims, self.handle[k][indices]
+                if len(data.shape) > 1:
+                    dims = dims + tuple([dim_dict[s] for s in data.shape[1:]])
+                results[key] = dims, data[indices]
 
         results["surface_type"] = (
             ("samples",),
-            self.surface_type * np.ones(n_samples, dtype=np.int),
+            self.surface_type * np.ones(n_samples, dtype=np.int32),
         )
         results["airmass_type"] = (
             ("samples",),
-            self.airmass_type * np.ones(n_samples, dtype=np.int),
+            self.airmass_type * np.ones(n_samples, dtype=np.int32),
         )
         source = 0
         if self.surface_type in [8, 9, 10, 11]:
@@ -181,11 +183,14 @@ class BinFile:
             source = 2
         results["source"] = (
             ("samples",),
-            source * np.ones(n_samples, dtype=np.int),
+            source * np.ones(n_samples, dtype=np.int32),
         )
 
-        results["tpw"] = (("samples"), self.tpw * np.ones(n_samples, dtype=np.float))
-        results["temperature"] = (("samples",), self.temperature * np.ones(n_samples))
+        results["tcwv_bin"] = (("samples"), self.tcwv * np.ones(n_samples, dtype=np.float32))
+        results["temperature"] = (
+            ("samples",),
+            self.temperature * np.ones(n_samples, np.float32),
+        )
 
         dataset = xr.Dataset(results)
         dataset.attrs.update(self.get_attributes())
@@ -216,6 +221,10 @@ GPM_FILE_REGEXP = re.compile(r"gpm_(\d\d\d)_(\d\d)(_(\d\d))?_(\d\d).bin")
 
 
 def process_input(input_filename, start=1.0, end=1.0, include_profiles=False):
+    """
+    Helper function to process and an input '.bin' file from which to extract
+    training data.
+    """
     data = load_data(input_filename, start, end, include_profiles=include_profiles)
     return data
 
@@ -229,10 +238,10 @@ class FileProcessor:
     def __init__(
         self,
         path,
-        st_min=227.0,
-        st_max=307.0,
-        tpw_min=0.0,
-        tpw_max=76.0,
+        t2m_min=227.0,
+        t2m_max=307.0,
+        tcwv_min=0.0,
+        tcwv_max=76.0,
         include_profiles=False,
     ):
         """
@@ -240,27 +249,29 @@ class FileProcessor:
 
         Args:
             path: The path containing the files to process.
-            st_min: The minimum bin surface temperature for which to consider
+            t2m_min: The minimum bin surface temperature for which to consider
                 bins.
-            st_max: The maximum bin surface temperature for which to consider
+            t2m_max: The maximum bin surface temperature for which to consider
                 bins.
-            tpw_min: The minimum bin-tpw value to consider.
-            tpw_max: The maximum bin-tpw value to consider.
+            tcwv_min: The minimum bin-tcwv value to consider.
+            tcwv_max: The maximum bin-tcwv value to consider.
 
         """
         self.path = path
         self.include_profiles = include_profiles
         self.files = []
 
-        for f in Path(path).iterdir():
-            match = re.match(GPM_FILE_REGEXP, f.name)
+        for input_file in Path(path).iterdir():
+            match = re.match(GPM_FILE_REGEXP, input_file.name)
             if match:
                 groups = match.groups()
-                t = float(groups[0])
-                tpw = float(groups[1])
-                if t < st_min or t > st_max or tpw < tpw_min or tpw > tpw_max:
+                t2m = float(groups[0])
+                tcwv = float(groups[1])
+                if (t2m < t2m_min or t2m > t2m_max):
                     continue
-                self.files.append(f)
+                if (tcwv < tcwv_min or tcwv > tcwv_max):
+                    continue
+                self.files.append(input_file)
 
     def run_async(self, output_file, start_fraction, end_fraction, n_processes=4):
         """
@@ -276,7 +287,6 @@ class FileProcessor:
                  of input files.
         """
         pool = ProcessPoolExecutor(max_workers=n_processes)
-        loop = asyncio.new_event_loop()
 
         tasks = [
             pool.submit(
@@ -290,8 +300,8 @@ class FileProcessor:
         ]
 
         datasets = []
-        for t in tqdm.tqdm(tasks):
-            datasets.append(t.result())
+        for task in track(tasks, "Processing files: "):
+            datasets.append(task.result())
 
         dataset = xr.concat(datasets, "samples")
         dataset.to_netcdf(output_file)

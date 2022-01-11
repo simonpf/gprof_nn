@@ -11,7 +11,6 @@ import os
 from pathlib import Path
 
 import gprof_nn.logging
-from gprof_nn import sensors
 from gprof_nn.definitions import (TRAINING_DAYS,
                                   VALIDATION_DAYS,
                                   TEST_DAYS)
@@ -75,6 +74,7 @@ def run(args):
     Args:
         args: The namespace object provided by the top-level parser.
     """
+    from gprof_nn import sensors
     from gprof_nn.data.sim import SimFileProcessor
 
     # Check sensor
@@ -94,8 +94,8 @@ def run(args):
     # Check kind
     kind = args.kind.lower().strip()
     if not kind in ["train", "val", "test"]:
-        LOGGER.error("The configuration should be 'train' 'val' or 'test' not '%s'.",
-                     args.configuration)
+        LOGGER.error("The kind should be 'train' 'val' or 'test' not '%s'.",
+                     args.kind)
         return 1
 
     output = Path(args.output)

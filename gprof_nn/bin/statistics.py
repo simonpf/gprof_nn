@@ -12,10 +12,6 @@ import logging
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
-from quantnn.qrnn import QRNN
-from quantnn.normalizer import Normalizer
-from rich.progress import track
-
 import gprof_nn.logging
 from gprof_nn.retrieval import RetrievalDriver, RetrievalGradientDriver
 from gprof_nn import sensors
@@ -64,8 +60,13 @@ def add_parser(subparsers):
 
 
 STATS = {
-    "training": [
-        statistics.TrainingDataStatistics(kind="0d"),
+    "training_1d": [
+        statistics.TrainingDataStatistics(kind="1d"),
+        statistics.ZonalDistribution(),
+        statistics.GlobalDistribution()
+    ],
+    "training_3d": [
+        statistics.TrainingDataStatistics(kind="3d"),
         statistics.ZonalDistribution(),
         statistics.GlobalDistribution()
     ],
@@ -75,19 +76,20 @@ STATS = {
     ],
     "observations": [statistics.ObservationStatistics()],
     "retrieval": [
-        #statistics.RetrievalStatistics(),
+        statistics.RetrievalStatistics(),
         statistics.ZonalDistribution(),
         statistics.GlobalDistribution(),
-        #statistics.ScanPositionMean()
+        statistics.ScanPositionMean()
         ],
     "combined": [statistics.GPMCMBStatistics(monthly=False)]
 }
 
 PATTERNS = {
-    "training": "**/*.nc",
+    "training_1d": "**/*.nc*",
+    "training_3d": "**/*.nc*",
     "bin": "**/*.bin",
     "observations": "**/*.nc",
-    "retrieval": "**/*.nc",
+    "retrieval": "**/*.nc.gz",
     "combined": "**/2B.GPM*.HDF5"
 }
 
@@ -112,10 +114,13 @@ def run(args):
         )
         return 1
 
-    kind = args.kind.lower()
+    kind = args.kind.lower().strip()
+    if kind == "training":
+        kind = "training_1d"
+
     if not kind in STATS.keys():
         LOGGER.error(
-            "'kind' argument must be one of {list(STATS.keys())}."
+            f"'kind' argument must be one of {list(STATS.keys())}."
         )
         return 1
 

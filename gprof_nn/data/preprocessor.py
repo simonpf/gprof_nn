@@ -12,6 +12,7 @@ Additionally, it defines functions to run the preprocessor on the CSU
 from datetime import datetime
 import logging
 import os
+import pickle
 import shutil
 import subprocess
 import tempfile
@@ -19,16 +20,17 @@ import tempfile
 import numpy as np
 import scipy as sp
 import scipy.interpolate
-import torch
 import xarray as xr
 
-from gprof_nn.definitions import (MISSING,
-                                  TCWV_MIN,
-                                  TCWV_MAX,
-                                  T2M_MIN,
-                                  T2M_MAX,
-                                  ERA5,
-                                  GANAL)
+from gprof_nn.definitions import (
+    MISSING,
+    TCWV_MIN,
+    TCWV_MAX,
+    T2M_MIN,
+    T2M_MAX,
+    ERA5,
+    GANAL,
+)
 from gprof_nn import sensors
 from gprof_nn.data import retrieval
 from gprof_nn.data.profiles import ProfileClusters
@@ -241,6 +243,29 @@ class PreprocessorFile:
         for i in range(self.n_scans):
             yield self.get_scan(i)
 
+    def write_subset(self, filename, n_scans=None):
+        """
+        Write the data in this retrieval file to another file.
+
+        Args:
+            filename: Name of the file to which write the content of this
+                file.
+            n_scans: Limit of the number of scans in the file to write.
+        """
+        if n_scans is None:
+            n_scans = self.n_scans
+        n_scans = min(self.n_scans, n_scans)
+        with open(filename, "wb") as output:
+            orbit_header = self.orbit_header.copy()
+            orbit_header["number_of_scans"][:] = n_scans
+
+            # Write orbit header.
+            orbit_header.tofile(output)
+
+            for i in range(n_scans):
+                self.get_scan_header(i).tofile(output)
+                self.get_scan(i).tofile(output)
+
     def get_scan(self, i):
         """
         Args:
@@ -290,6 +315,12 @@ class PreprocessorFile:
             for k, d in data.items():
                 d[i] = s[k]
 
+        if isinstance(self.sensor, sensors.ConstellationScanner):
+            tbs = data["brightness_temperatures"]
+            data["brightness_temperatures"] = tbs[..., self.sensor.gmi_channels]
+            eia = data["earth_incidence_angle"]
+            data["earth_incidence_angle"] = eia[..., self.sensor.gmi_channels]
+
         dims = ["scans", "pixels", "channels"]
         data = {k: (dims[: len(d.shape)], d) for k, d in data.items()}
 
@@ -316,7 +347,7 @@ class PreprocessorFile:
         dataset.attrs["preprocessor"] = preprocessor
         return dataset
 
-    def write_retrieval_results(self, path, results, ancillary_data=None):
+    def write_retrieval_results(self, path, results, ancillary_data=None, suffix=""):
         """
         Write retrieval result to GPROF binary format.
 
@@ -324,13 +355,17 @@ class PreprocessorFile:
             path: The folder to which to write the result. The filename
                   itself follows the GPORF naming scheme.
             results: Dictionary containing the retrieval results.
+            ancillary_data: The folder containing the profile clusters.
+            suffix: Suffix to append to algorithm name in filename.
 
         Returns:
 
             Path object to the created binary file.
         """
         path = Path(path)
-        filename = path / self._get_retrieval_filename()
+        filename = path / self._get_retrieval_filename(suffix=suffix)
+
+        LOGGER.info("Writing retrieval results to file '%s'.", str(filename))
 
         if ancillary_data is not None:
             profiles_raining = ProfileClusters(ancillary_data, True)
@@ -339,12 +374,13 @@ class PreprocessorFile:
             profiles_raining = None
             profiles_non_raining = None
 
+        n_scans = results.scans.size
         with open(filename, "wb") as file:
             self._write_retrieval_orbit_header(file)
             self._write_retrieval_profile_info(
                 file, profiles_raining, profiles_non_raining
             )
-            for i in range(self.n_scans):
+            for i in range(n_scans):
                 self._write_retrieval_scan_header(file, i)
                 self._write_retrieval_scan(
                     file,
@@ -355,14 +391,16 @@ class PreprocessorFile:
                 )
         return filename
 
-    def _get_retrieval_filename(self):
+    def _get_retrieval_filename(self, suffix=""):
         """
         Produces GPROF compliant filename from retrieval results dict.
         """
         start_date = self.get_scan_header(0)["scan_date"]
         end_date = self.get_scan_header(-1)["scan_date"]
 
-        name = "2A.GCORE-NN.GMI.V7."
+        if suffix != "":
+            suffix = "_" + suffix
+        name = f"2A.GPROF-NN{suffix}.GMI.V0."
 
         year, month, day = [start_date[k][0] for k in ["year", "month", "day"]]
         name += f"{year:02}{month:02}{day:02}-"
@@ -500,7 +538,7 @@ class PreprocessorFile:
             precip_mean: 1D array containing the mean retrieved precipitation for
                  each pixel.
             precip_1st_tertial: 1D array containing the 1st tertial retrieved from the data.
-            precip_3rd_tertial: 1D array containing the 3rd tertial retrieved from the data
+            precip_2nd_tertial: 1D array containing the 2nd tertial retrieved from the data
             precip_pop: 1D array containing the probability of precipitation in the scan.
         """
         data = retrieval_data[{"scans": scan_index}]
@@ -567,7 +605,7 @@ class PreprocessorFile:
         out_data["ice_water_path"] = data["ice_water_path"]
         out_data["most_likely_precip"] = data["most_likely_precip"]
         out_data["precip_1st_tercile"] = data["precip_1st_tercile"]
-        out_data["precip_3rd_tercile"] = data["precip_3rd_tercile"]
+        out_data["precip_2nd_tercile"] = data["precip_2nd_tercile"]
         if "pixel_status" in data.variables:
             out_data["pixel_status"] = data["pixel_status"]
         if "quality_flag" in data.variables:
@@ -580,7 +618,6 @@ class PreprocessorFile:
 
             profile_indices = np.zeros((self.n_pixels, N_SPECIES), dtype=np.float32)
             profile_scales = np.zeros((self.n_pixels, N_SPECIES), dtype=np.float32)
-            precip_flag = data["precip_flag"].data
             for i, s in enumerate(
                 [
                     "rain_water_content",
@@ -627,9 +664,22 @@ def has_preprocessor():
 
 
 # Dictionary mapping sensor IDs to preprocessor executables.
-PREPROCESSOR_EXECUTABLES = {"GMI": "gprof2020pp_GMI_L1C", "MHS": "gprof2020pp_MHS_L1C"}
+PREPROCESSOR_EXECUTABLES = {
+    "GMI": "gprof2020pp_GMI_L1C",
+    "MHS": "gprof2020pp_MHS_L1C",
+    "TMI": "gprof2021pp_TMI_L1C",
+    ("GMI", "MHS"): "gprof2020pp_GMI_MHS_L1C",
+    ("GMI", "TMI"): "gprof2020pp_GMI_TMI_L1C"
+}
 
 
+# The default preprocessor settings for CSU computers.
+PREPROCESSOR_SETTINGS = {
+    "prodtype": "CLIMATOLOGY",
+    "prepdir": "/qdata2/archive/ERA5/",
+    "ancdir": "/qdata1/pbrown/gpm/ppancillary/",
+    "ingestdir": "/qdata1/pbrown/gpm/ppingest/",
+}
 
 
 def get_preprocessor_settings(configuration):
@@ -638,12 +688,7 @@ def get_preprocessor_settings(configuration):
     Return preprocessor settings as list of command line arguments to invoke
     the preprocessor.
     """
-    settings = {
-        "prodtype": "CLIMATOLOGY",
-        "prepdir": "/qdata2/archive/ERA5/",
-        "ancdir": "/qdata1/pbrown/gpm/ppancillary/",
-        "ingestdir": "/qdata1/pbrown/gpm/ppingest/",
-    }
+    settings = PREPROCESSOR_SETTINGS.copy()
     if configuration != ERA5:
         settings["prodtype"] = "STANDARD"
         settings["prepdir"] = "/qdata1/pbrown/gpm/modelprep/GANALV7/"
@@ -669,12 +714,25 @@ def run_preprocessor(
         xarray.Dataset containing the retrieval input data for the given L1C
         file or None when the 'output_file' argument is given.
     """
+    from gprof_nn.data.l1c import L1CFile
+
     file = None
     if output_file is None:
-        file = tempfile.NamedTemporaryFile(dir="/gdata/simon/tmp")
+        file = tempfile.NamedTemporaryFile()
         output_file = file.name
     try:
-        executable = PREPROCESSOR_EXECUTABLES[sensor.sensor_id]
+        sensor_l1c = L1CFile(l1c_file).sensor
+        if sensor_l1c.sensor_id == sensor.sensor_id:
+            key = sensor.sensor_id
+        else:
+            key = (sensor_l1c.sensor_id, sensor.sensor_id)
+        executable = PREPROCESSOR_EXECUTABLES.get(key, None)
+
+        if executable is None:
+            raise ValueError(
+                f"Could not find preprocessor executable for the key '{key}'."
+            )
+        LOGGER.info("Using preprocesor '%s'.", executable)
 
         jobid = str(os.getpid()) + "_pp"
         args = [jobid] + get_preprocessor_settings(configuration)
@@ -686,13 +744,13 @@ def run_preprocessor(
             data = PreprocessorFile(output_file).to_xarray_dataset()
 
     except subprocess.CalledProcessError as error:
+        LOGGER.error(
+            "Running the preprocessor for file %s failed with the following"
+            " error: %s",
+            l1c_file,
+            error.stdout + error.stderr,
+        )
         if robust:
-            LOGGER.error(
-                "Running the preprocessor for file %s failed with the following"
-                " error: %s",
-                l1c_file,
-                error.stdout + error.stderr,
-            )
             return None
         else:
             raise error
@@ -723,15 +781,15 @@ def calculate_frozen_precip(wet_bulb_temperature, surface_type, surface_precip):
         Array of same shape as 'surface_precip' containing the corresponding,
         estimated amount of frozen precipitation.
     """
-    t = np.clip(
+    t_wb = np.clip(
         wet_bulb_temperature, TWB_TABLE[0, 0] + 273.15, TWB_TABLE[-1, 0] + 273.15
     )
-    f_ocean = TWB_INTERP_OCEAN(t)
-    f_land = TWB_INTERP_LAND(t)
+    f_ocean = TWB_INTERP_OCEAN(t_wb)
+    f_land = TWB_INTERP_LAND(t_wb)
 
     ocean_pixels = surface_type == 1
-    f = 1.0 - np.where(ocean_pixels, f_ocean, f_land) / 100.0
-    return f * surface_precip
+    frac = 1.0 - np.where(ocean_pixels, f_ocean, f_land) / 100.0
+    return frac * surface_precip
 
 
 TWB_TABLE = np.array(

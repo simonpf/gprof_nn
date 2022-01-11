@@ -31,6 +31,27 @@ PROFILE_NAMES = [
     "latent_heat",
 ]
 
+SURFACE_TYPE_NAMES = [
+    "Ocean",
+    "Sea-Ice",
+    "Vegetation 1",
+    "Vegetation 2",
+    "Vegetation 3",
+    "Vegetation 4",
+    "Vegetation 5",
+    "Snow 1",
+    "Snow 2",
+    "Snow 3",
+    "Snow 4",
+    "Standing Water",
+    "Land Coast",
+    "Mixed land/ocean o. water",
+    "Ocean or water Coast",
+    "Sea-ice edge",
+    "Mountain Rain",
+    "Mountain Snow",
+]
+
 # Minimum and maximum two-meter temperature. Defined in GPM_arraydef.f.
 T2M_MIN = 220
 T2M_MAX = 320
@@ -65,7 +86,7 @@ LIMITS = {
     "brightness_temperatures": (0, 400),
     "brightness_temperatures_gmi": (0, 400),
     "simulated_brightness_temperatures": (0, 400),
-    "brightness_temperature_biases": (-50, 50),
+    "brightness_temperature_biases": (-100, 100),
     "total_column_water_vapor": (0, None),
     "two_meter_temperature": (150, 400),
     "viewing_angle": (-180, 180),
