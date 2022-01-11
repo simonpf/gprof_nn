@@ -202,7 +202,7 @@ class SimFile:
             tbs = self.data["tbs_simulated"]
             if isinstance(self.sensor, sensors.ConstellationScanner):
                 tbs = tbs[..., self.sensor.gmi_channels]
-            #tbs = tbs.reshape((-1,) + shape[2:])
+            # tbs = tbs.reshape((-1,) + shape[2:])
 
             matched[indices, ...] = tbs
             matched[indices, ...][dists > 10e3] = np.nan
@@ -308,11 +308,13 @@ class SimFile:
         for key, _, *shape in record_type.descr:
 
             data = self.data[key]
-            if key in ["emissivity",
-                       "tbs_observed",
-                       "tbs_simulated",
-                       "tbs_bias",
-                       "d_tbs"]:
+            if key in [
+                "emissivity",
+                "tbs_observed",
+                "tbs_simulated",
+                "tbs_bias",
+                "d_tbs",
+            ]:
                 if isinstance(self.sensor, sensors.ConstellationScanner):
                     data = data[..., self.sensor.gmi_channels]
 
@@ -616,12 +618,7 @@ def process_sim_file(sim_filename, sensor, configuration, era5_path, log_queue=N
     return data
 
 
-def process_mrms_file(
-        sensor,
-        mrms_filename,
-        configuration,
-        day,
-        log_queue=None):
+def process_mrms_file(sensor, mrms_filename, configuration, day, log_queue=None):
     """
     Extract training data from MRMS-GMI match up files for given day.
     Matches the observations in the MRMS file with input data from the
@@ -646,10 +643,8 @@ def process_mrms_file(
     date = mrms_file.scan_time[indices[len(indices) // 2]]
     l1c_files = list(
         L1CFile.find_files(
-            date,
-            mrms_sensor.l1c_file_path,
-            roi=CONUS,
-            sensor=mrms_sensor)
+            date, mrms_sensor.l1c_file_path, roi=CONUS, sensor=mrms_sensor
+        )
     )
 
     scenes = []
@@ -715,6 +710,11 @@ def process_l1c_file(l1c_filename, sensor, configuration, era5_path, log_queue=N
     data_pp = run_preprocessor(
         l1c_filename, sensor=sensor, configuration=configuration, robust=False
     )
+
+    l1c_file = L1CFile(l1c_filename)
+    if l1c_file.sensor != sensor:
+        data_pp = data_pp[{"channels": sensor.gmi_channels}]
+
     if data_pp is None:
         return None
     data_pp = add_targets(data_pp, sensor)
@@ -948,12 +948,11 @@ class SimFileProcessor:
         mrms_file_path = self.sensor.mrms_file_path
         if mrms_file_path is None:
             mrms_files = MRMSMatchFile.find_files(
-                sensors.GMI.mrms_file_path,
-                sensor=sensors.GMI
+                sensors.GMI.mrms_file_path, sensor=sensors.GMI
             )
         else:
             mrms_files = MRMSMatchFile.find_files(mrms_file_path, sensor=self.sensor)
-            mrms_files = np.random.permutation(mrms_files)
+        mrms_files = np.random.permutation(mrms_files)
 
         l1c_file_path = self.sensor.l1c_file_path
         l1c_files = []
@@ -963,7 +962,6 @@ class SimFileProcessor:
                 l1c_files += L1CFile.find_files(date, l1c_file_path, sensor=self.sensor)
             except ValueError:
                 pass
-        l1c_files = [f.filename for f in l1c_files]
 
         # If no L1C files are found use GMI co-locations.
         if len(l1c_files) < 1:
@@ -971,14 +969,13 @@ class SimFileProcessor:
                 try:
                     date = datetime(year, month, self.day)
                     l1c_file_path = sensors.GMI.l1c_file_path
-                    l1c_files += L1CFile.find_files(date,
-                                                    l1c_file_path,
-                                                    sensor=sensors.GMI)
+                    l1c_files += L1CFile.find_files(
+                        date, l1c_file_path, sensor=sensors.GMI
+                    )
                 except ValueError:
                     pass
+        l1c_files = [f.filename for f in l1c_files]
         l1c_files = np.random.permutation(l1c_files)
-        l1c_files = []
-        mrms_files = []
 
         n_sim_files = len(sim_files)
         LOGGER.debug("Found %s SIM files.", n_sim_files)
@@ -1073,7 +1070,7 @@ class SimFileProcessor:
                         filename = output_path / (output_file + f"_{chunk:02}.nc")
                         dataset.attrs["sensor"] = self.sensor.name
                         dataset.to_netcdf(filename)
-                        os.system(f"gzip -f {filename}")
+                        subprocess.run(["lz4", "-f", "--rm", filename], check=True)
                         LOGGER.info("Finished writing file: %s", filename)
                         datasets = []
                         chunk += 1
@@ -1085,7 +1082,7 @@ class SimFileProcessor:
         dataset.attrs["configuration"] = self.configuration
         LOGGER.info("Writing file: %s", filename)
         dataset.to_netcdf(filename)
-        subprocess.run(["gzip", "-f", filename], check=True)
+        subprocess.run(["lz4", "-f", "--rm", filename], check=True)
 
         # Explicit clean up to avoid memory leak.
         del datasets
