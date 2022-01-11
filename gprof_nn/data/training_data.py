@@ -6,6 +6,7 @@ gprof_nn.data.training_data
 This module defines the dataset classes that provide access to
 the training data for the GPROF-NN retrievals.
 """
+import io
 import math
 import logging
 import os
@@ -23,9 +24,7 @@ from gprof_nn import sensors
 from gprof_nn.data.utils import load_variable, decompress_scene, remap_scene
 from gprof_nn.definitions import MASKED_OUTPUT
 from gprof_nn.data.preprocessor import PreprocessorFile
-from gprof_nn.augmentation import (
-    get_transformation_coordinates
-)
+from gprof_nn.augmentation import get_transformation_coordinates
 
 LOGGER = logging.getLogger(__name__)
 
@@ -64,25 +63,34 @@ def decompress_and_load(filename):
     filename = Path(filename)
     if not filename.exists():
         if Path(filename).suffix == ".gz":
-            raise ValueError(
-                f"The file '{filename}' doesn't exist. "
-            )
-
-        filename_gz = Path(str(filename) + ".gz")
-        if not filename_gz.exists():
-            raise ValueError(
-                f"Neither the file '{filename}' nor '{filename}.gz' exist."
-        )
-        filename = filename_gz
+            raise ValueError(f"The file '{filename}' doesn't exist. ")
+        elif Path(filename).suffix == ".lz4":
+            raise ValueError(f"The file '{filename}' doesn't exist. ")
+        else:
+            filename_gz = Path(str(filename) + ".gz")
+            if not filename_gz.exists():
+                filename_lz4 = Path(str(filename) + ".lz4")
+                if not filename_lz4.exists():
+                    raise ValueError(
+                        f"Neither the file '{filename}' nor '{filename}.gz' exist."
+                    )
+                filename = filename_lz4
+            else:
+                filename = filename_gz
 
     if Path(filename).suffix == ".gz":
+        decompressed = io.BytesIO()
+        args = ["gunzip", "-c", str(filename)]
+        with subprocess.Popen(args, stdout=subprocess.PIPE) as proc:
+            decompressed.write(proc.stdout.read())
+        decompressed.seek(0)
+        data = xr.load_dataset(decompressed, engine="h5netcdf")
+    elif Path(filename).suffix == ".lz4":
         with TemporaryDirectory() as tmp:
             tmpfile = Path(tmp) / filename.stem
             with open(tmpfile, "wb") as decompressed:
                 subprocess.run(
-                    ["gunzip", "-c", str(filename)],
-                    stdout=decompressed,
-                    check=True
+                    ["unlz4", "-c", str(filename)], stdout=decompressed, check=True
                 )
             data = xr.load_dataset(tmpfile)
             Path(tmpfile).unlink()
@@ -155,7 +163,7 @@ def write_preprocessor_file_xtrack(input_data, output_file):
             if new_data.dtype in [np.float32, np.float64]:
                 new_data = np.nan_to_num(new_data, nan=-9999.9)
 
-            #if k == "airimass_type":
+            # if k == "airimass_type":
             #    new_data[new_data <= 0] = 0
             new_dataset[k] = (dims, new_data)
 
@@ -170,36 +178,31 @@ def write_preprocessor_file_xtrack(input_data, output_file):
     if "sunglint_angle" not in new_dataset:
         new_dataset["sunglint_angle"] = (
             ("scans", "pixels"),
-            np.zeros_like(new_dataset["surface_type"][1])
+            np.zeros_like(new_dataset["surface_type"][1]),
         )
     if "quality_flag" not in new_dataset:
         new_dataset["quality_flag"] = (
             ("scans", "pixels"),
-            np.zeros_like(new_dataset["surface_type"][1])
+            np.zeros_like(new_dataset["surface_type"][1]),
         )
     if "latitude" not in new_dataset:
         new_dataset["latitude"] = (
             ("scans", "pixels"),
-            np.zeros_like(new_dataset["surface_type"][1])
+            np.zeros_like(new_dataset["surface_type"][1]),
         )
     if "longitude" not in new_dataset:
         new_dataset["longitude"] = (
             ("scans", "pixels"),
-            np.zeros_like(new_dataset["surface_type"][1])
+            np.zeros_like(new_dataset["surface_type"][1]),
         )
     new_data = xr.Dataset(new_dataset)
 
-
-    template_path = (Path(__file__).parent / ".." /
-                    "files" )
-    template_file = (template_path /
-                    f"{sensor_name.lower()}_{platform_name.lower()}.pp")
+    template_path = Path(__file__).parent / ".." / "files"
+    template_file = template_path / f"{sensor_name.lower()}_{platform_name.lower()}.pp"
     if template_file.exists():
         template = PreprocessorFile(template_file)
     else:
-        template = PreprocessorFile(
-            template_path / "preprocessor_template.pp"
-        )
+        template = PreprocessorFile(template_path / "preprocessor_template.pp")
     PreprocessorFile.write(output_file, new_data, sensor, template=template)
     return new_data
 
@@ -233,7 +236,6 @@ def write_preprocessor_file(input_data, output_file):
         data = xr.open_dataset(input_data)
     else:
         data = input_data
-
 
     sensor = data.attrs["sensor"]
     platform = data.attrs["platform"].replace("-", "")
@@ -294,7 +296,7 @@ def write_preprocessor_file(input_data, output_file):
             elements = da.data.ravel()[:n_elems]
             if elements.dtype in [np.float32, np.float64]:
                 elements = np.nan_to_num(elements, nan=-9999.9)
-            #if k == "airmass_type":
+            # if k == "airmass_type":
             #    elements[elements <= 0] = 1
             new_dataset[k] = (dims, elements.reshape(new_shape))
 
@@ -309,36 +311,31 @@ def write_preprocessor_file(input_data, output_file):
     if "sunglint_angle" not in new_dataset:
         new_dataset["sunglint_angle"] = (
             ("scans", "pixels"),
-            np.zeros_like(new_dataset["surface_type"][1])
+            np.zeros_like(new_dataset["surface_type"][1]),
         )
     if "quality_flag" not in new_dataset:
         new_dataset["quality_flag"] = (
             ("scans", "pixels"),
-            np.zeros_like(new_dataset["surface_type"][1])
+            np.zeros_like(new_dataset["surface_type"][1]),
         )
     if "latitude" not in new_dataset:
         new_dataset["latitude"] = (
             ("scans", "pixels"),
-            np.zeros_like(new_dataset["surface_type"][1])
+            np.zeros_like(new_dataset["surface_type"][1]),
         )
     if "longitude" not in new_dataset:
         new_dataset["longitude"] = (
             ("scans", "pixels"),
-            np.zeros_like(new_dataset["surface_type"][1])
+            np.zeros_like(new_dataset["surface_type"][1]),
         )
     new_data = xr.Dataset(new_dataset)
 
-
-    template_path = (Path(__file__).parent / ".." /
-                    "files" )
-    template_file = (template_path /
-                    f"{sensor_name.lower()}_{platform_name.lower()}.pp")
+    template_path = Path(__file__).parent / ".." / "files"
+    template_file = template_path / f"{sensor_name.lower()}_{platform_name.lower()}.pp"
     if template_file.exists():
         template = PreprocessorFile(template_file)
     else:
-        template = PreprocessorFile(
-            template_path / "preprocessor_template.pp"
-        )
+        template = PreprocessorFile(template_path / "preprocessor_template.pp")
     PreprocessorFile.write(output_file, new_data, sensor, template=template)
 
 
@@ -357,7 +354,6 @@ class Dataset1DBase:
         seed = int.from_bytes(os.urandom(4), "big") + os.getpid()
         self._rng = np.random.default_rng(seed)
         self.indices = None
-
 
     def _shuffle(self):
         if self.indices is None:
@@ -448,7 +444,7 @@ class GPROF_NN_1D_Dataset(Dataset1DBase):
         shuffle=True,
         augment=True,
         sensor=None,
-        permute=None
+        permute=None,
     ):
         """
         Create GPROF 1D dataset.
@@ -489,18 +485,47 @@ class GPROF_NN_1D_Dataset(Dataset1DBase):
         self.shuffle = shuffle
         self.augment = augment
 
+        # Determine sensor from dataset and compare to provided sensor
+        # argument.
+        # The following options are possible:
+        #   - The 'sensor' argument is None so data is loaded following
+        #     conventions of the generic sensor instance.
+        #   - The 'sensor' argument is provided but corresponds to the same
+        #     sensor class. In this case simply use the provided sensor object
+        #     to load the data.
+        #   - The 'senor' argument is provided but corresonds to a different
+        #     sensor class. In this case we are dealing with pre-training using
+        #     gmi data.
+        if "sensor" not in self.dataset.attrs:
+            raise Exception(f"Provided dataset lacks 'sensor' attribute.")
+        sensor_name = self.dataset.attrs["sensor"]
+        dataset_sensor = sensors.get_sensor(sensor_name)
+
         if sensor is None:
-            if "sensor" not in self.dataset.attrs:
-                raise Exception(f"Provided dataset lacks 'sensor' attribute.")
-            sensor_name = self.dataset.attrs["sensor"]
-            sensor = getattr(sensors, sensor_name, None)
-            if sensor is None:
-                raise Exception(f"Sensor {sensor_name} isn't supported yet")
-        self.sensor = sensor
+            self.sensor = dataset_sensor
+        else:
+            if sensor_name == "GMI" and sensor != dataset_sensor:
+                self.sensor = dataset_sensor
+            else:
+                self.sensor = sensor
 
         x, y = self.sensor.load_training_data_1d(
             self.dataset, self.targets, self.augment, self._rng
         )
+
+        # If this is pre-training, we need to extract the correct indices.
+        # For conical scanners we also replace the viewing angle feature
+        # with random values.
+        if sensor is not None and sensor != self.sensor:
+            LOGGER.info("Extracting channels %s for pre-training.", sensor.gmi_channels)
+            indices = list(sensor.gmi_channels) + list(range(15, 15 + 24))
+            if isinstance(sensor, sensors.CrossTrackScanner):
+                indices.insert(sensor.n_chans, 0)
+            x = x[:, indices]
+            if isinstance(sensor, sensors.ConicalScanner):
+                shape = x[:, sensor.n_chans].shape
+                x[:, sensor.n_chans] = self._rng.uniform(-1, 1, size=shape)
+
         self.x = x
         self.y = y
         LOGGER.info("Loaded %s samples from %s", self.x.shape[0], self.filename.name)
@@ -569,9 +594,7 @@ class GPROF_NN_1D_Dataset(Dataset1DBase):
         Loads the data from the file into the ``x`` and ``y`` attributes.
         """
 
-    def to_xarray_dataset(self,
-                          mask=None,
-                          batch=None):
+    def to_xarray_dataset(self, mask=None, batch=None):
         """
         Convert training data to xarray dataset.
 
@@ -650,110 +673,6 @@ class GPROF_NN_1D_Dataset(Dataset1DBase):
         new_dataset.to_netcdf(filename)
 
 
-class TrainingObsDataset1D(GPROF_NN_1D_Dataset):
-    """
-    Special training dataset that serves only the simulated brightness
-    temperatures and ancillary data in order to train an observation
-    noise model.
-    """
-
-    def __init__(
-        self,
-        filename,
-        batch_size=512,
-        normalize=True,
-        normalizer_x=None,
-        normalizer_y=None,
-        shuffle=True,
-        augment=True,
-        sensor=None,
-    ):
-        """
-        Args:
-            filename: Path to the NetCDF file containing the training data to
-                load.
-            batch_size: Number of samples in each training batch.
-            normalize: Whether or not to normalize the input data.
-            normalizer_x: Normalizer to use to normalize the input data.
-            normalizer_y: Normalizer to use to normalizer the target data.
-            shuffle: Whether or not to shuffle the training data.
-            augment: Whether or not to randomly mask high-frequency channels
-                and to randomly permute ancillary data.
-            sensor: Sensor object defining the sensor from which the training
-                data stems.
-        """
-        super().__init__(
-            filename,
-            normalize=False,
-            transform_zeros=False,
-            targets=[],
-            batch_size=batch_size,
-            shuffle=shuffle,
-            augment=augment,
-            sensor=sensor,
-        )
-        self.normalize = normalize
-        self.normalizer_x = normalizer_x
-        self.normalizer_y = normalizer_y
-
-        # Extract observations and ancillary data.
-        self.y = self.x[:, : sensor.n_chans]
-        features = []
-        if isinstance(sensor, sensors.CrossTrackScanner):
-            features += [self.x[:, [sensor.n_chans]]]
-        features += [self.x[:, -22:-4]]
-        self.x = np.concatenate(features, axis=1)
-
-        valid = np.all(np.isfinite(self.y), axis=-1)
-        valid *= np.sum(self.x[:, 1:], axis=-1) > 0
-        valid *= (self.x[:, 5] >= -1.0) * (self.x[:, 5] <= 1.0)
-        self.y = self.y[valid]
-        self.x = self.x[valid]
-
-        # Normalize ancillary data and observations
-        # independently.
-        if self.normalize:
-            if self.normalizer_x is None:
-                indices_1h = list(range(1, 19))
-                self.normalizer_x = MinMaxNormalizer(self.x, exclude_indices=indices_1h)
-            self.x = self.normalizer_x(self.x)
-            if self.normalizer_y is None:
-                self.normalizer_y = MinMaxNormalizer(self.y)
-            self.y = self.normalizer_y(self.y)
-
-    def __repr__(self):
-        s = f"TrainingObsDataset1D({self.filename.name}, " f"n_batches={len(self)})"
-        return s
-
-    def __str__(self):
-        s = f"TrainingObsDataset1D({self.filename.name}, " f"n_batches={len(self)})"
-        return s
-
-
-def _replace_randomly(x, p, rng=None):
-    """
-    Randomly replaces a fraction of the elements in the tensor with another
-    randomly sampled value.
-
-    Args:
-        x: The input tensor in which to replace some values by random
-            permutations.
-        p: The probability with which to replace any value along the first
-            dimension in x.
-
-    Returns:
-         None, augmentation is performed in place.
-    """
-    if rng is None:
-        indices = np.random.rand(x.shape[0]) > (1.0 - p)
-        indices_r = np.random.permutation(x.shape[0])[: indices.sum()]
-    else:
-        indices = rng.random(x.shape[0]) > (1.0 - p)
-        indices_r = rng.permutation(x.shape[0])[: indices.sum()]
-    replacements = x[indices_r, ...]
-    x[indices] = replacements
-
-
 ###############################################################################
 # GPROF-NN 3D
 ###############################################################################
@@ -825,14 +744,54 @@ class GPROF_NN_3D_Dataset:
             sensor = getattr(sensors, sensor)
         self.sensor = sensor
 
+        # Determine sensor from dataset and compare to provided sensor
+        # argument.
+        # The following options are possible:
+        #   - The 'sensor' argument is None so data is loaded following
+        #     conventions of the generic sensor instance.
+        #   - The 'sensor' argument is provided but corresponds to the same
+        #     sensor class. In this case simply use the provided sensor object
+        #     to load the data.
+        #   - The 'senor' argument is provided but corresonds to a different
+        #     sensor class. In this case we are dealing with pre-training using
+        #     gmi data.
+        if "sensor" not in self.dataset.attrs:
+            raise Exception(f"Provided dataset lacks 'sensor' attribute.")
+        sensor_name = self.dataset.attrs["sensor"]
+        dataset_sensor = sensors.get_sensor(sensor_name)
+
+        if sensor is None:
+            self.sensor = dataset_sensor
+        else:
+            if sensor_name == "GMI" and sensor != dataset_sensor:
+                self.sensor = dataset_sensor
+            else:
+                self.sensor = sensor
+
         if input_dimensions is None:
-            width, height = _INPUT_DIMENSIONS[sensor.name.upper()]
+            width, height = _INPUT_DIMENSIONS[self.sensor.name.upper()]
         else:
             width, height = input_dimensions
-        x, y = sensor.load_training_data_3d(
-            self.dataset, self.targets, augment, self._rng,
-            width=width, height=height
+        x, y = self.sensor.load_training_data_3d(
+            self.dataset, self.targets, augment, self._rng, width=width, height=height
         )
+
+        # If this is pre-training, we need to extract the correct indices.
+        # For conical scanners we also replace the viewing angle feature
+        # with random values.
+        if sensor is not None and sensor != self.sensor:
+            LOGGER.info("Extracting channels %s for pre-training.", sensor.gmi_channels)
+            indices = list(sensor.gmi_channels) + list(range(15, 15 + 24))
+            if isinstance(sensor, sensors.CrossTrackScanner):
+                indices.insert(sensor.n_chans, 0)
+            x = x[:, indices]
+            if isinstance(sensor, sensors.ConicalScanner):
+                shape = x[:, sensor.n_chans].shape
+                x[:, sensor.n_chans] = self._rng.uniform(-1, 1, size=shape)
+
+        self.x = x
+        self.y = y
+        LOGGER.info("Loaded %s samples from %s", self.x.shape[0], self.filename.name)
 
         indices_1h = list(range(17, 39))
         if normalizer is None:
