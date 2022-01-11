@@ -26,6 +26,7 @@ from gprof_nn.data.training_data import (
     GPROF_NN_1D_Dataset,
     GPROF_NN_3D_Dataset,
     decompress_and_load,
+    _THRESHOLDS,
 )
 from gprof_nn.data.l1c import L1CFile
 from gprof_nn.data.preprocessor import PreprocessorFile, run_preprocessor
@@ -261,6 +262,7 @@ class RetrievalDriver:
     retrieval using different neural network models and writing output to
     different formats.
     """
+
     def __init__(
         self,
         input_file,
@@ -269,7 +271,7 @@ class RetrievalDriver:
         device="cpu",
         compress=True,
         preserve_structure=False,
-        sensor=None
+        sensor=None,
     ):
         """
         Create retrieval driver.
@@ -321,11 +323,24 @@ class RetrievalDriver:
 
         # Determine output filename.
         if output_file is None:
-            self.output_file = Path(self.input_file.name.replace(suffix, output_suffix))
+            if suffix != "gz":
+                self.output_file = Path(
+                    self.input_file.name.replace(suffix, output_suffix)
+                )
+            else:
+                self.output_file = input_file.name
+            if self.output_file == self.input_file:
+                raise ValueError(
+                    f"The provided input and output file ('{input_file}' are the "
+                    "same, which could cause data loss. Aborting."
+                )
         elif Path(output_file).is_dir():
-            self.output_file = Path(output_file) / self.input_file.name.replace(
-                suffix, output_suffix
-            )
+            if suffix != "gz":
+                self.output_file = Path(output_file) / self.input_file.name.replace(
+                    suffix, output_suffix
+                )
+            else:
+                self.output_file = Path(output_file) / self.input_file.name
         else:
             self.output_file = output_file
 
@@ -351,9 +366,7 @@ class RetrievalDriver:
             if loader_class == NetcdfLoader1D and self.preserve_structure:
                 loader_class = NetcdfLoader1DFull
             input_data = loader_class(
-                self.input_file,
-                normalizer=self.model.normalizer,
-                sensor=self.sensor
+                self.input_file, normalizer=self.model.normalizer, sensor=self.sensor
             )
         return input_data
 
@@ -455,7 +468,7 @@ class RetrievalDriver:
                 self.output_file.parent,
                 results,
                 ancillary_data=ancillary_data,
-                suffix=self.model.suffix
+                suffix=self.model.suffix,
             )
 
         # Output format is NetCDF.
@@ -506,12 +519,7 @@ class RetrievalGradientDriver(RetrievalDriver):
             compress: If set to ``True`` NetCDF output will be gzipped.
         """
         ancillary_data = get_profile_clusters()
-        super().__init__(
-            input_file,
-            model,
-            output_file=output_file,
-            compress=compress
-        )
+        super().__init__(input_file, model, output_file=output_file, compress=compress)
 
     def _run(self, xrnn, input_data):
         """
@@ -620,12 +628,7 @@ class NetcdfLoader1D(GPROF_NN_1D_Dataset):
     in NetCDF data format.
     """
 
-    def __init__(
-            self,
-            filename,
-            normalizer,
-            batch_size=16 * 1024,
-            sensor=None):
+    def __init__(self, filename, normalizer, batch_size=16 * 1024, sensor=None):
         """
         Create loader for input data in NetCDF format that provides input
         data for the GPROF-NN 1D retrieval.
@@ -677,7 +680,7 @@ class NetcdfLoader1D(GPROF_NN_1D_Dataset):
         """
         Reshape retrieval results into shape of input data.
         """
-        invalid = np.all(self.x[:, :self.sensor.n_chans] <= -1.5, axis=-1)
+        invalid = np.all(self.x[:, : self.sensor.n_chans] <= -1.5, axis=-1)
         for v in ALL_TARGETS:
             data[v].data[invalid] = np.nan
 
@@ -726,7 +729,7 @@ class NetcdfLoader3D(GPROF_NN_3D_Dataset):
             shuffle=False,
             augment=False,
             input_dimensions=None,
-            sensor=sensor
+            sensor=sensor,
         )
         self.n_samples = len(self)
         self.scalar_dimensions = ("samples",)
@@ -782,6 +785,10 @@ class NetcdfLoader3D(GPROF_NN_3D_Dataset):
         if "earth_incidence_angle" in self.data.variables:
             data["earth_incidence_angle"] = self.data["earth_incidence_angle"]
 
+        invalid = np.all(self.x[:, : self.sensor.n_chans] <= -1.5, axis=1)
+        for var in vars:
+            data[var].data[invalid] = np.nan
+
         return data
 
 
@@ -796,13 +803,7 @@ class NetcdfLoader1DFull(NetcdfLoader3D):
     structure of the data.
     """
 
-    def __init__(
-            self,
-            filename,
-            normalizer,
-            batch_size=32,
-            sensor=None
-    ):
+    def __init__(self, filename, normalizer, batch_size=32, sensor=None):
         """
         Create loader for input data in NetCDF format that provides input
         data for the GPROF-NN 3D retrieval.
@@ -847,8 +848,7 @@ class NetcdfLoader1DFull(NetcdfLoader3D):
         n_samples = data.samples.size / len(pixels) / len(scans)
         samples = np.arange(n_samples)
         index = pd.MultiIndex.from_product(
-            (samples, scans, pixels),
-            names=('new_samples', 'scans', 'pixels')
+            (samples, scans, pixels), names=("new_samples", "scans", "pixels")
         )
 
         # Reproduce scene dimensions
@@ -864,6 +864,10 @@ class NetcdfLoader1DFull(NetcdfLoader3D):
             data[var + "_true"] = self.data[var]
         data["latitude"] = self.data["latitude"]
         data["longitude"] = self.data["longitude"]
+
+        invalid = np.all(self.x[:, : self.sensor.n_chans] <= -1.5, axis=1)
+        for var in vars:
+            data[var].data[invalid] = np.nan
 
         return data
 
@@ -958,18 +962,21 @@ class ObservationLoader1D:
 
         tbs = self.data["brightness_temperatures"].data
         invalid = np.all(tbs < 0, axis=-1)
-        for v in ALL_TARGETS:
-            if v in data.variables:
-                data[v].data[invalid] = np.nan
+        for var in ALL_TARGETS:
+            if var in data.variables:
+                data[var].data[invalid] = np.nan
+
+                # Replace small values with zero.
+                if var in _THRESHOLDS:
+                    thresh = _THRESHOLDS[var]
+                    if thresh > 0:
+                        small = data[var].data < thresh
+                        data[var].data[small] = 0.0
 
         return data
 
     def write_retrieval_results(
-            self,
-            output_path,
-            results,
-            ancillary_data=None,
-            suffix=None
+        self, output_path, results, ancillary_data=None, suffix=None
     ):
         """
         Write retrieval results to file.
@@ -1132,11 +1139,8 @@ class ObservationLoader3D:
         return data
 
     def write_retrieval_results(
-            self,
-            output_path,
-            results,
-            ancillary_data=None,
-            suffix=None):
+        self, output_path, results, ancillary_data=None, suffix=None
+    ):
         """
         Write retrieval results to file.
 
@@ -1244,10 +1248,8 @@ class SimulatorLoader:
             raise ValueError(f"Sensor {sensor_name} isn't yet supported.")
         self.sensor = sensor
 
-        print(sensor)
         self._load_data()
         self.n_samples = self.input_data.shape[0]
-
 
         if sensor.n_angles > 1:
             dims_tbs = ("samples", "angles", "channels", "scans", "pixels")
