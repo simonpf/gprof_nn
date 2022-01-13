@@ -304,8 +304,7 @@ class RetrievalDriver:
             self.input_format = NETCDF
 
         # Determine output format.
-        output_file = Path(output_file)
-        if output_file is None or output_file.is_dir():
+        if output_file is None or Path(output_file).is_dir():
             self.output_format = self.input_format
         else:
             if self.input_format in [NETCDF, L1C]:
@@ -323,24 +322,30 @@ class RetrievalDriver:
 
         # Determine output filename.
         if output_file is None:
-            if suffix != "gz":
-                self.output_file = Path(
-                    self.input_file.name.replace(suffix, output_suffix)
-                )
+            if self.output_format == GPROF_BINARY:
+                self.output_file = self.input_file.parent
             else:
-                self.output_file = input_file.name
-            if self.output_file == self.input_file:
-                raise ValueError(
-                    f"The provided input and output file ('{input_file}' are the "
-                    "same, which could cause data loss. Aborting."
-                )
+                if suffix != ".gz":
+                    self.output_file = Path(
+                        self.input_file.name.replace(suffix, output_suffix)
+                    )
+                else:
+                    self.output_file = input_file.name
+                if self.output_file == self.input_file:
+                    raise ValueError(
+                        f"The provided input and output file ('{input_file}') "
+                        "are the same, which could cause data loss. Aborting."
+                    )
         elif Path(output_file).is_dir():
-            if suffix != "gz":
-                self.output_file = Path(output_file) / self.input_file.name.replace(
-                    suffix, output_suffix
-                )
+            if self.output_format == GPROF_BINARY:
+                self.output_file = Path(output_file)
             else:
-                self.output_file = Path(output_file) / self.input_file.name
+                if suffix != ".gz":
+                    self.output_file = Path(output_file) / self.input_file.name.replace(
+                        suffix, output_suffix
+                    )
+                else:
+                    self.output_file = Path(output_file) / self.input_file.name
         else:
             self.output_file = output_file
 
@@ -465,7 +470,7 @@ class RetrievalDriver:
         ancillary_data = get_profile_clusters()
         if self.output_format == GPROF_BINARY:
             return input_data.write_retrieval_results(
-                self.output_file.parent,
+                self.output_file,
                 results,
                 ancillary_data=ancillary_data,
                 suffix=self.model.suffix,
