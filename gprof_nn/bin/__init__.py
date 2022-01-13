@@ -9,6 +9,7 @@ that are defined in the sub-module of the 'gprof_nn.bin' module.
 """
 import argparse
 import sys
+import warnings
 
 import gprof_nn.logging
 from gprof_nn.logging import set_log_level
@@ -28,6 +29,7 @@ def gprof_nn():
     from gprof_nn.bin import run_preprocessor
     from gprof_nn.bin import process
 
+    warnings.filterwarnings("ignore", category=RuntimeWarning)
     set_log_level("INFO")
 
     description = (

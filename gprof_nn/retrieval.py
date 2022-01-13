@@ -296,7 +296,7 @@ class RetrievalDriver:
 
         # Determine input format.
         suffix = input_file.suffix
-        if suffix.endswith("pp"):
+        if suffix in [".pp", ".bin"]:
             self.input_format = GPROF_BINARY
         elif suffix.endswith("HDF5"):
             self.input_format = L1C
@@ -312,7 +312,7 @@ class RetrievalDriver:
                 self.output_format = NETCDF
             else:
                 output_file = Path(output_file)
-                if suffix.lower().endswith("bin"):
+                if output_file.suffix.lower() == ".bin":
                     self.output_format = GPROF_BINARY
                 else:
                     self.output_format = NETCDF

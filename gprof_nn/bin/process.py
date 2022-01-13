@@ -78,13 +78,19 @@ def process_file(
 
     # Need to open the file to figure out the sensor.
     try:
-        if input_file.suffix == ".pp":
+        if input_file.suffix in [".pp", ".bin"]:
             input_data = PreprocessorFile(input_file)
         elif input_file.suffix == ".HDF5":
             input_data = L1CFile(input_file)
+        else:
+            LOGGER.error(
+                "Only input files with suffixes '.pp', '.bin', or '.HDF5'"
+                " are supported."
+            )
+            return 1
     except ValueError as err:
         LOGGER.error("%s", err)
-        return None
+        return 1
 
     # Now try and find the model file for sensor and configuration.
     sensor = input_data.sensor
@@ -92,7 +98,7 @@ def process_file(
         model_path = get_model_path(kind, sensor, configuration)
     except Exception as e:
         LOGGER.error("%s", str(e))
-        return None
+        return 1
 
     # Finally, run the retrieval:
     model = QRNN.load(model_path)
