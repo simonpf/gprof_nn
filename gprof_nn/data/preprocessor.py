@@ -363,7 +363,10 @@ class PreprocessorFile:
             Path object to the created binary file.
         """
         path = Path(path)
-        filename = path / self._get_retrieval_filename(suffix=suffix)
+        if path.is_dir():
+            filename = path / self._get_retrieval_filename(suffix=suffix)
+        else:
+            filename = path
 
         LOGGER.info("Writing retrieval results to file '%s'.", str(filename))
 

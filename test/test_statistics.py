@@ -16,6 +16,7 @@ from gprof_nn.data.training_data import (GPROF_NN_1D_Dataset,
                                          decompress_and_load)
 from gprof_nn.data.combined import GPMCMBFile
 from gprof_nn.statistics import (StatisticsProcessor,
+                                 LatitudeDistribution,
                                  TrainingDataStatistics,
                                  BinFileStatistics,
                                  ObservationStatistics,
