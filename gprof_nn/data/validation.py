@@ -502,8 +502,12 @@ class ValidationFileProcessor:
                 preprocessor files.
             n_workers: How many worker processes to use.
         """
-        mrms_file_pattern = "mrms_{granule}.nc"
-        pp_file_pattern = "pp_{granule}.nc"
+        mrms_file_pattern = (
+            "mrms_{sensor}_{year}{month:02}{day:02}_{hour:02}{minute:02}_{granule}.nc"
+        )
+        pp_file_pattern = (
+            "{sensor}_{year}{month:02}{day:02}_{hour:02}{minute:02}_{granule}.pp"
+        )
 
         mrms_path = Path(mrms_path) / f"{self.year}" / f"{self.month:02}"
         mrms_path.mkdir(exist_ok=True, parents=True)
@@ -514,8 +518,21 @@ class ValidationFileProcessor:
         # Submit task for each granule in month
         pool = ProcessPoolExecutor(max_workers=n_workers)
         for granule in self.granules:
-            mrms_file = mrms_path / mrms_file_pattern.format(granule=granule)
-            pp_file = pp_path / pp_file_pattern.format(granule=granule)
+
+            granule_file = self.granules[granule][0]
+            date = ValidationData.filename_to_date(granule_file)
+
+            fname_kwargs = {
+                "sensor": self.sensor.name.lower(),
+                "year": date.year,
+                "month": date.month,
+                "day": date.day,
+                "hour": date.hour,
+                "minute": date.minute,
+                "granule": granule
+            }
+            mrms_file = mrms_path / mrms_file_pattern.format(**fname_kwargs)
+            pp_file = pp_path / pp_file_pattern.format(**fname_kwargs)
             tasks.append(pool.submit(self.process_granule, granule, mrms_file, pp_file))
 
         # Collect results and track progress.
