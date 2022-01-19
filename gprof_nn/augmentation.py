@@ -19,6 +19,7 @@ N = 96
 SCANS_PER_SAMPLE = 221
 R_EARTH = 6_371_000
 _LATLON_TO_ECEF = None
+_ECEF_TO_LATLON = None
 
 
 def latlon_to_ecef():
@@ -34,6 +35,21 @@ def latlon_to_ecef():
             {"proj": "geocent", "ellps": "WGS84", "datum": "WGS84"},
         )
     return _LATLON_TO_ECEF
+
+
+def ecef_to_latlon():
+    """
+    Return pyproj transformer object to transform  cartesian to lat/lon
+    coordinates.
+    """
+    global _ECEF_TO_LATLON
+    if _ECEF_TO_LATLON is None:
+        import pyproj
+        _ECEF_TO_LATLON =  pyproj.Transformer.from_crs(
+            {"proj": "geocent", "ellps": "WGS84", "datum": "WGS84"},
+            {"proj": "latlong", "ellps": "WGS84", "datum": "WGS84"},
+        )
+    return _ECEF_TO_LATLON
 
 
 ###############################################################################
