@@ -166,6 +166,54 @@ class CdfCorrection:
 
         return tbs
 
+    def _apply_correction_conical(self,
+                                  sensor,
+                                  surface_type,
+                                  total_column_water_vapor,
+                                  brightness_temperatures,
+                                  augment=False):
+        st = surface_type
+        tcwv = total_column_water_vapor
+        tbs = brightness_temperatures.copy()
+
+        if self.surface_types == 3:
+            # CDF uses 3 surface type:
+            # - 1: Ocean
+            # - 2: Land
+            # - 3: Coast
+            st_inds = st.astype(np.int32)
+            st_inds[st_inds > 1] = 2
+            st_inds[st == 13] = 1
+        else:
+            st_inds = st.astype(np.int32)
+
+        tcwv_inds = np.trunc(tcwv).astype(np.int32)
+        tcwv_inds = np.clip(tcwv_inds, self.tcwv_min, self.tcwv_max)
+
+        n_chans = sensor.n_chans
+        for i in range(n_chans):
+            tbs_inds = np.trunc(tbs[..., i], ).astype(np.int32)
+            tbs_inds = np.clip(tbs_inds, self.tbs_min, self.tbs_max)
+            corrections = self.corrections.correction.data[
+                st_inds - 1, i, tcwv_inds, tbs_inds
+            ]
+
+            if augment:
+                quantiles = self.corrections.cdf.data[
+                    st_inds - 1, i, tcwv_inds, tbs_inds
+                ]
+                err_lo, err_hi = np.random.normal(size=2)
+                err = (1.0 - quantiles) * err_lo + quantiles * err_hi
+                err = 0.1 * corrections * err
+                shape = corrections.shape
+                corrections += err
+
+            #corrections[st_inds > 1] = 0.0
+
+            tbs[..., i] += corrections
+
+        return tbs
+
     def __call__(
             self,
             sensor,
@@ -182,9 +230,15 @@ class CdfCorrection:
             scene: A training scene to which to apply the TB correction.
             augment: Whether or not to apply augment the correction.
         """
-        return self._apply_correction_cross_track(
-            sensor, surface_type, earth_incidence_angle,
-            total_column_water_vapor, brightness_temperatures, augment=augment
+        if sensor.n_angles > 1:
+            return self._apply_correction_cross_track(
+                sensor, surface_type, earth_incidence_angle,
+                total_column_water_vapor, brightness_temperatures,
+                augment=augment
+            )
+        return self._apply_correction_conical(
+            sensor, surface_type, total_column_water_vapor,
+            brightness_temperatures, augment=augment
         )
 
 
