@@ -259,6 +259,10 @@ class L1CFile:
                     axis=-1,
                 )
             )[0]
+            d_inds = np.diff(indices)
+            if any(d_inds > 1):
+                ind = np.where(d_inds > 1)[0]
+                indices = indices[:ind]
 
             with h5py.File(output_filename, "w") as output:
 
@@ -325,6 +329,8 @@ class L1CFile:
 
                 for a in input.attrs:
                     output.attrs[a] = input.attrs[a]
+
+        return indices.min(), indices.max()
 
     def extract_scans_and_pixels(self, scans, output_filename, n_pixels=-1):
         """
