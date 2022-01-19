@@ -1256,23 +1256,14 @@ class SimulatorLoader:
         self._load_data()
         self.n_samples = self.input_data.shape[0]
 
-        if sensor.n_angles > 1:
-            dims_tbs = ("samples", "angles", "channels", "scans", "pixels")
-            dims_bias = ("samples", "channels", "scans", "pixels")
-            self.dimensions = {
-                f"simulated_brightness_temperatures_{j}": dims_tbs
-                for j in range(sensor.n_chans)
-            }
-            for j in range(sensor.n_chans):
-                self.dimensions[f"brightness_temperature_biases_{j}"] = dims_bias
-        else:
-            dims = ("samples", "channels", "scans", "pixels")
-            self.dimensions = {
-                f"simulated_brightness_temperatures_{j}": dims
-                for j in range(sensor.n_chans)
-            }
-            for j in range(sensor.n_chans):
-                self.dimensions[f"brightness_temperature_biases_{j}"] = dims
+        dims_tbs = ("samples", "angles", "channels", "scans", "pixels")
+        dims_bias = ("samples", "channels", "scans", "pixels")
+        self.dimensions = {
+            f"simulated_brightness_temperatures_{j}": dims_tbs
+            for j in range(sensor.n_chans)
+        }
+        for j in range(sensor.n_chans):
+            self.dimensions[f"brightness_temperature_biases_{j}"] = dims_bias
 
     def _load_data(self):
         """
@@ -1349,6 +1340,7 @@ class SimulatorLoader:
                 ),
             )
         else:
+            data = data[{"angles": 0}]
             dims = ("samples", "scans", "pixels", "channels")
             self.dataset["simulated_brightness_temperatures"] = (
                 dims,
