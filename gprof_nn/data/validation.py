@@ -6,41 +6,47 @@ gprof_nn.data.validation
 This module provides functionality to download and process GPM ground
 validation data.
 """
+from concurrent.futures import ProcessPoolExecutor
 from datetime import datetime
+import logging
 from pathlib import Path
 import re
 from tempfile import TemporaryDirectory
 from urllib.request import urlopen
 
 import numpy as np
+from rich.progress import Progress
 import scipy
 from scipy.interpolate import LinearNDInterpolator
+from scipy.signal import convolve
 import xarray as xr
 
 from gprof_nn import augmentation
+from gprof_nn.logging import get_console
+from gprof_nn.utils import great_circle_distance
+from gprof_nn.data.l1c import L1CFile
+from gprof_nn.data.preprocessor import run_preprocessor
+
+
+LOGGER = logging.getLogger(__name__)
+
 
 _BASE_URL = "https://pmm-gv.gsfc.nasa.gov/pub/NMQ/level2/"
 
 
-PATHS = {
-    "GMI": "GPM/"
-}
+PATHS = {"GMI": "GPM/"}
 
-LINK_REGEX = re.compile(
-    r"<a href=\"([\w\.]*)\">"
-)
-PRECIPRATE_REGEX = re.compile(
-    r"PRECIPRATE\.GC\.(\d{8})\.(\d{6})\.(\d{5})\.\w*\.gz"
-)
-MASK_REGEX = re.compile(
-    r"MASK\.(\d{8})\.(\d{6})\.(\d{5})\.\w*\.gz"
-)
-RQI_REGEX = re.compile(
-    r"RQI\.(\d{8})\.(\d{6})\.(\d{5})\.\w*\.gz"
-)
+LINK_REGEX = re.compile(r"<a href=\"([\w\.]*)\">")
+PRECIPRATE_REGEX = re.compile(r"PRECIPRATE\.GC\.(\d{8})\.(\d{6})\.(\d{5})\.\w*\.gz")
+MASK_REGEX = re.compile(r"MASK\.(\d{8})\.(\d{6})\.(\d{5})\.\w*\.gz")
+RQI_REGEX = re.compile(r"RQI\.(\d{8})\.(\d{6})\.(\d{5})\.\w*\.gz")
 
 
-def download_file(sensor, filename, destination):
+# lon_min, lat_min, lon_max, lat_max of CONUS
+CONUS = [-130.0, 20, -60, 55]
+
+
+def download_file(sensor, filename, year, month, destination):
     """
     Download validation file.
 
@@ -56,8 +62,6 @@ def download_file(sensor, filename, destination):
         The path to the downloaded file.
     """
     date = ValidationData.filename_to_date(filename)
-    year = date.year
-    month = date.month
     url = _BASE_URL + PATHS[sensor.name] + f"{year:04}/{month:02}/"
     url = url + filename
     with open(destination, "wb") as output:
@@ -118,134 +122,148 @@ def open_validation_data(files):
         "latitude": (("latitude",), lats),
         "longitude": (("longitude",), lons),
         "time": (("time",), times),
-        "precip_rate": (dims, precip_rate),
+        "surface_precip": (dims, precip_rate),
         "mask": (dims, mask),
-        "radar_quality_index": (dims, rqi)
+        "radar_quality_index": (dims, rqi),
     }
 
     return xr.Dataset(data).sortby(["time"])
 
 
-def upsample_swath(swath_data, variables):
+def shift(latitude, longitude, d):
+    """
+    Shifts a sequency of latitude and longitude coordinates a given distance
+    into the direction opposite that of the sequence.
 
-    if "latitude" not in variables:
-        variables.append("latitude")
+    The shifted latitudes are calculated by computing the local horizontal
+    direction that is orthogonal to the sequence direction. This vector is
+    then used to translate the sequence points. Doesn't take into account
+    curvature of the globe so results are only approximative and will likely
+    deteriorate with increasing d.
 
-    lats = swath_data.latitude.data
-    lons = swath_data.longitude.data
+    Args:
+        latitude: 1D array of latitude.
+        longitude: 1D array of longitudes.
 
-    swath = augmentation.Swath(lats, lons)
+    Return:
+        A tuple ``(lats, lons)`` of shifted latitudes and longitudes.
+    """
 
-    x_5 = np.linspace(-500e3, 500e3, 201)
-    y_5 = np.arange(swath.y.min(), lats.shape[0] * swath.y_a, 5e3)
-    xy_5 = np.stack(np.meshgrid(y_5, x_5, indexing="ij"))
+    # Unit vector perpendicular to surface
+    xyz = np.stack(
+        augmentation.latlon_to_ecef().transform(
+            longitude, latitude, np.zeros_like(latitude), radians=False
+        ),
+        axis=-1,
+    )
 
-    print(xy_5[1])
-    coords = swath.euclidean_to_pixel_coordinates(xy_5)
+    xyz_1 = np.stack(
+        augmentation.latlon_to_ecef().transform(
+            longitude, latitude, np.ones_like(latitude), radians=False
+        ),
+        axis=-1,
+    )
 
-    results = {}
-    for variable in variables:
-        # Special treatment for longitude below.
-        if variable == "longitude":
-            continue
-        data_v = swath_data[variable].data
-        data_r = augmentation.extract_domain(data_v, coords)
+    a = xyz[1:] - xyz[:-1]
+    a_e = np.zeros((a.shape[0] + 1, 3))
+    a_e[1:] += 0.5 * a
+    a_e[:-1] += 0.5 * a
+    a_e[0] *= 2
+    a_e[-1] *= 2
+    a = a_e
 
-        dims = ("x", "y") + swath_data[variable].dims[2:]
-        results[variable] = (dims, data_r)
+    x = np.cross(a_e, xyz_1 - xyz)
+    x /= np.sqrt((x ** 2).sum(axis=-1, keepdims=True))
 
-    # Special treatment of longitudes to avoid artifacts due to
-    # interpolation over longitude jumps.
-    lons = swath_data["longitude"].data.copy()
-    d_l = lons[1:] - lons[:-1]
-    if np.any(d_l > 180):
-        for i in range(lons.shape[1]):
-            indices = np.where(d_l[:, i] > 180)[0]
-            if len(indices) > 0:
-                lons[:indices[0] + 1, i] += 360
-    if np.any(d_l < -180):
-        for i in range(lons.shape[1]):
-            indices = np.where(d_l[:, i] < -180)[0]
-            if len(indices) > 0:
-                print(indices[0])
-                lons[indices[0] + 1:, i] += 360
-    lons_r = augmentation.extract_domain(lons, coords)
-    lons_r[lons_r < -180] += 360
-    lons_r[lons_r > 180] -= 360
-    dims = ("x", "y")
-    results["longitude"] = (dims, lons_r)
+    k = np.exp(-((np.arange(-10, 10.1) / 5) ** 2))
+    k = k / k.sum()
+    k = k.reshape(-1, 1)
 
-    return xr.Dataset(results)
+    x = convolve(x, k, mode="same")
+    x[:10] = x[10]
+    x[-10:] = x[-11]
+
+    xyz = xyz + x * d
+
+    lons, lats, _ = augmentation.ecef_to_latlon().transform(
+        xyz[..., 0], xyz[..., 1], xyz[..., 2], radians=False
+    )
+
+    return lats, lons
 
 
 def unify_grid(latitude, longitude):
+    """
+    Give an arbitrary grid of latitude and longitude coordinates this
+    function computes a grid that is approximately rectangular and equidistant
+    grid with a resolution of 5 km. Accuracy in across track direction is a
+    few percent while in along-track direction it was found to be as large as
+    10%. Anyways, this was the best solution I could find for this problem.
 
+    Args:
+        latitude: A 2D array of latitude coordinates.
+        longitude. A 2D array of longitude coordinates.
+
+    Return:
+       A tuple ``(lats, lons)`` containing the latitude and longitude coordinates
+       of the equidistant grid.
+    """
     N = latitude.shape[1]
     xyz = np.stack(
         augmentation.latlon_to_ecef().transform(
-            longitude,
-            latitude,
-            np.zeros_like(latitude),
-            radians=False),
-        axis=-1
+            longitude, latitude, np.zeros_like(latitude), radians=False
+        ),
+        axis=-1,
     )
 
     # Unit vector perpendicular to surface
     xyz_1 = np.stack(
         augmentation.latlon_to_ecef().transform(
-            longitude,
-            latitude,
-            np.ones_like(latitude),
-            radians=False
+            longitude, latitude, np.ones_like(latitude), radians=False
         ),
-        axis=-1
+        axis=-1,
     )
 
-    d_a = np.zeros_like(latitude)
+    slices_lat = []
+    slices_lon = []
 
-    a = xyz[1:] - xyz[:-1]
-    a = a / np.sqrt((a ** 2).sum(axis=-1, keepdims=True))
-    a_e = np.zeros((a.shape[0] + 1, a.shape[1], a.shape[2]))
-    a_e[1:] += 0.5 * a
-    a_e[:-1] += 0.5 * a
-    a_e[0] *= 2
-    a_e[-1] *= 2
+    # Start with central pixels
+    lats_c = latitude[:, N // 2].copy()
+    lons_c = longitude[:, N // 2].copy()
 
-    d_a[1:, :] = np.cumsum(np.sum((xyz[1:] - xyz[:-1]) * a, axis=-1), axis=0)
-    d_a += np.sum((xyz - xyz[:, [N // 2]]) * a_e, axis=-1)
+    d_lon = np.diff(lons_c)
+    if (d_lon > 180).any():
+        ind = np.where(d_lon > 180)[0][0]
+        lons_c[: ind + 1] += 360
+    if (d_lon < -180).any():
+        ind = np.where(d_lon < -180)[0][0]
+        lons_c[ind + 1 :] += 360
 
-    z = xyz_1[:, N // 2] - xyz[:, N // 2]
-    x = np.cross(a_e[:, N // 2], z)
-    x = x / np.sqrt((x ** 2).sum(axis=-1, keepdims=True))
+    d = great_circle_distance(lats_c[1:], lons_c[1:], lats_c[:-1], lons_c[:-1])
+    d = np.concatenate([np.array([0]), np.cumsum(d)])
+    lats_c_5 = np.interp(np.arange(0, d.max(), 5e3), d, lats_c)
+    lons_c_5 = np.interp(np.arange(0, d.max(), 5e3), d, lons_c)
 
-    d_x = np.sum((xyz - xyz[:, [N // 2]]) * x[:, np.newaxis, :], axis=-1)
+    lons_c_5[lons_c_5 < -180] += 360
+    lons_c_5[lons_c_5 > 180] -= 360
 
-    #return d_a, d_x
+    slices_lat.append(lats_c_5)
+    slices_lon.append(lons_c_5)
 
-    points = np.stack([d_a.ravel(), d_x.ravel()], axis=-1)
-    values = latitude
+    for i in range(100):
+        lats_5, lons_5 = shift(slices_lat[0], slices_lon[0], -5e3)
+        slices_lat.insert(0, lats_5)
+        slices_lon.insert(0, lons_5)
 
-    a = np.arange(d_a.min(), d_a.max(), 5e3)
-    x = np.linspace(-500e3, 500e3, 201)[::-1]
-    x, a = np.meshgrid(x, a)
-    print(x)
+    for i in range(100):
+        lats_5, lons_5 = shift(slices_lat[-1], slices_lon[-1], 5e3)
+        slices_lat.append(lats_5)
+        slices_lon.append(lons_5)
 
-    f = LinearNDInterpolator(
-        points,
-        np.stack([latitude.ravel(), longitude.ravel()], axis=-1),
-        fill_value=np.nan
-    )
-
-    points_i = np.stack([a.ravel(), x.ravel()], axis=-1)
-    result = f(points_i)
-
-    lats = result[..., 0].reshape(-1, 201)
-    lons = result[..., 1].reshape(-1, 201)
+    lats = np.stack(slices_lat, axis=-1)
+    lons = np.stack(slices_lon, axis=-1)
 
     return lats, lons
-
-
-
 
 
 class ValidationData:
@@ -281,7 +299,6 @@ class ValidationData:
         granule = Path(filename).name.split(".")[-3]
         return int(granule)
 
-
     def __init__(self, sensor):
         self.sensor = sensor
 
@@ -303,7 +320,6 @@ class ValidationData:
             results.setdefault(granule, []).append(filename)
         return results
 
-
     def open_granule(self, year, month, granule_number):
         """
         Download and open validation files from a given year and month.
@@ -324,19 +340,196 @@ class ValidationData:
         with TemporaryDirectory() as tmp:
             files = granules[granule_number]
             local_files = [
-                download_file(self.sensor, f, Path(tmp) / f) for f in files
+                download_file(self.sensor, f, year, month, Path(tmp) / f) for f in files
             ]
             return open_validation_data(local_files)
 
 
 class ValidationFileProcessor:
+    """
+    Processor class to extract satellite radar co-locations to validate the GPROF
+    retrieval.
+    """
 
-    def __init__(self, sensor, month, year):
-        self.granules = self.list_file
+    def __init__(self, sensor, year, month):
+        """
+        Create processor to extract co-locations for a give sensor, month and
+        year.
 
+        Args:
+            sensor: The sensor for which to extract the co-locations.
+            month: The month for which to extract the co-locations.
+            year: The year for which to extract the co-locations.
+        """
+        self.sensor = sensor
+        self.month = month
+        self.year = year
+        self.validation_data = ValidationData(sensor)
+        self.granules = self.validation_data.get_granules(year, month)
 
-    def process_granule(self, granule):
-        pass
-    
+    def process_mrms_file(self, granule, l1c_file, mrms_file, scan_start, scan_end):
+        """
+        Helper function to process a single MRMS file.
 
+        Downloads the MRMS data and interpolates it to a 5km x 5km grid
+        derived from the L1C file.
 
+        Args:
+            granule: Index identifying the granules for which to extract
+                the reference data.
+            l1c_file: Path to the corresponding L1C file.
+            mrms_file: Filename to which to write the results.
+            scan_start: Index of the first scan covering CONUS
+            scan_end: Index of the last scan covering CONUS
+        """
+        mrms_data = self.validation_data.open_granule(self.year, self.month, granule)
+        l1c_data = L1CFile(l1c_file).to_xarray_dataset()
+        lats = l1c_data.latitude.data
+        lons = l1c_data.longitude.data
+
+        # Calculate 5km x 5km grid.
+        lats_5, lons_5 = unify_grid(lats, lons)
+        lats_5 = xr.DataArray(data=lats_5, dims=["along_track", "across_track"])
+        lons_5 = xr.DataArray(data=lons_5, dims=["along_track", "across_track"])
+
+        scans = xr.DataArray(
+            data=np.linspace(l1c_data.scans[0], l1c_data.scans[-1], lons_5.shape[0]),
+            dims=["along_track"],
+        )
+        dtype = l1c_data.scan_time.dtype
+        time = l1c_data.scan_time.astype(np.int64).interp({"scans": scans})
+        time = time.astype(dtype)
+        time, lons_5 = xr.broadcast(time, lons_5)
+
+        # Smooth and interpolate surface precip
+        surface_precip = mrms_data.surface_precip
+        k = np.arange(-4, 4 + 1e-6, 2) / 2.5
+        k2 = (k.reshape(-1, 1) ** 2) + (k.reshape(1, -1) ** 2)
+        k = np.exp(np.log(0.5) * k2)
+        k /= k.sum()
+        k = k[np.newaxis]
+
+        sp = np.nan_to_num(mrms_data.surface_precip.data)
+        counts = np.isfinite(mrms_data.surface_precip.data).astype(np.float32)
+
+        # Use direct method to avoid negative values in results.
+        sp_mean = convolve(sp, k, mode="valid", method="direct")
+        sp_cts = convolve(counts, k, mode="valid", method="direct")
+        sp = sp_mean / sp_cts
+        # Set pixel with too few valid neighboring pixels to nan.
+        sp[sp_cts < 1e-1] = np.nan
+
+        surface_precip.data[:, 2:-2, 2:-2] = sp
+        surface_precip = surface_precip.interp(
+            latitude=lats_5, longitude=lons_5, time=time
+        )
+        mask = mrms_data.mask.interp(
+            latitude=lats_5, longitude=lons_5, time=time, method="nearest"
+        )
+        rqi = mrms_data.radar_quality_index.interp(
+            latitude=lats_5, longitude=lons_5, time=time, method="nearest"
+        )
+        mrms_data = xr.merge([surface_precip, mask, rqi])
+
+        mrms_data.attrs["sensor"] = self.sensor.sensor_name
+        mrms_data.attrs["platform"] = self.sensor.platform.name
+        mrms_data.attrs["granule"] = granule
+        mrms_data.attrs["scan_start"] = scan_start
+        mrms_data.attrs["scand_end"] = scan_end
+
+        # Remove empty scan lines.
+        has_data = np.any(np.isfinite(mrms_data.surface_precip.data), -1)
+        indices = np.where(has_data)[0]
+
+        if len(indices) == 0:
+            raise ValueError(
+                "No valid precipitation pixels in overpass."
+                )
+        along_track_start = indices.min()
+        along_track_end = indices.max()
+        mrms_data = mrms_data[{
+            "along_track": slice(along_track_start, along_track_end)
+        }]
+        mrms_data.to_netcdf(mrms_file)
+
+    def process_granule(self, granule, mrms_file, preprocessor_file):
+        """
+        Helper function to extract validation data for a single granule.
+        This function does two things:
+            - Find and read L1C file.
+            - If file with MRMS results doesn't exist yet, download the
+              data and interpolate to 5km x 5km grid.
+            - Run preprocessor and save file.
+
+        Args:
+            granule: The number of the granule to process.
+            mrms_file: The name of the file to which to write the MRMS
+                reference data.
+            preprocessor_file: The name of the file to which to write the
+                results from the preprocessor run.
+        """
+        mrms_file = Path(mrms_file)
+        preprocessor_file = Path(preprocessor_file)
+
+        l1c_file = L1CFile.open_granule(granule, self.sensor.l1c_file_path, self.sensor)
+        with TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            l1c_sub_file = tmp / "l1c_file.HDF5"
+            scan_start, scan_end = l1c_file.extract_scans(CONUS, l1c_sub_file)
+
+            # Extract reference data from MRMS file.
+            if not mrms_file.exists():
+                self.process_mrms_file(
+                    granule, l1c_sub_file, mrms_file, scan_start, scan_end
+                )
+
+            # Run preprocessor on L1C file.
+            run_preprocessor(
+                l1c_file.filename,
+                self.sensor,
+                configuration="ERA5",
+                output_file=preprocessor_file,
+            )
+
+    def run(self, mrms_path, pp_path, n_workers=4):
+        """
+        Run validation file processor for all files in the month.
+
+        Args:
+            mrms_path: Root of the directory tree to which to write the MRMS
+                reference files.
+            pp_path: Root of the directory tree to which to write the
+                preprocessor files.
+            n_workers: How many worker processes to use.
+        """
+        mrms_file_pattern = "mrms_{granule}.nc"
+        pp_file_pattern = "pp_{granule}.nc"
+
+        mrms_path = Path(mrms_path) / f"{self.year}" / f"{self.month:02}"
+        mrms_path.mkdir(exist_ok=True, parents=True)
+        pp_path = Path(pp_path) / f"{self.year}" / f"{self.month:02}"
+        pp_path.mkdir(exist_ok=True, parents=True)
+
+        tasks = []
+        # Submit task for each granule in month
+        pool = ProcessPoolExecutor(max_workers=n_workers)
+        for granule in self.granules:
+            mrms_file = mrms_path / mrms_file_pattern.format(granule=granule)
+            pp_file = pp_path / pp_file_pattern.format(granule=granule)
+            tasks.append(pool.submit(self.process_granule, granule, mrms_file, pp_file))
+
+        # Collect results and track progress.
+        with Progress(console=get_console()) as progress:
+            pbar = progress.add_task("Extracting validation data:", total=len(tasks))
+            for task, granule in zip(tasks, self.granules):
+                try:
+                    task.result()
+                except Exception as e:
+                    LOGGER.error(
+                        "The following error occurred when processing granule "
+                        "%s: \n %s",
+                        granule,
+                        e,
+                    )
+
+                progress.advance(pbar)
