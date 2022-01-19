@@ -38,9 +38,10 @@ def add_parser(subparsers):
         help=("The year for which to extract the " "validation data."),
     )
     parser.add_argument(
-        "month",
-        metavar="month",
+        "months",
+        metavar="months",
         type=int,
+        nargs="+",
         help=("The month for which to extract the " "validation data."),
     )
     parser.add_argument(
@@ -82,17 +83,19 @@ def run(args):
         return 1
 
     year = args.year
-    month = args.month
+    months = args.months
     if not year > 2000:
         LOGGER.error(f"Year must be > 2000 not '%s'.", year)
         return 1
-    if not (month > 0 and month < 13):
-        LOGGER.error(f"Month must be within [1, 12] not '%s'.", year)
-        return 1
 
-    mrms_output = Path(args.mrms_output)
-    pp_output = Path(args.preprocessor_output)
-    n_workers = args.n_workers
+    for month in args.months:
+        if not (month > 0 and month < 13):
+            LOGGER.error(f"Month must be within [1, 12] not '%s'.", year)
+            return 1
 
-    processor = ValidationFileProcessor(sensor, year, month)
-    processor.run(mrms_output, pp_output, n_workers=n_workers)
+        mrms_output = Path(args.mrms_output)
+        pp_output = Path(args.preprocessor_output)
+        n_workers = args.n_workers
+
+        processor = ValidationFileProcessor(sensor, year, month)
+        processor.run(mrms_output, pp_output, n_workers=n_workers)
