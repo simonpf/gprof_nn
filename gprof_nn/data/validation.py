@@ -15,6 +15,7 @@ from tempfile import TemporaryDirectory
 from urllib.request import urlopen
 
 import numpy as np
+from pyresample import geometry, kd_tree
 from rich.progress import Progress
 import scipy
 from scipy.interpolate import LinearNDInterpolator
@@ -266,11 +267,72 @@ def unify_grid(latitude, longitude):
     return lats, lons
 
 
+def calculate_angles(l1c_data):
+    """
+    For L1C data from a conical scanner, calculate the angle that each
+    footprint in the scan is rotated with respect to along-track
+    direction.
+
+    Args:
+        l1c_data: xarray.Dataset containing the L1C data.
+
+    Return:
+        2D array containing the angles between local along-track direction
+        and the projection of the viewing vector onto the horizontal local
+        horizontal plane.
+    """
+    lats = l1c_data.latitude
+    lats_sc = l1c_data.spacecraft_latitude
+    lats, lats_sc = xr.broadcast(lats, lats_sc)
+    lats = lats.data
+    lats_sc = lats_sc.data
+
+    lons = l1c_data.longitude
+    lons_sc = l1c_data.spacecraft_longitude
+    lons, lons_sc = xr.broadcast(lons, lons_sc)
+    lons = lons.data
+    lons_sc = lons_sc.data
+
+    alt_sc = l1c_data.spacecraft_altitude
+    alt_sc, _ = xr.broadcast(l1c_data.longitude, alt_sc)
+    alt_sc = alt_sc.data
+
+    t = augmentation.latlon_to_ecef()
+    xyz = np.stack(t.transform(
+        lons, lats, np.zeros_like(lons), radians=False
+    ), axis=-1)
+    xyz_1 = np.stack(t.transform(
+        lons, lats, np.ones_like(lons), radians=False
+    ), axis=-1)
+    xyz_sc = np.stack(t.transform(
+        lons_sc, lats_sc, alt_sc, radians=False
+    ), axis=-1)
+
+    # Calculate local along track vector
+    a = xyz[1:] - xyz[:-1]
+    a /= np.sqrt((a ** 2).sum(axis=-1, keepdims=True))
+    a_e = np.zeros((a.shape[0] + 1, a.shape[1], 3))
+    a_e[:-1] += 0.5 * a
+    a_e[1:] += 0.5 * a
+    a_e[0] *= 2
+    a_e[-1] *= 2
+    a = a_e
+
+    # Calculate local across track vector
+    z = xyz_1 - xyz
+    z = z / np.sqrt((z ** 2).sum(axis=-1, keepdims=True))
+    x = np.cross(z, a)
+
+    v = xyz - xyz_sc
+    v_p_a = (v * a).sum(axis=-1)
+    v_p_x = (v * x).sum(axis=-1)
+    return np.rad2deg(np.arctan2(v_p_x, v_p_a))
+
+
 class ValidationData:
     """
     Interface class to download and open validation data.
     """
-
     @staticmethod
     def filename_to_date(filename):
         """
@@ -386,11 +448,18 @@ class ValidationFileProcessor:
         l1c_data = L1CFile(l1c_file).to_xarray_dataset()
         lats = l1c_data.latitude.data
         lons = l1c_data.longitude.data
+        angles = calculate_angles(l1c_data)
 
         # Calculate 5km x 5km grid.
         lats_5, lons_5 = unify_grid(lats, lons)
         lats_5 = xr.DataArray(data=lats_5, dims=["along_track", "across_track"])
         lons_5 = xr.DataArray(data=lons_5, dims=["along_track", "across_track"])
+
+        swath = geometry.SwathDefinition(lats=lats, lons=lons)
+        swath_5 = geometry.SwathDefinition(lats=lats_5, lons=lons_5)
+        angles = kd_tree.resample_nearest(
+            swath, angles, swath_5, radius_of_influence=20e3
+        )
 
         scans = xr.DataArray(
             data=np.linspace(l1c_data.scans[0], l1c_data.scans[-1], lons_5.shape[0]),
@@ -402,6 +471,7 @@ class ValidationFileProcessor:
         time, lons_5 = xr.broadcast(time, lons_5)
 
         # Smooth and interpolate surface precip
+
         surface_precip = mrms_data.surface_precip
         k = np.arange(-4, 4 + 1e-6, 2) / 2.5
         k2 = (k.reshape(-1, 1) ** 2) + (k.reshape(1, -1) ** 2)
@@ -430,6 +500,7 @@ class ValidationFileProcessor:
             latitude=lats_5, longitude=lons_5, time=time, method="nearest"
         )
         mrms_data = xr.merge([surface_precip, mask, rqi])
+        mrms_data["angles"] = (("along_track", "across_track"), angles)
 
         mrms_data.attrs["sensor"] = self.sensor.sensor_name
         mrms_data.attrs["platform"] = self.sensor.platform.name
@@ -485,7 +556,7 @@ class ValidationFileProcessor:
 
             # Run preprocessor on L1C file.
             run_preprocessor(
-                l1c_file.filename,
+                str(l1c_sub_file),
                 self.sensor,
                 configuration="ERA5",
                 output_file=preprocessor_file,
