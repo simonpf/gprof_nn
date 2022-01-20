@@ -508,7 +508,7 @@ class L1CFile:
 
             lats_sc = input[f"{swath}/SCstatus/SClatitude"][indices]
             lons_sc = input[f"{swath}/SCstatus/SClongitude"][indices]
-            alt_sc = input[f"{swath}/SCstatus/SClongitude"][indices]
+            alt_sc = input[f"{swath}/SCstatus/SCaltitude"][indices]
 
             # Handle case that observations are split up.
             tbs = []
