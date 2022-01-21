@@ -473,7 +473,7 @@ class ValidationFileProcessor:
         # Smooth and interpolate surface precip
 
         surface_precip = mrms_data.surface_precip
-        k = np.arange(-4, 4 + 1e-6, 2) / 2.5
+        k = np.arange(-5, 5 + 1e-6, 1) / 2.5
         k2 = (k.reshape(-1, 1) ** 2) + (k.reshape(1, -1) ** 2)
         k = np.exp(np.log(0.5) * k2)
         k /= k.sum()
@@ -483,13 +483,13 @@ class ValidationFileProcessor:
         counts = np.isfinite(mrms_data.surface_precip.data).astype(np.float32)
 
         # Use direct method to avoid negative values in results.
-        sp_mean = convolve(sp, k, mode="valid", method="direct")
-        sp_cts = convolve(counts, k, mode="valid", method="direct")
+        sp_mean = convolve(sp, k, mode="same", method="direct")
+        sp_cts = convolve(counts, k, mode="same", method="direct")
         sp = sp_mean / sp_cts
         # Set pixel with too few valid neighboring pixels to nan.
         sp[sp_cts < 1e-1] = np.nan
 
-        surface_precip.data[:, 2:-2, 2:-2] = sp
+        surface_precip.data[:] = sp
         surface_precip = surface_precip.interp(
             latitude=lats_5, longitude=lons_5, time=time
         )

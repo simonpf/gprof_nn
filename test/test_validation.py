@@ -32,7 +32,7 @@ def test_open_granule():
     validation_data = ValidationData(sensors.GMI)
     data = validation_data.open_granule(2016, 10, 15199)
 
-    sp = data.precip_rate.data
+    sp = data.surface_precip.data
     sp = sp[sp >= 0]
     assert np.all(sp <= 500)
 
@@ -100,7 +100,6 @@ def test_validation_file_processor(tmp_path):
     assert d.min() > 4.4e3
     assert d.max() < 5.5e3
 
-
     # Across track distance
     d = great_circle_distance(
         lats[:, :-1], lons[:, :-1],
@@ -108,3 +107,7 @@ def test_validation_file_processor(tmp_path):
     )
     assert d.min() > 4.8e3
     assert d.max() < 5.2e3
+
+    sp = mrms_data.surface_precip.data
+    sp = sp[np.isfinite(sp)]
+    assert np.all((sp >= 0.0) * (sp <= 500.0))
