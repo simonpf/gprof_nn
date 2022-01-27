@@ -6,6 +6,7 @@ gprof_nn.data.kwaj
 This module provides functionality to download and process Radar
 observations from the Kwajalein Atoll.
 """
+from concurrent.futures import ProcessPoolExecutor
 import logging
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -17,12 +18,15 @@ import tarfile
 
 import numpy as np
 from pyresample import geometry, kd_tree
+from rich.progress import Progress
 import xarray as xr
 
+from gprof_nn.logging import get_console
 from gprof_nn.data.training_data import decompress_and_load
 from gprof_nn.augmentation import latlon_to_ecef, ecef_to_latlon
 from gprof_nn.data.validation import unify_grid, calculate_angles
 from gprof_nn.data.l1c import L1CFile
+from gprof_nn.data.preprocessor import run_preprocessor
 
 
 LOGGER = logging.getLogger(__name__)
@@ -44,7 +48,12 @@ N = None
 W = None
 U = None
 
-VALIDATION_VARIABLES = ["ZZ", "RR", "RP", "RC"]
+VALIDATION_VARIABLES = {
+    "ZZ": "radar_reflectivity",
+    "RR": "surface_precip_rr",
+    "RP": "surface_precip_rp",
+    "RC": "surface_precip_rc",
+}
 
 
 def get_overpasses(sensor_name):
@@ -159,7 +168,8 @@ def extract_first_sweep(data):
     while data.elevation[i].data <= 0.5:
         ray_start = int(data.ray_start_index[i].data)
         ray_end = int(data.ray_start_index[i + 1].data)
-        rays.append(data[VALIDATION_VARIABLES][{"n_points": slice(ray_start, ray_end)}])
+        variables = list(VALIDATION_VARIABLES.keys())
+        rays.append(data[variables][{"n_points": slice(ray_start, ray_end)}])
         i += 1
     dataset = xr.concat(rays, "rays").rename(n_points="range")
     dataset["azimuth"] = (("rays",), data.azimuth.data[:i])
@@ -316,7 +326,6 @@ class RadarFile:
         times = np.array(list(self.times.keys()))
         names = list(self.times.values())
         delta = (times - date)
-        print(times, date)
 
         closest = []
         indices = delta < np.timedelta64(0)
@@ -333,7 +342,6 @@ class RadarFile:
 
         data = []
         for name in closest:
-            print(name)
             data_t = self.open_file(name)
             data_t["time"] = data_t.time.mean()
             data.append(data_t)
@@ -342,12 +350,47 @@ class RadarFile:
 
 
 class FileExtractor:
-    def __init__(self, sensor):
+    """
+    Helper class to coordinate the extraction of validation data from the
+    Kwajalein online archive.
+    """
+    def __init__(self, sensor, year, month):
+        """
+        Create validation data extractor for a given sensor.
+
+        Args:
+            sensor: Sensor object representing the sensor for which to extract
+                validation data.
+        """
         self.sensor = sensor
-        self.overpasses = get_overpasses(sensor.name)
+        self.year = year
+        self.month = month
+        overpasses = get_overpasses(sensor.name)
+        self.overpasses = {}
+        for (year, month, day), granules in overpasses.items():
+            if year == self.year and month == self.month:
+                self.overpasses[(year, month, day)] = granules
 
-    def process_radar_file(self, granule, l1c_file, radar_file, scan_start, scan_end):
+    def process_radar_file(
+            self,
+            granule,
+            l1c_file,
+            radar_file,
+            scan_start,
+            scan_end
+    ):
+        """
+        This extracts validation data from the Kwajalein radar for a given granule.
 
+        Args:
+            granule: The number of the granule.
+            l1c_file: Path to the L1C file containing the observations cropped to
+                Kwajalein atoll.
+            radar_file: Name of the output file to write the extracted results to.
+            scan_start: The scan index at which the co-located L1C observations
+                start.
+            scan_start: The scan index at which the co-located observations end.
+        """
         data_directory = l1c_file.parent
         l1c_data = L1CFile(l1c_file).to_xarray_dataset()
         l1c_time = l1c_data.scan_time.mean()
@@ -365,7 +408,7 @@ class FileExtractor:
                 radar_archive = RadarFile.download_file(year, month, day)
                 radar_archive = RadarFile(radar_archive)
         else:
-            #radar_archive = RadarFile.download_file(year, month, day)
+            radar_archive = RadarFile.download_file(year, month, day)
             radar_archive = RadarFile(radar_archive)
 
         lats = l1c_data.latitude.data
@@ -395,6 +438,8 @@ class FileExtractor:
 
         kwaj_data = radar_archive.open_files(l1c_time.data)
         datasets = []
+
+        # Iterate over the closest time frames and smooth each variable.
         for t in range(kwaj_data.time.size):
             data = kwaj_data[{"time": t}]
 
@@ -406,22 +451,31 @@ class FileExtractor:
             resampling_info = kd_tree.get_neighbour_info(
                 kwaj_swath,
                 swath_5,
-                20e3,
-                neighbours=8
+                10e3,
+                neighbours=128
             )
             valid_inputs, valid_outputs, indices, distances = resampling_info
-            print(distances.min(), distances.max())
 
             data_r = {}
-            for variable in VALIDATION_VARIABLES:
+
+            # Smooth variable taking handling nans by replacing them with
+            # valid values.
+            for variable, name in VALIDATION_VARIABLES.items():
+
+                data_in = data[variable].data
+                if variable == "ZZ":
+                    data_in = np.exp(np.nan_to_num(data_in, -100))
+                else:
+                    data_in = np.nan_to_num(data_in, 0)
                 resampled = kd_tree.get_sample_from_neighbour_info(
                     'custom', swath_5.shape, data[variable].data,
                     valid_inputs, valid_outputs, indices, distance_array=distances,
-                    weight_funcs=weighting_function
+                    weight_funcs=weighting_function, fill_value=np.nan
                 )
-                print(data[variable].data.min(), data[variable].data.max())
-                print(resampled.min(), resampled.max())
-                data_r[variable] = (("along_track", "across_track"), resampled)
+                if variable == "ZZ":
+                    resampled = np.log(resampled)
+                data_r[name] = (("along_track", "across_track"), resampled)
+
             data_r = xr.Dataset(data_r)
             data_r["time"] = (("time",), [data.time.data])
             datasets.append(data_r)
@@ -429,42 +483,124 @@ class FileExtractor:
         data_r["angles"] = (("along_track", "across_track"), angles)
         data_r["latitude"] = (("along_track", "across_track"), lats_5)
         data_r["longitude"] = (("along_track", "across_track"), lons_5)
-        print(data_r.time, time)
+
+        # Finally interpolate all reference data to scan time.
         data_r = data_r.interp(
             time=time,
             along_track=time.along_track,
             across_track=time.across_track
         )
 
+        data_r.attrs["sensor"] = self.sensor.sensor_name
+        data_r.attrs["platform"] = self.sensor.platform.name
+        data_r.attrs["granule"] = granule
+        data_r.attrs["scan_start"] = scan_start
+        data_r.attrs["scand_end"] = scan_end
+
+        # Remove empty scan lines.
+        has_data = np.any(np.isfinite(data_r.radar_reflectivity.data), -1)
+        indices = np.where(has_data)[0]
+        if len(indices) == 0:
+            raise ValueError(
+                "No valid precipitation pixels in overpass."
+                )
+        along_track_start = indices.min()
+        along_track_end = indices.max()
+        data_r = data_r[{
+            "along_track": slice(along_track_start, along_track_end)
+        }]
         data_r.to_netcdf(radar_file)
 
 
+    def process_day(self, year, month, day, kwaj_path, pp_path):
+        """
+        Extract validation data for a given day.
 
-
-    def process_day(self, year, month, day, radar_file, preprocessor_file):
-
+        Args:
+            year: The year for which to extract the validation data.
+            month: The month for which to extract the validation data.
+            day: The day for which to extract the validation data.
+            radar_file: The name of the output file.
+            preprocessor_file: The name of the preprocessor file.
+        """
         key = year, month, day
         radar_files = RadarFile.get_files(year, month)
         if key not in self.overpasses or key not in radar_files:
             return None
         granules = self.overpasses[key]
+        print("GRANULES :: ", year, month, day, granules)
 
-        radar_file = Path(radar_file)
-        preprocessor_file = Path(preprocessor_file)
+        kwaj_path = Path(kwaj_path)
+        pp_path = Path(pp_path)
+
+        radar_file_pattern = (
+            "kwaj_{sensor}_{year}{month:02}{day:02}_{granule}.nc"
+        )
+        pp_file_pattern = (
+            "{sensor}_kwaj_{year}{month:02}{day:02}_{granule}.pp"
+        )
 
         for granule in granules:
             l1c_file = L1CFile.open_granule(granule, self.sensor.l1c_file_path, self.sensor)
+            fname_kwargs = {
+                "sensor": self.sensor.name.lower(),
+                "year": year,
+                "month": month,
+                "day": day,
+                "granule": granule
+            }
+            kwaj_file = kwaj_path / radar_file_pattern.format(**fname_kwargs)
+            pp_file = pp_path / pp_file_pattern.format(**fname_kwargs)
+
             with TemporaryDirectory() as tmp:
-                tmp = Path(".")
+                tmp = Path(tmp)
 
                 l1c_sub_file = tmp / "l1c_file.HDF5"
                 scan_start, scan_end = l1c_file.extract_scans(ROI, l1c_sub_file)
 
                 # Extract reference data from Kwajalein radar archive.
-                if not radar_file.exists():
+                if not kwaj_file.exists():
                     self.process_radar_file(
-                        granule, l1c_sub_file, radar_file, scan_start, scan_end
+                        granule, l1c_sub_file, kwaj_file, scan_start, scan_end
                     )
 
-from gprof_nn import sensors
-ex = FileExtractor(sensors.GMI)
+                # Run preprocessor on L1C file.
+                run_preprocessor(
+                    str(l1c_sub_file),
+                    self.sensor,
+                    configuration="ERA5",
+                    output_file=pp_file,
+                )
+
+    def run(self, kwaj_path, pp_path, n_workers=4):
+        kwaj_path = Path(kwaj_path) / f"{self.year}" / f"{self.month:02}"
+        kwaj_path.mkdir(exist_ok=True, parents=True)
+        pp_path = Path(pp_path) / f"{self.year}" / f"{self.month:02}"
+        pp_path.mkdir(exist_ok=True, parents=True)
+
+        tasks = []
+        # Submit task for each granule in month
+        pool = ProcessPoolExecutor(max_workers=n_workers)
+        for key in self.overpasses:
+            year, month, day = key
+            tasks.append(
+                pool.submit(
+                    self.process_day, year, month, day, kwaj_path, pp_path
+                )
+            )
+
+        # Collect results and track progress.
+        with Progress(console=get_console()) as progress:
+            pbar = progress.add_task("Extracting validation data:", total=len(tasks))
+            for task, key in zip(tasks, self.overpasses):
+                try:
+                    task.result()
+                except Exception as e:
+                    LOGGER.error(
+                        "The following error occurred when processing day "
+                        "%s: \n %s",
+                        key,
+                        e,
+                    )
+
+                progress.advance(pbar)
