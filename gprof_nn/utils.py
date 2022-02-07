@@ -238,3 +238,55 @@ def great_circle_distance(lats_1, lons_1, lats_2, lons_2):
 
     R = 6371e3
     return R * c
+
+
+def calculate_tiles_and_cuts(n, tile_size, overlap):
+    """
+    Calculates slices to extract input batches and masks for
+    output data.
+
+    Args:
+        n: The size of the dimension to tile
+        tile_size: The size of each tile.
+        overlap: The overlap between tiles.
+
+    Returns:
+        A tuple ``(tiles, cuts)`` containing lists ``tiles`` and ``cuts``
+        containing slice objects to extract inputs and outputs.
+    """
+    if overlap > tile_size:
+        raise ValueError(
+            f"Tile size {tile_size} must be at least as large as "
+            f"overlap {overlap}."
+            )
+
+    i_start = 0
+    i_end = tile_size
+    i_start_old = i_start
+    i_start_end = i_end
+
+    overlap_left = 0
+    overlap_right = overlap
+
+    tiles = []
+    cuts = []
+
+    while i_end < n:
+
+        tiles.append(slice(i_start, i_end))
+
+        i_start_old = i_start
+        i_end_old = i_end
+
+        i_start = min(i_start + tile_size - overlap, n - tile_size)
+        i_end = i_start + tile_size
+
+        overlap_right = i_end_old - i_start
+
+        cuts.append(slice(overlap_left, tile_size - overlap_right // 2))
+        overlap_left = overlap_right - overlap_right // 2
+
+    tiles.append(slice(i_start, i_end))
+    cuts.append(slice(overlap_left, None))
+
+    return tiles, cuts

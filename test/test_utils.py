@@ -12,7 +12,8 @@ from gprof_nn.sensors import GMI_VIEWING_GEOMETRY
 from gprof_nn.utils import (apply_limits,
                             get_mask,
                             calculate_interpolation_weights,
-                            interpolate)
+                            interpolate,
+                            calculate_tiles_and_cuts)
 from gprof_nn.data.utils import (load_variable,
                                  decompress_scene,
                                  remap_scene)
@@ -142,4 +143,27 @@ def test_decompress_scene():
     st = scene_d.surface_type
     inds = (st == 1) * (rwp >= 0.0)
     assert np.all(sp[inds] >= 0.0)
+
+
+def test_calculate_tiles_and_cuts():
+    """
+    Test calculation of tiles and cuts for slicing of inputs.
+    """
+    array = np.random.rand(1234, 128)
+    tiles, cuts = calculate_tiles_and_cuts(array.shape[0], 256, 8)
+    arrays_raw = [array[tile] for tile in tiles]
+    assert arrays_raw[-1].shape[0] == 256
+    arrays = [arr[cut] for arr, cut in zip(arrays_raw, cuts)]
+    array_rec = np.concatenate(arrays, 0)
+    assert array_rec.shape == array.shape
+    assert np.all(np.isclose(array, array_rec))
+
+    array = np.random.rand(111, 128)
+    tiles, cuts = calculate_tiles_and_cuts(array.shape[0], 256, 8)
+    arrays_raw = [array[tile] for tile in tiles]
+    assert arrays_raw[-1].shape[0] == 111
+    arrays = [arr[cut] for arr, cut in zip(arrays_raw, cuts)]
+    array_rec = np.concatenate(arrays, 0)
+    assert array_rec.shape == array.shape
+    assert np.all(np.isclose(array, array_rec))
 
