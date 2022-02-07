@@ -100,7 +100,7 @@ def write_sensitivity_file(sensor, filename, nedts):
     """
     Write sensitivity file for GPROF algorithm.
     """
-    formats = ["%3d"] + sensor.n_chans * ["%6.2f"]
+    formats = ["%3d"] + 15 * ["%6.2f"]
     np.savetxt(filename, nedts, fmt=formats, header=SENSITIVITY_HEADER)
 
 
@@ -172,7 +172,7 @@ def execute_gprof(
 
     args = [
         executable,
-        str(input_file),
+        str(input_file.absolute()),
         str(output_file),
         str(log_file),
         ANCILLARY_DATA,
