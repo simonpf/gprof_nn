@@ -565,6 +565,16 @@ def process_sim_file(sim_filename, sensor, configuration, era5_path, log_queue=N
     data_pp = run_preprocessor(
         l1c_file.filename, sensor=sensor, configuration=configuration, robust=False
     )
+    data_pp = data_pp.drop(
+        ["earth_incidence_angle", "sunglint_angle", "quality_flag",
+         "wet_bulb_temperature", "lapse_rate"]
+    )
+    if isinstance(sensor, sensors.CrossTrackScanner):
+        data_pp["eart_incidence_angle"] = (
+            ("scans", "pixels"), np.ones_like(data_pp.two_meter_temperature.data)
+        )
+
+
     if data_pp is None:
         return None
 
@@ -664,6 +674,12 @@ def process_mrms_file(sensor, mrms_filename, configuration, day, log_queue=None)
         if data_pp.channels.size > sensor.n_chans:
             data_pp = data_pp[{"channels": sensor.gmi_channels}]
 
+        # Drop unneeded variables.
+        drop = ["sunglint_angle", "quality_flag", "wet_bulb_temperature", "lapse_rate"]
+        if not isinstance(sensor, sensors.CrossTrackScanner):
+            drop.append("earth_incidence_angle")
+        data_pp = data_pp.drop(drop)
+
         LOGGER.debug("Matching MRMS data for %s.", file.filename)
         mrms_file.match_targets(data_pp)
         surface_type = data_pp["surface_type"].data
@@ -714,10 +730,16 @@ def process_l1c_file(l1c_filename, sensor, configuration, era5_path, log_queue=N
     l1c_file = L1CFile(l1c_filename)
     if l1c_file.sensor != sensor:
         data_pp = data_pp[{"channels": sensor.gmi_channels}]
+    # Drop unneeded variables.
+    drop = ["sunglint_angle", "quality_flag", "wet_bulb_temperature", "lapse_rate"]
+    if not isinstance(sensor, sensors.CrossTrackScanner):
+        drop.append("earth_incidence_angle")
+    data_pp = data_pp.drop(drop)
 
     if data_pp is None:
         return None
     data_pp = add_targets(data_pp, sensor)
+
     l1c_data = L1CFile(l1c_filename).to_xarray_dataset()
 
     start_time = data_pp["scan_time"].data[0]
@@ -1070,7 +1092,7 @@ class SimFileProcessor:
                         filename = output_path / (output_file + f"_{chunk:02}.nc")
                         dataset.attrs["sensor"] = self.sensor.name
                         dataset.to_netcdf(filename)
-                        subprocess.run(["lz4", "-f", "--rm", filename], check=True)
+                        #subprocess.run(["lz4", "-f", "--rm", filename], check=True)
                         LOGGER.info("Finished writing file: %s", filename)
                         datasets = []
                         chunk += 1
@@ -1082,7 +1104,7 @@ class SimFileProcessor:
         dataset.attrs["configuration"] = self.configuration
         LOGGER.info("Writing file: %s", filename)
         dataset.to_netcdf(filename)
-        subprocess.run(["lz4", "-f", "--rm", filename], check=True)
+        #subprocess.run(["lz4", "-f", "--rm", filename], check=True)
 
         # Explicit clean up to avoid memory leak.
         del datasets
