@@ -120,7 +120,8 @@ def process_file(input_file,
                        output_file=output_file,
                        device=device,
                        preserve_structure=preserve_structure,
-                       sensor=sensor)
+                       sensor=sensor,
+                       tile=True)
     retrieval.run()
 
 
@@ -230,8 +231,16 @@ def run(args):
                               sensor=sensor,
                               preserve_structure=preserve_structure)]
 
-    for t in track(tasks, description="Processing files:"):
+    for filename, task in track(list(zip(input_files, tasks)),
+                                description="Processing files:"):
         gprof_nn.logging.log_messages()
-        t.result()
-
+        try:
+            task.result()
+        except Exception as e:
+            LOGGER.error(
+                "The following error was encountered during the processing "
+                "of file %s:\n %s",
+                filename,
+                e
+            )
     pool.shutdown()

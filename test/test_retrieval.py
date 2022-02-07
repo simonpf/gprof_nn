@@ -170,6 +170,32 @@ def test_retrieval_preprocessor_3d(tmp_path):
     assert "rain_water_content" in data.variables
 
 
+def test_retrieval_preprocessor_3d_tiled(tmp_path):
+    """
+    Ensure that running the 3D tiled retrieval yields the expected
+    output dimensions.
+    """
+    input_file = DATA_PATH / "gmi" / "pp" / "GMIERA5_190101_027510.pp"
+
+    model_path = get_model_path("3D", sensors.GMI, "ERA5")
+    qrnn = QRNN.load(model_path)
+    qrnn.model.sensor = sensors.GMI
+    driver = RetrievalDriver(input_file,
+                             qrnn,
+                             output_file=tmp_path)
+    output_file = driver.run()
+    data = RetrievalFile(output_file).to_xarray_dataset()
+
+    driver = RetrievalDriver(input_file,
+                             qrnn,
+                             output_file=tmp_path,
+                             tile=True)
+    output_file = driver.run()
+    data_tiled = RetrievalFile(output_file).to_xarray_dataset()
+
+    assert data.scans.size == data_tiled.scans.size
+
+
 @pytest.mark.xfail
 def test_retrieval_l1c_3d(tmp_path):
     """
