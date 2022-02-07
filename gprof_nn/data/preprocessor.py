@@ -670,9 +670,11 @@ def has_preprocessor():
 PREPROCESSOR_EXECUTABLES = {
     "GMI": "gprof2020pp_GMI_L1C",
     "MHS": "gprof2020pp_MHS_L1C",
-    "TMI": "gprof2021pp_TMI_L1C",
+    "TMIPR": "gprof2021pp_TMI_L1C",
+    "TMIPO": "gprof2021pp_TMI_L1C",
     ("GMI", "MHS"): "gprof2020pp_GMI_MHS_L1C",
-    ("GMI", "TMI"): "gprof2020pp_GMI_TMI_L1C"
+    ("GMI", "TMIPR"): "gprof2020pp_GMI_TMI_L1C",
+    ("GMI", "TMIPO"): "gprof2020pp_GMI_TMI_L1C"
 }
 
 
