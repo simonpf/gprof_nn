@@ -44,7 +44,8 @@ _THRESHOLDS = {
 
 _INPUT_DIMENSIONS = {
     "GMI": (96, 128),
-    "TMI": (96, 128),
+    "TMIPR": (96, 128),
+    "TMIPO": (96, 128),
     "MHS": (24, 128),
 }
 
