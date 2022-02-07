@@ -104,8 +104,8 @@ def calculate_smoothing_kernels(sensor):
         A list of 2D Gaussian convolution kernels.
     """
     geometry = sensor.viewing_geometry
-    res_x_source = 14.4e3
-    res_a_source = 8.6e3
+    res_x_source = 4.5e3
+    res_a_source = 13.5e3
     angles = sensor.angles
     res_x_target = geometry.get_resolution_x(angles)
     res_a_target = geometry.get_resolution_a()
@@ -833,7 +833,8 @@ class ConstellationScanner(ConicalScanner):
         sim_file_pattern,
         sim_file_path,
         gmi_channels,
-        correction=None
+        correction=None,
+        modeling_error=None
     ):
         super().__init__(
             name, channels, angles, platform, viewing_geometry,
@@ -841,8 +842,21 @@ class ConstellationScanner(ConicalScanner):
         )
         self.nedt = nedt
         self.gmi_channels=gmi_channels
-        self.correction = correction
         self.apply_biases = True
+
+        if correction is None:
+            self._correction = None
+        else:
+            self._correction = correction
+
+        self.modeling_error = modeling_error
+
+    @property
+    def correction(self):
+        if self._correction is not None:
+            if not isinstance(self._correction, CdfCorrection):
+                self._correction = CdfCorrection(self._correction)
+        return self._correction
 
     def load_brightness_temperatures(self, data, mask=None):
         """
@@ -864,7 +878,6 @@ class ConstellationScanner(ConicalScanner):
 
             if self.apply_biases:
                 bias = load_variable(data, "brightness_temperature_biases")
-                # Apply scaling of biases
 
             if mask is not None:
                 bias = bias[mask]
@@ -910,8 +923,7 @@ class ConstellationScanner(ConicalScanner):
 
         vs = [
             "simulated_brightness_temperatures",
-            "brightness_temperature_biases",
-            "earth_incidence_angle",
+            "brightness_temperature_biases"
         ]
         if "surface_precip" not in targets:
             vs += ["surface_precip"]
@@ -1007,6 +1019,7 @@ class ConstellationScanner(ConicalScanner):
         if augment:
             p_x_i = rng.random()
             p_y = rng.random()
+            p_x_o = rng.random()
         else:
             p_x_i = 0.5
             p_y = 0.5
@@ -1035,7 +1048,7 @@ class ConstellationScanner(ConicalScanner):
         st = scene.surface_type.data
 
         if self.correction is not None:
-            tbs = self.correction(self, st, eia, tcwv, tbs, augment=augment)
+            tbs = self.correction(self, st, None, tcwv, tbs, augment=augment)
 
         if augment:
             if self.nedt is not None:
@@ -1213,7 +1226,6 @@ class ConstellationScanner(ConicalScanner):
         vs = [
             "simulated_brightness_temperatures",
             "brightness_temperature_biases",
-            "earth_incidence_angle",
             "source",
             "latitude",
             "longitude",
@@ -2012,9 +2024,20 @@ TMIPO_VIEWING_GEOMETRY = Conical(
     scan_offset=13.4e3,
 )
 
+TMIPR_MODELING_ERROR = np.sqrt(np.array([
+    1.1,
+    2.4,
+    1.0,
+    2.6,
+    0.9,
+    2.0,
+    7.1,
+    2.4,
+    6.1
+]))
 
-TMIPR = ConstellationScanner(
-    "TMI",
+TMIPR_NC = ConstellationScanner(
+    "TMIPR",
     TMI_CHANNELS,
     TMI_NEDT,
     TMI_ANGLES,
@@ -2024,6 +2047,21 @@ TMIPR = ConstellationScanner(
     "TMIPR.dbsatTb.??????{day}.??????.sim",
     "/qdata1/pbrown/dbaseV7/simV7_tmi",
     TMI_GMI_CHANNELS
+)
+
+TMIPR = ConstellationScanner(
+    "TMIPR",
+    TMI_CHANNELS,
+    TMI_NEDT,
+    TMI_ANGLES,
+    TRMM,
+    TMIPR_VIEWING_GEOMETRY,
+    None,
+    "TMIPR.dbsatTb.??????{day}.??????.sim",
+    "/qdata1/pbrown/dbaseV7/simV7_tmi",
+    TMI_GMI_CHANNELS,
+    correction=DATA_FOLDER / "corrections_tmipr.nc",
+    modeling_error=TMIPR_MODELING_ERROR
 )
 
 
