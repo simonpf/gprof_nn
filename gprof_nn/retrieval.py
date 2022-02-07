@@ -21,14 +21,17 @@ import pandas as pd
 
 from gprof_nn import sensors
 from gprof_nn.definitions import PROFILE_NAMES, ALL_TARGETS
+from gprof_nn.data import get_profile_clusters
 from gprof_nn.data.training_data import (
     GPROF_NN_1D_Dataset,
     GPROF_NN_3D_Dataset,
     decompress_and_load,
+    _THRESHOLDS,
 )
 from gprof_nn.data.l1c import L1CFile
-
 from gprof_nn.data.preprocessor import PreprocessorFile, run_preprocessor
+from gprof_nn.data.utils import load_variable
+from gprof_nn.utils import calculate_tiles_and_cuts
 
 
 LOGGER = logging.getLogger(__name__)
@@ -92,7 +95,7 @@ def calculate_padding_dimensions(t):
     return (p_l_n, p_r_n, p_l_m, p_r_m)
 
 
-def combine_input_data_0d(dataset, sensor):
+def combine_input_data_1d(dataset, sensor):
     """
     Combine retrieval input data into input matrix for the single-pixel
     retrieval.
@@ -110,7 +113,7 @@ def combine_input_data_0d(dataset, sensor):
     """
     n_chans = sensor.n_chans
 
-    tbs = dataset["brightness_temperatures"].data
+    tbs = dataset["brightness_temperatures"].data.copy()
     # Input from L1C file has only 13 channels.
     if sensor == sensors.GMI and tbs.shape[-1] < n_chans:
         tbs = expand_tbs(tbs)
@@ -120,9 +123,9 @@ def combine_input_data_0d(dataset, sensor):
     features = [tbs]
 
     if "two_meter_temperature" in dataset.variables:
-        t2m = dataset["two_meter_temperature"].data
+        t2m = load_variable(dataset, "two_meter_temperature")
         t2m = t2m.reshape(-1, 1)
-        tcwv = dataset["total_column_water_vapor"].data
+        tcwv = load_variable(dataset, "total_column_water_vapor")
         tcwv = tcwv.reshape(-1, 1)
 
         st = dataset["surface_type"].data.ravel()
@@ -149,7 +152,7 @@ def combine_input_data_0d(dataset, sensor):
     return x
 
 
-def combine_input_data_2d(dataset, sensor, v_tbs="brightness_temperatures"):
+def combine_input_data_3d(dataset, sensor, v_tbs="brightness_temperatures"):
     """
     Combine retrieval input data into input tensor format for convolutional
     retrieval.
@@ -178,9 +181,10 @@ def combine_input_data_2d(dataset, sensor, v_tbs="brightness_temperatures"):
     features = [tbs]
     if "two_meter_temperature" in dataset:
         # 2m temperature
-        t2m = dataset["two_meter_temperature"][:].data[..., np.newaxis]
+        t2m = load_variable(dataset, "two_meter_temperature")[..., np.newaxis]
         # Total precipitable water.
-        tcwv = dataset["total_column_water_vapor"][:].data[..., np.newaxis]
+        tcwv = load_variable(dataset, "total_column_water_vapor")[..., np.newaxis]
+
         # Surface type
         st = dataset["surface_type"][:].data
         n_types = 18
@@ -259,16 +263,17 @@ class RetrievalDriver:
     retrieval using different neural network models and writing output to
     different formats.
     """
+
     def __init__(
         self,
         input_file,
         model,
-        ancillary_data=None,
         output_file=None,
         device="cpu",
         compress=True,
         preserve_structure=False,
-        sensor=None
+        sensor=None,
+        tile=False
     ):
         """
         Create retrieval driver.
@@ -277,8 +282,6 @@ class RetrievalDriver:
             input_file: Path to the preprocessor or NetCDF file containing the
                 input data for the retrieval.
             model: The neural network to use for the retrieval.
-            ancillary_data: Path pointing to the folder containing the profile
-                clusters.
             output_file: If given and output format is not 'GPROF_BINARY' the
                 retrieval results will be written to this file.
             device: String identifying the device to run the retrieval on.
@@ -291,13 +294,11 @@ class RetrievalDriver:
         input_file = Path(input_file)
         self.input_file = input_file
         self.model = model
-        self.ancillary_data = ancillary_data
-        self.device = device
         self.compress = compress
 
         # Determine input format.
         suffix = input_file.suffix
-        if suffix.endswith("pp"):
+        if suffix in [".pp", ".bin"]:
             self.input_format = GPROF_BINARY
         elif suffix.endswith("HDF5"):
             self.input_format = L1C
@@ -305,14 +306,14 @@ class RetrievalDriver:
             self.input_format = NETCDF
 
         # Determine output format.
-        if output_file is None:
+        if output_file is None or Path(output_file).is_dir():
             self.output_format = self.input_format
         else:
             if self.input_format in [NETCDF, L1C]:
                 self.output_format = NETCDF
             else:
                 output_file = Path(output_file)
-                if suffix.lower().endswith("bin"):
+                if output_file.suffix.lower() == ".bin":
                     self.output_format = GPROF_BINARY
                 else:
                     self.output_format = NETCDF
@@ -323,16 +324,37 @@ class RetrievalDriver:
 
         # Determine output filename.
         if output_file is None:
-            self.output_file = Path(self.input_file.name.replace(suffix, output_suffix))
+            if self.output_format == GPROF_BINARY:
+                self.output_file = self.input_file.parent
+            else:
+                if suffix != ".gz":
+                    self.output_file = Path(
+                        self.input_file.name.replace(suffix, output_suffix)
+                    )
+                else:
+                    self.output_file = input_file.name
+                if self.output_file == self.input_file:
+                    raise ValueError(
+                        f"The provided input and output file ('{input_file}') "
+                        "are the same, which could cause data loss. Aborting."
+                    )
         elif Path(output_file).is_dir():
-            self.output_file = Path(output_file) / self.input_file.name.replace(
-                suffix, output_suffix
-            )
+            if self.output_format == GPROF_BINARY:
+                self.output_file = Path(output_file)
+            else:
+                if suffix != ".gz":
+                    self.output_file = Path(output_file) / self.input_file.name.replace(
+                        suffix, output_suffix
+                    )
+                else:
+                    self.output_file = Path(output_file) / self.input_file.name
         else:
             self.output_file = output_file
 
+        self.device = device
         self.preserve_structure = preserve_structure
         self.sensor = sensor
+        self.tile = tile
 
     def _load_input_data(self):
         """
@@ -345,16 +367,14 @@ class RetrievalDriver:
         # Load input data.
         if self.input_format in [GPROF_BINARY, L1C]:
             input_data = self.model.preprocessor_class(
-                self.input_file, self.model.normalizer
+                self.input_file, self.model.normalizer, tile=self.tile
             )
         else:
             loader_class = self.model.netcdf_class
             if loader_class == NetcdfLoader1D and self.preserve_structure:
                 loader_class = NetcdfLoader1DFull
             input_data = loader_class(
-                self.input_file,
-                normalizer=self.model.normalizer,
-                sensor=self.sensor
+                self.input_file, normalizer=self.model.normalizer, sensor=self.sensor
             )
         return input_data
 
@@ -442,15 +462,21 @@ class RetrievalDriver:
         input_data = self._load_input_data()
         if input_data is None:
             return None
+
+        LOGGER.info("Running retrieval for file '%s'.", self.input_file)
         results = self._run(self.model, input_data)
 
         # Make sure output folder exists.
         folder = Path(self.output_file).parent
         folder.mkdir(parents=True, exist_ok=True)
 
+        ancillary_data = get_profile_clusters()
         if self.output_format == GPROF_BINARY:
             return input_data.write_retrieval_results(
-                self.output_file.parent, results, ancillary_data=self.ancillary_data
+                self.output_file,
+                results,
+                ancillary_data=ancillary_data,
+                suffix=self.model.suffix,
             )
 
         # Output format is NetCDF.
@@ -467,12 +493,16 @@ class RetrievalDriver:
             for var in variables:
                 if var in input_data.data.variables:
                     results[var] = input_data.data[var]
+
+        LOGGER.info("Writing retrieval results to file '%s'.", self.output_file)
         results.to_netcdf(self.output_file)
         if self.compress:
+            LOGGER.info("Compressing file '%s'.", self.output_file)
             subprocess.run(["gzip", "-f", self.output_file], check=True)
             output_file = self.output_file.with_suffix(".nc.gz")
         else:
             output_file = self.output_file
+
         return output_file
 
 
@@ -484,7 +514,7 @@ class RetrievalGradientDriver(RetrievalDriver):
 
     N_CHANNELS = 15
 
-    def __init__(self, input_file, model, ancillary_data=None, output_file=None):
+    def __init__(self, input_file, model, output_file=None, compress=True):
         """
         Create retrieval driver.
 
@@ -492,17 +522,12 @@ class RetrievalGradientDriver(RetrievalDriver):
             input_file: Path to the preprocessor or NetCDF file containing the
                 input data for the retrieval.
             model: The neural network to use for the retrieval.
-            ancillary_data: Path pointing to the folder containing the profile
-                clusters.
             output_file: If given and output format is not 'GPROF_BINARY' the
                 retrieval results will be written to this file.
+            compress: If set to ``True`` NetCDF output will be gzipped.
         """
-        super().__init__(
-            input_file,
-            model,
-            ancillary_data=ancillary_data,
-            output_file=output_file,
-        )
+        ancillary_data = get_profile_clusters()
+        super().__init__(input_file, model, output_file=output_file, compress=compress)
 
     def _run(self, xrnn, input_data):
         """
@@ -611,12 +636,7 @@ class NetcdfLoader1D(GPROF_NN_1D_Dataset):
     in NetCDF data format.
     """
 
-    def __init__(
-            self,
-            filename,
-            normalizer,
-            batch_size=16 * 1024,
-            sensor=None):
+    def __init__(self, filename, normalizer, batch_size=16 * 1024, sensor=None, tile=False):
         """
         Create loader for input data in NetCDF format that provides input
         data for the GPROF-NN 1D retrieval.
@@ -677,6 +697,8 @@ class NetcdfLoader1D(GPROF_NN_1D_Dataset):
             data[var + "_true"] = self.data[var]
         data["latitude"] = self.data["latitude"]
         data["longitude"] = self.data["longitude"]
+        if "earth_incidence_angle" in self.data.variables:
+            data["earth_incidence_angle"] = self.data["earth_incidence_angle"]
 
         return data
 
@@ -692,7 +714,7 @@ class NetcdfLoader3D(GPROF_NN_3D_Dataset):
     in NetCDF data format.
     """
 
-    def __init__(self, filename, normalizer, batch_size=32, sensor=None):
+    def __init__(self, filename, normalizer, batch_size=32, sensor=None, tile=False):
         """
         Create loader for input data in NetCDF format that provides input
         data for the GPROF-NN 3D retrieval.
@@ -705,6 +727,7 @@ class NetcdfLoader3D(GPROF_NN_3D_Dataset):
                 input batch.
             sensor: Sensor object to use to load the data. This can be used to
                 apply a specific correction to the input data.
+            tile: Has no effect for this loader.
         """
         targets = ALL_TARGETS + ["latitude", "longitude"]
         super().__init__(
@@ -714,7 +737,7 @@ class NetcdfLoader3D(GPROF_NN_3D_Dataset):
             batch_size=batch_size,
             shuffle=False,
             augment=False,
-            input_dimensions=(32, 128),
+            input_dimensions=None,
             sensor=sensor,
         )
         self.n_samples = len(self)
@@ -768,6 +791,12 @@ class NetcdfLoader3D(GPROF_NN_3D_Dataset):
             data[var + "_true"] = self.data[var]
         data["latitude"] = self.data["latitude"]
         data["longitude"] = self.data["longitude"]
+        if "earth_incidence_angle" in self.data.variables:
+            data["earth_incidence_angle"] = self.data["earth_incidence_angle"]
+
+        invalid = np.all(self.x[:, : self.sensor.n_chans] <= -1.5, axis=1)
+        for var in vars:
+            data[var].data[invalid] = np.nan
 
         return data
 
@@ -783,13 +812,7 @@ class NetcdfLoader1DFull(NetcdfLoader3D):
     structure of the data.
     """
 
-    def __init__(
-            self,
-            filename,
-            normalizer,
-            batch_size=32,
-            sensor=None
-    ):
+    def __init__(self, filename, normalizer, batch_size=32, sensor=None, tile=False):
         """
         Create loader for input data in NetCDF format that provides input
         data for the GPROF-NN 3D retrieval.
@@ -800,6 +823,7 @@ class NetcdfLoader1DFull(NetcdfLoader3D):
                 data.
             batch_size: How many observations to combine into a single
                 input batch.
+            tile: Has no effect for this loader.
         """
         super().__init__(filename, normalizer, batch_size=batch_size, sensor=sensor)
         self.scalar_dimensions = ("samples",)
@@ -834,8 +858,7 @@ class NetcdfLoader1DFull(NetcdfLoader3D):
         n_samples = data.samples.size / len(pixels) / len(scans)
         samples = np.arange(n_samples)
         index = pd.MultiIndex.from_product(
-            (samples, scans, pixels),
-            names=('new_samples', 'scans', 'pixels')
+            (samples, scans, pixels), names=("new_samples", "scans", "pixels")
         )
 
         # Reproduce scene dimensions
@@ -852,6 +875,10 @@ class NetcdfLoader1DFull(NetcdfLoader3D):
         data["latitude"] = self.data["latitude"]
         data["longitude"] = self.data["longitude"]
 
+        invalid = np.all(self.x[:, : self.sensor.n_chans] <= -1.5, axis=1)
+        for var in vars:
+            data[var].data[invalid] = np.nan
+
         return data
 
 
@@ -866,7 +893,7 @@ class ObservationLoader1D:
     file or a preprocessor file.
     """
 
-    def __init__(self, filename, file_class, normalizer, batch_size=1024 * 8):
+    def __init__(self, filename, file_class, normalizer, batch_size=1024 * 8, tile=False):
         """
         Create observation loader.
 
@@ -878,6 +905,7 @@ class ObservationLoader1D:
                 data.
             scans_per_batch: How scans should be combined into a single
                 batch.
+            tile: Has no effect for this loader.
         """
         filename = Path(filename)
         self.filename = filename
@@ -887,7 +915,11 @@ class ObservationLoader1D:
         self.normalizer = normalizer
         self.n_scans = self.data.scans.size
         self.n_pixels = self.data.pixels.size
-        self.scans_per_batch = batch_size // self.n_pixels
+        if self.n_pixels > 0:
+            self.scans_per_batch = batch_size // self.n_pixels
+        else:
+            # Number of scans per batch is irrelevant.
+            self.scans_per_batch = 128
 
         self.scalar_dimensions = ("samples",)
         self.profile_dimensions = ("samples", "layers")
@@ -896,7 +928,7 @@ class ObservationLoader1D:
             for t in ALL_TARGETS
         }
 
-        x = combine_input_data_0d(self.data, self.sensor)
+        x = combine_input_data_1d(self.data, self.sensor)
         self.x = torch.tensor(self.normalizer(x))
 
     def __len__(self):
@@ -945,13 +977,22 @@ class ObservationLoader1D:
 
         tbs = self.data["brightness_temperatures"].data
         invalid = np.all(tbs < 0, axis=-1)
-        for v in ALL_TARGETS:
-            if v in data.variables:
-                data[v].data[invalid] = np.nan
+        for var in ALL_TARGETS:
+            if var in data.variables:
+                data[var].data[invalid] = np.nan
+
+                # Replace small values with zero.
+                if var in _THRESHOLDS:
+                    thresh = _THRESHOLDS[var]
+                    if thresh > 0:
+                        small = data[var].data < thresh
+                        data[var].data[small] = 0.0
 
         return data
 
-    def write_retrieval_results(self, output_path, results, ancillary_data=None):
+    def write_retrieval_results(
+        self, output_path, results, ancillary_data=None, suffix=None
+    ):
         """
         Write retrieval results to file.
 
@@ -959,13 +1000,14 @@ class ObservationLoader1D:
             output_path: The folder to which to write the output.
             results: ``xarray.Dataset`` containing the retrieval results.
             ancillary_data: The folder containing the profile clusters.
+            suffix: Suffix to append to algorithm name in filename.
 
         Return:
             The filename of the retrieval output file.
         """
         preprocessor_file = PreprocessorFile(self.filename)
         return preprocessor_file.write_retrieval_results(
-            output_path, results, ancillary_data=ancillary_data
+            output_path, results, ancillary_data=ancillary_data, suffix=suffix
         )
 
 
@@ -979,7 +1021,7 @@ class PreprocessorLoader1D(ObservationLoader1D):
     to a preprocessor file.
     """
 
-    def __init__(self, filename, normalizer, batch_size=1024 * 16):
+    def __init__(self, filename, normalizer, batch_size=1024 * 16, tile=False):
         """
         Create preprocessor loader.
 
@@ -990,6 +1032,7 @@ class PreprocessorLoader1D(ObservationLoader1D):
                 data.
             batch_size: How many pixels should be processed simultaneously
                 in a single batch.
+            tile: Has no effect for this loader.
         """
         suffix = filename.suffix
         if suffix.endswith("HDF5"):
@@ -1027,25 +1070,9 @@ class L1CLoader1D(ObservationLoader1D):
                 data.
             batch_size: How many pixels should be processed simultaneously
                 in a single batch.
+            tile: Has no effect for this loader.
         """
         super().__init__(filename, L1CFile, normalizer, batch_size=batch_size)
-
-    def write_retrieval_results(self, output_path, results, ancillary_data=None):
-        """
-        Write retrieval results to file.
-
-        Args:
-            output_path: The folder to which to write the output.
-            results: ``xarray.Dataset`` containing the retrieval results.
-            ancillary_data: The folder containing the profile clusters.
-
-        Return:
-            The filename of the retrieval output file.
-        """
-        preprocessor_file = PreprocessorFile(self.filename)
-        return preprocessor_file.write_retrieval_results(
-            output_path, results, ancillary_data=ancillary_data
-        )
 
 
 L1CLoader0D = L1CLoader1D
@@ -1057,7 +1084,7 @@ class ObservationLoader3D:
     the GPROF-NN 3D retrieval from preprocessor or L1C files.
     """
 
-    def __init__(self, filename, file_class, normalizer):
+    def __init__(self, filename, file_class, normalizer, tile=False):
         """
         Create observation loader.
 
@@ -1067,6 +1094,7 @@ class ObservationLoader3D:
             file_class: The file class to use to load the input data.
             normalizer: The normalizer object to use to normalize the input
                 data.
+            tile: Whether to tile the orbit in along track dimension.
         """
         self.filename = filename
         self.normalizer = normalizer
@@ -1077,9 +1105,8 @@ class ObservationLoader3D:
         self.n_scans = self.data.scans.size
         self.n_pixels = self.data.pixels.size
 
-        input_data = combine_input_data_2d(self.data, input_file.sensor)
+        input_data = combine_input_data_3d(self.data, input_file.sensor)
         self.input_data = self.normalizer(input_data)
-        self.padding = calculate_padding_dimensions(input_data)
 
         self.scalar_dimensions = ("samples", "scans", "pixels")
         self.profile_dimensions = ("samples", "layers", "scans", "pixels")
@@ -1090,11 +1117,32 @@ class ObservationLoader3D:
             for t in ALL_TARGETS
         }
 
+        if tile:
+            self.tiles, self.cuts = calculate_tiles_and_cuts(
+                self.n_scans,
+                256,
+                32
+            )
+        else:
+            self.tiles, self.cuts = calculate_tiles_and_cuts(
+                self.n_scans,
+                self.n_scans,
+                0
+            )
+        self.batch_size = 4
+        tile_0 = input_data[:, :, self.tiles[0]]
+        self.padding = calculate_padding_dimensions(tile_0)
+
+
     def __len__(self):
         """
         The number of batches in the input file.
         """
-        return 1
+        n = len(self.tiles) // self.batch_size
+        if len(self.tiles) % self.batch_size:
+            n = n + 1
+        return n
+
 
     def __getitem__(self, i):
         """
@@ -1106,7 +1154,12 @@ class ObservationLoader3D:
         Return:
             PyTorch Tensor ``x`` containing the normalized inputs.
         """
-        x = torch.tensor(self.input_data)
+        i_start = i * self.batch_size
+        i_end = i_start + self.batch_size
+        tiles = self.tiles[i_start: i_end]
+        xs = [torch.tensor(self.input_data[:, :, tile])
+              for tile in tiles]
+        x = torch.cat(xs, 0)
         return nn.functional.pad(x, self.padding, mode="replicate")
 
     def finalize(self, data):
@@ -1115,20 +1168,28 @@ class ObservationLoader3D:
         """
         n_scans = data.scans.size
         n_pixels = data.pixels.size
+        tiles = []
+
         data = data[
             {
-                "samples": 0,
                 "scans": slice(self.padding[2], n_scans - self.padding[3]),
                 "pixels": slice(self.padding[0], n_pixels - self.padding[1]),
             }
         ]
+
+        for i_s, cut in enumerate(self.cuts):
+            tile = data[{"samples": i_s, "scans": cut}]
+            tiles.append(tile)
+        data = xr.concat(tiles, "scans")
 
         if "layers" in data.dims:
             dims = ["scans", "pixels", "layers"]
             data = data.transpose(*dims)
         return data
 
-    def write_retrieval_results(self, output_path, results, ancillary_data=None):
+    def write_retrieval_results(
+        self, output_path, results, ancillary_data=None, suffix=None
+    ):
         """
         Write retrieval results to file.
 
@@ -1136,13 +1197,14 @@ class ObservationLoader3D:
             output_path: The folder to which to write the output.
             results: ``xarray.Dataset`` containing the retrieval results.
             ancillary_data: The folder containing the profile clusters.
+            suffix: Suffix to append to algorithm name in filename.
 
         Return:
             The filename of the retrieval output file.
         """
         preprocessor_file = PreprocessorFile(self.filename)
         return preprocessor_file.write_retrieval_results(
-            output_path, results, ancillary_data=ancillary_data
+            output_path, results, ancillary_data=ancillary_data, suffix=suffix
         )
 
 
@@ -1152,7 +1214,7 @@ class PreprocessorLoader3D(ObservationLoader3D):
     form preprocessor files.
     """
 
-    def __init__(self, filename, normalizer):
+    def __init__(self, filename, normalizer, tile=False):
         """
         Create preprocessor loader.
 
@@ -1161,16 +1223,17 @@ class PreprocessorLoader3D(ObservationLoader3D):
                 input data.
             normalizer: The normalizer object to use to normalize the input
                 data.
+            tile: Whether to tile the orbit in along track dimension.
         """
         suffix = filename.suffix
         if suffix.endswith("HDF5"):
             with TemporaryDirectory() as tmp:
                 output_file = Path(tmp) / "input.pp"
                 run_preprocessor_l1c(filename, output_file)
-                super().__init__(output_file, PreprocessorFile, normalizer)
+                super().__init__(output_file, PreprocessorFile, normalizer, tile=tile)
         else:
             LOGGER.info("Loading preprocessor input data from %s.", filename)
-            super().__init__(filename, PreprocessorFile, normalizer)
+            super().__init__(filename, PreprocessorFile, normalizer, tile=tile)
 
 
 # Kept for backwards compatibility.
@@ -1184,7 +1247,7 @@ class L1CLoader3D(ObservationLoader3D):
     form L1C files.
     """
 
-    def __init__(self, filename, normalizer):
+    def __init__(self, filename, normalizer, tile=False):
         """
         Create preprocessor loader.
 
@@ -1193,8 +1256,9 @@ class L1CLoader3D(ObservationLoader3D):
                 input data.
             normalizer: The normalizer object to use to normalize the input
                 data.
+            tile: Whether to tile the orbit in along track dimension.
         """
-        super().__init__(filename, L1CFile, normalizer)
+        super().__init__(filename, L1CFile, normalizer, tile=tile)
 
 
 # Kept for backwards compatibility.
@@ -1215,7 +1279,7 @@ class SimulatorLoader:
     to produce the results.
     """
 
-    def __init__(self, filename, normalizer, batch_size=8):
+    def __init__(self, filename, normalizer, batch_size=8, **kwargs):
         """
         Args:
             filename: Path to the netCDF file from which to load the input.
@@ -1238,23 +1302,14 @@ class SimulatorLoader:
         self._load_data()
         self.n_samples = self.input_data.shape[0]
 
-        if sensor.n_angles > 1:
-            dims_tbs = ("samples", "angles", "channels", "scans", "pixels")
-            dims_bias = ("samples", "channels", "scans", "pixels")
-            self.dimensions = {
-                f"simulated_brightness_temperatures_{j}": dims_tbs
-                for j in range(sensor.n_chans)
-            }
-            for j in range(sensor.n_chans):
-                self.dimensions[f"brightness_temperature_biases_{j}"] = dims_bias
-        else:
-            dims = ("samples", "channels", "scans", "pixels")
-            self.dimensions = {
-                f"simulated_brightness_temperatures_{j}": dims
-                for j in range(sensor.n_chans)
-            }
-            for j in range(sensor.n_chans):
-                self.dimensions[f"brightness_temperature_biases_{j}"] = dims
+        dims_tbs = ("samples", "angles", "channels", "scans", "pixels")
+        dims_bias = ("samples", "channels", "scans", "pixels")
+        self.dimensions = {
+            f"simulated_brightness_temperatures_{j}": dims_tbs
+            for j in range(sensor.n_chans)
+        }
+        for j in range(sensor.n_chans):
+            self.dimensions[f"brightness_temperature_biases_{j}"] = dims_bias
 
     def _load_data(self):
         """
@@ -1263,12 +1318,12 @@ class SimulatorLoader:
         """
         dataset = self.dataset[{"samples": self.dataset.source == 0}]
         if self.sensor == sensors.GMI:
-            input_data = combine_input_data_2d(
+            input_data = combine_input_data_3d(
                 dataset, self.sensor, v_tbs="brightness_temperatures"
             )
         else:
-            input_data = combine_input_data_2d(
-                dataset, self.sensor, v_tbs="brightness_temperatures_gmi"
+            input_data = combine_input_data_3d(
+                dataset, sensors.GMI, v_tbs="brightness_temperatures_gmi"
             )
         self.input_data = self.normalizer(input_data)
         self.padding = calculate_padding_dimensions(input_data)
@@ -1331,6 +1386,7 @@ class SimulatorLoader:
                 ),
             )
         else:
+            data = data[{"angles": 0}]
             dims = ("samples", "scans", "pixels", "channels")
             self.dataset["simulated_brightness_temperatures"] = (
                 dims,

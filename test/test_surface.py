@@ -21,10 +21,10 @@ def test_read_land_mask():
     Test reading of land mask.
     """
     mask = read_land_mask("GMI")
-    assert mask.mask.shape == (360 * 32, 180 * 32)
+    assert mask.mask.shape == (180 * 32, 360 * 32)
 
     mask = read_land_mask("MHS")
-    assert mask.mask.shape == (360 * 16, 180 * 16)
+    assert mask.mask.shape == (180 * 16, 360 * 16)
 
     # Ensure point in North Atlantic is classified as Ocean.
     m = mask.interp({"longitude": -46.0, "latitude": 35.0})

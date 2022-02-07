@@ -20,7 +20,6 @@ import tempfile
 import numpy as np
 import scipy as sp
 import scipy.interpolate
-import torch
 import xarray as xr
 
 from gprof_nn.definitions import (
@@ -244,6 +243,29 @@ class PreprocessorFile:
         for i in range(self.n_scans):
             yield self.get_scan(i)
 
+    def write_subset(self, filename, n_scans=None):
+        """
+        Write the data in this retrieval file to another file.
+
+        Args:
+            filename: Name of the file to which write the content of this
+                file.
+            n_scans: Limit of the number of scans in the file to write.
+        """
+        if n_scans is None:
+            n_scans = self.n_scans
+        n_scans = min(self.n_scans, n_scans)
+        with open(filename, "wb") as output:
+            orbit_header = self.orbit_header.copy()
+            orbit_header["number_of_scans"][:] = n_scans
+
+            # Write orbit header.
+            orbit_header.tofile(output)
+
+            for i in range(n_scans):
+                self.get_scan_header(i).tofile(output)
+                self.get_scan(i).tofile(output)
+
     def get_scan(self, i):
         """
         Args:
@@ -293,6 +315,12 @@ class PreprocessorFile:
             for k, d in data.items():
                 d[i] = s[k]
 
+        if isinstance(self.sensor, sensors.ConstellationScanner):
+            tbs = data["brightness_temperatures"]
+            data["brightness_temperatures"] = tbs[..., self.sensor.gmi_channels]
+            eia = data["earth_incidence_angle"]
+            data["earth_incidence_angle"] = eia[..., self.sensor.gmi_channels]
+
         dims = ["scans", "pixels", "channels"]
         data = {k: (dims[: len(d.shape)], d) for k, d in data.items()}
 
@@ -319,7 +347,7 @@ class PreprocessorFile:
         dataset.attrs["preprocessor"] = preprocessor
         return dataset
 
-    def write_retrieval_results(self, path, results, ancillary_data=None):
+    def write_retrieval_results(self, path, results, ancillary_data=None, suffix=""):
         """
         Write retrieval result to GPROF binary format.
 
@@ -327,13 +355,20 @@ class PreprocessorFile:
             path: The folder to which to write the result. The filename
                   itself follows the GPORF naming scheme.
             results: Dictionary containing the retrieval results.
+            ancillary_data: The folder containing the profile clusters.
+            suffix: Suffix to append to algorithm name in filename.
 
         Returns:
 
             Path object to the created binary file.
         """
         path = Path(path)
-        filename = path / self._get_retrieval_filename()
+        if path.is_dir():
+            filename = path / self._get_retrieval_filename(suffix=suffix)
+        else:
+            filename = path
+
+        LOGGER.info("Writing retrieval results to file '%s'.", str(filename))
 
         if ancillary_data is not None:
             profiles_raining = ProfileClusters(ancillary_data, True)
@@ -342,12 +377,13 @@ class PreprocessorFile:
             profiles_raining = None
             profiles_non_raining = None
 
+        n_scans = results.scans.size
         with open(filename, "wb") as file:
             self._write_retrieval_orbit_header(file)
             self._write_retrieval_profile_info(
                 file, profiles_raining, profiles_non_raining
             )
-            for i in range(self.n_scans):
+            for i in range(n_scans):
                 self._write_retrieval_scan_header(file, i)
                 self._write_retrieval_scan(
                     file,
@@ -358,14 +394,16 @@ class PreprocessorFile:
                 )
         return filename
 
-    def _get_retrieval_filename(self):
+    def _get_retrieval_filename(self, suffix=""):
         """
         Produces GPROF compliant filename from retrieval results dict.
         """
         start_date = self.get_scan_header(0)["scan_date"]
         end_date = self.get_scan_header(-1)["scan_date"]
 
-        name = "2A.GCORE-NN.GMI.V7."
+        if suffix != "":
+            suffix = "_" + suffix
+        name = f"2A.GPROF-NN{suffix}.GMI.V0."
 
         year, month, day = [start_date[k][0] for k in ["year", "month", "day"]]
         name += f"{year:02}{month:02}{day:02}-"
@@ -583,7 +621,6 @@ class PreprocessorFile:
 
             profile_indices = np.zeros((self.n_pixels, N_SPECIES), dtype=np.float32)
             profile_scales = np.zeros((self.n_pixels, N_SPECIES), dtype=np.float32)
-            precip_flag = data["precip_flag"].data
             for i, s in enumerate(
                 [
                     "rain_water_content",
@@ -633,7 +670,11 @@ def has_preprocessor():
 PREPROCESSOR_EXECUTABLES = {
     "GMI": "gprof2020pp_GMI_L1C",
     "MHS": "gprof2020pp_MHS_L1C",
+    "TMIPR": "gprof2021pp_TMI_L1C",
+    "TMIPO": "gprof2021pp_TMI_L1C",
     ("GMI", "MHS"): "gprof2020pp_GMI_MHS_L1C",
+    ("GMI", "TMIPR"): "gprof2020pp_GMI_TMI_L1C",
+    ("GMI", "TMIPO"): "gprof2020pp_GMI_TMI_L1C"
 }
 
 
@@ -685,13 +726,18 @@ def run_preprocessor(
         file = tempfile.NamedTemporaryFile()
         output_file = file.name
     try:
-        executable = PREPROCESSOR_EXECUTABLES[sensor.sensor_id]
         sensor_l1c = L1CFile(l1c_file).sensor
-        if sensor_l1c.sensor_id != sensor.sensor_id:
-            executable = PREPROCESSOR_EXECUTABLES[
-                (sensor_l1c.sensor_id, sensor.sensor_id)
-            ]
-        LOGGER.info("Using preprocesor '%s'. %s %s", executable, sensor_l1c, sensor)
+        if sensor_l1c.sensor_id == sensor.sensor_id:
+            key = sensor.sensor_id
+        else:
+            key = (sensor_l1c.sensor_id, sensor.sensor_id)
+        executable = PREPROCESSOR_EXECUTABLES.get(key, None)
+
+        if executable is None:
+            raise ValueError(
+                f"Could not find preprocessor executable for the key '{key}'."
+            )
+        LOGGER.info("Using preprocesor '%s'.", executable)
 
         jobid = str(os.getpid()) + "_pp"
         args = [jobid] + get_preprocessor_settings(configuration)
@@ -703,13 +749,13 @@ def run_preprocessor(
             data = PreprocessorFile(output_file).to_xarray_dataset()
 
     except subprocess.CalledProcessError as error:
+        LOGGER.error(
+            "Running the preprocessor for file %s failed with the following"
+            " error: %s",
+            l1c_file,
+            error.stdout + error.stderr,
+        )
         if robust:
-            LOGGER.error(
-                "Running the preprocessor for file %s failed with the following"
-                " error: %s",
-                l1c_file,
-                error.stdout + error.stderr,
-            )
             return None
         else:
             raise error
@@ -740,15 +786,15 @@ def calculate_frozen_precip(wet_bulb_temperature, surface_type, surface_precip):
         Array of same shape as 'surface_precip' containing the corresponding,
         estimated amount of frozen precipitation.
     """
-    t = np.clip(
+    t_wb = np.clip(
         wet_bulb_temperature, TWB_TABLE[0, 0] + 273.15, TWB_TABLE[-1, 0] + 273.15
     )
-    f_ocean = TWB_INTERP_OCEAN(t)
-    f_land = TWB_INTERP_LAND(t)
+    f_ocean = TWB_INTERP_OCEAN(t_wb)
+    f_land = TWB_INTERP_LAND(t_wb)
 
     ocean_pixels = surface_type == 1
-    f = 1.0 - np.where(ocean_pixels, f_ocean, f_land) / 100.0
-    return f * surface_precip
+    frac = 1.0 - np.where(ocean_pixels, f_ocean, f_land) / 100.0
+    return frac * surface_precip
 
 
 TWB_TABLE = np.array(
@@ -896,11 +942,3 @@ TWB_INTERP_LAND = sp.interpolate.interp1d(
 TWB_INTERP_OCEAN = sp.interpolate.interp1d(
     TWB_TABLE[:, 0] + 273.15, TWB_TABLE[:, 2], assume_sorted=True, kind="linear"
 )
-
-def get_orbit_header(sensor):
-    sensor_name = sensor.name
-    platform = sensor.platform.name
-    key = (sensor_name.upper(), platform.upper())
-    if key in ORBIT_HEADERS:
-        return pickle.loads(ORBIT_HEADERS[key])
-    return pickle.loads(DEFAULT_HEADER)

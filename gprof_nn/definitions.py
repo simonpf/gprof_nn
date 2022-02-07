@@ -80,13 +80,13 @@ DATABASE_MONTHS = [
 
 TEST_DAYS = [1, 2, 3]
 VALIDATION_DAYS = [4, 5]
-TRAINING_DAYS = list(range(25, 32))
+TRAINING_DAYS = list(range(6, 32))
 
 LIMITS = {
     "brightness_temperatures": (0, 400),
     "brightness_temperatures_gmi": (0, 400),
     "simulated_brightness_temperatures": (0, 400),
-    "brightness_temperature_biases": (-50, 50),
+    "brightness_temperature_biases": (-150, 150),
     "total_column_water_vapor": (0, None),
     "two_meter_temperature": (150, 400),
     "viewing_angle": (-180, 180),

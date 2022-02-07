@@ -1,0 +1,12 @@
+name: test_retrieval
+on: [push]
+jobs:
+  run_retrieval_gmi:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/setup-python@v2
+        with:
+          python-version: '3.8'
+      - run: pip install -e .
+      - run: cd test; ./test_retrieval_gmi.sh

@@ -7,13 +7,19 @@ import numpy as np
 import xarray as xr
 
 from gprof_nn import sensors
-from gprof_nn.augmentation import (Swath,
-                                   get_center_pixels,
-                                   get_transformation_coordinates,
-                                   offset_x,
-                                   get_center_pixel_input,
-                                   M,
-                                   N)
+from gprof_nn.data import get_test_data_path
+from gprof_nn.augmentation import (
+    Swath,
+    get_center_pixels,
+    get_transformation_coordinates,
+    get_center_pixel_input,
+    M,
+    N
+)
+from gprof_nn.data.training_data import decompress_and_load
+
+
+DATA_PATH = get_test_data_path()
 
 
 def test_gmi_geometry():
@@ -49,9 +55,8 @@ def test_swath_geometry():
     Assert that coordinate transformation function for GMI viewing
     geometry are reversible.
     """
-    path = Path(__file__).parent
-    input_file = path / "data" / "gprof_nn_mhs_era5_5.nc"
-    input_data = xr.load_dataset(input_file)
+    input_file = DATA_PATH / "mhs" / "gprof_nn_mhs_era5.nc.gz"
+    input_data = decompress_and_load(input_file)
 
     lats = input_data.latitude.data[0]
     lons = input_data.longitude.data[0]
@@ -95,9 +100,8 @@ def test_transformation_coordinates():
     mapping for when input and output window are located at the
     center of the swath.
     """
-    path = Path(__file__).parent
-    input_file = path / "data" / "gprof_nn_mhs_era5_5.nc"
-    input_data = xr.load_dataset(input_file)
+    input_file = DATA_PATH / "mhs" / "gprof_nn_mhs_era5.nc.gz"
+    input_data = decompress_and_load(input_file)
 
     lats = input_data.latitude.data[0]
     lons = input_data.longitude.data[0]
@@ -106,4 +110,4 @@ def test_transformation_coordinates():
         lats, lons, geometry, 64,
         64, 0.5, 0.5, 0.5
     )
-    assert np.all(np.isclose(c[1, 0, :], np.arange(110 - 32, 110 + 32), atol=0.5))
+    assert np.all(np.isclose(c[1, 0, :], np.arange(110 - 32, 110 + 32), atol=2.0))

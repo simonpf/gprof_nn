@@ -550,15 +550,19 @@ class GPROF_NN_1D_QRNN(MRNN):
         self.normalizer = None
         self.configuration = None
 
+    @property
+    def suffix(self):
+        return "1D"
+
     def __repr__(self):
-        return (f"GPROF_NN_1D_DRNN(targets={self.targets})")
+        return (f"GPROF_NN_1D_QRNN(targets={self.targets})")
         trained = getattr(self, "configuration", None) is not None
         if trained:
-            return (f"GPROF_NN_1D_DRNN(sensor={self.sensor}, "
+            return (f"GPROF_NN_1D_QRNN(sensor={self.sensor}, "
                     f"configuration={self.configuration}, "
                     f"targets={self.targets})")
         else:
-            return (f"GPROF_NN_1D_DRNN(targets={self.targets})")
+            return (f"GPROF_NN_1D_QRNN(targets={self.targets})")
 
     def set_targets(self, targets):
         """
@@ -652,6 +656,10 @@ class GPROF_NN_1D_DRNN(MRNN):
         self.normalizer = None
         self.configuration = None
 
+    @property
+    def suffix(self):
+        return "1D"
+
     def __repr__(self):
         trained = getattr(self, "configuration", None) is not None
         if trained:
@@ -684,7 +692,34 @@ GPROF_NN_0D_QRNN = GPROF_NN_1D_QRNN
 GPROF_NN_0D_DRNN = GPROF_NN_1D_DRNN
 
 
-def prepare_model(gmi_model, sensor, normalizer):
+def adapt_normalizer(gmi_normalizer, sensor):
+    """
+    Adapt GMI normalizer to another sensor.
+
+    Args:
+        gmi_normalizer: Normalizer used to train GMI model.
+        sensor: The sensor to which to adapt the normalizer.
+
+    Return:
+        A normalizer that is equivalent to the provided GMI normalizer
+        adapted to the channels of the new sensor.
+    """
+    new_normalizer = deepcopy(gmi_normalizer)
+    new_stats = {}
+    for key in gmi_normalizer.stats:
+        if key < 15:
+            if key in sensor.gmi_channels:
+                new_key = sensor.gmi_channels.index(key)
+                print(key, new_key)
+                new_stats[new_key] = gmi_normalizer.stats[key]
+        else:
+            d = 15 - sensor.n_chans
+            new_stats[key - d] = gmi_normalizer.stats[key]
+    new_normalizer.stats = new_stats
+    return new_normalizer
+
+
+def prepare_model(gmi_model, sensor, normalizer=None):
     """
     Create a new model for a given sensor using the weights from a
     pre-trained model for GMI.
@@ -692,7 +727,8 @@ def prepare_model(gmi_model, sensor, normalizer):
     Args:
         gmi_model: The model trained on GMI data.
         sensor: The sensor for which this new model will be trained.
-        normalizer: The normalizer object to use to normalize inputs.
+        normalizer: If provided, a new normalizer specific for the sensor.
+            Otherwise the normalizer from the GMI model will be reused.
 
     Return:
         A new model for the given sensor, which reuses the weights from
@@ -729,7 +765,11 @@ def prepare_model(gmi_model, sensor, normalizer):
 
     new_model.sensor = sensor
     new_model.n_inputs = sensor.n_inputs
-    new_model.normalizer = normalizer
+    if normalizer is None:
+        new_model.normalizer = adapt_normalizer(gmi_model.normalizer, sensor)
+    else:
+        new_model.normalizer = normalizer
+
     del new_model.training_history
 
     return new_model
@@ -805,6 +845,16 @@ class XceptionBlock(nn.Module):
         y = self.block_2(self.block_1(x))
         return x_proj + y
 
+    def forward_no_activation(self, x):
+        """
+        Forward input through network but omit last activation.
+        """
+        y = self.block_1(x)
+        for layer in self.block_2[:-1]:
+            y = layer(y)
+        return y
+
+
 
 class DownsamplingStage(nn.Sequential):
     """
@@ -830,6 +880,17 @@ class DownsamplingStage(nn.Sequential):
         for i in range(n_blocks):
             blocks.append(XceptionBlock(n_channels, n_channels))
         super().__init__(*blocks)
+
+
+    def forward_no_activation(self, x):
+        """
+        Forward input through stage but omit last activation.
+        """
+        y = x
+        layers = list(self)
+        for layer in layers[:-1]:
+            y = layer(y)
+        return layers[-1].forward_no_activation(y)
 
 
 class UpsamplingStage(nn.Module):
@@ -1090,6 +1151,34 @@ class XceptionFPN(nn.Module):
             results[k] = y
         return results
 
+    def forward_until(self, x, n=1):
+        """
+        Forward input through network and return output activations from
+        the nth downsampling block.
+        """
+        n_chans = self.sensor.n_chans
+        x_in = self.in_block(x[:, :n_chans])
+        x_in[:, :n_chans] += x[:, :n_chans]
+
+        if n == 1:
+            return self.down_block_2.forward_no_activation(x_in)
+        x_2 = self.down_block_2(x_in)
+
+        if n == 2:
+            return self.down_block_4.forward_no_activation(x_2)
+        x_4 = self.down_block_4(x_2)
+
+        if n == 3:
+            return self.down_block_8.forward_no_activation(x_4)
+        x_8 = self.down_block_8(x_4)
+
+        if n == 4:
+            return self.down_block_16.forward_no_activation(x_8)
+        x_16 = self.down_block_16(x_8)
+
+        return self.down_block_32.forward_no_activation(x_16)
+
+
     def copy_model(self, sensor):
         """
         Create a new model for a different model and copy  weights
@@ -1248,15 +1337,19 @@ class GPROF_NN_3D_QRNN(MRNN):
         self.normalizer = None
         self.configuration = None
 
+    @property
+    def suffix(self):
+        return "3D"
+
     def __repr__(self):
         trained = getattr(self, "configuration", None) is not None
-        return (f"GPROF_NN_3D_DRNN(targets={self.targets})")
+        return (f"GPROF_NN_3D_QRNN(targets={self.targets})")
         if trained:
-            return (f"GPROF_NN_3D_DRNN(sensor={self.sensor}, "
+            return (f"GPROF_NN_3D_QRNN(sensor={self.sensor}, "
                     f"configuration={self.configuration}, "
                     f"targets={self.targets})")
         else:
-            return (f"GPROF_NN_3D_DRNN(sensor={self.sensor}, "
+            return (f"GPROF_NN_3D_QRNN(sensor={self.sensor}, "
                     f"targets={self.targets})")
 
     def set_targets(self, targets):
@@ -1331,6 +1424,10 @@ class GPROF_NN_3D_DRNN(MRNN):
             self.preprocessor_class = L1CLoader3D
 
         self.netcdf_class = NetcdfLoader3D
+
+    @property
+    def suffix(self):
+        return "3D"
 
     def set_targets(self, targets):
         """

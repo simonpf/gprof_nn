@@ -12,7 +12,8 @@ from pathlib import Path
 import re
 
 import numpy as np
-import h5py
+import scipy as sp
+from scipy.interpolate import interp1d
 import pandas as pd
 from rich.progress import track
 import xarray as xr
@@ -107,12 +108,14 @@ class L1CFile:
         month = date_f.month
         day = date_f.day
         data_path = Path(path) / f"{year:02}{month:02}" / f"{year:02}{month:02}{day:02}"
+
         files += list(data_path.glob(sensor.l1c_file_prefix + "*.V05A.HDF5"))
 
         files += list(path.glob(sensor.l1c_file_prefix + "*.V05A.HDF5"))
 
         start_times = []
         end_times = []
+
         for f in files:
             l1c = cls(f)
             start = l1c.start_time
@@ -188,6 +191,7 @@ class L1CFile:
         self.filename = path
         self.path = Path(path)
 
+        import h5py
         with h5py.File(self.path, "r") as data:
             header = data.attrs["FileHeader"].decode().split()[6:8]
             satellite = header[0].split("=")[1][:-1]
@@ -197,6 +201,7 @@ class L1CFile:
 
     @property
     def start_time(self):
+        import h5py
         with h5py.File(self.path, "r") as input:
             year = input["S1/ScanTime/Year"][0]
             month = input["S1/ScanTime/Month"][0]
@@ -210,6 +215,7 @@ class L1CFile:
 
     @property
     def end_time(self):
+        import h5py
         with h5py.File(self.path, "r") as input:
             year = input["S1/ScanTime/Year"][-1]
             month = input["S1/ScanTime/Month"][-1]
@@ -239,6 +245,7 @@ class L1CFile:
         """
         lon_min, lat_min, lon_max, lat_max = roi
 
+        import h5py
         with h5py.File(self.path, "r") as input:
             lats = input["S1/Latitude"][:]
             lons = input["S1/Longitude"][:]
@@ -252,6 +259,10 @@ class L1CFile:
                     axis=-1,
                 )
             )[0]
+            d_inds = np.diff(indices)
+            if any(d_inds > 1):
+                ind = np.where(d_inds > 1)[0]
+                indices = indices[:ind]
 
             with h5py.File(output_filename, "w") as output:
 
@@ -319,7 +330,9 @@ class L1CFile:
                 for a in input.attrs:
                     output.attrs[a] = input.attrs[a]
 
-    def extract_scans_and_pixels(self, scans, output_filename):
+        return indices.min(), indices.max()
+
+    def extract_scans_and_pixels(self, scans, output_filename, n_pixels=-1):
         """
         Extract first pixel from each scan in file.
 
@@ -331,9 +344,13 @@ class L1CFile:
             output_filename: Name of the file to which to write the extracted
                  scans.
         """
+        import h5py
         with h5py.File(self.path, "r") as input:
-            lats = input["S1/Latitude"][scans, 0]
-            lons = input["S1/Longitude"][scans, 0]
+            if n_pixels < 0:
+                n_pixels = input["S1/Latitude"].shape[1]
+
+            lats = input["S1/Latitude"][scans, :n_pixels]
+            lons = input["S1/Longitude"][scans, :n_pixels]
 
             with h5py.File(output_filename, "w") as output:
 
@@ -346,7 +363,7 @@ class L1CFile:
                         g.create_dataset(
                             name,
                             shape=(n_scans, n_pixels) + shape[2:],
-                            data=item[scans, 0],
+                            data=item[scans, :n_pixels],
                         )
 
                 g_st = g.create_group("ScanTime")
@@ -357,7 +374,7 @@ class L1CFile:
                             g_st.create_dataset(
                                 name,
                                 shape=(n_scans, n_pixels) + shape[2:],
-                                data=item[scans, 0],
+                                data=item[scans, :n_pixels],
                             )
                         else:
                             g_st.create_dataset(
@@ -372,7 +389,7 @@ class L1CFile:
                             g_sc.create_dataset(
                                 name,
                                 shape=(n_scans, n_pixels) + shape[2:],
-                                data=item[scans, 0],
+                                data=item[scans, :n_pixels],
                             )
                         else:
                             g_sc.create_dataset(
@@ -386,7 +403,7 @@ class L1CFile:
                         g.create_dataset(
                             name,
                             shape=(n_scans, n_pixels) + shape[2:],
-                            data=item[scans, 0],
+                            data=item[scans, :n_pixels],
                         )
 
                 g_st = g.create_group("ScanTime")
@@ -397,7 +414,7 @@ class L1CFile:
                             g_st.create_dataset(
                                 name,
                                 shape=(n_scans, n_pixels) + shape[2:],
-                                data=item[scans, 0],
+                                data=item[scans, :n_pixels],
                             )
                         else:
                             g_st.create_dataset(
@@ -412,7 +429,7 @@ class L1CFile:
                             g_sc.create_dataset(
                                 name,
                                 shape=(n_scans, n_pixels) + shape[2:],
-                                data=item[scans, 0],
+                                data=item[scans, :n_pixels],
                             )
                         else:
                             g_sc.create_dataset(
@@ -433,6 +450,7 @@ class L1CFile:
         Returns:
             True if the file contains any observations over the given ROI.
         """
+        import h5py
         lon_min, lat_min, lon_max, lat_max = roi
         with h5py.File(self.path, "r") as input:
             lats = input["S1/Latitude"][:]
@@ -458,10 +476,20 @@ class L1CFile:
         Returns:
             An xarray.Dataset containing the data from this L1C file.
         """
+        import h5py
         with h5py.File(self.path, "r") as input:
 
-            lats = input["S1/Latitude"][:]
-            lons = input["S1/Longitude"][:]
+            swath = "S1"
+            n_pixels = input["S1/Latitude"].shape[1]
+            if "S2" in input.keys():
+                if input["S2/Latitude"].shape[1] > n_pixels:
+                    swath = "S2"
+            if "S3" in input.keys():
+                if input["S3/Latitude"].shape[1] > n_pixels:
+                    swath = "S3"
+
+            lats = input[f"{swath}/Latitude"][:]
+            lons = input[f"{swath}/Longitude"][:]
 
             if roi is not None:
                 lon_min, lat_min, lon_max, lat_max = roi
@@ -478,28 +506,42 @@ class L1CFile:
             lats = lats[indices]
             lons = lons[indices]
 
-            lats_sc = input["S1/SCstatus/SClatitude"][indices]
-            lons_sc = input["S1/SCstatus/SClongitude"][indices]
-            alt_sc = input["S1/SCstatus/SClongitude"][indices]
+            lats_sc = input[f"{swath}/SCstatus/SClatitude"][indices]
+            lons_sc = input[f"{swath}/SCstatus/SClongitude"][indices]
+            alt_sc = input[f"{swath}/SCstatus/SCaltitude"][indices]
 
             # Handle case that observations are split up.
+            tbs = []
+            tbs.append(input[f"{swath}/Tc"][indices])
             if "S2" in input.keys():
-                tbs = np.concatenate(
-                    [input["S1/Tc"][indices, :], input["S2/Tc"][indices, :]], axis=-1
-                )
-            else:
-                tbs = input["S1/Tc"][indices, :]
+                tbs.append(input["S2/Tc"][indices])
+            if "S3" in input.keys():
+                tbs.append(input["S3/Tc"][indices])
+
+            n_pixels = max([array.shape[1] for array in tbs])
+            tbs_r = []
+            for array in tbs:
+                if array.shape[1] < n_pixels:
+                    f = interp1d(
+                        np.linspace(0, n_pixels - 1, array.shape[1]),
+                        array,
+                        axis=1
+                    )
+                    x = np.arange(n_pixels)
+                    array = f(x)
+                tbs_r.append(array)
+            tbs = np.concatenate(tbs_r, axis=-1)
 
             n_scans = lats.shape[0]
             times = np.zeros(n_scans, dtype="datetime64[ms]")
 
-            year = input["S1/ScanTime/Year"][indices]
-            month = input["S1/ScanTime/Month"][indices]
-            day_of_month = input["S1/ScanTime/DayOfMonth"][indices]
-            hour = input["S1/ScanTime/Hour"][indices]
-            minute = input["S1/ScanTime/Minute"][indices]
-            second = input["S1/ScanTime/Second"][indices]
-            milli_second = input["S1/ScanTime/MilliSecond"][indices]
+            year = input[f"{swath}/ScanTime/Year"][indices]
+            month = input[f"{swath}/ScanTime/Month"][indices]
+            day_of_month = input[f"{swath}/ScanTime/DayOfMonth"][indices]
+            hour = input[f"{swath}/ScanTime/Hour"][indices]
+            minute = input[f"{swath}/ScanTime/Minute"][indices]
+            second = input[f"{swath}/ScanTime/Second"][indices]
+            milli_second = input[f"{swath}/ScanTime/MilliSecond"][indices]
             for i in range(n_scans):
                 times[i] = datetime(
                     year[i],
@@ -522,16 +564,16 @@ class L1CFile:
                 "scan_time": (dims[:1], times),
             }
 
-            if "incidenceAngle" in input["S1"].keys():
+            if "incidenceAngle" in input[f"{swath}"].keys():
                 data["incidence_angle"] = (
                     dims,
-                    input["S1/incidenceAngle"][indices, :, 0],
+                    input[f"{swath}/incidenceAngle"][indices, :, 0],
                 )
 
-            if "SCorientation" in input["S1/SCstatus"]:
+            if "SCorientation" in input[f"{swath}/SCstatus"]:
                 data["sensor_orientation"] = (
                     ("scans",),
-                    input["S1/SCstatus/SCorientation"][indices],
+                    input[f"{swath}/SCstatus/SCorientation"][indices],
                 )
 
         return xr.Dataset(data)
@@ -637,7 +679,6 @@ class ObservationProcessor:
         l1c_files = np.random.permutation(l1c_files)
 
         n_l1c_files = len(l1c_files)
-        print(f"Found {n_l1c_files} L1C files.")
         i = 0
 
         # Submit tasks interleaving .sim and MRMS files.
@@ -670,6 +711,5 @@ class ObservationProcessor:
 
         # Store dataset with sensor name as attribute.
         filename = output_path / (output_file + ".nc")
-        print(f"Writing file: {filename}")
         dataset.attrs["sensor"] = self.sensor.name
         dataset.to_netcdf(filename)

@@ -6,15 +6,22 @@ from pathlib import Path
 import numpy as np
 import xarray as xr
 
-from gprof_nn.augmentation import (get_transformation_coordinates,
-                                   GMI_GEOMETRY)
+from gprof_nn.augmentation import get_transformation_coordinates
+from gprof_nn.data import get_test_data_path
+from gprof_nn.sensors import GMI_VIEWING_GEOMETRY
 from gprof_nn.utils import (apply_limits,
                             get_mask,
                             calculate_interpolation_weights,
-                            interpolate)
+                            interpolate,
+                            calculate_tiles_and_cuts)
 from gprof_nn.data.utils import (load_variable,
                                  decompress_scene,
                                  remap_scene)
+from gprof_nn.data.training_data import decompress_and_load
+
+
+DATA_PATH = get_test_data_path()
+
 
 def test_apply_limits():
     """
@@ -94,9 +101,8 @@ def test_load_variable():
 
     Also ensure that masking works.
     """
-    path = Path(__file__).parent
-    input_file = path / "data" / "gmi" / "gprof_nn_gmi_era5.nc"
-    dataset = xr.open_dataset(input_file)
+    input_file = DATA_PATH / "gmi" / "gprof_nn_gmi_era5.nc.gz"
+    dataset = decompress_and_load(input_file)
     sp = load_variable(dataset, "surface_precip")
 
     expected_shape = (dataset.samples.size,
@@ -121,9 +127,8 @@ def test_decompress_scene():
 
     Also ensure that masking works.
     """
-    path = Path(__file__).parent
-    input_file = path / "data" / "gmi" / "gprof_nn_gmi_era5.nc"
-    scene = xr.open_dataset(input_file)[{"samples": 1}]
+    input_file = DATA_PATH / "gmi" / "gprof_nn_gmi_era5.nc.gz"
+    scene = decompress_and_load(input_file)[{"samples": 1}]
 
     scene_d = decompress_scene(scene, ["surface_precip",
                                        "rain_water_content",
@@ -140,20 +145,25 @@ def test_decompress_scene():
     assert np.all(sp[inds] >= 0.0)
 
 
-def test_remap_scene():
-    path = Path(__file__).parent
-    input_file = path / "data" / "gmi" / "gprof_nn_gmi_era5.nc"
-    scene = xr.open_dataset(input_file)[{"samples": 1}]
-    coords = get_transformation_coordinates(
-        GMI_GEOMETRY, 221, 221, 0.5, 0.5, 0.5
-    )
-    scene_r = remap_scene(scene, coords, ["surface_precip"])
+def test_calculate_tiles_and_cuts():
+    """
+    Test calculation of tiles and cuts for slicing of inputs.
+    """
+    array = np.random.rand(1234, 128)
+    tiles, cuts = calculate_tiles_and_cuts(array.shape[0], 256, 8)
+    arrays_raw = [array[tile] for tile in tiles]
+    assert arrays_raw[-1].shape[0] == 256
+    arrays = [arr[cut] for arr, cut in zip(arrays_raw, cuts)]
+    array_rec = np.concatenate(arrays, 0)
+    assert array_rec.shape == array.shape
+    assert np.all(np.isclose(array, array_rec))
 
-    sp_r = scene_r.surface_precip.data
-    mask = np.isfinite(sp_r)
-    sp_r = sp_r[mask]
-    sp = scene.surface_precip.data
-    sp = sp[mask]
-
-    assert np.all(np.isclose(sp, sp_r))
+    array = np.random.rand(111, 128)
+    tiles, cuts = calculate_tiles_and_cuts(array.shape[0], 256, 8)
+    arrays_raw = [array[tile] for tile in tiles]
+    assert arrays_raw[-1].shape[0] == 111
+    arrays = [arr[cut] for arr, cut in zip(arrays_raw, cuts)]
+    array_rec = np.concatenate(arrays, 0)
+    assert array_rec.shape == array.shape
+    assert np.all(np.isclose(array, array_rec))
 

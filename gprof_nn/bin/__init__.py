@@ -9,6 +9,7 @@ that are defined in the sub-module of the 'gprof_nn.bin' module.
 """
 import argparse
 import sys
+import warnings
 
 import gprof_nn.logging
 from gprof_nn.logging import set_log_level
@@ -26,11 +27,16 @@ def gprof_nn():
     from gprof_nn.bin import train
     from gprof_nn.bin import legacy
     from gprof_nn.bin import run_preprocessor
+    from gprof_nn.bin import process
+    from gprof_nn.bin import extract_validation_data
 
+    warnings.filterwarnings("ignore", category=RuntimeWarning)
     set_log_level("INFO")
 
-    description = ("Neural-network based implementation of the Goddard "
-                   "PROFiling algorithm (GPROF)")
+    description = (
+        "GPROF-NN: A neural-network based implementation of the Goddard "
+        "Profiling algorithm."
+    )
 
     parser = argparse.ArgumentParser(
             prog='gprof_nn',
@@ -45,8 +51,12 @@ def gprof_nn():
     train.add_parser(subparsers)
     legacy.add_parser(subparsers)
     run_preprocessor.add_parser(subparsers)
+    extract_validation_data.add_parser(subparsers)
 
-    if len(sys.argv)==1:
+    process.add_parser(subparsers, "1d")
+    process.add_parser(subparsers, "3d")
+
+    if len(sys.argv) == 1:
         parser.print_help(sys.stderr)
         return 1
 

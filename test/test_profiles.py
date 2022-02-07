@@ -2,6 +2,7 @@ from pathlib import Path
 
 import numpy as np
 
+from gprof_nn.data import get_profile_clusters
 from gprof_nn.data.profiles import ProfileClusters
 
 
@@ -9,7 +10,7 @@ def test_load_clusters():
     """
     Ensures that profiles are loaded correctly.
     """
-    path = Path(__file__).parent / "data"
+    path = get_profile_clusters()
     profiles = ProfileClusters(path, True)
     rwc = profiles.get_profiles("rain_water_content", 280.0)
     assert np.all(np.isclose(rwc[:, -1], 0.0))
@@ -23,12 +24,11 @@ def test_get_profile_data():
     """
     Ensure that profile data has expected shape
     """
-    path = Path(__file__).parent / "data"
+    path = get_profile_clusters()
     profiles = ProfileClusters(path, True)
     data = profiles.get_profile_data("rain_water_content")
     assert data.shape == (12, 28, 40)
 
-    path = Path(__file__).parent / "data"
     profiles = ProfileClusters(path, False)
     data = profiles.get_profile_data("rain_water_content")
     assert data.shape == (12, 28, 40)
@@ -39,7 +39,7 @@ def test_get_scales_and_indices():
     indices.
     """
     # Raining
-    path = Path(__file__).parent / "data"
+    path = get_profile_clusters()
     profiles = ProfileClusters(path, True)
     cwc = profiles.get_profile_data("cloud_water_content")
 
@@ -54,7 +54,6 @@ def test_get_scales_and_indices():
 
 
     # Non-raining
-    path = Path(__file__).parent / "data"
     profiles = ProfileClusters(path, False)
     cwc = profiles.get_profile_data("cloud_water_content")
 

@@ -198,7 +198,12 @@ class SimFile:
             matched[:] = np.nan
             assert np.all(indices[dists < 10e3] < matched.shape[0])
             indices = np.clip(indices, 0, matched.shape[0] - 1)
-            tbs = self.data["tbs_simulated"].reshape((-1,) + shape[2:])
+
+            tbs = self.data["tbs_simulated"]
+            if isinstance(self.sensor, sensors.ConstellationScanner):
+                tbs = tbs[..., self.sensor.gmi_channels]
+            # tbs = tbs.reshape((-1,) + shape[2:])
+
             matched[indices, ...] = tbs
             matched[indices, ...][dists > 10e3] = np.nan
             matched = matched.reshape(shape)
@@ -218,7 +223,12 @@ class SimFile:
             matched = np.zeros((n_scans * (w_c + 1), n_chans))
 
             matched[:] = np.nan
-            matched[indices, ...] = self.data["tbs_bias"]
+
+            biases = self.data["tbs_bias"]
+            if isinstance(self.sensor, sensors.ConstellationScanner):
+                biases = biases[..., self.sensor.gmi_channels]
+            matched[indices, ...] = biases
+
             matched[indices, ...][dists > 10e3] = np.nan
             matched = matched.reshape(shape)
 
@@ -296,9 +306,22 @@ class SimFile:
 
         record_type = self.sensor.sim_file_record
         for key, _, *shape in record_type.descr:
+
+            data = self.data[key]
+            if key in [
+                "emissivity",
+                "tbs_observed",
+                "tbs_simulated",
+                "tbs_bias",
+                "d_tbs",
+            ]:
+                if isinstance(self.sensor, sensors.ConstellationScanner):
+                    data = data[..., self.sensor.gmi_channels]
+
             dims = ("samples",)
-            if shape:
-                dims = dims + tuple([dim_dict[s] for s in shape[0]])
+            if len(data.shape) > 1:
+                dims = dims + tuple([dim_dict[s] for s in data.shape[1:]])
+
             results[key] = dims, self.data[key]
 
         dataset = xr.Dataset(results)
@@ -517,7 +540,7 @@ def process_sim_file(sim_filename, sensor, configuration, era5_path, log_queue=N
 
     Args:
         sim_filename: Filename of the Sim file to process.
-        sensor: The sensor for which the training data is exstracted.
+        sensor: The sensor for which the training data is extracted.
         l1c_path: Base path of the directory tree containing the L1C file.
         era5_path: Base path of the directory containing the ERA5 data.
         log_queue: Optional queue object to use for multi-process logging.
@@ -542,6 +565,16 @@ def process_sim_file(sim_filename, sensor, configuration, era5_path, log_queue=N
     data_pp = run_preprocessor(
         l1c_file.filename, sensor=sensor, configuration=configuration, robust=False
     )
+    data_pp = data_pp.drop(
+        ["earth_incidence_angle", "sunglint_angle", "quality_flag",
+         "wet_bulb_temperature", "lapse_rate"]
+    )
+    if isinstance(sensor, sensors.CrossTrackScanner):
+        data_pp["eart_incidence_angle"] = (
+            ("scans", "pixels"), np.ones_like(data_pp.two_meter_temperature.data)
+        )
+
+
     if data_pp is None:
         return None
 
@@ -595,7 +628,7 @@ def process_sim_file(sim_filename, sensor, configuration, era5_path, log_queue=N
     return data
 
 
-def process_mrms_file(mrms_filename, configuration, day, log_queue=None):
+def process_mrms_file(sensor, mrms_filename, configuration, day, log_queue=None):
     """
     Extract training data from MRMS-GMI match up files for given day.
     Matches the observations in the MRMS file with input data from the
@@ -612,14 +645,16 @@ def process_mrms_file(mrms_filename, configuration, day, log_queue=None):
         gprof_nn.logging.configure_queue_logging(log_queue)
     LOGGER.info("Processing MRMS file %s.", mrms_filename)
     mrms_file = MRMSMatchFile(mrms_filename)
-    sensor = mrms_file.sensor
+    mrms_sensor = mrms_file.sensor
 
     indices = np.where(mrms_file.data["scan_time"][:, 2] == day)[0]
     if len(indices) <= 0:
         return None
     date = mrms_file.scan_time[indices[len(indices) // 2]]
     l1c_files = list(
-        L1CFile.find_files(date, sensor.l1c_file_path, roi=CONUS, sensor=sensor)
+        L1CFile.find_files(
+            date, mrms_sensor.l1c_file_path, roi=CONUS, sensor=mrms_sensor
+        )
     )
 
     scenes = []
@@ -636,6 +671,14 @@ def process_mrms_file(mrms_filename, configuration, day, log_queue=None):
             Path(f_roi).unlink()
         if data_pp is None:
             continue
+        if data_pp.channels.size > sensor.n_chans:
+            data_pp = data_pp[{"channels": sensor.gmi_channels}]
+
+        # Drop unneeded variables.
+        drop = ["sunglint_angle", "quality_flag", "wet_bulb_temperature", "lapse_rate"]
+        if not isinstance(sensor, sensors.CrossTrackScanner):
+            drop.append("earth_incidence_angle")
+        data_pp = data_pp.drop(drop)
 
         LOGGER.debug("Matching MRMS data for %s.", file.filename)
         mrms_file.match_targets(data_pp)
@@ -683,9 +726,20 @@ def process_l1c_file(l1c_filename, sensor, configuration, era5_path, log_queue=N
     data_pp = run_preprocessor(
         l1c_filename, sensor=sensor, configuration=configuration, robust=False
     )
+
+    l1c_file = L1CFile(l1c_filename)
+    if l1c_file.sensor != sensor:
+        data_pp = data_pp[{"channels": sensor.gmi_channels}]
+    # Drop unneeded variables.
+    drop = ["sunglint_angle", "quality_flag", "wet_bulb_temperature", "lapse_rate"]
+    if not isinstance(sensor, sensors.CrossTrackScanner):
+        drop.append("earth_incidence_angle")
+    data_pp = data_pp.drop(drop)
+
     if data_pp is None:
         return None
     data_pp = add_targets(data_pp, sensor)
+
     l1c_data = L1CFile(l1c_filename).to_xarray_dataset()
 
     start_time = data_pp["scan_time"].data[0]
@@ -698,6 +752,9 @@ def process_l1c_file(l1c_filename, sensor, configuration, era5_path, log_queue=N
     sea_ice = (surface_type == 2) + (surface_type == 16)
     for v in ["surface_precip", "convective_precip"]:
         data_pp[v].data[~sea_ice] = np.nan
+
+    if data_pp.channels.size > sensor.n_chans:
+        data_pp = data_pp[{"channels": sensor.gmi_channels}]
 
     scenes = _extract_scenes(data_pp)
     scenes["source"] = (("samples",), 2 * np.ones(scenes.samples.size, dtype=np.int8))
@@ -911,7 +968,12 @@ class SimFileProcessor:
         sim_files = np.random.permutation(sim_files)
 
         mrms_file_path = self.sensor.mrms_file_path
-        mrms_files = MRMSMatchFile.find_files(mrms_file_path, sensor=self.sensor)
+        if mrms_file_path is None:
+            mrms_files = MRMSMatchFile.find_files(
+                sensors.GMI.mrms_file_path, sensor=sensors.GMI
+            )
+        else:
+            mrms_files = MRMSMatchFile.find_files(mrms_file_path, sensor=self.sensor)
         mrms_files = np.random.permutation(mrms_files)
 
         l1c_file_path = self.sensor.l1c_file_path
@@ -922,6 +984,18 @@ class SimFileProcessor:
                 l1c_files += L1CFile.find_files(date, l1c_file_path, sensor=self.sensor)
             except ValueError:
                 pass
+
+        # If no L1C files are found use GMI co-locations.
+        if len(l1c_files) < 1:
+            for year, month in DATABASE_MONTHS:
+                try:
+                    date = datetime(year, month, self.day)
+                    l1c_file_path = sensors.GMI.l1c_file_path
+                    l1c_files += L1CFile.find_files(
+                        date, l1c_file_path, sensor=sensors.GMI
+                    )
+                except ValueError:
+                    pass
         l1c_files = [f.filename for f in l1c_files]
         l1c_files = np.random.permutation(l1c_files)
 
@@ -954,6 +1028,7 @@ class SimFileProcessor:
                 tasks.append(
                     self.pool.submit(
                         process_mrms_file,
+                        self.sensor,
                         mrms_file,
                         self.configuration,
                         self.day,
@@ -1017,7 +1092,7 @@ class SimFileProcessor:
                         filename = output_path / (output_file + f"_{chunk:02}.nc")
                         dataset.attrs["sensor"] = self.sensor.name
                         dataset.to_netcdf(filename)
-                        os.system(f"gzip -f {filename}")
+                        #subprocess.run(["lz4", "-f", "--rm", filename], check=True)
                         LOGGER.info("Finished writing file: %s", filename)
                         datasets = []
                         chunk += 1
@@ -1029,4 +1104,8 @@ class SimFileProcessor:
         dataset.attrs["configuration"] = self.configuration
         LOGGER.info("Writing file: %s", filename)
         dataset.to_netcdf(filename)
-        subprocess.run(["gzip", "-f", filename], check=True)
+        #subprocess.run(["lz4", "-f", "--rm", filename], check=True)
+
+        # Explicit clean up to avoid memory leak.
+        del datasets
+        del dataset

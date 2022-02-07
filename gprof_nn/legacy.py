@@ -16,6 +16,7 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 
+from gprof_nn.augmentation import SCANS_PER_SAMPLE
 from gprof_nn.definitions import ALL_TARGETS
 from gprof_nn.data.preprocessor import run_preprocessor
 from gprof_nn.data.retrieval import RetrievalFile
@@ -99,7 +100,7 @@ def write_sensitivity_file(sensor, filename, nedts):
     """
     Write sensitivity file for GPROF algorithm.
     """
-    formats = ["%3d"] + sensor.n_chans * ["%6.2f"]
+    formats = ["%3d"] + 15 * ["%6.2f"]
     np.savetxt(filename, nedts, fmt=formats, header=SENSITIVITY_HEADER)
 
 
@@ -171,7 +172,7 @@ def execute_gprof(
 
     args = [
         executable,
-        str(input_file),
+        str(input_file.absolute()),
         str(output_file),
         str(log_file),
         ANCILLARY_DATA,
@@ -234,7 +235,7 @@ def run_gprof_training_data(
             augment=False,
             targets=targets,
             sensor=sensor,
-            batch_size=32
+            batch_size=16,
         )
     else:
         input_data = GPROF_NN_1D_Dataset(
@@ -247,7 +248,6 @@ def run_gprof_training_data(
             batch_size=256 * 2048,
         )
 
-    print("MODE: ", mode)
     results = []
     with TemporaryDirectory() as tmp:
         tmp = Path(tmp)
@@ -256,9 +256,17 @@ def run_gprof_training_data(
 
             preprocessor_file = tmp / "input.pp"
             batch_input = input_data.to_xarray_dataset(batch=batch)
+
+            # Discard scenes that have nans in EIA because they can't
+            # be fully reproduced anyways.
+            if preserve_structure and "earth_incidence_angle" in batch_input:
+                eia = batch_input.earth_incidence_angle.data
+                valid = np.all(np.isfinite(eia), axis=(-2, -1))
+                batch_input = batch_input[{"samples": valid}]
+
             new_dataset = write_preprocessor_file(batch_input, preprocessor_file)
             if new_dataset is not None:
-                new_dataset = new_dataset.stack({"samples": ("scans", "pixels")})
+                batch_input = new_dataset
 
             output_data = execute_gprof(
                 tmp,
@@ -274,23 +282,26 @@ def run_gprof_training_data(
             if output_data is None:
                 continue
 
-            if new_dataset is not None:
-                batch_input = new_dataset
 
             if not preserve_structure:
+                if "scans" in batch_input.dims:
+                    batch_input = batch_input.stack({"samples": ("scans", "pixels")})
                 output_data = output_data.stack({"samples": ("scans", "pixels")})
                 n_samples = output_data.samples.size
                 batch_input = batch_input[{"samples": slice(0, n_samples)}]
             else:
-                scans = batch_input.scans.data
+                scans = np.arange(128)
                 pixels = batch_input.pixels.data
-                samples = np.arange(output_data.scans.size // scans.size)
+                samples = np.arange(output_data.scans.size // 128)
                 index = pd.MultiIndex.from_product(
                     (samples, scans),
                     names=('samples', 'new_scans')
                 )
                 output_data = output_data.assign(scans=index).unstack("scans")
                 output_data = output_data.rename({"new_scans": "scans"})
+                if "samples" not in batch_input.dims:
+                    batch_input = batch_input.assign(scans=index).unstack("scans")
+                    batch_input = batch_input.rename({"new_scans": "scans"})
 
             for k in ALL_TARGETS:
                 if k in output_data.variables:
