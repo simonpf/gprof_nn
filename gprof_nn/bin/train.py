@@ -728,10 +728,14 @@ def run_training_sim(
         training_data, dataset_factory, queue_size=256, kwargs=kwargs, n_workers=4
     )
 
-    kwargs = {"batch_size": 4 * batch_size, "normalizer": normalizer, "augment": False}
-    validation_data = DataFolder(
-        validation_data, dataset_factory, queue_size=256, kwargs=kwargs, n_workers=2
-    )
+
+    if args.no_validation:
+        validation_data = None
+    else:
+        kwargs = {"batch_size": 4 * batch_size, "normalizer": normalizer, "augment": False}
+        validation_data = DataFolder(
+            validation_data, dataset_factory, queue_size=256, kwargs=kwargs, n_workers=2
+        )
 
     ###############################################################################
     # Prepare in- and output.
