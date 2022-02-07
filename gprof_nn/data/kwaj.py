@@ -41,7 +41,7 @@ LATITUDE = 8.71
 LONGITUDE = 167.732
 ALTITUDE = 24.0
 
-ROI = [166.5, 7.5, 169.0, 10.0]
+ROI = [163.732, 4.71, 171.731, 12.71]
 
 XYZ = None
 N = None
@@ -165,7 +165,7 @@ def extract_first_sweep(data):
 
     variables = ["ZZ", "RR", "RP", "RC"]
 
-    while data.elevation[i].data <= 0.5:
+    while data.elevation[i].data <= 1.0:
         ray_start = int(data.ray_start_index[i].data)
         ray_end = int(data.ray_start_index[i + 1].data)
         variables = list(VALIDATION_VARIABLES.keys())
@@ -398,17 +398,20 @@ class FileExtractor:
         month = l1c_time.dt.month.data.item()
         year = l1c_time.dt.year.data.item()
 
-
         radar_archive = list(data_directory.glob("*.tar.gz"))
         if len(radar_archive) > 0:
             radar_archive = RadarFile(radar_archive[0])
             if (radar_archive.day != day or
                 radar_archive.month != month or
                 radar_archive.year != year):
-                radar_archive = RadarFile.download_file(year, month, day)
+                radar_archive = RadarFile.download_file(
+                    year, month, day, destination=data_directory
+                )
                 radar_archive = RadarFile(radar_archive)
         else:
-            radar_archive = RadarFile.download_file(year, month, day)
+            radar_archive = RadarFile.download_file(
+                year, month, day, destination=data_directory
+            )
             radar_archive = RadarFile(radar_archive)
 
         lats = l1c_data.latitude.data
@@ -464,16 +467,16 @@ class FileExtractor:
 
                 data_in = data[variable].data
                 if variable == "ZZ":
-                    data_in = np.exp(np.nan_to_num(data_in, -100))
+                    data_in = 10 ** np.nan_to_num(data_in / 10.0, -10)
                 else:
                     data_in = np.nan_to_num(data_in, 0)
                 resampled = kd_tree.get_sample_from_neighbour_info(
-                    'custom', swath_5.shape, data[variable].data,
+                    'custom', swath_5.shape, data_in,
                     valid_inputs, valid_outputs, indices, distance_array=distances,
                     weight_funcs=weighting_function, fill_value=np.nan
                 )
                 if variable == "ZZ":
-                    resampled = np.log(resampled)
+                    resampled = 10 * np.log10(resampled)
                 data_r[name] = (("along_track", "across_track"), resampled)
 
             data_r = xr.Dataset(data_r)
@@ -528,7 +531,6 @@ class FileExtractor:
         if key not in self.overpasses or key not in radar_files:
             return None
         granules = self.overpasses[key]
-        print("GRANULES :: ", year, month, day, granules)
 
         kwaj_path = Path(kwaj_path)
         pp_path = Path(pp_path)
@@ -564,13 +566,14 @@ class FileExtractor:
                         granule, l1c_sub_file, kwaj_file, scan_start, scan_end
                     )
 
-                # Run preprocessor on L1C file.
-                run_preprocessor(
-                    str(l1c_sub_file),
-                    self.sensor,
-                    configuration="ERA5",
-                    output_file=pp_file,
-                )
+                if kwaj_file.exists():
+                    # Run preprocessor on L1C file.
+                    run_preprocessor(
+                        str(l1c_sub_file),
+                        self.sensor,
+                        configuration="ERA5",
+                        output_file=pp_file,
+                    )
 
     def run(self, kwaj_path, pp_path, n_workers=4):
         kwaj_path = Path(kwaj_path) / f"{self.year}" / f"{self.month:02}"
