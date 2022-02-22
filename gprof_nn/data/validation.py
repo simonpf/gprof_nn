@@ -35,12 +35,15 @@ LOGGER = logging.getLogger(__name__)
 _BASE_URL = "https://pmm-gv.gsfc.nasa.gov/pub/NMQ/level2/"
 
 
-PATHS = {"GMI": "GPM/"}
+PATHS = {
+    "GMI": "GPM/",
+    "TMIPO": "TRMM/"
+}
 
 LINK_REGEX = re.compile(r"<a href=\"([\w\.]*)\">")
-PRECIPRATE_REGEX = re.compile(r"PRECIPRATE\.GC\.(\d{8})\.(\d{6})\.(\d{5})\.\w*\.gz")
-MASK_REGEX = re.compile(r"MASK\.(\d{8})\.(\d{6})\.(\d{5})\.\w*\.gz")
-RQI_REGEX = re.compile(r"RQI\.(\d{8})\.(\d{6})\.(\d{5})\.\w*\.gz")
+PRECIPRATE_REGEX = re.compile(r"PRECIPRATE(\.HSR)?\.GC\.(\d{8})\.(\d{6})\.(\d{5})\.\w*\.gz")
+MASK_REGEX = re.compile(r"MASK\.(\d{8})\.(\d{6})\.(\d{5})[\w\.]*\.gz")
+RQI_REGEX = re.compile(r"RQI\.(\d{8})\.(\d{6})\.(\d{5})[\w\.]*\.gz")
 
 
 # lon_min, lat_min, lon_max, lat_max of CONUS
@@ -86,6 +89,11 @@ def open_validation_data(files):
     """
     # Load precip-rate data.
     precip_files = [f for f in files if PRECIPRATE_REGEX.match(f.name)]
+    if len(precip_files) == 0:
+        raise ValueError(
+            "Didn't find any files matching the REGEX for precipitation data."
+        )
+
     times = [ValidationData.filename_to_date(f) for f in precip_files]
 
     header = np.loadtxt(files[0], usecols=(1,), max_rows=6)
@@ -105,28 +113,34 @@ def open_validation_data(files):
         precip_rate[i, :, :] = np.loadtxt(f, skiprows=6, dtype=np.float32)
     precip_rate[precip_rate < 0.0] = np.nan
 
-    rqi_files = [f for f in files if RQI_REGEX.match(f.name)]
-    rqi_files = sorted(rqi_files, key=get_date)
-    rqi = np.zeros((len(times), n_rows, n_cols), dtype=np.float32)
-    for i, f in enumerate(rqi_files):
-        rqi[i, :, :] = np.loadtxt(f, skiprows=6, dtype=np.float32)
-    rqi[rqi < 0.0] = np.nan
-
-    mask_files = [f for f in files if MASK_REGEX.match(f.name)]
-    mask_files = sorted(mask_files, key=get_date)
-    mask = np.zeros((len(times), n_rows, n_cols), dtype=np.int32)
-    for i, f in enumerate(mask_files):
-        mask[i, :, :] = np.loadtxt(f, skiprows=6, dtype=np.int32)
-
     dims = ("time", "latitude", "longitude")
     data = {
         "latitude": (("latitude",), lats),
         "longitude": (("longitude",), lons),
         "time": (("time",), times),
         "surface_precip": (dims, precip_rate),
-        "mask": (dims, mask),
-        "radar_quality_index": (dims, rqi),
     }
+
+    rqi_files = [f for f in files if RQI_REGEX.match(f.name)]
+    rqi_files = sorted(rqi_files, key=get_date)
+    if len(rqi_files) == 0:
+        raise ValueError(
+            "Didn't find any files matching the REGEX for RQI data."
+        )
+    rqi = np.zeros((len(times), n_rows, n_cols), dtype=np.float32)
+    for i, f in enumerate(rqi_files):
+        rqi[i, :, :] = np.loadtxt(f, skiprows=6, dtype=np.float32)
+    print(rqi.max())
+    rqi[rqi < 0.0] = np.nan
+    data["radar_quality_index"] = (dims, rqi)
+
+    mask_files = [f for f in files if MASK_REGEX.match(f.name)]
+    mask_files = sorted(mask_files, key=get_date)
+    if len(mask_files) > 0:
+        mask = np.zeros((len(times), n_rows, n_cols), dtype=np.float32)
+        for i, f in enumerate(mask_files):
+            mask[i, :, :] = np.loadtxt(f, skiprows=6, dtype=np.int32)
+        data["mask"] = (dims, mask)
 
     return xr.Dataset(data).sortby(["time"])
 
@@ -344,7 +358,13 @@ class ValidationData:
         Return:
             The data as a Python datetime object.
         """
-        date = Path(filename).name.split(".")[-5:-3]
+        parts = Path(filename).name.split(".")
+        if parts[-3] in ["gz", "asc", "dat"]:
+            end = -4
+        else:
+            end = -3
+        date = parts[end - 2: end]
+
         return datetime.strptime("".join(date), "%Y%m%d%H%M%S")
 
     @staticmethod
@@ -358,7 +378,12 @@ class ValidationData:
         Return:
             The granule number as an integer.
         """
-        granule = Path(filename).name.split(".")[-3]
+        parts = Path(filename).name.split(".")
+        if parts[-3] in ["gz", "asc", "dat"]:
+            end = -4
+        else:
+            end = -3
+        granule = parts[end]
         return int(granule)
 
     def __init__(self, sensor):
@@ -463,8 +488,7 @@ class ValidationFileProcessor:
 
         scans = xr.DataArray(
             data=np.linspace(l1c_data.scans[0], l1c_data.scans[-1], lons_5.shape[0]),
-            dims=["along_track"],
-        )
+            dims=["along_track"],)
         dtype = l1c_data.scan_time.dtype
         time = l1c_data.scan_time.astype(np.int64).interp({"scans": scans})
         time = time.astype(dtype)
