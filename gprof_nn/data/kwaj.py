@@ -161,20 +161,29 @@ def extract_first_sweep(data):
     rays = []
 
     e_0 = data.elevation[0]
-    i = 0
 
-    variables = ["ZZ", "RR", "RP", "RC"]
+    variables = [
+        var for var in VALIDATION_VARIABLES.keys()
+        if var in data.variables
+    ]
 
-    while data.elevation[i].data <= 1.0:
-        ray_start = int(data.ray_start_index[i].data)
-        ray_end = int(data.ray_start_index[i + 1].data)
-        variables = list(VALIDATION_VARIABLES.keys())
-        rays.append(data[variables][{"n_points": slice(ray_start, ray_end)}])
-        i += 1
-    dataset = xr.concat(rays, "rays").rename(n_points="range")
-    dataset["azimuth"] = (("rays",), data.azimuth.data[:i])
-    dataset["elevation"] = (("rays",), data.elevation.data[:i])
-    dataset["time"] = (("rays",), data.time.data[:i])
+    n_gates = data.range.size
+    ray_index = 0
+    while data.elevation[ray_index].data <= 1.0:
+        if "n_points" in data.dims:
+            start_index = ray_index * n_gates
+            end_index = start_index + n_gates
+            rays.append(data[variables][{"n_points": slice(start_index, end_index)}])
+        else:
+            rays.append(data[variables][{"time": ray_index}])
+        ray_index = ray_index + 1
+
+    dataset = xr.concat(rays, "rays")
+    if "n_points" in data.dims:
+        dataset = dataset.rename(n_points="range")
+    dataset["azimuth"] = (("rays",), data.azimuth.data[:ray_index])
+    dataset["elevation"] = (("rays",), data.elevation.data[:ray_index])
+    dataset["time"] = (("rays",), data.time.data[:ray_index])
     return dataset.assign_coords({"range": data.range.data})
 
 
@@ -465,6 +474,9 @@ class FileExtractor:
             # valid values.
             for variable, name in VALIDATION_VARIABLES.items():
 
+                if variable not in data.variables:
+                    continue
+
                 data_in = data[variable].data
                 if variable == "ZZ":
                     data_in = 10 ** np.nan_to_num(data_in / 10.0, -10)
@@ -481,7 +493,18 @@ class FileExtractor:
 
             data_r = xr.Dataset(data_r)
             data_r["time"] = (("time",), [data.time.data])
+
+            # Include range in extracted data.
+            ranges, _ = xr.broadcast(data.range, data.ZZ)
+            ranges = kd_tree.get_sample_from_neighbour_info(
+                'nn', swath_5.shape, ranges.data,
+                valid_inputs, valid_outputs, indices,
+                distance_array=distances,
+                fill_value=np.nan
+            )
+            data_r["range"] = (("along_track", "across_track"), ranges)
             datasets.append(data_r)
+
         data_r = xr.concat(datasets, "time")
         data_r["angles"] = (("along_track", "across_track"), angles)
         data_r["latitude"] = (("along_track", "across_track"), lats_5)
