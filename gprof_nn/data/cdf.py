@@ -157,7 +157,6 @@ class CdfCorrection:
                 err_lo, err_hi = np.random.normal(size=2)
                 err = (1.0 - quantiles) * err_lo + quantiles * err_hi
                 err = 0.1 * corrections * err
-                shape = corrections.shape
                 corrections += err
 
             #corrections[st_inds > 1] = 0.0
@@ -205,10 +204,7 @@ class CdfCorrection:
                 err_lo, err_hi = np.random.normal(size=2)
                 err = (1.0 - quantiles) * err_lo + quantiles * err_hi
                 err = 0.1 * corrections * err
-                shape = corrections.shape
                 corrections += err
-
-            #corrections[st_inds > 1] = 0.0
 
             tbs[..., i] += corrections
 
