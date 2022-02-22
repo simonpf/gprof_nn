@@ -84,10 +84,21 @@ def process_file(sensor,
                  preserve_structure=False):
     """
     Helper function for distributed processing.
+
+    Args:
+        sensor: The senor object for which to run the retrieval.
+        input_file: The input file to process.
+        output_file: Path to the output file to which ro write the
+            results.
+        log_queue: Queue object to use for logging.
+        mode: The retrieval mode.
+        nedts: The retrieval errors to assume.
+        preserve_structure: If True the spatial structure of the inputs
+            well be preserved.
     """
     gprof_nn.logging.configure_queue_logging(log_queue)
 
-    LOGGER.info("Processing file %s.", input_file)
+    LOGGER.info("Processing file %s. %s", input_file, output_file)
 
     if input_file.suffix in [".gz", ".nc"]:
         results = run_gprof_training_data(
@@ -107,7 +118,11 @@ def process_file(sensor,
                                      profiles,
                                      nedts=nedts)
 
-    results.to_netcdf(str(output_file))
+    if results is not None:
+        if not output_file.parent.exists():
+            output_file.parent.mkdir(exist_ok=True, parents=True)
+
+        results.to_netcdf(str(output_file.absolute()))
 
 
 def run(args):
@@ -188,6 +203,8 @@ def run(args):
             of = f.relative_to(input)
             if of.suffix == ".gz":
                 of = of.with_suffix("")
+            if of.suffix in [".pp", ".bin"]:
+                of = of.with_suffix(".nc")
             output_files.append(output / of)
     else:
         input_files = [input]

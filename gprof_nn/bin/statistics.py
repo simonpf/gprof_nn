@@ -56,6 +56,12 @@ def add_parser(subparsers):
                         type=int,
                         default=4,
                         help='The number of processes to use for the processing.')
+    parser.add_argument("--no_correction",
+                        help="Disable TB correction of sensor.",
+                        action="store_true")
+    parser.add_argument("--no_resampling",
+                        help="Disable latitude resampling of sensor.",
+                        action="store_true")
     parser.set_defaults(func=run)
 
 
@@ -113,6 +119,10 @@ def run(args):
             args.sensor
         )
         return 1
+    if args.no_resampling:
+        sensor._latitude_ratios = None
+    if args.no_correction:
+        sensor._correction = None
 
     kind = args.kind.lower().strip()
     if kind == "training":
