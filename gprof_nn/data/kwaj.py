@@ -494,15 +494,29 @@ class FileExtractor:
             data_r = xr.Dataset(data_r)
             data_r["time"] = (("time",), [data.time.data])
 
+            # Include raining fraction
+            # Include range in extracted data.
+            rf = data["RC"].data > 0
+            rf = kd_tree.get_sample_from_neighbour_info(
+                'custom', swath_5.shape, rf,
+                valid_inputs, valid_outputs, indices,
+                distance_array=distances,
+                weight_funcs=weighting_function,
+                fill_value=np.nan
+            )
+            data_r["raining_fraction"] = (("along_track", "across_track"), rf)
+
             # Include range in extracted data.
             ranges, _ = xr.broadcast(data.range, data.ZZ)
             ranges = kd_tree.get_sample_from_neighbour_info(
-                'nn', swath_5.shape, ranges.data,
+                'custom', swath_5.shape, ranges.data,
                 valid_inputs, valid_outputs, indices,
                 distance_array=distances,
+                weight_funcs=weighting_function,
                 fill_value=np.nan
             )
             data_r["range"] = (("along_track", "across_track"), ranges)
+
             datasets.append(data_r)
 
         data_r = xr.concat(datasets, "time")
