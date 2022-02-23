@@ -517,13 +517,17 @@ class ValidationFileProcessor:
         surface_precip = surface_precip.interp(
             latitude=lats_5, longitude=lons_5, time=time
         )
-        mask = mrms_data.mask.interp(
-            latitude=lats_5, longitude=lons_5, time=time, method="nearest"
-        )
+        datasets = [surface_precip]
         rqi = mrms_data.radar_quality_index.interp(
             latitude=lats_5, longitude=lons_5, time=time, method="nearest"
         )
-        mrms_data = xr.merge([surface_precip, mask, rqi])
+        datasets.append(rqi)
+        if "mask" in mrms_data.variables:
+            mask = mrms_data.mask.interp(
+                latitude=lats_5, longitude=lons_5, time=time, method="nearest"
+            )
+            datasets.append(mask)
+        mrms_data = xr.merge(datasets)
         mrms_data["angles"] = (("along_track", "across_track"), angles)
 
         mrms_data.attrs["sensor"] = self.sensor.sensor_name
