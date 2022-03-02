@@ -75,7 +75,7 @@ SCAN_HEADER_TYPE = np.dtype(
     ]
 )
 
-# Generic orbit that reads the parts the is similar
+# Generic orbit that reads the parts that are similar
 # for all sensors.
 ORBIT_HEADER = np.dtype(
     [
@@ -204,10 +204,20 @@ class PreprocessorFile:
 
         # Parse sensor.
         sensor = self.orbit_header["sensor"][0].decode().strip()
+        platform = self.orbit_header["satellite"][0].decode().strip()
         try:
-            self._sensor = getattr(sensors, sensor.upper())
-        except AttributeError:
-            raise ValueError(f"The sensor '{sensor}' is not yet supported.")
+            # First get generic sensor which is required to determine
+            # offset of first scan.
+            self._sensor = sensors.get_sensor(sensor)
+            # Now query sensor again with date information.
+            self._sensor = sensors.get_sensor(
+                sensor,
+                platform,
+                self.first_scan_time
+            )
+        except AttributeError as e:
+            raise e
+            #raise ValueError(f"The sensor '{sensor}' is not yet supported.")
         # Reread full header.
         self.orbit_header = np.frombuffer(
             self.data, self.sensor.preprocessor_orbit_header, count=1
@@ -301,6 +311,23 @@ class PreprocessorFile:
         record_type = self.sensor.preprocessor_pixel_record
         offset += i * (SCAN_HEADER_TYPE.itemsize + self.n_pixels * record_type.itemsize)
         return np.frombuffer(self.data, SCAN_HEADER_TYPE, count=1, offset=offset)
+
+    @property
+    def first_scan_time(self):
+        """
+        Returns the first scant time as a numpy.datetime64 object.
+        """
+        offset = self.sensor.preprocessor_orbit_header.itemsize
+        data = np.frombuffer(self.data, SCAN_HEADER_TYPE, count=1, offset=offset)
+        date = data["scan_date"]
+        date = ((date["year"] - 1971 + 1).astype("datetime64[Y]") +
+                (date["month"] - 1).astype("timedelta64[M]") +
+                (date["day"] - 1).astype("timedelta64[D]") +
+                date["hour"].astype("timedelta64[h]") +
+                date["minute"].astype("timedelta64[m]") +
+                date["second"].astype("timedelta64[s]"))
+        return date
+
 
     def to_xarray_dataset(self):
         """

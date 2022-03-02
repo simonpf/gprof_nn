@@ -60,6 +60,11 @@ def test_read_preprocessor_gmi():
     tcwv = input_data.total_column_water_vapor
     assert np.all((tcwv >= 0) * (tcwv < 200))
 
+    date = input_file.first_scan_time
+    print(date)
+    print(input_data.scan_time[0])
+    assert date == input_data.scan_time[0].data
+
 
 def test_read_preprocessor_mhs():
     """
@@ -92,6 +97,11 @@ def test_read_preprocessor_mhs():
     assert np.all((t2m > 200) * (t2m < 400))
     tcwv = input_data.total_column_water_vapor
     assert np.all((tcwv >= 0) * (tcwv < 200))
+
+    date = input_file.first_scan_time
+    print(date)
+    print(input_data.scan_time[0])
+    assert date == input_data.scan_time[0].data
 
 
 def test_read_preprocessor_tmi():
@@ -128,6 +138,10 @@ def test_read_preprocessor_tmi():
     tcwv = input_data.total_column_water_vapor
     assert np.all((tcwv >= 0) * (tcwv < 200))
 
+    date = input_file.first_scan_time
+    print(date)
+    print(input_data.scan_time[0])
+    assert date == input_data.scan_time[0].data
 
 def test_write_preprocessor_file(tmp_path):
     """
@@ -334,7 +348,7 @@ def test_run_preprocessor_tmi_era5():
         l1c_path,
         sensor=sensors.TMI,
     )
-    data = run_preprocessor(l1c_file.filename, sensor=sensors.TMI)
+    data = run_preprocessor(l1c_file.filename, sensor=sensors.TMIPO)
 
     tbs = data.brightness_temperatures.data
     valid = np.all(tbs > 0, axis=-1)
