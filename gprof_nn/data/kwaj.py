@@ -318,10 +318,47 @@ class RadarFile:
         data["latitude"] = (("rays", "range"), lats.astype(np.float32))
         data["longitude"] = (("rays", "range"), lons.astype(np.float32))
 
-        return data
+        return data.transpose("rays", "range")
+
+    def open_file_raw(self, name):
+        """
+        Open a file from the archive as xarray.Dataset.
+
+        Args:
+            name: String containing the name of the file in the archive.
+
+        Return:
+            xarray.Dataset containing the radar of the sweep with the lowest
+            elevation.
+        """
+        with TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            extracted = tmp / "output.nc.gz"
+            with open(extracted, "wb") as output:
+                shutil.copyfileobj(self.archive.extractfile(name), output)
+
+            args = ["gunzip", "-f", str(extracted)]
+            subprocess.run(args)
+
+            decompressed = tmp / "output.nc"
+            dataset = xr.load_dataset(decompressed)
+
+        r = dataset.range.data.reshape(1, -1)
+        phi = dataset.azimuth.data.reshape(-1, 1)
+        theta = dataset.elevation.data.reshape(-1, 1)
+        xyz_r = spherical_to_ecef(r, phi, theta)
+        xyz = XYZ + xyz_r
+        lons, lats, _ = ecef_to_latlon().transform(
+            xyz[..., 0], xyz[..., 1], xyz[..., 2], radians=False
+        )
+
+        dataset["latitude"] = (("rays", "range"), lats.astype(np.float32))
+        dataset["longitude"] = (("rays", "range"), lons.astype(np.float32))
+
+        return dataset
 
 
-    def open_files(self, date):
+    def open_files(self, start, end):
         """
         Open the observations closest to a given time from the archive.
 
@@ -333,25 +370,29 @@ class RadarFile:
             to the given date.
         """
         times = np.array(list(self.times.keys()))
+        times.sort()
         names = list(self.times.values())
-        delta = (times - date)
+        print(start, end)
 
-        closest = []
-        indices = delta < np.timedelta64(0)
-        delta_n = delta[indices]
-        if len(delta_n) > 0:
-            index = np.where(indices)[0][np.argmax(delta_n)]
-            closest.append(names[index])
+        delta = (times - start)
+        indices = np.where(delta > np.timedelta64(0))[0]
+        if len(indices) == 0:
+            return xr.Dataset()
+        start = indices[0]
 
-        indices = delta >= np.timedelta64(0)
-        delta_p = delta[indices]
-        if len(delta_p) > 0:
-            index = np.where(indices)[0][np.argmin(delta_p)]
-            closest.append(names[index])
+        delta = (times - end)
+        indices = np.where(delta > np.timedelta64(0))[0]
+        if len(indices) == 0:
+            end = None
+        else:
+            end = indices[0] + 1
+        print(start, end)
 
+        times = times[slice(start, end)]
         data = []
-        for name in closest:
-            data_t = self.open_file(name)
+        for time in times:
+            data_t = self.open_file(self.times[time])
+            print(start, end, time)
             data_t["time"] = data_t.time.mean()
             data.append(data_t)
 
@@ -448,7 +489,10 @@ class FileExtractor:
             l1c_swath, angles, swath_5, radius_of_influence=20e3
         )
 
-        kwaj_data = radar_archive.open_files(l1c_time.data)
+
+        start_time = l1c_data.scan_time.min()
+        end_time = l1c_data.scan_time.max()
+        kwaj_data = radar_archive.open_files(start_time.data, end_time.data)
         datasets = []
 
         # Iterate over the closest time frames and smooth each variable.
@@ -477,11 +521,16 @@ class FileExtractor:
                 if variable not in data.variables:
                     continue
 
-                data_in = data[variable].data
+                # We mask all values further than 150k from radar.
+                range_mask = data.range > 150e3
+
+                data_in = data[variable].data.copy()
                 if variable == "ZZ":
-                    data_in = 10 ** np.nan_to_num(data_in / 10.0, -10)
+                    data_in = 10 ** (np.nan_to_num(data_in, -50) / 10.0)
                 else:
                     data_in = np.nan_to_num(data_in, 0)
+                data_in[:, range_mask] = np.nan
+
                 resampled = kd_tree.get_sample_from_neighbour_info(
                     'custom', swath_5.shape, data_in,
                     valid_inputs, valid_outputs, indices, distance_array=distances,
@@ -489,6 +538,7 @@ class FileExtractor:
                 )
                 if variable == "ZZ":
                     resampled = 10 * np.log10(resampled)
+                    print(np.isfinite(resampled).sum())
                 data_r[name] = (("along_track", "across_track"), resampled)
 
             data_r = xr.Dataset(data_r)
@@ -508,6 +558,7 @@ class FileExtractor:
 
             # Include range in extracted data.
             ranges, _ = xr.broadcast(data.range, data.ZZ)
+            ranges = ranges.transpose("rays", "range")
             ranges = kd_tree.get_sample_from_neighbour_info(
                 'custom', swath_5.shape, ranges.data,
                 valid_inputs, valid_outputs, indices,
@@ -525,11 +576,15 @@ class FileExtractor:
         data_r["longitude"] = (("along_track", "across_track"), lons_5)
 
         # Finally interpolate all reference data to scan time.
-        data_r = data_r.interp(
-            time=time,
-            along_track=time.along_track,
-            across_track=time.across_track
-        )
+
+        if data.time.size > 1:
+            data_r = data_r.interp(
+                time=time.mean(),
+                method="nearest",
+                kwargs={"fill_value": "extrapolate"}
+            )
+        else:
+            data_r = data_r[{"time": 0}]
 
         data_r.attrs["sensor"] = self.sensor.sensor_name
         data_r.attrs["platform"] = self.sensor.platform.name
