@@ -92,7 +92,13 @@ def load_sensitivities(sensor, configuration):
     """
     data_path = Path(__file__).parent / "files"
     filename = f"{sensor.name.lower()}_{configuration.lower()}" "_sensitivities.npy"
-    sensitivities = np.load(data_path / filename)
+    path = data_path / filename
+    if path.exists():
+        sensitivities = np.load(path)
+    else:
+        filename = f"gmi_era5_sensitivities.npy"
+        path = data_path / filename
+        sensitivities = np.load(path)
     return sensitivities
 
 
