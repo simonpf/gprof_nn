@@ -398,6 +398,18 @@ class ResultCollector:
                 classes_smoothed
             )
 
+        if "raining_fraction" in reference_data.variables:
+            rf = reference_data["raining_fraction"].data
+            angles = reference_data.angles.data
+            rf_smoothed = smooth_reference_field(
+                rf,
+                angles
+            )
+            reference_data["raining_fraction_avg"] = (
+                ("along_track", "across_track"),
+                rf_smoothed
+            )
+
         if "surface_precip_rp" in reference_data.variables:
             reference_data = reference_data.rename({
                 "surface_precip_rc": "surface_precip",
@@ -531,7 +543,7 @@ def open_reference_file(reference_path, granule):
     return xr.load_dataset(next(iter(files)))
 
 
-def plot_granule(reference_path, granule, datasets):
+def plot_granule(reference_path, granule, datasets, n_cols=3, height=4, width=4):
     """
     Plot overpass over reference data and corresponding retrieval results
     for a given granule.
@@ -552,11 +564,11 @@ def plot_granule(reference_path, granule, datasets):
     from matplotlib import cm
     import cartopy.crs as ccrs
 
-    n = 4
+    n = n_cols
     m = ((1 + len(datasets)) // n)
     if ((1 + len(datasets)) % n):
         m = m + 1
-    f = plt.figure(figsize=(4 * n + 1, 4 * m))
+    f = plt.figure(figsize=(width * n + 1, height * m))
 
     gs = GridSpec(m, n + 1, width_ratios=[1.0] * n + [0.05])
     axs = np.array(
