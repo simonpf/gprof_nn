@@ -49,8 +49,7 @@ logging.basicConfig(
     level=_LOG_LEVEL,
     format="%(message)s",
     datefmt="[%X]",
-    handlers=[RichHandler(level=_LOG_LEVEL, console=get_console()),
-              logging.FileHandler("debug.log")]
+    handlers=[RichHandler(level=_LOG_LEVEL, console=get_console())]
 )
 
 
