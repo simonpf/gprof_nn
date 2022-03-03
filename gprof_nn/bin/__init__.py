@@ -29,6 +29,7 @@ def gprof_nn():
     from gprof_nn.bin import run_preprocessor
     from gprof_nn.bin import process
     from gprof_nn.bin import extract_validation_data
+    from gprof_nn.bin import combine_validation_data
 
     warnings.filterwarnings("ignore", category=RuntimeWarning)
     set_log_level("INFO")
@@ -52,6 +53,7 @@ def gprof_nn():
     legacy.add_parser(subparsers)
     run_preprocessor.add_parser(subparsers)
     extract_validation_data.add_parser(subparsers)
+    combine_validation_data.add_parser(subparsers)
 
     process.add_parser(subparsers, "1d")
     process.add_parser(subparsers, "3d")

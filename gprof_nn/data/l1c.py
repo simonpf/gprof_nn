@@ -196,7 +196,12 @@ class L1CFile:
             header = data.attrs["FileHeader"].decode().split()[6:8]
             satellite = header[0].split("=")[1][:-1]
             sensor = header[1].split("=")[1][:-1]
-            self.sensor = sensors.get_sensor(sensor, platform=satellite)
+            date = self.start_time
+            self.sensor = sensors.get_sensor(
+                sensor,
+                platform=satellite,
+                date=self.start_time
+            )
 
 
     @property
@@ -327,6 +332,35 @@ class L1CFile:
                                 name, shape=(n_scans,) + shape[1:], data=item[indices]
                             )
 
+                if "S3" in input.keys():
+                    g = output.create_group("S3")
+                    for name, item in input["S3"].items():
+                        if isinstance(item, h5py.Dataset):
+                            shape = item.shape
+                            g.create_dataset(
+                                name, shape=(n_scans,) + shape[1:], data=item[indices]
+                            )
+                    for a in input["S3"].attrs:
+                        s = input["S3"].attrs[a].decode()
+                        s = _RE_META_INFO.sub(f"NumberScansGranule={n_scans};", s)
+                        s = np.bytes_(s)
+                        g.attrs[a] = s
+
+                    g_st = g.create_group("ScanTime")
+                    for name, item in input["S3/ScanTime"].items():
+                        if isinstance(item, h5py.Dataset):
+                            shape = item.shape
+                            g_st.create_dataset(
+                                name, shape=(n_scans,) + shape[1:], data=item[indices]
+                            )
+
+                    g_sc = g.create_group("SCstatus")
+                    for name, item in input["S3/SCstatus"].items():
+                        if isinstance(item, h5py.Dataset):
+                            shape = item.shape
+                            g_sc.create_dataset(
+                                name, shape=(n_scans,) + shape[1:], data=item[indices]
+                            )
                 for a in input.attrs:
                     output.attrs[a] = input.attrs[a]
 

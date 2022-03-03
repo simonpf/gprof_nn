@@ -50,6 +50,32 @@ _INPUT_DIMENSIONS = {
 }
 
 
+def calculate_resampling_indices(latitudes, sensor):
+    """
+    Calculate scene indices based on latitude distributions.
+
+    Args:
+        latitudes: Central latitudes of the scenes.
+        sensor: The sensor object to whose latitude distribution
+            to resample the scenes.
+
+    Return:
+        None is the provided sensors has no latitude ratios
+        attribute. Otherwise an array of scene indices that
+        resamples the scenes to match the latitude distribution
+        of the sensor.
+    """
+    latitude_ratios = getattr(sensor, "latitude_ratios", None)
+    if latitude_ratios is None:
+        return None
+
+    indices = np.digitize(latitudes, np.linspace(-90, 90, 181)[1:-1])
+    weights = latitude_ratios[indices]
+    indices = np.arange(latitudes.size)
+    probs = weights / weights.sum()
+    return np.random.choice(indices, size=latitudes.size, p=probs)
+
+
 def decompress_and_load(filename):
     """
     Load a potentially gzipped NetCDF file and return the
@@ -510,8 +536,16 @@ class GPROF_NN_1D_Dataset(Dataset1DBase):
             else:
                 self.sensor = sensor
 
+
+        latitudes = self.dataset.latitude.mean(("scans", "pixels")).data
+        indices = calculate_resampling_indices(latitudes, self.sensor)
+        if indices is None:
+            kwargs = {}
+        else:
+            kwargs = {"indices": indices}
+
         x, y = self.sensor.load_training_data_1d(
-            self.dataset, self.targets, self.augment, self._rng
+            self.dataset, self.targets, self.augment, self._rng, **kwargs
         )
 
         # If this is pre-training, we need to extract the correct indices.
@@ -773,8 +807,17 @@ class GPROF_NN_3D_Dataset:
             width, height = _INPUT_DIMENSIONS[self.sensor.name.upper()]
         else:
             width, height = input_dimensions
+
+        latitudes = self.dataset.latitude.mean(("scans", "pixels")).data
+        indices = calculate_resampling_indices(latitudes, self.sensor)
+        if indices is None:
+            kwargs = {}
+        else:
+            kwargs = {"indices": indices}
+
         x, y = self.sensor.load_training_data_3d(
-            self.dataset, self.targets, augment, self._rng, width=width, height=height
+            self.dataset, self.targets, augment, self._rng, width=width, height=height,
+            **kwargs
         )
 
         # If this is pre-training, we need to extract the correct indices.

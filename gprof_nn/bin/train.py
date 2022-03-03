@@ -548,7 +548,7 @@ def run_training_3d(
         "augment": True,
     }
     training_data = DataFolder(
-        training_data, dataset_factory, queue_size=256, kwargs=kwargs, n_workers=6
+        training_data, dataset_factory, queue_size=256, kwargs=kwargs, n_workers=4
     )
 
     if args.no_validation:
@@ -655,6 +655,7 @@ def run_training_3d(
             scheduler = None
         else:
             scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, n)
+        xrnn.model.train(False)
         xrnn.train(
             training_data=training_data,
             validation_data=validation_data,

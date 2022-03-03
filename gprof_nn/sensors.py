@@ -834,7 +834,8 @@ class ConstellationScanner(ConicalScanner):
         sim_file_path,
         gmi_channels,
         correction=None,
-        modeling_error=None
+        modeling_error=None,
+        latitude_ratios=None
     ):
         super().__init__(
             name, channels, angles, platform, viewing_geometry,
@@ -851,12 +852,22 @@ class ConstellationScanner(ConicalScanner):
 
         self.modeling_error = modeling_error
 
+        # Calculate scence resampling factors
+        self._latitude_ratios = latitude_ratios
+
     @property
     def correction(self):
         if self._correction is not None:
             if not isinstance(self._correction, CdfCorrection):
                 self._correction = CdfCorrection(self._correction)
         return self._correction
+
+    @property
+    def latitude_ratios(self):
+        if self._latitude_ratios is not None:
+            if not isinstance(self._latitude_ratios, np.ndarray):
+                self._latitude_ratios = np.load(self._latitude_ratios)
+        return self._latitude_ratios
 
     def load_brightness_temperatures(self, data, mask=None):
         """
@@ -887,7 +898,7 @@ class ConstellationScanner(ConicalScanner):
             tbs = load_variable(data, "brightness_temperatures", mask=mask)
         return tbs
 
-    def load_training_data_1d(self, dataset, targets, augment, rng):
+    def load_training_data_1d(self, dataset, targets, augment, rng, indices=None):
         """
         Load training data for GPROF-NN 1D retrieval. This function will
         only load pixels that with a finite surface precip value in order
@@ -902,6 +913,8 @@ class ConstellationScanner(ConicalScanner):
             targets: List of the targets to load.
             augment: Whether or not to augment the training data.
             rng: Numpy random number generator to use for augmentation.
+            indices: List of scene indices from which to load the data. This
+                can be used to resample training scenes.
 
         Return:
             Tuple ``(x, y)`` containing the un-batched, un-shuffled training
@@ -928,9 +941,12 @@ class ConstellationScanner(ConicalScanner):
         if "surface_precip" not in targets:
             vs += ["surface_precip"]
 
-        for i in range(n_samples):
-            scene = decompress_scene(dataset[{"samples": i}], targets + vs)
-            source = dataset.source[i]
+        if indices is None:
+            indices = range(n_samples)
+
+        for sample_index in indices:
+            scene = decompress_scene(dataset[{"samples": sample_index}], targets + vs)
+            source = dataset.source[sample_index]
 
             sp = scene["surface_precip"].data
             mask = sp >= 0
@@ -1212,7 +1228,7 @@ class ConstellationScanner(ConicalScanner):
         return x, y
 
     def load_training_data_3d(
-        self, dataset, targets, augment, rng, width=32, height=128
+        self, dataset, targets, augment, rng, width=32, height=128, indices=None
     ):
         if isinstance(dataset, (str, Path)):
             dataset = xr.open_dataset(dataset)
@@ -1233,8 +1249,10 @@ class ConstellationScanner(ConicalScanner):
         if "surface_precip" not in targets:
             vs += ["surface_precip"]
 
-        for i in range(n):
-            scene = decompress_scene(dataset[{"samples": i}], targets + vs)
+        if indices is None:
+            indinces = range(n)
+        for sample_index in indices:
+            scene = decompress_scene(dataset[{"samples": sample_index}], targets + vs)
             source = scene.source
             if source == 0:
                 x_i, y_i = self._load_training_data_3d_sim(
@@ -1954,16 +1972,23 @@ MHS_NOAA19_FULL = CrossTrackScanner(
 )
 
 
-def get_sensor(sensor, platform=None):
+def get_sensor(sensor, platform=None, date=None):
     if platform is not None:
         platform = platform.upper().replace("-", "")
         key = f"{sensor.upper()}_{platform.upper()}"
-        try:
-            return globals()[key]
-        except KeyError:
-            pass
-    key = sensor.upper()
-    return globals()[key]
+        if key not in globals():
+            key = sensor.upper()
+    else:
+        key = sensor.upper()
+    sensor = globals()[key]
+    if sensor == TMI:
+        if date is not None:
+            if date > np.datetime64("2001-08-01T00:00:00"):
+                sensor = TMIPO
+            else:
+                sensor = TMIPR
+
+    return sensor
 
 ###############################################################################
 # TMI
@@ -2006,7 +2031,6 @@ TMI_NEDT = np.array([
 ])
 
 TMI_GMI_CHANNELS = [0, 1, 2, 3, 4, 6, 7, 8, 9]
-
 
 TMIPR_VIEWING_GEOMETRY = Conical(
     altitude=350e3,
@@ -2066,7 +2090,7 @@ TMIPR = ConstellationScanner(
 
 
 TMIPO = ConstellationScanner(
-    "TMI",
+    "TMIPO",
     TMI_CHANNELS,
     TMI_NEDT,
     TMI_ANGLES,
@@ -2075,7 +2099,23 @@ TMIPO = ConstellationScanner(
     None,
     "TMIPO.dbsatTb.??????{day}.??????.sim",
     "/qdata1/pbrown/dbaseV7/simV7_tmi",
-    TMI_GMI_CHANNELS
+    TMI_GMI_CHANNELS,
+    correction=DATA_FOLDER / "corrections_tmipo.nc",
+    latitude_ratios= DATA_FOLDER / "latitude_ratios_tmipo.npy"
+)
+
+TMIPO_R = ConstellationScanner(
+    "TMIPO",
+    TMI_CHANNELS,
+    TMI_NEDT,
+    TMI_ANGLES,
+    TRMM,
+    TMIPO_VIEWING_GEOMETRY,
+    None,
+    "TMIPO.dbsatTb.??????{day}.??????.sim",
+    "/qdata1/pbrown/dbaseV7/simV7_tmi",
+    TMI_GMI_CHANNELS,
+    latitude_ratios= DATA_FOLDER / "latitude_ratios_tmipo.npy"
 )
 
 TMI = TMIPR

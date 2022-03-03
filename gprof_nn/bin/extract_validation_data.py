@@ -57,8 +57,8 @@ def add_parser(subparsers):
         help=("Folder to which to write the extracted " "preprocessor files."),
     )
     parser.add_argument(
-        "--n_workers",
-        metavar="n_workers",
+        "--n_processes",
+        metavar="N",
         type=int,
         help="How many processes to use to extract the validation data.",
         default=4
@@ -95,7 +95,7 @@ def run(args):
 
         mrms_output = Path(args.mrms_output)
         pp_output = Path(args.preprocessor_output)
-        n_workers = args.n_workers
+        n_procs = args.n_processes
 
         processor = ValidationFileProcessor(sensor, year, month)
-        processor.run(mrms_output, pp_output, n_workers=n_workers)
+        processor.run(mrms_output, pp_output, n_workers=n_procs)
