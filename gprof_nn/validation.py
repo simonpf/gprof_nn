@@ -590,7 +590,13 @@ def plot_granule(reference_path, granule, datasets, n_cols=3, height=4, width=4)
     xlims = [lons.min(), lons.max()]
     ylims = [lats.min(), lats.max()]
 
-    sp = np.maximum(ref_data.surface_precip.data, 1e-4)
+    surface_precip = ref_data["surface_precip"].data
+    angles = ref_data.angles.data
+    surface_precip_smoothed = smooth_reference_field(
+        surface_precip,
+        angles
+    )
+    sp = np.maximum(surface_precip_smoothed, 1e-4)
     ax.stock_img()
     m = ax.pcolormesh(lons, lats, sp, cmap=cmap, norm=precip_norm)
     ax.plot(lons[:, 0], lats[:, 0], ls="--", c="k")
