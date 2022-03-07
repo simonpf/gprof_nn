@@ -106,7 +106,7 @@ def test_read_preprocessor_mhs():
 
 def test_read_preprocessor_tmi():
     """
-    Tests reading a GMI preprocessor file.
+    Tests reading a TMI preprocessor file.
     """
     DATA_PATH = Path(__file__).parent / "data"
     input_file = PreprocessorFile(DATA_PATH / "tmi" / "pp" / "GPM_TMI_100101.pp")
@@ -142,6 +142,47 @@ def test_read_preprocessor_tmi():
     print(date)
     print(input_data.scan_time[0])
     assert date == input_data.scan_time[0].data
+
+
+def test_read_preprocessor_ssmi():
+    """
+    Tests reading a SSMI preprocessor file.
+    """
+    DATA_PATH = Path(__file__).parent / "data"
+    input_file = PreprocessorFile(DATA_PATH / "ssmi" / "pp" / "GPM_SSMI_030101.pp")
+    input_data = input_file.to_xarray_dataset()
+
+    assert input_file.n_pixels == 128
+    assert input_data.pixels.size == 128
+    assert input_data.scans.size == input_file.n_scans
+
+    tbs = input_data.brightness_temperatures.data
+    tbs = tbs[tbs > 0]
+    print(tbs.min(), tbs.max())
+    assert np.all((tbs > 20) * (tbs <= 350))
+
+    st = input_data.surface_type.data
+    assert np.all((st >= 0) * (st <= 18))
+
+    am = input_data.airmass_type.data
+    am = am[am >= 0]
+    assert np.all((am >= 0) * (am <= 18))
+
+    lat = input_data.latitude
+    assert np.all((lat >= -90) * (lat <= 90))
+    lon = input_data.longitude
+    assert np.all((lat >= -180) * (lat <= 180))
+
+    t2m = input_data.two_meter_temperature
+    assert np.all((t2m > 200) * (t2m < 400))
+    tcwv = input_data.total_column_water_vapor
+    assert np.all((tcwv >= 0) * (tcwv < 200))
+
+    date = input_file.first_scan_time
+    print(date)
+    print(input_data.scan_time[0])
+    assert date == input_data.scan_time[0].data
+
 
 def test_write_preprocessor_file(tmp_path):
     """

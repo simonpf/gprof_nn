@@ -218,7 +218,7 @@ def test_bin_file_tmi():
     assert np.all(tbs < 400)
 
     #
-    # MRMS bin files.
+    # MTN bin files.
     #
 
     input_file = DATA_PATH / "tmi" / "bin" / "gpm_295_16_11.bin"
@@ -235,6 +235,87 @@ def test_bin_file_tmi():
     assert np.all(input_data["total_column_water_vapor"] < 16 + 0.5)
     assert np.all(input_data["surface_type"] == 11)
     assert np.all(input_data["airmass_type"] == 0)
+    tbs = input_data.brightness_temperatures.data
+    valid = tbs > 0
+    tbs = tbs[valid]
+    assert np.all(tbs > 20)
+    assert np.all(tbs < 400)
+
+
+def test_bin_file_ssmi():
+    """
+    Test reading of TMI bin files and ensure all values are physical and match
+    given bin.
+    """
+    #
+    # Simulator-derived bin files.
+    #
+
+    DATA_PATH = Path(__file__).parent/ "data"
+    input_file = DATA_PATH / "ssmi" / "bin" / "gpm_287_45_04.bin"
+
+    input_data = BinFile(input_file).to_xarray_dataset()
+
+    assert input_data.channels.size == 7
+
+    assert np.all(input_data["surface_precip"] >= 0)
+    assert np.all(input_data["surface_precip"] <= 500)
+    assert np.all(input_data["convective_precip"] >= 0)
+    assert np.all(input_data["convective_precip"] <= 500)
+    assert np.all(input_data["rain_water_path"] >= 0)
+    assert np.all(input_data["two_meter_temperature"] > 287 - 0.5)
+    assert np.all(input_data["two_meter_temperature"] < 287 + 0.5)
+    assert np.all(input_data["total_column_water_vapor"] > 45 - 0.5)
+    assert np.all(input_data["total_column_water_vapor"] < 45 + 0.5)
+    assert np.all(input_data["surface_type"] == 4)
+    assert np.all(input_data["airmass_type"] == 0)
+    tbs = input_data.brightness_temperatures.data
+    valid = tbs > 0
+    tbs = tbs[valid]
+    assert np.all(tbs > 20)
+    assert np.all(tbs < 400)
+
+    #
+    # Seaice bin files.
+    #
+
+    input_file = DATA_PATH / "ssmi" / "bin" / "gpm_240_02_16.bin"
+    input_data = BinFile(input_file).to_xarray_dataset()
+
+    assert np.all(input_data["surface_precip"] >= 0)
+    assert np.all(input_data["surface_precip"] <= 500)
+    assert np.all(input_data["convective_precip"] >= 0)
+    assert np.all(input_data["convective_precip"] <= 500)
+    assert np.all(input_data["rain_water_path"] < 0)
+    assert np.all(input_data["two_meter_temperature"] > 240 - 0.5)
+    assert np.all(input_data["two_meter_temperature"] < 240 + 0.5)
+    assert np.all(input_data["total_column_water_vapor"] > 2 - 0.5)
+    assert np.all(input_data["total_column_water_vapor"] < 2 + 0.5)
+    assert np.all(input_data["surface_type"] == 16)
+    assert np.all(input_data["airmass_type"] == 0)
+    tbs = input_data.brightness_temperatures.data
+    valid = tbs > 0
+    tbs = tbs[valid]
+    assert np.all(tbs > 20)
+    assert np.all(tbs < 400)
+
+    #
+    # MTN bin files.
+    #
+
+    input_file = DATA_PATH / "ssmi" / "bin" / "gpm_272_06_03_17.bin"
+    input_data = BinFile(input_file).to_xarray_dataset()
+
+    assert np.all(input_data["surface_precip"] >= 0)
+    assert np.all(input_data["surface_precip"] <= 500)
+    assert np.all(input_data["convective_precip"] >= 0)
+    assert np.all(input_data["convective_precip"] <= 500)
+    assert np.all(input_data["two_meter_temperature"] > 272 - 0.5)
+    assert np.all(input_data["two_meter_temperature"] < 272 + 0.5)
+    assert np.all(input_data["total_column_water_vapor"] > 6 - 0.5)
+    assert np.all(input_data["total_column_water_vapor"] < 6 + 0.5)
+    assert np.all(input_data["surface_type"] == 17)
+    assert np.all(input_data["airmass_type"] == 3)
     tbs = input_data.brightness_temperatures.data
     valid = tbs > 0
     tbs = tbs[valid]
