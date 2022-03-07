@@ -699,9 +699,11 @@ PREPROCESSOR_EXECUTABLES = {
     "MHS": "gprof2020pp_MHS_L1C",
     "TMIPR": "gprof2021pp_TMI_L1C",
     "TMIPO": "gprof2021pp_TMI_L1C",
+    "SSMI": "gprof2020pp_SSMI_L1C",
     ("GMI", "MHS"): "gprof2020pp_GMI_MHS_L1C",
     ("GMI", "TMIPR"): "gprof2020pp_GMI_TMI_L1C",
-    ("GMI", "TMIPO"): "gprof2020pp_GMI_TMI_L1C"
+    ("GMI", "TMIPO"): "gprof2020pp_GMI_TMI_L1C",
+    ("GMI", "SSMI"): "gprof2020pp_GMI_SSMI_L1C"
 }
 
 

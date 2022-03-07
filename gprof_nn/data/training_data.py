@@ -46,6 +46,7 @@ _INPUT_DIMENSIONS = {
     "GMI": (96, 128),
     "TMIPR": (96, 128),
     "TMIPO": (96, 128),
+    "SSMI": (96, 128),
     "MHS": (24, 128),
 }
 
