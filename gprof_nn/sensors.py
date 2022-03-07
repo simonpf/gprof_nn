@@ -1983,7 +1983,7 @@ def get_sensor(sensor, platform=None, date=None):
     sensor = globals()[key]
     if sensor == TMI:
         if date is not None:
-            if date > np.datetime64("2001-08-01T00:00:00"):
+            if date > np.datetime64("2001-08-22T00:00:00"):
                 sensor = TMIPO
             else:
                 sensor = TMIPR
@@ -2085,7 +2085,8 @@ TMIPR = ConstellationScanner(
     "/qdata1/pbrown/dbaseV7/simV7_tmi",
     TMI_GMI_CHANNELS,
     correction=DATA_FOLDER / "corrections_tmipr.nc",
-    modeling_error=TMIPR_MODELING_ERROR
+    modeling_error=TMIPR_MODELING_ERROR,
+    latitude_ratios= DATA_FOLDER / "latitude_ratios_tmipr.npy"
 )
 
 
@@ -2104,18 +2105,62 @@ TMIPO = ConstellationScanner(
     latitude_ratios= DATA_FOLDER / "latitude_ratios_tmipo.npy"
 )
 
-TMIPO_R = ConstellationScanner(
-    "TMIPO",
-    TMI_CHANNELS,
-    TMI_NEDT,
-    TMI_ANGLES,
-    TRMM,
-    TMIPO_VIEWING_GEOMETRY,
-    None,
-    "TMIPO.dbsatTb.??????{day}.??????.sim",
-    "/qdata1/pbrown/dbaseV7/simV7_tmi",
-    TMI_GMI_CHANNELS,
-    latitude_ratios= DATA_FOLDER / "latitude_ratios_tmipo.npy"
+TMI = TMIPR
+
+###############################################################################
+# SSMI
+###############################################################################
+
+SSMI_CHANNELS = [
+    (19.35, "V"),
+    (19.35, "H"),
+    (22.235, "V"),
+    (37.0, "H"),
+    (37.0, "V"),
+    (85.5, "H"),
+    (85.5, "V"),
+]
+
+SSMI_ANGLES = np.array([
+    53.1,
+    53.1,
+    53.1,
+    53.1,
+    53.1,
+    53.1,
+    53.1,
+])
+
+SSMI_NEDT = np.array([
+    0.63,
+ 	0.54,
+ 	0.50,
+ 	0.47,
+ 	0.71,
+ 	0.36,
+ 	0.31,
+])
+
+SSMI_GMI_CHANNELS = [2, 3, 4, 6, 7, 8, 9]
+
+SSMI_VIEWING_GEOMETRY = Conical(
+    altitude=350e3,
+    earth_incidence_angle=53.0,
+    scan_range=130.0,
+    pixels_per_scan=208,
+    scan_offset=13.4e3,
 )
 
-TMI = TMIPR
+SSMI = ConstellationScanner(
+    "SSMI",
+    SSMI_CHANNELS,
+    SSMI_NEDT,
+    SSMI_ANGLES,
+    TRMM,
+    SSMI_VIEWING_GEOMETRY,
+    None,
+    "SSMI.dbsatTb.??????{day}.??????.sim",
+    "/qdata1/pbrown/dbaseV7/simV7_ssmi",
+    SSMI_GMI_CHANNELS
+)
+

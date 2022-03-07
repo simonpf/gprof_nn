@@ -92,6 +92,29 @@ def test_open_sim_file_tmi():
     assert np.all(data.longitude <= 180.0)
 
 
+def test_open_sim_file_ssmi():
+    """
+    Tests reading simulator output file for MHS.
+    """
+    DATA_PATH = Path(__file__).parent / "data"
+    input_file = DATA_PATH / "ssmi" / "sim" / "SSMI.dbsatTb.20190101.027510.sim"
+    sim_file = SimFile(input_file)
+    data = sim_file.to_xarray_dataset()
+
+    assert "surface_precip" in data.variables.keys()
+    assert "latent_heat" in data.variables.keys()
+    assert "snow_water_content" in data.variables.keys()
+    assert "rain_water_content" in data.variables.keys()
+
+    valid = data.surface_precip.data > -9999
+    assert np.all(data.surface_precip[valid] >= 0.0)
+    assert np.all(data.surface_precip[valid] <= 1000.0)
+    assert np.all(data.latitude >= -90.0)
+    assert np.all(data.latitude <= 90.0)
+    assert np.all(data.longitude >= -180.0)
+    assert np.all(data.longitude <= 180.0)
+
+
 def test_match_l1c_gmi():
     """
     Tests reading a GMI L1C file and matching it to data in
@@ -456,8 +479,8 @@ def test_process_l1c_file_mhs():
 
 @pytest.mark.skipif(not HAS_ARCHIVES, reason="Data archives not available.")
 def test_process_sim_file_tmi():
-    #sim_file = DATA_PATH / "tmi" / "sim" / "MHS.dbsatTb.20190101.027510.sim"
-    sim_file = Path(__file__).parent / "data" / "tmi" / "sim" / "TMIPR.dbsatTb.20190101.027510.sim"
+    DATA_PATH = Path(__file__).parent / "data"
+    sim_file = DATA_PATH / "tmi" / "sim" / "TMIPR.dbsatTb.20190101.027510.sim"
     era5_path = "/qdata2/archive/ERA5/"
     data = process_sim_file(sim_file, sensors.TMIPR, "ERA5", era5_path)
 
@@ -520,15 +543,55 @@ def test_process_mrms_file_tmi():
 
 
 @pytest.mark.skipif(not HAS_ARCHIVES, reason="Data archives not available.")
-def test_process_l1c_file_tmi():
+def test_process_sim_file_ssmi():
+    DATA_PATH = Path(__file__).parent / "data"
+    sim_file = DATA_PATH / "ssmi" / "sim" / "SSMI.dbsatTb.20190101.027510.sim"
+    era5_path = "/qdata2/archive/ERA5/"
+    data = process_sim_file(sim_file, sensors.SSMI, "ERA5", era5_path)
+
+    assert np.all(data["source"].data == 0)
+    sp = data["surface_precip"].data
+    st = data["surface_type"].data
+    snow = (st >= 8) * (st <= 11)
+    sea_ice = (st == 2) + (st == 16)
+
+    assert np.all(np.isnan(sp[snow + sea_ice]))
+
+    # Check that GMI TBs are valid
+    tbs = data["brightness_temperatures_gmi"].data
+    valid = tbs >= 0
+    assert np.all(tbs[valid] > 50)
+    assert np.all(tbs[valid] < 500)
+
+    # Check that simulated TBs are valid
+    tbs = data["simulated_brightness_temperatures"].data
+    valid = tbs >= 0
+    assert np.all(tbs[valid] > 50)
+    assert np.all(tbs[valid] < 500)
+
+    # Check that TB biases are valid
+    tbs = data["brightness_temperature_biases"].data
+    valid = tbs >= 0
+    assert np.all(tbs[valid] > -200)
+    assert np.all(tbs[valid] < 200)
+
+    # Check that surface precip values are valid
+    sp = data["surface_precip"].data
+    valid = sp >= 0
+    assert np.all(sp[valid] < 400)
+
+
+@pytest.mark.skipif(not HAS_ARCHIVES, reason="Data archives not available.")
+def test_process_l1c_file_ssmi():
+    DATA_PATH = Path(__file__).parent / "data"
     l1c_file = (
         DATA_PATH /
-        "mhs" /
+        "ssmi" /
         "l1c" /
-        "1C.NOAA19.MHS.XCAL2016-V.20190101-S013203-E031403.051010.V05A.HDF5"
+        "1C.F13.SSMI.XCAL2018-V.20030101-S000800-E014950.040106.V06A.HDF5"
     )
     era5_path = "/qdata2/archive/ERA5/"
-    data = process_l1c_file(l1c_file, sensors.MHS, "ERA5", era5_path)
+    data = process_l1c_file(l1c_file, sensors.SSMI, "ERA5", era5_path)
 
     assert np.all(data["source"].data == 2)
 

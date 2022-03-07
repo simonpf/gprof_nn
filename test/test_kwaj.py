@@ -4,6 +4,7 @@ Tests for gprof_nn.data.kwaj module.
 from pathlib import Path
 
 import numpy as np
+import xarray as xr
 
 from gprof_nn.data.kwaj import RadarFile, get_overpasses
 
@@ -40,11 +41,9 @@ def test_radar_file_open_files():
     filename = DATA_PATH / "kwaj_data.tar.gz"
     radar_file = RadarFile(filename)
 
-    print(radar_file.times)
-    date = np.datetime64("2018-06-20T00:15:00")
-    data = radar_file.open_files(date)
-
-    print(data)
+    start = np.datetime64("2018-06-20T00:15:00")
+    end = np.datetime64("2018-06-20T00:20:00")
+    data = radar_file.open_files(start, end)
 
     assert "RR" in data.variables
     assert "RC" in data.variables
@@ -59,6 +58,5 @@ def test_radar_file_open_files():
 
 
 def test_get_overpasses_gmi():
-    
     overpasses = get_overpasses("gmi")
-    print(overpasses)
+    assert len(overpasses) > 0

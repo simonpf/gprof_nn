@@ -5,9 +5,12 @@ here = path.abspath(path.dirname(__file__))
 with open(path.join(here, "README.md"), encoding="utf-8") as f:
     long_description = f.read()
 
+version = {}
+exec(open("gprof_nn/version.py", "r").read(), version)
+
 setup(
     name="gprof_nn",
-    version="0.0.2",
+    version=version["__version__"],
     description="Neural network version of Goddard Profiling Algorithm (GPROF)",
     long_description=long_description,
     long_description_content_type="text/markdown",
