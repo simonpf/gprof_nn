@@ -103,7 +103,8 @@ LIMITS = {
     "airmass_type": (0, 4),
     "earth_incidence_angle": (-90, 90),
     "latitude": (-90, 90),
-    "longitude": (-180, 180)
+    "longitude": (-180, 180),
+    "scan_time": (None, None)
 }
 
 GPROF_NN_DATA_PATH = Path(__file__).parent.parent / "data"

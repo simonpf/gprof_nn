@@ -1040,10 +1040,16 @@ class TrainingDataStatistics(Statistic):
         self.t2m_bins = np.linspace(239.5, 339.5, 101)
         self.tcwv = np.zeros((18, 100), dtype=np.float32)
         self.tcwv_bins = np.linspace(-0.5, 99.5, 101)
-        self.lat_bins = np.linspace(-90, 90, 181)
+
         self.st = np.zeros(18, dtype=np.float32)
         self.at = np.zeros(4, dtype=np.float32)
+
+        self.lat_bins = np.linspace(-90, 90, 181)
         self.lats = np.zeros(180, dtype=np.float32)
+
+        self.time_bins = 60.0 * (np.linspace(0, 24, 25) - 0.5)
+        self.local_time = np.zeros(24, dtype=np.float32)
+        self.lat_local_time = np.zeros((180, 24), dtype=np.float32)
 
         self.sums_tcwv = {}
         self.counts_tcwv = {}
@@ -1111,7 +1117,7 @@ class TrainingDataStatistics(Statistic):
         if self.kind.upper() == "1D":
             dataset = GPROF_NN_1D_Dataset(
                 filename,
-                targets=ALL_TARGETS + ["latitude"],
+                targets=ALL_TARGETS + ["latitude", "longitude", "scan_time"],
                 normalize=False,
                 shuffle=False,
                 augment=False,
@@ -1121,7 +1127,7 @@ class TrainingDataStatistics(Statistic):
         elif self.kind.upper() == "3D":
             dataset = GPROF_NN_3D_Dataset(
                 filename,
-                targets=ALL_TARGETS + ["latitude"],
+                targets=ALL_TARGETS + ["latitude", "longitude", "scan_time"],
                 normalize=False,
                 shuffle=False,
                 augment=False,
@@ -1208,9 +1214,25 @@ class TrainingDataStatistics(Statistic):
         bins = np.arange(-1, 4) + 0.5
         counts, _ = np.histogram(at, bins=bins)
         self.at += counts
+
         lats = dataset["latitude"]
         counts, _ = np.histogram(lats, bins=self.lat_bins)
         self.lats += counts
+
+        scan_time = dataset["scan_time"].astype("datetime64[ns]")
+        lons = dataset["longitude"].data
+        local_time = (scan_time +
+                      (lons / 360 * 24 * 60 * 60).astype("timedelta64[s]"))
+        minutes = local_time.dt.hour * 60 + local_time.dt.minute.data
+        counts, _ = np.histogram(minutes, bins=self.time_bins)
+        self.local_time += counts
+
+        counts, _, _ = np.histogram2d(
+            lats.data.ravel(),
+            minutes.data.ravel(),
+            bins=(self.lat_bins, self.time_bins)
+        )
+        self.lat_local_time += counts
 
     def merge(self, other):
         """
@@ -1226,6 +1248,8 @@ class TrainingDataStatistics(Statistic):
             self.st = other.st
             self.at = other.at
             self.lats = other.lats
+            self.local_time = other.local_time
+            self.lat_local_time = other.lat_local_time
             self.sums_tcwv = other.sums_tcwv
             self.counts_tcwv = other.counts_tcwv
 
@@ -1241,6 +1265,8 @@ class TrainingDataStatistics(Statistic):
             self.st += other.st
             self.at += other.at
             self.lats += other.lats
+            self.local_time += other.local_time
+            self.lat_local_time += other.lat_local_time
 
     def save(self, destination):
         """
@@ -1317,6 +1343,8 @@ class TrainingDataStatistics(Statistic):
         data["surface_type"] = ("surface_type_bins",), self.st
         data["airmass_type"] = ("airmass_type_bins"), self.st
         data["latitudes"] = ("latitude_bins"), self.lats
+        data["local_time"] = ("time_bins"), self.local_time
+        data["lat_local_time"] = ("latitude_bins", "time_bins"), self.lat_local_time
 
         data = xr.Dataset(data)
 
@@ -1598,6 +1626,7 @@ class ObservationStatistics(Statistic):
         self.tbs = None
         self.tb_bins = np.linspace(0, 400, 401)
         self.lat_bins = np.linspace(-90, 90, 181)
+        self.time_bins = (np.linspace(0, 24, 25) - 0.5) * 60
 
         self.t2m = np.zeros((18, 200), dtype=np.float32)
         self.t2m_bins = np.linspace(240, 330, 201)
@@ -1606,6 +1635,8 @@ class ObservationStatistics(Statistic):
         self.st = np.zeros(18, dtype=np.float32)
         self.at = np.zeros(4, dtype=np.float32)
         self.lats = np.zeros(180, dtype=np.float32)
+        self.local_time = np.zeros(24, dtype=np.float32)
+        self.lat_local_time = np.zeros((180, 24), dtype=np.float32)
 
     def _initialize_data(self, sensor, data):
         n_chans = sensor.n_chans
@@ -1706,6 +1737,21 @@ class ObservationStatistics(Statistic):
         counts, _ = np.histogram(lats, bins=self.lat_bins)
         self.lats += counts
 
+        scan_time = dataset["scan_time"]
+        lons = dataset["longitude"]
+        local_time = (scan_time +
+                      (lons / 360 * 24 * 60 * 60).astype("timedelta64[s]"))
+        minutes = local_time.dt.hour * 60 + local_time.dt.minute.data
+        counts, _ = np.histogram(minutes, bins=self.time_bins)
+        self.local_time += counts
+
+        counts, _, _ = np.histogram2d(
+            lats.ravel(),
+            minutes.data.ravel(),
+            bins=(self.lat_bins, self.time_bins)
+        )
+        self.lat_local_time += counts
+
         dataset.close()
         del dataset
 
@@ -1722,6 +1768,8 @@ class ObservationStatistics(Statistic):
             self.st = other.st
             self.at = other.at
             self.lats = other.lats
+            self.local_time = other.local_time
+            self.lat_local_time = other.lat_local_time
         elif other.tbs is not None:
             self.tbs += other.tbs
             self.tbs_tcwv += other.tbs_tcwv
@@ -1730,6 +1778,8 @@ class ObservationStatistics(Statistic):
             self.st += other.st
             self.at += other.at
             self.lats += other.lats
+            self.local_time += other.local_time
+            self.lat_local_time += other.lat_local_time
 
     def save(self, destination):
         """
@@ -1790,6 +1840,8 @@ class ObservationStatistics(Statistic):
         data["surface_type"] = ("surface_type_bins",), self.st
         data["airmass_type"] = ("airmass_type_bins"), self.st
         data["latitudes"] = ("latitude_bins"), self.lats
+        data["local_time"] = ("time_bins"), self.local_time
+        data["lat_local_time"] = ("latitude_bins", "time_bins"), self.lat_local_time
 
         data = xr.Dataset(data)
 
