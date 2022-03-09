@@ -1137,7 +1137,6 @@ class ConstellationScanner(ConicalScanner):
             r = rng.random()
             if r > 0.5:
                 x = np.flip(x, -2)
-                x[self.n_chans] *= -1.0
                 for k in targets:
                     y[k] = np.flip(y[k], -2)
 
