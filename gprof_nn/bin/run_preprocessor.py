@@ -49,9 +49,9 @@ def add_parser(subparsers):
     )
     parser.add_argument(
         "configuration",
-        metavar="sensor",
+        metavar="config.",
         type=str,
-        help="The sensor corresponding to the data.",
+        help="The configuration: ERA5 or GANAL.",
     )
     parser.add_argument(
         "input",
