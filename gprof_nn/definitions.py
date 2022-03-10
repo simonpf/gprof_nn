@@ -103,7 +103,8 @@ LIMITS = {
     "airmass_type": (0, 4),
     "earth_incidence_angle": (-90, 90),
     "latitude": (-90, 90),
-    "longitude": (-180, 180)
+    "longitude": (-180, 180),
+    "scan_time": (None, None)
 }
 
 GPROF_NN_DATA_PATH = Path(__file__).parent.parent / "data"
@@ -137,3 +138,8 @@ UNITS = {
     "cloud_water_content": "$\si{\gram \per \meter \cubed}$",
     "latent_heat": "$\si{\kelvin \per \hour}$"
 }
+
+
+# Bins for calculating observation and training statistics
+LAT_BINS = np.linspace(-90, 90, 181)
+TIME_BINS = 60 * (np.linspace(0, 24, 25) - 0.5)

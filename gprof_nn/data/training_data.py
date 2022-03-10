@@ -22,7 +22,7 @@ from quantnn.normalizer import MinMaxNormalizer
 
 from gprof_nn import sensors
 from gprof_nn.data.utils import load_variable, decompress_scene, remap_scene
-from gprof_nn.definitions import MASKED_OUTPUT
+from gprof_nn.definitions import MASKED_OUTPUT, LAT_BINS, TIME_BINS
 from gprof_nn.data.preprocessor import PreprocessorFile
 from gprof_nn.augmentation import get_transformation_coordinates
 
@@ -51,17 +51,18 @@ _INPUT_DIMENSIONS = {
 }
 
 
-def calculate_resampling_indices(latitudes, sensor):
+def calculate_resampling_indices(latitudes, time, sensor):
     """
-    Calculate scene indices based on latitude distributions.
+    Calculate scene indices based on latitude and local times.
 
     Args:
         latitudes: Central latitudes of the scenes.
-        sensor: The sensor object to whose latitude distribution
-            to resample the scenes.
+        local_time: Time of day in minuts for each sample.
+        sensor: The sensor object to whose latitude and local
+            time sampling to to resample the scenes.
 
     Return:
-        None is the provided sensors has no latitude ratios
+        None if the provided sensor has no latitude ratios
         attribute. Otherwise an array of scene indices that
         resamples the scenes to match the latitude distribution
         of the sensor.
@@ -70,8 +71,13 @@ def calculate_resampling_indices(latitudes, sensor):
     if latitude_ratios is None:
         return None
 
-    indices = np.digitize(latitudes, np.linspace(-90, 90, 181)[1:-1])
-    weights = latitude_ratios[indices]
+    lat_indices = np.digitize(latitudes, LAT_BINS[1:-1])
+    time_indices = np.digitize(time, TIME_BINS[1:-1])
+
+    if latitude_ratios.ndim == 1:
+        weights = latitude_ratios[lat_indices]
+    else:
+        weights = latitude_ratios[lat_indices, time_indices]
     indices = np.arange(latitudes.size)
     probs = weights / weights.sum()
     return np.random.choice(indices, size=latitudes.size, p=probs)
@@ -539,7 +545,12 @@ class GPROF_NN_1D_Dataset(Dataset1DBase):
 
 
         latitudes = self.dataset.latitude.mean(("scans", "pixels")).data
-        indices = calculate_resampling_indices(latitudes, self.sensor)
+        longitudes = self.dataset.longitude.mean(("scans", "pixels")).data
+        scan_time = self.dataset.scan_time.mean(("scans")).data
+        local_time = (
+            scan_time + (longitudes / 360 * 24 * 60 * 60).astype("timedelta64[s]")
+        )
+        indices = calculate_resampling_indices(latitudes, local_time, self.sensor)
         if indices is None:
             kwargs = {}
         else:
@@ -810,7 +821,12 @@ class GPROF_NN_3D_Dataset:
             width, height = input_dimensions
 
         latitudes = self.dataset.latitude.mean(("scans", "pixels")).data
-        indices = calculate_resampling_indices(latitudes, self.sensor)
+        longitudes = self.dataset.longitude.mean(("scans", "pixels")).data
+        scan_time = self.dataset.scan_time.mean(("scans")).data
+        local_time = (
+            scan_time + (longitudes / 360 * 24 * 60 * 60).astype("timedelta64[s]")
+        )
+        indices = calculate_resampling_indices(latitudes, local_time, self.sensor)
         if indices is None:
             kwargs = {}
         else:

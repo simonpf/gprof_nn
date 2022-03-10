@@ -188,6 +188,7 @@ class Sensor(ABC):
         self._n_angles = n_angles
         self.platform = platform
         self.viewing_geometry = viewing_geometry
+        self.missing_channels = None
 
         # Bin file types
         self._bin_file_header = types.get_bin_file_header(n_chans, n_angles, kind)
@@ -981,11 +982,19 @@ class ConstellationScanner(ConicalScanner):
             if self.correction is not None:
                 tbs = self.correction(self, st, None, tcwv, tbs, augment=augment)
 
+            # Add thermal noise to simulated observations.
             if augment and self.nedt is not None:
                 noise = rng.normal(size=tbs.shape)
                 for i in range(noise.shape[-1]):
                     noise[..., i] *= self.nedt[i]
                 tbs = tbs + noise
+
+            # Randomly set missing channels to missing.
+            if self.missing_channels is not None:
+                for channel in self.missing_channels:
+                    tbs_c = tbs[..., channel]
+                    p = rng.uniform(size=tbs_c.shape)
+                    tbs_c[p > 0.5] = np.nan
 
             st = self.load_surface_type(scene, mask=mask)
             t2m = t2m[..., np.newaxis]
@@ -1079,6 +1088,8 @@ class ConstellationScanner(ConicalScanner):
                 for i, n in enumerate(noise):
                     tbs[..., i] += self.modeling_error[i] * n
 
+            # Simulate missing obs at edge of swath.
+            # This may not be not necessary for concical scanners.
             r = rng.random()
             if r > 0.80:
                 n_p = rng.integers(6, 16)
@@ -1087,6 +1098,13 @@ class ConstellationScanner(ConicalScanner):
             if r > 0.80:
                 n_p = rng.integers(6, 16)
                 tbs[:, -n_p:] = np.nan
+
+            # Randomly set missing channels to missing.
+            if self.missing_channels is not None:
+                for channel in self.missing_channels:
+                    p = rng.uniform()
+                    if p > 0.5:
+                        tbs[..., channel] = np.nan
 
         tcwv = tcwv[np.newaxis]
         t2m = t2m[np.newaxis]
@@ -1119,7 +1137,6 @@ class ConstellationScanner(ConicalScanner):
             r = rng.random()
             if r > 0.5:
                 x = np.flip(x, -2)
-                x[self.n_chans] *= -1.0
                 for k in targets:
                     y[k] = np.flip(y[k], -2)
 
@@ -1171,16 +1188,18 @@ class ConstellationScanner(ConicalScanner):
 
         tbs = self.load_brightness_temperatures(scene, None)
         tbs = tbs[i_start:i_end, j_start:j_end]
+
+        # Randomly set missing channels to missing.
+        if augment:
+            if self.missing_channels is not None:
+                for channel in self.missing_channels:
+                    p = rng.uniform()
+                    if p > 0.5:
+                        tbs[..., channel] = np.nan
+
+        # Move channel to first dim.
         tbs = np.transpose(tbs, (2, 0, 1))
 
-        r = rng.random()
-        if r > 0.80:
-            n_p = rng.integers(6, 16)
-            tbs[:, :n_p] = np.nan
-        r = rng.random()
-        if r > 0.80:
-            n_p = rng.integers(6, 16)
-            tbs[:, -n_p:] = np.nan
 
         t2m = self.load_two_meter_temperature(scene)
         t2m = t2m[np.newaxis, i_start:i_end, j_start:j_end]
@@ -2144,11 +2163,11 @@ SSMI_NEDT = np.array([
 SSMI_GMI_CHANNELS = [2, 3, 4, 6, 7, 8, 9]
 
 SSMI_VIEWING_GEOMETRY = Conical(
-    altitude=350e3,
+    altitude=833e3,
     earth_incidence_angle=53.0,
-    scan_range=130.0,
-    pixels_per_scan=208,
-    scan_offset=13.4e3,
+    scan_range=102.4,
+    pixels_per_scan=128,
+    scan_offset=12.5e3,
 )
 
 SSMI = ConstellationScanner(
@@ -2164,3 +2183,16 @@ SSMI = ConstellationScanner(
     SSMI_GMI_CHANNELS
 )
 
+SSMI_F08 = ConstellationScanner(
+    "SSMI",
+    SSMI_CHANNELS,
+    SSMI_NEDT,
+    SSMI_ANGLES,
+    TRMM,
+    SSMI_VIEWING_GEOMETRY,
+    None,
+    "SSMI.dbsatTb.??????{day}.??????.sim",
+    "/qdata1/pbrown/dbaseV7/simV7_ssmi",
+    SSMI_GMI_CHANNELS
+)
+SSMI_F08.missing_channels = [5, 6]

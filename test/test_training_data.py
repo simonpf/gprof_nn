@@ -27,6 +27,9 @@ from gprof_nn.data.training_data import (
 
 DATA_PATH = get_test_data_path()
 
+######################################################################
+# GMI - 1D
+######################################################################
 
 def test_to_xarray_dataset_1d_gmi():
     """
@@ -100,93 +103,6 @@ def test_to_xarray_dataset_1d_gmi():
     at = data.airmass_type.data
     inds, at_ref = np.where(x[:, -4:])
     assert np.all(np.isclose(at[inds], at_ref))
-
-
-def test_to_xarray_dataset_1d_mhs():
-    """
-    Ensure that converting training data to 'xarray.Dataset' yield same
-    Tbs as the ones found in the first batch of the training data when
-    data is not shuffled.
-    """
-    input_file = DATA_PATH / "mhs" / "gprof_nn_mhs_era5.nc.gz"
-    dataset = GPROF_NN_1D_Dataset(
-        input_file,
-        batch_size=64,
-        normalize=False,
-        shuffle=False,
-        targets=["surface_precip", "rain_water_content"]
-    )
-
-    #
-    # Conversion using datasets 'x' attribute.
-    #
-
-    data = dataset.to_xarray_dataset()
-    x, y = dataset[0]
-    x = x.numpy()
-
-    t2m = data.two_meter_temperature.data[:x.shape[0]]
-    t2m_ref = x[:, 6]
-    assert np.all(np.isclose(t2m, t2m_ref))
-
-    tcwv = data.total_column_water_vapor.data[:x.shape[0]]
-    tcwv_ref = x[:, 7]
-    assert np.all(np.isclose(tcwv, tcwv_ref))
-
-    st = data.surface_type.data[:x.shape[0]]
-    inds, st_ref = np.where(x[:, -22:-4])
-    assert np.all(np.isclose(st[inds], st_ref + 1))
-
-    at = data.airmass_type.data[:x.shape[0]]
-    inds, at_ref = np.where(x[:, -4:])
-    assert np.all(np.isclose(at[inds], at_ref))
-
-
-def test_to_xarray_dataset_3d():
-    """
-    Ensure that converting training data to 'xarray.Dataset' yield same
-    Tbs as the ones found in the first batch of the training data when
-    data is not shuffled.
-    """
-    input_file = DATA_PATH / "gmi" / "gprof_nn_gmi_era5.nc.gz"
-    dataset = GPROF_NN_3D_Dataset(
-        input_file,
-        batch_size=32,
-        normalize=False,
-        shuffle=False,
-        targets=["surface_precip", "rain_water_content"]
-    )
-    data = dataset.to_xarray_dataset()
-    x, y = dataset[0]
-    x = x.numpy()
-
-    tbs = data.brightness_temperatures.data
-    tbs_ref = x[:, :15]
-    tbs_ref = np.transpose(tbs_ref, (0, 2, 3, 1))
-    valid = np.isfinite(tbs_ref)
-    assert np.all(np.isclose(tbs[valid], tbs_ref[valid]))
-
-    t2m = data.two_meter_temperature.data
-    t2m_ref = x[:, 15]
-    assert np.all(np.isclose(t2m, t2m_ref))
-
-    tcwv = data.total_column_water_vapor.data
-    tcwv_ref = x[:, 16]
-    assert np.all(np.isclose(tcwv, tcwv_ref))
-
-    st = data.surface_type.data
-    st_ref = np.zeros(t2m.shape, dtype=np.int32)
-    for i in range(18):
-        mask = x[:, -22 + i] == 1
-        st_ref[mask] = i + 1
-    assert np.all(np.isclose(st, st_ref))
-
-    at = data.airmass_type.data
-    at_ref = np.zeros(t2m.shape, dtype=np.int32)
-    for i in range(4):
-        mask = x[:, -4 + i] == 1
-        at_ref[mask] = i
-    assert np.all(np.isclose(at, at_ref))
 
 
 def test_permutation_gmi():
@@ -317,7 +233,10 @@ def test_gprof_1d_dataset_multi_target_gmi():
     input_file = DATA_PATH / "gmi" / "gprof_nn_gmi_era5.nc.gz"
     dataset = GPROF_NN_1D_Dataset(
         input_file,
-        targets=["surface_precip", "latent_heat", "rain_water_content"],
+        targets=["surface_precip",
+                 "latent_heat",
+                 "rain_water_content",
+                 "scan_time"],
         batch_size=1,
         transform_zeros=False,
     )
@@ -342,6 +261,28 @@ def test_gprof_1d_dataset_multi_target_gmi():
     assert np.all(np.isclose(x_mean, x_mean_ref, atol=1e-3))
     for k in y_mean_ref:
         assert np.all(np.isclose(y_mean[k], y_mean_ref[k], rtol=1e-3))
+
+
+def test_profile_variables():
+    """
+    Test loading of profile variables.
+    """
+    path = Path(__file__).parent
+    input_file = path / "data" / "gmi" / "gprof_nn_gmi_era5.nc"
+
+    PROFILE_TARGETS = [
+        "rain_water_content",
+        "snow_water_content",
+        "cloud_water_content",
+        "latent_heat",
+    ]
+    dataset = GPROF_NN_1D_Dataset(input_file, targets=PROFILE_TARGETS, batch_size=1)
+    x, y = dataset[0]
+
+
+######################################################################
+# MHS - 1D
+######################################################################
 
 
 def test_gprof_1d_dataset_mhs():
@@ -461,6 +402,148 @@ def test_gprof_1d_dataset_pretraining_mhs():
     assert x.shape[1] == 5 + 3 + 18 + 4
 
 
+def test_to_xarray_dataset_1d_mhs():
+    """
+    Ensure that converting training data to 'xarray.Dataset' yield same
+    Tbs as the ones found in the first batch of the training data when
+    data is not shuffled.
+    """
+    input_file = DATA_PATH / "mhs" / "gprof_nn_mhs_era5.nc.gz"
+    dataset = GPROF_NN_1D_Dataset(
+        input_file,
+        batch_size=64,
+        normalize=False,
+        shuffle=False,
+        targets=["surface_precip", "rain_water_content"]
+    )
+
+    #
+    # Conversion using datasets 'x' attribute.
+    #
+
+    data = dataset.to_xarray_dataset()
+    x, y = dataset[0]
+    x = x.numpy()
+
+    t2m = data.two_meter_temperature.data[:x.shape[0]]
+    t2m_ref = x[:, 6]
+    assert np.all(np.isclose(t2m, t2m_ref))
+
+    tcwv = data.total_column_water_vapor.data[:x.shape[0]]
+    tcwv_ref = x[:, 7]
+    assert np.all(np.isclose(tcwv, tcwv_ref))
+
+    st = data.surface_type.data[:x.shape[0]]
+    inds, st_ref = np.where(x[:, -22:-4])
+    assert np.all(np.isclose(st[inds], st_ref + 1))
+
+    at = data.airmass_type.data[:x.shape[0]]
+    inds, at_ref = np.where(x[:, -4:])
+    assert np.all(np.isclose(at[inds], at_ref))
+
+
+######################################################################
+# TMI - 1D
+######################################################################
+
+
+def test_gprof_1d_dataset_tmi():
+    """
+    Ensure that iterating over single-pixel dataset conserves
+    statistics.
+    """
+    DATA_PATH = Path(__file__).parent / "data"
+    input_file = DATA_PATH / "tmi" / "gprof_nn_tmi_era5.nc.gz"
+    dataset = GPROF_NN_1D_Dataset(
+        input_file,
+        batch_size=1,
+        augment=False,
+        targets=["surface_precip"]
+    )
+
+    xs = []
+    ys = []
+
+    x_mean_ref = dataset.x.sum(axis=0)
+    y_mean_ref = dataset.y["surface_precip"].sum(axis=0)
+
+    for x, y in dataset:
+        xs.append(x)
+        ys.append(y["surface_precip"])
+
+    xs = torch.cat(xs, dim=0)
+    ys = torch.cat(ys, dim=0)
+
+    x_mean = xs.sum(dim=0).detach().numpy()
+    y_mean = ys.sum(dim=0).detach().numpy()
+
+    assert np.all(np.isclose(x_mean, x_mean_ref, rtol=1e-3))
+    assert np.all(np.isclose(y_mean, y_mean_ref, rtol=1e-3))
+
+    assert np.all(np.isclose(x[:, 11:29].sum(-1), 1.0))
+
+
+def test_gprof_1d_dataset_multi_target_tmi():
+    """
+    Ensure that iterating over single-pixel dataset conserves
+    statistics.
+    """
+    DATA_PATH = Path(__file__).parent / "data"
+    input_file = DATA_PATH / "tmi" / "gprof_nn_tmi_era5.nc.gz"
+    dataset = GPROF_NN_1D_Dataset(
+        input_file,
+        targets=["surface_precip", "latent_heat", "rain_water_content"],
+        batch_size=1,
+        transform_zeros=False,
+    )
+
+    xs = []
+    ys = {}
+
+    x_mean_ref = np.sum(dataset.x, axis=0)
+    y_mean_ref = {k: np.sum(dataset.y[k], axis=0) for k in dataset.y}
+
+    for x, y in dataset:
+        xs.append(x)
+        for k in y:
+            ys.setdefault(k, []).append(y[k])
+
+    xs = torch.cat(xs, dim=0)
+    ys = {k: torch.cat(ys[k], dim=0) for k in ys}
+
+    x_mean = np.sum(xs.detach().numpy(), axis=0)
+    y_mean = {k: np.sum(ys[k].detach().numpy(), axis=0) for k in ys}
+
+    assert np.all(np.isclose(x_mean, x_mean_ref, atol=1e-3))
+    for k in y_mean_ref:
+        assert np.all(np.isclose(y_mean[k], y_mean_ref[k], rtol=1e-3))
+
+
+def test_gprof_1d_dataset_input_tmi():
+    """
+    Ensure that input variables have realistic values.
+    """
+    DATA_PATH = Path(__file__).parent / "data"
+    input_file = DATA_PATH / "tmi" / "gprof_nn_tmi_era5.nc.gz"
+    dataset = GPROF_NN_1D_Dataset(
+        input_file, batch_size=1, normalize=False, targets=["surface_precip"]
+    )
+    x, _ = dataset[0]
+    x = x.numpy()
+
+    tbs = x[:, :9]
+    tbs = tbs[np.isfinite(tbs)]
+    assert np.all((tbs > 30) * (tbs < 400))
+
+    t2m = x[:, 9]
+    t2m = t2m[np.isfinite(t2m)]
+    assert np.all((t2m > 180) * (t2m < 350))
+
+    tcwv = x[:, 10]
+    tcwv = tcwv[np.isfinite(tcwv)]
+    assert np.all((tcwv > 0) * (tcwv < 100))
+
+
 def test_gprof_1d_dataset_pretraining_tmi():
     """
     Test that the correct inputs are loaded when loading a pre-training dataset
@@ -477,23 +560,135 @@ def test_gprof_1d_dataset_pretraining_tmi():
 
     assert x.shape[1] == 9 + 2 + 18 + 4
 
+######################################################################
+# SSMI - 1D
+######################################################################
 
-def test_profile_variables():
+
+def test_gprof_1d_dataset_ssmi():
     """
-    Test loading of profile variables.
+    Ensure that iterating over single-pixel dataset conserves
+    statistics.
     """
-    path = Path(__file__).parent
-    input_file = path / "data" / "gmi" / "gprof_nn_gmi_era5.nc"
+    DATA_PATH = Path(__file__).parent / "data"
+    input_file = DATA_PATH / "ssmi" / "gprof_nn_ssmi_era5.nc.gz"
+    dataset = GPROF_NN_1D_Dataset(
+        input_file,
+        batch_size=1,
+        augment=False,
+        targets=["surface_precip"]
+    )
 
-    PROFILE_TARGETS = [
-        "rain_water_content",
-        "snow_water_content",
-        "cloud_water_content",
-        "latent_heat",
-    ]
-    dataset = GPROF_NN_1D_Dataset(input_file, targets=PROFILE_TARGETS, batch_size=1)
-    x, y = dataset[0]
+    xs = []
+    ys = []
 
+    x_mean_ref = dataset.x.sum(axis=0)
+    y_mean_ref = dataset.y["surface_precip"].sum(axis=0)
+
+    for x, y in dataset:
+        xs.append(x)
+        ys.append(y["surface_precip"])
+
+    xs = torch.cat(xs, dim=0)
+    ys = torch.cat(ys, dim=0)
+
+    x_mean = xs.sum(dim=0).detach().numpy()
+    y_mean = ys.sum(dim=0).detach().numpy()
+
+    assert np.all(np.isclose(x_mean, x_mean_ref, rtol=1e-3))
+    assert np.all(np.isclose(y_mean, y_mean_ref, rtol=1e-3))
+
+    assert np.all(np.isclose(x[:, 11:29].sum(-1), 1.0))
+
+
+def test_gprof_1d_dataset_multi_target_ssmi():
+    """
+    Ensure that iterating over single-pixel dataset conserves
+    statistics.
+    """
+    DATA_PATH = Path(__file__).parent / "data"
+    input_file = DATA_PATH / "ssmi" / "gprof_nn_ssmi_era5.nc.gz"
+    dataset = GPROF_NN_1D_Dataset(
+        input_file,
+        targets=["surface_precip", "latent_heat", "rain_water_content"],
+        batch_size=1,
+        transform_zeros=False,
+    )
+
+    xs = []
+    ys = {}
+
+    x_mean_ref = np.mean(dataset.x, axis=0)
+    y_mean_ref = {k: np.mean(dataset.y[k], axis=0) for k in dataset.y}
+
+    for x, y in dataset:
+        xs.append(x)
+        for k in y:
+            ys.setdefault(k, []).append(y[k])
+
+    xs = torch.cat(xs, dim=0)
+    ys = {k: torch.cat(ys[k], dim=0) for k in ys}
+
+    x_mean = np.mean(xs.detach().numpy(), axis=0)
+    y_mean = {k: np.mean(ys[k].detach().numpy(), axis=0) for k in ys}
+
+    print(x_mean - x_mean_ref)
+
+    assert np.all(np.isclose(x_mean, x_mean_ref, atol=1e-3))
+    for k in y_mean_ref:
+        assert np.all(np.isclose(y_mean[k], y_mean_ref[k], rtol=1e-3))
+
+
+def test_gprof_1d_dataset_input_ssmi():
+    """
+    Ensure that input variables have realistic values.
+    """
+    DATA_PATH = Path(__file__).parent / "data"
+    input_file = DATA_PATH / "ssmi" / "gprof_nn_ssmi_era5.nc.gz"
+    dataset = GPROF_NN_1D_Dataset(
+        input_file, batch_size=1, normalize=False, targets=["surface_precip"],
+        sensor=sensors.SSMI_F08
+    )
+    xs = [dataset[i][0] for i in range(len(dataset))]
+    x = torch.cat(xs, 0)
+    x, _ = dataset[0]
+    x = x.numpy()
+
+    tbs = x[:, :7]
+    # Some inputs should be missing
+    assert np.any(np.isnan(tbs[:, 5:]))
+    tbs = tbs[np.isfinite(tbs)]
+    assert np.all((tbs > 30) * (tbs < 400))
+
+    t2m = x[:, 7]
+    t2m = t2m[np.isfinite(t2m)]
+    assert np.all((t2m > 180) * (t2m < 350))
+
+    tcwv = x[:, 8]
+    tcwv = tcwv[np.isfinite(tcwv)]
+    assert np.all((tcwv > 0) * (tcwv < 100))
+
+
+def test_gprof_1d_dataset_pretraining_ssmi():
+    """
+    Test that the correct inputs are loaded when loading a pre-training dataset
+    for SSMI.
+    """
+    input_file = DATA_PATH / "gmi" / "gprof_nn_gmi_era5.nc.gz"
+    dataset = GPROF_NN_1D_Dataset(
+        input_file, batch_size=1, normalize=False, targets=["surface_precip"],
+        sensor=sensors.SSMI
+    )
+
+    x, _ = dataset[0]
+    x = x.numpy()
+
+    assert x.shape[1] == 7 + 2 + 18 + 4
+
+
+######################################################################
+# GMI - 3D
+######################################################################
 
 def test_gprof_3d_dataset_input_gmi():
     """
@@ -594,6 +789,53 @@ def test_gprof_3d_dataset_profiles():
         assert np.all(np.isclose(y_mean[k], y_mean_ref[k], atol=1e-3))
 
 
+def test_to_xarray_dataset_3d():
+    """
+    Ensure that converting training data to 'xarray.Dataset' yield same
+    Tbs as the ones found in the first batch of the training data when
+    data is not shuffled.
+    """
+    input_file = DATA_PATH / "gmi" / "gprof_nn_gmi_era5.nc.gz"
+    dataset = GPROF_NN_3D_Dataset(
+        input_file,
+        batch_size=32,
+        normalize=False,
+        shuffle=False,
+        targets=["surface_precip", "rain_water_content"]
+    )
+    data = dataset.to_xarray_dataset()
+    x, y = dataset[0]
+    x = x.numpy()
+
+    tbs = data.brightness_temperatures.data
+    tbs_ref = x[:, :15]
+    tbs_ref = np.transpose(tbs_ref, (0, 2, 3, 1))
+    valid = np.isfinite(tbs_ref)
+    assert np.all(np.isclose(tbs[valid], tbs_ref[valid]))
+
+    t2m = data.two_meter_temperature.data
+    t2m_ref = x[:, 15]
+    assert np.all(np.isclose(t2m, t2m_ref))
+
+    tcwv = data.total_column_water_vapor.data
+    tcwv_ref = x[:, 16]
+    assert np.all(np.isclose(tcwv, tcwv_ref))
+
+    st = data.surface_type.data
+    st_ref = np.zeros(t2m.shape, dtype=np.int32)
+    for i in range(18):
+        mask = x[:, -22 + i] == 1
+        st_ref[mask] = i + 1
+    assert np.all(np.isclose(st, st_ref))
+
+    at = data.airmass_type.data
+    at_ref = np.zeros(t2m.shape, dtype=np.int32)
+    for i in range(4):
+        mask = x[:, -4 + i] == 1
+        at_ref[mask] = i
+    assert np.all(np.isclose(at, at_ref))
+
+
 def test_gprof_3d_dataset_input_mhs():
     """
     Ensure that input variables have realistic values.
@@ -627,6 +869,68 @@ def test_gprof_3d_dataset_mhs():
     Test loading of 3D training data for MHS sensor.
     """
     input_file = DATA_PATH / "mhs" / "gprof_nn_mhs_era5.nc"
+    dataset = GPROF_NN_3D_Dataset(
+        input_file, batch_size=1, augment=False, transform_zeros=True
+    )
+
+    xs = []
+    ys = []
+
+    x_mean_ref = dataset.x.sum(axis=0)
+    y_mean_ref = dataset.y["surface_precip"].sum(axis=0)
+
+    for x, y in dataset:
+        xs.append(x)
+        ys.append(y["surface_precip"])
+
+    xs = torch.cat(xs, dim=0)
+    ys = torch.cat(ys, dim=0)
+
+    x_mean = xs.sum(dim=0).detach().numpy()
+    y_mean = ys.sum(dim=0).detach().numpy()
+
+    y_mean = y_mean[np.isfinite(y_mean)]
+    y_mean_ref = y_mean_ref[np.isfinite(y_mean_ref)]
+
+    assert np.all(np.isclose(x_mean, x_mean_ref, atol=1e-3))
+    assert np.all(np.isclose(y_mean, y_mean_ref, atol=1e-3))
+
+
+def test_gprof_3d_dataset_input_tmi():
+    """
+    Ensure that input variables have realistic values.
+    """
+    DATA_PATH = Path(__file__).parent / "data"
+    input_file = DATA_PATH / "tmi" / "gprof_nn_tmi_era5.nc.gz"
+    dataset = GPROF_NN_3D_Dataset(
+        input_file, batch_size=1, normalize=False, targets=["surface_precip"]
+    )
+    x, _ = dataset[0]
+    x = x.numpy()
+
+    tbs = x[:, :5]
+    tbs = tbs[np.isfinite(tbs)]
+    assert np.all((tbs > 30) * (tbs < 400))
+
+    eia = x[:, 5]
+    eia = eia[np.isfinite(eia)]
+    assert np.all((eia >= -60) * (eia <= 60))
+
+    t2m = x[:, 6]
+    t2m = t2m[np.isfinite(t2m)]
+    assert np.all((t2m > 200) * (t2m < 350))
+
+    tcwv = x[:, 7]
+    tcwv = tcwv[np.isfinite(tcwv)]
+    assert np.all((tcwv > 0) * (tcwv < 100))
+
+
+def test_gprof_3d_dataset_tmi():
+    """
+    Test loading of 3D training data for MHS sensor.
+    """
+    DATA_PATH = Path(__file__).parent / "data"
+    input_file = DATA_PATH / "tmi" / "gprof_nn_tmi_era5.nc"
     dataset = GPROF_NN_3D_Dataset(
         input_file, batch_size=1, augment=False, transform_zeros=True
     )

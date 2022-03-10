@@ -71,7 +71,14 @@ def load_variable(data, variable, mask=None):
         An array containing the two-meter temperature from the
         dataset.
     """
-    v = data[variable].data
+    if variable == "scan_time":
+        var = data["scan_time"].data.astype(np.int64)
+        shape = (data.scans.size, data.pixels.size)
+        var = np.broadcast_to(var[..., np.newaxis], shape)
+        v = var
+    else:
+        v = data[variable].data
+
     if mask is not None:
         v = v[mask]
     if variable in LIMITS:
@@ -143,8 +150,9 @@ def remap_scene(scene, coords, targets):
     for v in variables:
         if "scans" in scene[v].dims:
             data_v = scene[v].data
-
-            if v in ["surface_type", "airmass_type"]:
+            if v in ["scan_time"]:
+                data_r = extract_domain(data_v, coords, order=0)
+            elif v in ["surface_type", "airmass_type", "scan_time"]:
                 data_r = extract_domain(data_v, coords, order=0)
                 data_r = data_r.astype(np.int32)
             else:
