@@ -62,6 +62,11 @@ def add_parser(subparsers):
     parser.add_argument("--no_resampling",
                         help="Disable latitude resampling of sensor.",
                         action="store_true")
+    parser.add_argument("--latitude_ratios",
+                        help=("A latitude-time probability ratio file to use"
+                              " for resampling the training data"),
+                        type=str,
+                        default=None)
     parser.set_defaults(func=run)
 
 
@@ -123,6 +128,8 @@ def run(args):
         sensor._latitude_ratios = None
     if args.no_correction:
         sensor._correction = None
+    if args.latitude_ratios is not None:
+        sensor._latitude_ratios = args.latitude_ratios
 
     kind = args.kind.lower().strip()
     if kind == "training":
