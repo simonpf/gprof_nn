@@ -24,7 +24,7 @@ import xarray as xr
 from rich.progress import track
 
 import gprof_nn.logging
-from gprof_nn.definitions import ALL_TARGETS
+from gprof_nn.definitions import ALL_TARGETS, LAT_BINS, TIME_BINS
 from gprof_nn.data.retrieval import RetrievalFile
 from gprof_nn.data.bin import BinFile
 from gprof_nn.data.preprocessor import PreprocessorFile
@@ -1044,10 +1044,10 @@ class TrainingDataStatistics(Statistic):
         self.st = np.zeros(18, dtype=np.float32)
         self.at = np.zeros(4, dtype=np.float32)
 
-        self.lat_bins = np.linspace(-90, 90, 181)
+        self.lat_bins = LAT_BINS
         self.lats = np.zeros(180, dtype=np.float32)
 
-        self.time_bins = 60.0 * (np.linspace(0, 24, 25) - 0.5)
+        self.time_bins = TIME_BINS
         self.local_time = np.zeros(24, dtype=np.float32)
         self.lat_local_time = np.zeros((180, 24), dtype=np.float32)
 
@@ -1625,8 +1625,8 @@ class ObservationStatistics(Statistic):
         self.has_angles = None
         self.tbs = None
         self.tb_bins = np.linspace(0, 400, 401)
-        self.lat_bins = np.linspace(-90, 90, 181)
-        self.time_bins = (np.linspace(0, 24, 25) - 0.5) * 60
+        self.lat_bins = LAT_BINS
+        self.time_bins = TIME_BINS
 
         self.t2m = np.zeros((18, 200), dtype=np.float32)
         self.t2m_bins = np.linspace(240, 330, 201)

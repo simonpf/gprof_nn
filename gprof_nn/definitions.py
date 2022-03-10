@@ -138,3 +138,8 @@ UNITS = {
     "cloud_water_content": "$\si{\gram \per \meter \cubed}$",
     "latent_heat": "$\si{\kelvin \per \hour}$"
 }
+
+
+# Bins for calculating observation and training statistics
+LAT_BINS = np.linspace(-90, 90, 181)
+TIME_BINS = 60 * (np.linspace(0, 24, 25) - 0.5)
