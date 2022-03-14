@@ -1269,7 +1269,7 @@ class ConstellationScanner(ConicalScanner):
             vs += ["surface_precip"]
 
         if indices is None:
-            indinces = range(n)
+            indices = range(n)
         for sample_index in indices:
             scene = decompress_scene(dataset[{"samples": sample_index}], targets + vs)
             source = scene.source
@@ -2180,7 +2180,8 @@ SSMI = ConstellationScanner(
     None,
     "SSMI.dbsatTb.??????{day}.??????.sim",
     "/qdata1/pbrown/dbaseV7/simV7_ssmi",
-    SSMI_GMI_CHANNELS
+    SSMI_GMI_CHANNELS,
+    #correction=DATA_FOLDER / "corrections_ssmi.nc",
 )
 
 SSMI_F08 = ConstellationScanner(
@@ -2193,6 +2194,7 @@ SSMI_F08 = ConstellationScanner(
     None,
     "SSMI.dbsatTb.??????{day}.??????.sim",
     "/qdata1/pbrown/dbaseV7/simV7_ssmi",
-    SSMI_GMI_CHANNELS
+    SSMI_GMI_CHANNELS,
+    correction=DATA_FOLDER / "corrections_ssmi.nc",
 )
 SSMI_F08.missing_channels = [5, 6]
