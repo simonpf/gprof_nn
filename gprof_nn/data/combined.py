@@ -5,14 +5,115 @@ gprof_nn.data.combined
 
 Interface to read in L2b files of the GPM combined product.
 """
+from copy import copy
 from datetime import datetime
+import io
 from pathlib import Path
+from tempfile import TemporaryDirectory
+import subprocess
 
 import numpy as np
 import pandas as pd
 import scipy
 from scipy.signal import convolve
 import xarray as xr
+
+
+# Known dimensions of variables of combined data in .bin
+# format.
+BIN_DIMENSIONS = {
+    "pixels": 25,
+    "levels": 88,
+    "spectral_levels": 80,
+    "nodes": 10,
+    "env_nodes": 10,
+    "psd_nodes": 9,
+    "phase_nodes": 5,
+    "channels": 13,
+    "top_bottom": 2,
+    "indices": 2,
+    "date": 6
+}
+
+# Types of the variables of the combined data in .bin
+# format.
+BIN_TYPES = [
+    ("latitude", "f4", ("scans", "pixels")),
+    ("longitude", "f4", ("scans", "pixels")),
+    ("elevation", "f4", ("scans", "pixels")),
+    ("surface_type", "f4", ("scans", "pixels")),
+    ("precip_flag", "f4", ("scans", "pixels")),
+    ("precip_type", "f4", ("scans", "pixels")),
+    ("quality", "f4", ("scans", "pixels")),
+    ("surface_range_bin", "f4", ("scans", "pixels")),
+    ("surface_pressure", "f4", ("scans", "pixels")),
+    ("skin_temperature", "f4", ("scans", "pixels")),
+    ("envnode", "f4", ("scans", "pixels", "nodes")),
+    ("water_vapor", "f4", ("scans", "pixels", "nodes")),
+    ("pressure", "f4", ("scans", "pixels", "nodes")),
+    ("surface_air_temperature", "f4", ("scans", "pixels")),
+    ("temperature", "f4", ("scans", "pixels", "nodes")),
+    ("ten_meter_wind", "f4", ("scans", "pixels")),
+    ("emissivity", "f4", ("scans", "pixels", "channels")),
+    ("surface_precip", "f4", ("scans", "pixels")),
+    ("cloud_water", "f4", ("scans", "pixels", "levels")),
+    ("phase_bin_nodes", "f4", ("scans", "pixels", "phase_nodes")),
+    ("total_water_content", "f4", ("scans", "pixels", "levels")),
+    ("total_precip_rate", "f4", ("scans", "pixels", "levels")),
+    ("liquid_water_content", "f4", ("scans", "pixels", "levels")),
+    ("total_precip_d0", "f4", ("scans", "pixels", "levels")),
+    ("total_precip_n0", "f4", ("scans", "pixels", "levels")),
+    ("total_precip_mu", "f4", ("scans", "pixels", "levels")),
+    ("simulated_brightness_temperatures", "f4", ("scans", "pixels", "channels")),
+    ("pia", "f4", ("scans", "pixels", "top_bottom")),
+    ("radar_reflectivity", "f4", ("scans", "pixels", "levels", "top_bottom")),
+    ("scan_time", "f4", ("date", "scans")),
+    ("theta_dpr", "f4", ("scans", "pixels")),
+    ("latent_heat", "f4", ("scans", "pixels", "spectral_levels")),
+]
+
+
+def load_combined_data_bin(filename):
+    """
+    Load data from combined retrieval special run into a '.bin; file.
+
+    Args:
+        filename: Path pointing to the file to read.
+
+    Return:
+        An xarray.Dataset containing the data from the file.
+    """
+    filename = Path(filename)
+
+    # Decompress file if compressed.
+    if filename.suffix == ".gz":
+        with TemporaryDirectory() as tmp:
+            data = io.BytesIO()
+            args = ["gunzip", "-c", str(filename)]
+            with subprocess.Popen(args, stdout=subprocess.PIPE) as proc:
+                data.write(proc.stdout.read())
+            data.seek(0)
+            data = data.read()
+    else:
+        data = open(filename, "rb").read()
+
+    dataset = {}
+    n_scans = np.frombuffer(data, "i", 1)[0]
+    dimensions = copy(BIN_DIMENSIONS)
+    dimensions["scans"] = n_scans
+    offset = np.dtype("i").itemsize
+    for name, dtype, dims in BIN_TYPES:
+        shape = [dimensions[name] for name in dims]
+        size = np.prod(shape)
+        array = np.frombuffer(data, dtype=dtype, count=size, offset=offset)
+        array = array.reshape(shape)
+        dataset[name] = (dims, array)
+        offset += size * np.dtype(dtype).itemsize
+
+    # Ensure all data is read.
+    assert offset == len(data)
+
+    return xr.Dataset(dataset)
 
 
 def calculate_smoothing_kernels(fwhm_a, fwhm_x):
@@ -80,8 +181,17 @@ class GPMCMBFile:
 
         """
         self.filename = Path(filename)
-        time = self.filename.stem.split(".")[4][:-8]
-        self.start_time = datetime.strptime(time, "%Y%m%d-S%H%M%S")
+        if self.filename.suffix != ".HDF5":
+            self.format = "BIN"
+            time, granule = self.filename.stem.split(".")[2:4]
+            self.start_time = datetime.strptime(time, "%Y%m%d")
+            self.granule = int(granule)
+        else:
+            self.format = "HDF5"
+            time, granule = self.filename.stem.split(".")[4:6]
+            self.start_time = datetime.strptime(time[:-8], "%Y%m%d-S%H%M%S")
+            self.granule = int(granule)
+
 
     def to_xarray_dataset(self, smooth=False, profiles=False, roi=None):
         """
@@ -97,6 +207,10 @@ class GPMCMBFile:
                  corners. If given, only scans containing at least one pixel
                  within the given bounding box will be returned.
         """
+        if self.format == "BIN":
+            data = load_combined_data_bin(self.filename)
+            return data
+
         from h5py import File
         with File(str(self.filename), "r") as data:
 
@@ -133,7 +247,7 @@ class GPMCMBFile:
 
             surface_precip = data["surfPrecipTotRate"][i_start:i_end]
             if smooth:
-                k = calculate_smoothing_kernels(16e3, 10e3)
+                k = calculate_smoothing_kernels(18e3, 11e3)
                 surface_precip = smooth_field(surface_precip, k)
 
             dataset = {
