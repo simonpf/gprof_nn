@@ -1334,7 +1334,7 @@ class CrossTrackScanner(Sensor):
             self._correction = correction
         # Convert modeling error to list of channel-wise modeling errors.
         if isinstance(modeling_error, int):
-            modeling_error = [modelling_error] * n_chans
+            modeling_error = [modeling_error] * n_chans
         self.modeling_error = modeling_error
 
     def __repr__(self):
@@ -2160,6 +2160,16 @@ SSMI_NEDT = np.array([
  	0.31,
 ])
 
+SSMI_MODELING_ERROR = np.sqrt(np.array([
+    1.0,
+    1.5,
+    0.5,
+    1.0,
+    2.0,
+    1.5,
+    2.0,
+]))
+
 SSMI_GMI_CHANNELS = [2, 3, 4, 6, 7, 8, 9]
 
 SSMI_VIEWING_GEOMETRY = Conical(
@@ -2181,7 +2191,8 @@ SSMI = ConstellationScanner(
     "SSMI.dbsatTb.??????{day}.??????.sim",
     "/qdata1/pbrown/dbaseV7/simV7_ssmi",
     SSMI_GMI_CHANNELS,
-    #correction=DATA_FOLDER / "corrections_ssmi.nc",
+    modeling_error=SSMI_MODELING_ERROR,
+    correction=DATA_FOLDER / "corrections_ssmi.nc",
 )
 
 SSMI_F08 = ConstellationScanner(
@@ -2195,6 +2206,7 @@ SSMI_F08 = ConstellationScanner(
     "SSMI.dbsatTb.??????{day}.??????.sim",
     "/qdata1/pbrown/dbaseV7/simV7_ssmi",
     SSMI_GMI_CHANNELS,
+    modeling_error=SSMI_MODELING_ERROR,
     correction=DATA_FOLDER / "corrections_ssmi.nc",
 )
 SSMI_F08.missing_channels = [5, 6]
