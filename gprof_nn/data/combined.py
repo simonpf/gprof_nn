@@ -8,6 +8,7 @@ Interface to read in L2b files of the GPM combined product.
 from copy import copy
 from datetime import datetime
 import io
+import logging
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import subprocess
@@ -17,6 +18,9 @@ import pandas as pd
 import scipy
 from scipy.signal import convolve
 import xarray as xr
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 # Known dimensions of variables of combined data in .bin
@@ -116,6 +120,126 @@ def load_combined_data_bin(filename):
     return xr.Dataset(dataset)
 
 
+def load_combined_data_special(
+        filename,
+        smooth=False,
+        profiles=True,
+        slh_path=None
+):
+    """
+    Load data from specal combined run for generation of GPROF database.
+
+    Args:
+        filename: Path pointing to the file to read.
+        profiles: Wether or not to include profiles in the output.
+        slh_path: If provided the function will look into the given
+            path to load latent heating data from the 2A_SLH product.
+
+    Return:
+        An xarray.Dataset containing the data from the file.
+    """
+    from h5py import File
+    filename = Path(filename)
+
+    # Decompress file if compressed.
+    if filename.suffix == ".gz":
+        with TemporaryDirectory() as tmp:
+            data = io.BytesIO()
+            args = ["gunzip", "-c", str(filename)]
+            with subprocess.Popen(args, stdout=subprocess.PIPE) as proc:
+                data.write(proc.stdout.read())
+            data.seek(0)
+            data = File(data)
+    else:
+        data = File(filename, "r")
+
+    data = data["KuKaGMI"]
+
+    surface_fields = {
+        "latitude": "Latitude",
+        "longitude": "Longitude",
+        "surface_precip": "nearSurfPrecipTotRate",
+    }
+
+    profiles = {
+        "cloud_water_content": "cloudLiqWaterCont",
+        "snow_water_content": "cloudIceWaterCont",
+        "rain_water_content": "precipTotWaterCont",
+    }
+
+    dataset = {}
+    for name, var in surface_fields.items():
+        array = data[var][:]
+        if name == "surface_precip" and smooth:
+            k = calculate_smoothing_kernels(18e3, 11e3)
+            array = smooth_field(array, k)
+        dataset[name] = (("scans", "pixels"), data[var][:])
+
+    dataset = xr.Dataset(dataset)
+
+    if profiles:
+        total_water = data["precipTotWaterCont"][:][..., ::-1]
+        total_water[total_water < 0] = np.nan
+
+        liquid_water = data["precipLiqWaterCont"][:][..., ::-1]
+        liquid_water[liquid_water < 0] = np.nan
+
+        ice_water = total_water - liquid_water
+
+        cloud_water = data["cloudLiqWaterCont"][:][..., ::-1]
+        cloud_water[cloud_water < 0] = np.nan
+
+        cloud_water = cloud_water[..., :80]
+        liquid_water = liquid_water[..., :80]
+        ice_water = ice_water[..., :80]
+
+        dims = ("scans", "pixels", "levels")
+        dataset["rain_water_content"] = (dims, liquid_water)
+        dataset["snow_water_content"] = (dims, ice_water)
+        dataset["cloud_water_content"] = (dims, cloud_water)
+
+        if slh_path is not None:
+            year = data["ScanTime/Year"][0]
+            month = data["ScanTime/Month"][0]
+            day = data["ScanTime/DayOfMonth"][0]
+            hour = data["ScanTime/Hour"][0]
+            minute = data["ScanTime/Minute"][0]
+
+            path = (
+                Path(slh_path) /
+                f"{year % 2000:02}{month:02}" /
+                f"{year % 2000:02}{month:02}{day:02}"
+            )
+            files = list(path.glob(f"*S{hour:02}{minute:02}*.HDF5"))
+            if len(files) == 0:
+                LOGGER.warning(
+                    "Did not find SLH file for start time %s-%s-%s %s:%s",
+                    year, month, day, hour, minute
+                )
+                slh = np.zeros_like(liquid_water)
+                slh[:] = np.nan
+            else:
+                slh_data = File(files[0])
+                slh = slh_data["Swath/latentHeating"][:]
+            slh[slh < -999] = np.nan
+
+            dataset["latent_heating"] = (dims, slh)
+
+    dataset = dataset.bfill("levels")
+    dataset = 0.5 * (
+        dataset[{"levels": slice(0, 80, 2)}] +
+        dataset[{"levels": slice(1, 80, 2)}]
+    )
+
+    if smooth:
+        for var in list(profiles.keys()) + ["latent_heating"]:
+            if var in dataset:
+                array = dataset[var].data
+                dataset[var].data = smooth_field(array, k)
+
+    return dataset
+
+
 def calculate_smoothing_kernels(fwhm_a, fwhm_x):
     """
     Calculate smoothing kernels for GPM combined data.
@@ -187,28 +311,45 @@ class GPMCMBFile:
             self.start_time = datetime.strptime(time, "%Y%m%d")
             self.granule = int(granule)
         else:
-            self.format = "HDF5"
-            time, granule = self.filename.stem.split(".")[4:6]
+            time, granule, format = self.filename.stem.split(".")[4:7]
+            self.format = format
             self.start_time = datetime.strptime(time[:-8], "%Y%m%d-S%H%M%S")
             self.granule = int(granule)
 
 
-    def to_xarray_dataset(self, smooth=False, profiles=False, roi=None):
+    def to_xarray_dataset(
+            self,
+            smooth=False,
+            profiles=False,
+            roi=None,
+            slh_path=None
+    ):
         """
         Load data in file into 'xarray.Dataset'.
 
         Args:
             smooth: If set to true the 'surface_precip' field will be smoothed
                 to match the footprint of the GMI 23.8 GHz channels.
+            profiles: Whether or not to also load profile variables.
             roi: Optional bounding box given as list
                  ``[lon_0, lat_0, lon_1, lat_1]`` specifying the longitude
                  and latitude coordinates of the lower left
                  (``lon_0, lat_0``) and upper right (``lon_1, lat_1``)
                  corners. If given, only scans containing at least one pixel
                  within the given bounding box will be returned.
+            slh_path: Path to load spectral latent heating data from. Only
+                 used for ITE768 format.
         """
         if self.format == "BIN":
             data = load_combined_data_bin(self.filename)
+            return data
+        elif self.format == "ITE768":
+            data = load_combined_data_special(
+                self.filename,
+                smooth=smooth,
+                profiles=profiles,
+                slh_path=slh_path,
+            )
             return data
 
         from h5py import File
