@@ -1917,7 +1917,7 @@ class RetrievalStatistics(Statistic):
     This class calculates conditional distributions of retrieval results
     w. r. t. the two meter temperature and the total column water vapor.
     """
-    def __init__(self, statistics):
+    def __init__(self, statistics=None):
         """
         Args:
             statistics: If provide should be a 1 or 2-dimensional numpy array.
