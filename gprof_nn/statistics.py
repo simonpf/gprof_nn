@@ -73,9 +73,69 @@ def open_file(filename):
     raise ValueError(f"Could not figure out how handle the file {filename.name}.")
 
 
-###############################################################################
-# Statistic interface
-###############################################################################
+def resample_scans(dataset, statistics):
+    """
+    Resample scans according to scan time and latitudes.
+
+    Args:
+        dataset: An xarray dataset containing observations or
+            retrieval results.
+        statistics: A 1 or 2D array containing resampling weights
+            to resample observations based on local time and
+            latitude.
+    """
+    if statistics.ndim == 1:
+        if statistics.size != LAT_BINS.size - 1:
+            raise ValueError(
+                "If statistics is 1D, its size must be equal to that of"
+                " definintion.LAT_BINS - 1."
+                )
+
+    if statistics.ndim == 2:
+        if statistics.shape[0] != LAT_BINS.size - 1:
+            raise ValueError(
+                "If statistics is 2D, its size along dim. 0 must be equal "
+                "to that of definintion.LAT_BINS - 1."
+            )
+        if statistics.shape[1] != TIME_BINS.size - 1:
+            raise ValueError(
+                "If statistics is 2D, its size along dim. 1 must be equal "
+                "to that of definintion.TIME_BINS - 1."
+            )
+
+
+    if "scan_time" not in dataset:
+        return dataset
+
+    longitude = dataset.longitude.mean("pixels")
+    latitude = dataset.latitude.mean("pixels")
+    scan_time = dataset.scan_time
+    local_time = (
+        scan_time + (longitude / 360 * 24 * 60 * 60).astype("timedelta64[s]")
+    )
+    minutes = local_time.dt.hour * 60 + local_time.dt.minute.data
+
+    # Calculate resampling weights.
+    lat_indices = np.digitize(latitude.data, LAT_BINS[1:-1])
+    time_indices = np.digitize(minutes.data, TIME_BINS[1:-1])
+    if statistics.ndim == 1:
+        weights = statistics[lat_indices]
+    else:
+        weights = statistics[lat_indices, time_indices]
+
+    # Use weights to resample indices.
+    indices = np.arange(latitude.size)
+    norm = weights.sum()
+    # Return empty dataset if sum of weights is zero.
+    if np.isclose(norm, 0.0):
+        return dataset[{"scans": []}]
+
+    probs = weights / norm
+    indices = np.random.choice(indices, size=latitude.size, p=probs)
+
+
+    # Now resample scans.
+    return dataset[{"scans": indices}]
 
 
 class Statistic(ABC):
@@ -1857,12 +1917,16 @@ class RetrievalStatistics(Statistic):
     This class calculates conditional distributions of retrieval results
     w. r. t. the two meter temperature and the total column water vapor.
     """
-    def __init__(self):
+    def __init__(self, statistics):
         """
         Args:
-            conditional: If provided should identify a channel for which
-                conditional of all other channels will be calculated.
+            statistics: If provide should be a 1 or 2-dimensional numpy array.
+                If the array is 1D, the weights in the array will be used to
+                resample the retrieval results by latitudes. If it is 2D,
+                the weight will be used to resample both latitude and local
+                time.
         """
+        self.statistics = statistics
         self.targets = {}
         self.sums_t2m = {}
         self.counts_t2m = {}
@@ -1911,8 +1975,10 @@ class RetrievalStatistics(Statistic):
             sensor: The sensor from which the data stems.
             filename: The path of the data to process.
         """
-        self.sensor = sensor
         dataset = open_file(filename)
+        if self.statistics is not None:
+            dataset = resample_scans(dataset, self.statistics)
+
         if len(self.targets) == 0:
             self._initialize_data(sensor, dataset)
 
@@ -2067,7 +2133,7 @@ class RetrievalStatistics(Statistic):
         data = xr.Dataset(data)
         destination = Path(destination)
         output_file = destination / (
-            f"retrieval_statistics_{self.sensor.name.lower()}" ".nc"
+            f"retrieval_statistics.nc"
         )
         data.to_netcdf(output_file)
 

@@ -338,8 +338,8 @@ def test_gprof_1d_dataset_multi_target_mhs():
     xs = []
     ys = {}
 
-    x_mean_ref = np.sum(dataset.x, axis=0)
-    y_mean_ref = {k: np.sum(dataset.y[k], axis=0) for k in dataset.y}
+    x_mean_ref = np.mean(dataset.x, axis=0)
+    y_mean_ref = {k: np.mean(dataset.y[k], axis=0) for k in dataset.y}
 
     for x, y in dataset:
         xs.append(x)
@@ -349,8 +349,8 @@ def test_gprof_1d_dataset_multi_target_mhs():
     xs = torch.cat(xs, dim=0)
     ys = {k: torch.cat(ys[k], dim=0) for k in ys}
 
-    x_mean = np.sum(xs.detach().numpy(), axis=0)
-    y_mean = {k: np.sum(ys[k].detach().numpy(), axis=0) for k in ys}
+    x_mean = np.mean(xs.detach().numpy(), axis=0)
+    y_mean = {k: np.mean(ys[k].detach().numpy(), axis=0) for k in ys}
 
     assert np.all(np.isclose(x_mean, x_mean_ref, atol=1e-3))
     for k in y_mean_ref:
@@ -464,8 +464,8 @@ def test_gprof_1d_dataset_tmi():
     xs = []
     ys = []
 
-    x_mean_ref = dataset.x.sum(axis=0)
-    y_mean_ref = dataset.y["surface_precip"].sum(axis=0)
+    x_mean_ref = dataset.x.mean(axis=0)
+    y_mean_ref = dataset.y["surface_precip"].mean(axis=0)
 
     for x, y in dataset:
         xs.append(x)
@@ -474,8 +474,8 @@ def test_gprof_1d_dataset_tmi():
     xs = torch.cat(xs, dim=0)
     ys = torch.cat(ys, dim=0)
 
-    x_mean = xs.sum(dim=0).detach().numpy()
-    y_mean = ys.sum(dim=0).detach().numpy()
+    x_mean = xs.mean(dim=0).detach().numpy()
+    y_mean = ys.mean(dim=0).detach().numpy()
 
     assert np.all(np.isclose(x_mean, x_mean_ref, rtol=1e-3))
     assert np.all(np.isclose(y_mean, y_mean_ref, rtol=1e-3))
@@ -500,8 +500,8 @@ def test_gprof_1d_dataset_multi_target_tmi():
     xs = []
     ys = {}
 
-    x_mean_ref = np.sum(dataset.x, axis=0)
-    y_mean_ref = {k: np.sum(dataset.y[k], axis=0) for k in dataset.y}
+    x_mean_ref = np.mean(dataset.x, axis=0)
+    y_mean_ref = {k: np.mean(dataset.y[k], axis=0) for k in dataset.y}
 
     for x, y in dataset:
         xs.append(x)
@@ -511,8 +511,8 @@ def test_gprof_1d_dataset_multi_target_tmi():
     xs = torch.cat(xs, dim=0)
     ys = {k: torch.cat(ys[k], dim=0) for k in ys}
 
-    x_mean = np.sum(xs.detach().numpy(), axis=0)
-    y_mean = {k: np.sum(ys[k].detach().numpy(), axis=0) for k in ys}
+    x_mean = np.mean(xs.detach().numpy(), axis=0)
+    y_mean = {k: np.mean(ys[k].detach().numpy(), axis=0) for k in ys}
 
     assert np.all(np.isclose(x_mean, x_mean_ref, atol=1e-3))
     for k in y_mean_ref:
@@ -598,7 +598,7 @@ def test_gprof_1d_dataset_ssmi():
     assert np.all(np.isclose(x_mean, x_mean_ref, rtol=1e-3))
     assert np.all(np.isclose(y_mean, y_mean_ref, rtol=1e-3))
 
-    assert np.all(np.isclose(x[:, 11:29].sum(-1), 1.0))
+    assert np.all(np.isclose(x[:, 9:27].sum(-1), 1.0))
 
 
 def test_gprof_1d_dataset_multi_target_ssmi():
@@ -632,8 +632,6 @@ def test_gprof_1d_dataset_multi_target_ssmi():
     x_mean = np.mean(xs.detach().numpy(), axis=0)
     y_mean = {k: np.mean(ys[k].detach().numpy(), axis=0) for k in ys}
 
-    print(x_mean - x_mean_ref)
-
     assert np.all(np.isclose(x_mean, x_mean_ref, atol=1e-3))
     for k in y_mean_ref:
         assert np.all(np.isclose(y_mean[k], y_mean_ref[k], rtol=1e-3))
@@ -651,7 +649,6 @@ def test_gprof_1d_dataset_input_ssmi():
     )
     xs = [dataset[i][0] for i in range(len(dataset))]
     x = torch.cat(xs, 0)
-    x, _ = dataset[0]
     x = x.numpy()
 
     tbs = x[:, :7]
@@ -908,19 +905,15 @@ def test_gprof_3d_dataset_input_tmi():
     x, _ = dataset[0]
     x = x.numpy()
 
-    tbs = x[:, :5]
+    tbs = x[:, :9]
     tbs = tbs[np.isfinite(tbs)]
     assert np.all((tbs > 30) * (tbs < 400))
 
-    eia = x[:, 5]
-    eia = eia[np.isfinite(eia)]
-    assert np.all((eia >= -60) * (eia <= 60))
-
-    t2m = x[:, 6]
+    t2m = x[:, 9]
     t2m = t2m[np.isfinite(t2m)]
     assert np.all((t2m > 200) * (t2m < 350))
 
-    tcwv = x[:, 7]
+    tcwv = x[:, 10]
     tcwv = tcwv[np.isfinite(tcwv)]
     assert np.all((tcwv > 0) * (tcwv < 100))
 

@@ -809,20 +809,23 @@ class XceptionBlock(nn.Module):
 
             self.block_1 = nn.Sequential(
             SeparableConv3x3(channels_in, channels_out),
-            nn.GroupNorm(32, channels_out),
+            #nn.GroupNorm(32, channels_out),
+            nn.BatchNorm2d(channels_out),
             SymmetricPadding(1),
             nn.MaxPool2d(kernel_size=3, stride=stride),
             nn.GELU())
         else:
             self.block_1 = nn.Sequential(
                 SeparableConv3x3(channels_in, channels_out),
-                nn.GroupNorm(32, channels_out),
+                #nn.GroupNorm(32, channels_out),
+                nn.BatchNorm2d(channels_out),
                 nn.GELU(),
             )
 
         self.block_2 = nn.Sequential(
             SeparableConv3x3(channels_out, channels_out),
-            nn.GroupNorm(32, channels_out),
+            #nn.GroupNorm(32, channels_out),
+            nn.BatchNorm2d(channels_out),
             nn.GELU(),
         )
 
@@ -914,7 +917,8 @@ class UpsamplingStage(nn.Module):
                                     align_corners=False)
         self.block = nn.Sequential(
             SeparableConv3x3(n_channels * 2, n_channels),
-            nn.GroupNorm(32, n_channels),
+            #nn.GroupNorm(32, n_channels),
+            nn.BatchNorm2d(n_channels),
             nn.GELU(),
         )
 
@@ -936,7 +940,7 @@ class MLPHead(nn.Module):
     variables after the encode-decoder stage of the GPROF-NN 3D
     network.
     """
-    def __init__(self, n_inputs, n_hidden, n_outputs, n_layers):
+    def __init__(self, n_inputs, n_hidden, n_outputs, n_layers, positive=False):
         """
         Args:
             n_inputs: The number of input channels to the layer.
@@ -944,6 +948,8 @@ class MLPHead(nn.Module):
                 of the module.
             n_outputs: The number of channels
             n_layers: The number of hidden layers.
+            positive: Whether to apply ReLU activation to outputs to ensure
+                positiveness.
         """
         super().__init__()
         self.n_inputs = n_inputs
@@ -955,16 +961,21 @@ class MLPHead(nn.Module):
             self.layers.append(
                 nn.Sequential(
                     nn.Conv2d(n_inputs, n_hidden, 1),
-                    nn.GroupNorm(n_hidden, n_hidden),
+                    #nn.GroupNorm(n_hidden, n_hidden),
+                    nn.BatchNorm2d(n_hidden),
                     nn.GELU(),
                 )
             )
             n_inputs = n_hidden
-        self.layers.append(
-            nn.Sequential(
-                nn.Conv2d(n_hidden, n_outputs, 1),
+        if positive:
+            self.layers.append(
+                nn.Sequential(
+                    nn.Conv2d(n_hidden, n_outputs, 1),
+                    nn.ReLU()
+                )
             )
-        )
+        else:
+            self.layers.append(nn.Conv2d(n_hidden, n_outputs, 1))
 
     def __repr__(self):
         try:
@@ -1108,7 +1119,10 @@ class XceptionFPN(nn.Module):
         self.heads = nn.ModuleDict()
         for k in targets:
             if k in PROFILE_NAMES:
-                self.heads[k] = MLPHead(n_inputs, n_features_head, 28, n_layers_head)
+                positive = k != "latent_heat"
+                self.heads[k] = MLPHead(
+                    n_inputs, n_features_head, 28, n_layers_head, positive=positive
+                )
             else:
                 self.heads[k] = MLPHead(
                     n_inputs, n_features_head, n_outputs, n_layers_head

@@ -47,7 +47,7 @@ def add_parser(subparsers):
     )
     parser.add_argument('model', metavar="model", type=str,
                         help="The GPROF-NN model to use for the retrieval.")
-    parser.add_argument('input', metavar="input", type=str,
+    parser.add_argument('inputs', metavar="input", type=str, nargs="+",
                         help='Folder or file containing the input data.')
     parser.add_argument('output',
                         metavar="output",
@@ -143,14 +143,15 @@ def run(args):
         LOGGER.error("Given model is not an existing file.")
         return 1
 
-    input = Path(args.input)
+    inputs = list(map(Path, args.inputs))
     output = Path(args.output)
 
-    if not input.exists():
-        LOGGER.error("Input must be an existing file or folder.")
-        return 1
+    for input in inputs:
+        if not input.exists():
+            LOGGER.error("Input must be an existing file or folder.")
+            return 1
 
-    if not input.is_dir() and not output.exists():
+    if len(inputs) == 1 and not inputs[0].is_dir() and not output.exists():
         if not output.suffix:
             output.mkdir(parents=True, exist_ok=True)
 
@@ -174,32 +175,35 @@ def run(args):
     device = args.device
 
     # Find files and determine output names.
-    if input.is_dir():
-        if output is None or not output.is_dir():
-            LOGGER.error(
-                "If the input file is a directory, the 'output_file' argument "
-                "must point to a directory as well."
-            )
+    input_files = []
+    output_files = []
+    for input in inputs:
+        if input.is_dir():
+            if output is None or not output.is_dir():
+                LOGGER.error(
+                    "If the input file is a directory, the 'output_file' argument "
+                    "must point to a directory as well."
+                )
 
-        input_files = list(input.glob("**/*.nc"))
-        input_files += list(input.glob("**/*.nc.gz"))
-        input_files += list(input.glob("**/*.nc.bin.gz"))
-        input_files += list(input.glob("**/*.pp"))
-        input_files += list(input.glob("**/*.HDF5"))
+            files = list(input.glob("**/*.nc"))
+            files += list(input.glob("**/*.nc.gz"))
+            files += list(input.glob("**/*.nc.bin.gz"))
+            files += list(input.glob("**/*.pp"))
+            files += list(input.glob("**/*.HDF5"))
+            input_files += files
 
-        output_files = []
-        for f in input_files:
-            of = f.relative_to(input)
-            if of.suffix in [".nc", ".HDF5"]:
-                of = of.with_suffix(".nc")
-            elif of.suffix == ".gz":
-                of = of.with_suffix("")
-            else:
-                of = of.with_suffix(".bin")
-            output_files.append(output / of)
-    else:
-        input_files = [input]
-        output_files = [output]
+            for f in files:
+                of = f.relative_to(input)
+                if of.suffix in [".nc", ".HDF5"]:
+                    of = of.with_suffix(".nc")
+                elif of.suffix == ".gz":
+                    of = of.with_suffix("")
+                else:
+                    of = of.with_suffix(".bin")
+                output_files.append(output / of)
+        else:
+            input_files += [input]
+            output_files += [output]
 
     # Try to load the model.
     xrnn = QRNN.load(model)

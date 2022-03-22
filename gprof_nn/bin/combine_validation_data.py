@@ -154,10 +154,11 @@ def run(args):
     LOGGER.info(f"Found %s GPROF-NN 3D granules.", len(gprof_nn_3d))
 
     # GPM CMB
-    gpm_cmb = GPMCMBResults(args.combined)
-    if len(gpm_cmb) > 0:
-        datasets.append(gprof_nn_3d)
-    LOGGER.info(f"Found %s GPM CMB granules.", len(gpm_cmb))
+    if args.combined is not None:
+        gpm_cmb = GPMCMBResults(args.combined)
+        if len(gpm_cmb) > 0:
+            datasets.append(gpm_cmb)
+        LOGGER.info(f"Found %s GPM CMB granules.", len(gpm_cmb))
 
     # Simulator files
     if args.simulator is not None:
