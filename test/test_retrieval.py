@@ -103,6 +103,20 @@ def test_retrieval_read_and_write(tmp_path):
                                  output_data[v].data,
                                  rtol=1e-2))
 
+    # Ensure that scan date matches time stamp of file.
+    assert np.all(np.isclose(
+        retrieval_data.scan_time.dt.year.data,
+        2019
+    ))
+    assert np.all(np.isclose(
+        retrieval_data.scan_time.dt.month.data,
+        1
+    ))
+    assert np.all(np.isclose(
+        retrieval_data.scan_time.dt.day.data,
+        1
+    ))
+
 
 def test_retrieval_preprocessor_1d_gmi(tmp_path):
     """
