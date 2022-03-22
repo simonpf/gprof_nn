@@ -382,7 +382,13 @@ class GPMCMBFile:
         from h5py import File
         with File(str(self.filename), "r") as data:
 
-            data = data["NS"]
+            if self.format.startswith("ITE"):
+                data = data["KuKaGMI"]
+                sp_var = "estimSurfPrecipTotRate"
+            else:
+                data = data["NS"]
+                sp_var = "surfPrecipTotRate"
+
             latitude = data["Latitude"][:]
             longitude = data["Longitude"][:]
 
@@ -413,7 +419,7 @@ class GPMCMBFile:
             }
             date = pd.to_datetime(date)
 
-            surface_precip = data["surfPrecipTotRate"][i_start:i_end]
+            surface_precip = data[sp_var][i_start:i_end]
             if smooth:
                 k = calculate_smoothing_kernels(18e3, 11e3)
                 surface_precip = smooth_field(surface_precip, k)
@@ -427,7 +433,11 @@ class GPMCMBFile:
 
             if profiles:
                 twc = data["precipTotWaterCont"][i_start:i_end]
-                l_frac = data["liqMassFracTrans"][i_start:i_end]
+
+                if self.format.startswith("ITE"):
+                    l_frac = data["precipLiqRate"][i_start:i_end]
+                else:
+                    l_frac = data["liqMassFracTrans"][i_start:i_end]
                 l_frac[l_frac < 0] = 1.0
                 levels = (np.arange(88) + 1).reshape(1, 1, -1)
                 phases = data["phaseBinNodes"][i_start:i_end]
