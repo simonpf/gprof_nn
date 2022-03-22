@@ -22,7 +22,9 @@ from scipy.signal import convolve
 from gprof_nn.data.training_data import decompress_and_load
 from gprof_nn.data.retrieval import RetrievalFile
 from gprof_nn.data.sim import SimFile
+from gprof_nn.data.combined import GPMCMBFile
 from gprof_nn.utils import calculate_interpolation_weights, interpolate
+from gprof_nn.data.validation import CONUS
 
 
 VALIDATION_VARIABLES = [
@@ -248,7 +250,7 @@ class GPROFLegacyResults:
         return dataset
 
 
-class GPROFCMBResults(GPROFLegacyResults):
+class GPMCMBResults(GPROFLegacyResults):
     """
     Data interface class to collect results from GPROF V6 result files.
     """
@@ -275,22 +277,26 @@ class GPROFCMBResults(GPROFLegacyResults):
 
     @property
     def group_name(self):
-        return "cmb"
+        return "combined"
 
     def open_granule(self, granule):
-        with File(str(self.granules[granule]), "r") as data:
-            data = data["NS"]
-            latitude = data["Latitude"][:]
-            longitude = data["Longitude"][:]
-            surface_precip = data["surfPrecipTotRate"][:]
 
-        dims = ("scans", "pixels")
-        dataset = xr.Dataset({
-            "latitude": (dims, latitude),
-            "longitude": (dims, longitude),
-            "surface_precip": (dims, surface_precip),
-        })
-        return dataset
+        input_file = GPMCMBFile(self.granules[granule])
+        data = input_file.to_xarray_dataset(
+            profiles=False,
+            smooth=False,
+            roi=CONUS
+        )
+        data_smooth = input_file.to_xarray_dataset(
+            profiles=False,
+            smooth=True,
+            roi=CONUS
+        )
+        data["surface_precip_avg"] = (
+            ("scans", "pixels"),
+            data_smooth["surface_precip"].data
+        )
+        return data
 
 
 class SimulatorFiles():

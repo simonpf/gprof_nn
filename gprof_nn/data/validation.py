@@ -515,16 +515,19 @@ class ValidationFileProcessor:
 
         surface_precip.data[:] = sp
         surface_precip = surface_precip.interp(
-            latitude=lats_5, longitude=lons_5, time=time
+            latitude=lats_5, longitude=lons_5, time=time, method="nearest",
+                kwargs={"fill_value": "extrapolate"}
         )
         datasets = [surface_precip]
         rqi = mrms_data.radar_quality_index.interp(
-            latitude=lats_5, longitude=lons_5, time=time, method="nearest"
+            latitude=lats_5, longitude=lons_5, time=time, method="nearest",
+            kwargs={"fill_value": "extrapolate"}
         )
         datasets.append(rqi)
         if "mask" in mrms_data.variables:
             mask = mrms_data.mask.interp(
-                latitude=lats_5, longitude=lons_5, time=time, method="nearest"
+                latitude=lats_5, longitude=lons_5, time=time, method="nearest",
+                kwargs={"fill_value": "extrapolate"}
             )
             datasets.append(mask)
         mrms_data = xr.merge(datasets)
