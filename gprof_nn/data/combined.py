@@ -124,7 +124,8 @@ def load_combined_data_special(
         filename,
         smooth=False,
         profiles=True,
-        slh_path=None
+        slh_path=None,
+        roi=None
 ):
     """
     Load data from specal combined run for generation of GPROF database.
@@ -134,6 +135,12 @@ def load_combined_data_special(
         profiles: Wether or not to include profiles in the output.
         slh_path: If provided the function will look into the given
             path to load latent heating data from the 2A_SLH product.
+        roi: Optional bounding box given as list
+                ``[lon_0, lat_0, lon_1, lat_1]`` specifying the longitude
+                and latitude coordinates of the lower left
+                (``lon_0, lat_0``) and upper right (``lon_1, lat_1``)
+                corners. If given, only scans containing at least one pixel
+                within the given bounding box will be returned.
 
     Return:
         An xarray.Dataset containing the data from the file.
@@ -161,32 +168,44 @@ def load_combined_data_special(
         "surface_precip": "nearSurfPrecipTotRate",
     }
 
-    profiles = {
-        "cloud_water_content": "cloudLiqWaterCont",
-        "snow_water_content": "cloudIceWaterCont",
-        "rain_water_content": "precipTotWaterCont",
-    }
+    latitude = data["Latitude"][:]
+    longitude = data["Longitude"][:]
+
+    if roi is not None:
+        lon_0, lat_0, lon_1, lat_1 = roi
+        inside = (
+            (longitude >= lon_0)
+            * (latitude >= lat_0)
+            * (longitude < lon_1)
+            * (latitude < lat_1)
+        )
+        inside = np.any(inside, axis=1)
+        i_start, i_end = np.where(inside)[0][[0, -1]]
+    else:
+        i_start = 0
+        i_end = latitude.shape[0]
+    scans = slice(i_start, i_end)
 
     dataset = {}
     for name, var in surface_fields.items():
-        array = data[var][:]
+        array = data[var][scans]
         if name == "surface_precip" and smooth:
             k = calculate_smoothing_kernels(18e3, 11e3)
             array = smooth_field(array, k)
-        dataset[name] = (("scans", "pixels"), data[var][:])
+        dataset[name] = (("scans", "pixels"), array)
 
     dataset = xr.Dataset(dataset)
 
     if profiles:
-        total_water = data["precipTotWaterCont"][:][..., ::-1]
+        total_water = data["precipTotWaterCont"][scans][..., ::-1]
         total_water[total_water < 0] = np.nan
 
-        liquid_water = data["precipLiqWaterCont"][:][..., ::-1]
+        liquid_water = data["precipLiqWaterCont"][scans][..., ::-1]
         liquid_water[liquid_water < 0] = np.nan
 
         ice_water = total_water - liquid_water
 
-        cloud_water = data["cloudLiqWaterCont"][:][..., ::-1]
+        cloud_water = data["cloudLiqWaterCont"][scans][..., ::-1]
         cloud_water[cloud_water < 0] = np.nan
 
         cloud_water = cloud_water[..., :80]
@@ -220,22 +239,29 @@ def load_combined_data_special(
                 slh[:] = np.nan
             else:
                 slh_data = File(files[0])
-                slh = slh_data["Swath/latentHeating"][:]
+                slh = slh_data["Swath/latentHeating"][scans]
             slh[slh < -999] = np.nan
 
             dataset["latent_heating"] = (dims, slh)
 
-    dataset = dataset.bfill("levels")
-    dataset = 0.5 * (
-        dataset[{"levels": slice(0, 80, 2)}] +
-        dataset[{"levels": slice(1, 80, 2)}]
-    )
+        # Fill to surface
+        dataset = dataset.bfill("levels")
+        dataset = 0.5 * (
+            dataset[{"levels": slice(0, 80, 2)}] +
+            dataset[{"levels": slice(1, 80, 2)}]
+        )
 
-    if smooth:
-        for var in list(profiles.keys()) + ["latent_heating"]:
-            if var in dataset:
-                array = dataset[var].data
-                dataset[var].data = smooth_field(array, k)
+        if smooth:
+            profile_names = [
+                "rain_water_content",
+                "snow_water_content",
+                "cloud_water_content",
+                "latent_heating"
+            ]
+            for var in profile_names:
+                if var in dataset:
+                    array = dataset[var].data
+                    dataset[var].data = smooth_field(array, k)
 
     return dataset
 
@@ -349,6 +375,7 @@ class GPMCMBFile:
                 smooth=smooth,
                 profiles=profiles,
                 slh_path=slh_path,
+                roi=roi
             )
             return data
 
