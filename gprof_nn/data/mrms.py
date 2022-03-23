@@ -60,6 +60,8 @@ class MRMSMatchFile:
                 sensor = sensors.GMI
             elif "MHS" in filename.name:
                 sensor = sensors.MHS
+            elif "SSMIS" in filename.name:
+                sensor = sensors.SSMIS
             else:
                 raise ValueError(
                     "Could not infer sensor from filename. Consider passing "
@@ -111,14 +113,19 @@ class MRMSMatchFile:
         dataset = {}
         for k in self.sensor.mrms_file_record.names:
             if k == "brightness_temperatures":
-                ds = dims + ("channel",)
+                ds = dims + ("channels",)
             elif k == "scan_time":
                 dataset[k] = (("samples",), self.scan_time[indices])
                 continue
             else:
                 ds = dims
             dataset[k] = (ds, data[k])
-        return xr.Dataset(dataset)
+
+        dataset = xr.Dataset(dataset)
+        if dataset.channels.size < self.sensor.n_chans:
+            dataset = dataset[{"channels": self.sensor.gmi_channels}]
+
+        return dataset
 
     def match_targets(self, input_data):
         """
