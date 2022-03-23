@@ -184,6 +184,45 @@ def test_read_preprocessor_ssmi():
     assert date == input_data.scan_time[0].data
 
 
+def test_read_preprocessor_ssmis():
+    """
+    Tests reading a SSMIS preprocessor file.
+    """
+    DATA_PATH = Path(__file__).parent / "data"
+    input_file = PreprocessorFile(DATA_PATH / "ssmis" / "pp" / "F17_190101_062736_ITE.pp")
+    input_data = input_file.to_xarray_dataset()
+
+    assert input_file.n_pixels == 180
+    assert input_data.pixels.size == 180
+    assert input_data.scans.size == input_file.n_scans
+
+    tbs = input_data.brightness_temperatures.data
+    tbs = tbs[tbs > 0]
+    assert np.all((tbs > 20) * (tbs <= 350))
+
+    st = input_data.surface_type.data
+    assert np.all((st >= 0) * (st <= 18))
+
+    am = input_data.airmass_type.data
+    am = am[am >= 0]
+    assert np.all((am >= 0) * (am <= 18))
+
+    lat = input_data.latitude
+    assert np.all((lat >= -90) * (lat <= 90))
+    lon = input_data.longitude
+    assert np.all((lat >= -180) * (lat <= 180))
+
+    t2m = input_data.two_meter_temperature
+    assert np.all((t2m > 200) * (t2m < 400))
+    tcwv = input_data.total_column_water_vapor
+    assert np.all((tcwv >= 0) * (tcwv < 200))
+
+    date = input_file.first_scan_time
+    print(date)
+    print(input_data.scan_time[0])
+    assert date == input_data.scan_time[0].data
+
+
 def test_write_preprocessor_file(tmp_path):
     """
     Writes dataset to preprocessor file and ensures that the
@@ -390,6 +429,46 @@ def test_run_preprocessor_tmi_era5():
         sensor=sensors.TMI,
     )
     data = run_preprocessor(l1c_file.filename, sensor=sensors.TMIPO)
+
+    tbs = data.brightness_temperatures.data
+    valid = np.all(tbs > 0, axis=-1)
+    tbs = tbs[valid]
+    assert np.all((tbs > 20) * (tbs <= 350))
+
+    st = data.surface_type.data
+    valid = st >= 0
+    assert np.all((st[valid] >= 0) * (st[valid] <= 18))
+
+    am = data.airmass_type.data[valid]
+    am = am[am >= 0]
+    assert np.all((am >= 0) * (am <= 18))
+
+    lat = data.latitude.data[valid]
+    assert np.all((lat >= -90) * (lat <= 90))
+    lon = data.longitude.data[valid]
+    assert np.all((lon >= -180) * (lon <= 180))
+
+    t2m = data.two_meter_temperature.data[valid]
+    assert np.all((t2m > 200) * (t2m < 400))
+    tcwv = data.total_column_water_vapor.data[valid]
+    tcwv = tcwv[tcwv >= 0]
+    assert np.all((tcwv >= 0) * (tcwv < 200))
+
+
+
+@pytest.mark.skipif(not HAS_PREPROCESSOR, reason="Preprocessor missing.")
+def test_run_preprocessor_ssmis_era5():
+    """
+    Test running the SSMIS preprocessor on a specific L1C file.
+    """
+    l1c_path = Path("/pdata4/archive/GPM/1C_F17_ITE")
+    date = datetime(2018, 10, 1, 0, 30)
+    l1c_file = L1CFile.find_file(
+        date,
+        l1c_path,
+        sensor=sensors.SSMIS,
+    )
+    data = run_preprocessor(l1c_file.filename, sensor=sensors.SSMIS)
 
     tbs = data.brightness_temperatures.data
     valid = np.all(tbs > 0, axis=-1)
