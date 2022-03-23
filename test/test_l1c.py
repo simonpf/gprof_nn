@@ -65,7 +65,27 @@ def test_open_granule_tmi():
     l1c_data = l1c_file.to_xarray_dataset()
 
     assert l1c_data.pixels.size == 208
-    assert l1c_file.sensor == sensors.TMI
+    assert l1c_file.sensor == sensors.TMIPO
+
+    tbs = l1c_data.brightness_temperatures.data
+    valid = np.all(tbs > 0, axis=-1)
+    tbs = tbs[valid]
+    assert np.all((tbs > 20) * (tbs <= 350))
+
+
+def test_open_granule_ssmis():
+    """
+    Test finding of specific SSMIS L1C file and reading data into
+    xarray.Dataset.
+    """
+    DATA_PATH = Path(__file__).parent / "data"
+    l1c_path = DATA_PATH / "ssmis" / "l1c"
+
+    l1c_file = L1CFile.open_granule(61436, l1c_path, sensors.SSMIS)
+    l1c_data = l1c_file.to_xarray_dataset()
+
+    assert l1c_data.pixels.size == 180
+    assert l1c_file.sensor == sensors.SSMIS
 
     tbs = l1c_data.brightness_temperatures.data
     valid = np.all(tbs > 0, axis=-1)
@@ -113,7 +133,21 @@ def test_find_file_tmi():
 
     assert date > data.scan_time[0]
     assert date < data.scan_time[-1]
-    assert l1c_file.sensor == sensors.TMI
+    assert l1c_file.sensor == sensors.TMIPO
+
+
+def test_find_file_ssmis():
+    """
+    Tests finding a GMI L1C file for a given date.
+    """
+    DATA_PATH = Path(__file__).parent / "data"
+    l1c_path = DATA_PATH / "ssmis" / "l1c"
+    date = np.datetime64("2018-10-01T00:30:00")
+    l1c_file = L1CFile.find_file(date, l1c_path, sensor=sensors.SSMIS)
+    l1c_data = l1c_file.to_xarray_dataset()
+    assert date > l1c_data.scan_time[0]
+    assert date < l1c_data.scan_time[-1]
+    assert l1c_file.sensor == sensors.SSMIS
 
 
 def test_find_files():
@@ -129,7 +163,7 @@ def test_find_files():
     files = list(L1CFile.find_files(date, l1c_path, roi=roi))
     assert len(files) == 1
 
-    data = files[0].to_xarray_dataset(roi)
+    data = files[0].to_xarray_dataset(roi=roi)
     n_scans = data.scans.size
     lats = data["latitude"].data
     lons = data["longitude"].data
