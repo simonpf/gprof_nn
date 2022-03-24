@@ -236,7 +236,7 @@ class L1CFile:
         """String representation for file."""
         return f"L1CFile(filename='{self.path.name}')"
 
-    def extract_scans(self, roi, output_filename):
+    def extract_scans(self, roi, output_filename, min_scans=None):
         """
         Extract scans over a rectangular region of interest (ROI).
 
@@ -257,27 +257,35 @@ class L1CFile:
 
             indices = np.where(
                 np.any(
-                    (lats > lat_min)
+                    (lats >= lat_min)
                     * (lats < lat_max)
-                    * (lons > lon_min)
+                    * (lons >= lon_min)
                     * (lons < lon_max),
                     axis=-1,
                 )
             )[0]
             d_inds = np.diff(indices)
             if any(d_inds > 1):
-                ind = np.where(d_inds > 1)[0]
+                ind = np.where(d_inds > 1)[0][0]
                 indices = indices[:ind]
+            i_start, i_end = indices[[0, -1]]
+            n_scans = i_end - i_start
+            if min_scans is not None and n_scans < min_scans:
+                diff_l = (min_scans - n_scans) // 2
+                i_start = max(0, i_start - diff_l)
+                diff_r = min_scans - (i_end - i_start)
+                i_end = i_end + diff_r
+            scans = slice(i_start, i_end)
 
             with h5py.File(output_filename, "w") as output:
 
                 g = output.create_group("S1")
-                n_scans = indices.size
+                n_scans = i_end - i_start
                 for name, item in input["S1"].items():
                     if isinstance(item, h5py.Dataset):
                         shape = item.shape
                         g.create_dataset(
-                            name, shape=(n_scans,) + shape[1:], data=item[indices]
+                            name, shape=(n_scans,) + shape[1:], data=item[scans]
                         )
 
                 for a in input["S1"].attrs:
@@ -291,7 +299,7 @@ class L1CFile:
                     if isinstance(item, h5py.Dataset):
                         shape = item.shape
                         g_st.create_dataset(
-                            name, shape=(n_scans,) + shape[1:], data=item[indices]
+                            name, shape=(n_scans,) + shape[1:], data=item[scans]
                         )
 
                 g_sc = g.create_group("SCstatus")
@@ -299,7 +307,7 @@ class L1CFile:
                     if isinstance(item, h5py.Dataset):
                         shape = item.shape
                         g_sc.create_dataset(
-                            name, shape=(n_scans,) + shape[1:], data=item[indices]
+                            name, shape=(n_scans,) + shape[1:], data=item[scans]
                         )
 
                 if "S2" in input.keys():
@@ -308,7 +316,7 @@ class L1CFile:
                         if isinstance(item, h5py.Dataset):
                             shape = item.shape
                             g.create_dataset(
-                                name, shape=(n_scans,) + shape[1:], data=item[indices]
+                                name, shape=(n_scans,) + shape[1:], data=item[scans]
                             )
                     for a in input["S2"].attrs:
                         s = input["S2"].attrs[a].decode()
@@ -321,7 +329,7 @@ class L1CFile:
                         if isinstance(item, h5py.Dataset):
                             shape = item.shape
                             g_st.create_dataset(
-                                name, shape=(n_scans,) + shape[1:], data=item[indices]
+                                name, shape=(n_scans,) + shape[1:], data=item[scans]
                             )
 
                     g_sc = g.create_group("SCstatus")
@@ -329,7 +337,7 @@ class L1CFile:
                         if isinstance(item, h5py.Dataset):
                             shape = item.shape
                             g_sc.create_dataset(
-                                name, shape=(n_scans,) + shape[1:], data=item[indices]
+                                name, shape=(n_scans,) + shape[1:], data=item[scans]
                             )
 
                 if "S3" in input.keys():
@@ -338,7 +346,7 @@ class L1CFile:
                         if isinstance(item, h5py.Dataset):
                             shape = item.shape
                             g.create_dataset(
-                                name, shape=(n_scans,) + shape[1:], data=item[indices]
+                                name, shape=(n_scans,) + shape[1:], data=item[scans]
                             )
                     for a in input["S3"].attrs:
                         s = input["S3"].attrs[a].decode()
@@ -351,7 +359,7 @@ class L1CFile:
                         if isinstance(item, h5py.Dataset):
                             shape = item.shape
                             g_st.create_dataset(
-                                name, shape=(n_scans,) + shape[1:], data=item[indices]
+                                name, shape=(n_scans,) + shape[1:], data=item[scans]
                             )
 
                     g_sc = g.create_group("SCstatus")
@@ -359,7 +367,7 @@ class L1CFile:
                         if isinstance(item, h5py.Dataset):
                             shape = item.shape
                             g_sc.create_dataset(
-                                name, shape=(n_scans,) + shape[1:], data=item[indices]
+                                name, shape=(n_scans,) + shape[1:], data=item[scans]
                             )
                 for a in input.attrs:
                     output.attrs[a] = input.attrs[a]
@@ -370,7 +378,7 @@ class L1CFile:
                         if isinstance(item, h5py.Dataset):
                             shape = item.shape
                             g.create_dataset(
-                                name, shape=(n_scans,) + shape[1:], data=item[indices]
+                                name, shape=(n_scans,) + shape[1:], data=item[scans]
                             )
                     for a in input["S4"].attrs:
                         s = input["S4"].attrs[a].decode()
@@ -383,7 +391,7 @@ class L1CFile:
                         if isinstance(item, h5py.Dataset):
                             shape = item.shape
                             g_st.create_dataset(
-                                name, shape=(n_scans,) + shape[1:], data=item[indices]
+                                name, shape=(n_scans,) + shape[1:], data=item[scans]
                             )
 
                     g_sc = g.create_group("SCstatus")
@@ -391,7 +399,7 @@ class L1CFile:
                         if isinstance(item, h5py.Dataset):
                             shape = item.shape
                             g_sc.create_dataset(
-                                name, shape=(n_scans,) + shape[1:], data=item[indices]
+                                name, shape=(n_scans,) + shape[1:], data=item[scans]
                             )
                 for a in input.attrs:
                     output.attrs[a] = input.attrs[a]

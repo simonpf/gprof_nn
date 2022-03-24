@@ -179,3 +179,39 @@ def test_find_files():
     roi = (-35, 60, -10, 62)
     files = list(L1CFile.find_files(date, l1c_path, roi=roi))
     assert len(files) == 0
+
+def test_extract_scans(tmpdir):
+    """
+    Test finding of specific GMI L1C file and reading data into
+    xarray.Dataset.
+    """
+    l1c_path = DATA_PATH / "gmi" / "l1c"
+
+    l1c_file = L1CFile.open_granule(27510, l1c_path, sensors.GMI)
+    l1c_data = l1c_file.to_xarray_dataset()
+
+    lat = l1c_data.latitude.data[250, :].mean()
+    lon = l1c_data.longitude.data[250, :].mean()
+    lon_0 = lon - 0.5
+    lon_1 = lon + 0.5
+    lat_0 = lat - 0.5
+    lat_1 = lat + 0.5
+    roi = [lon_0, lat_0, lon_1, lat_1]
+
+    roi_path = Path(tmpdir) / "roi.HDF5"
+    l1c_file.extract_scans(roi, roi_path, min_scans=256)
+    roi_file = L1CFile(roi_path)
+    roi_data = roi_file.to_xarray_dataset()
+
+    lats = roi_data.latitude.data
+    lons = roi_data.longitude.data
+    print(lats.mean())
+    print(lons.mean())
+    print(roi)
+
+    assert roi_data.scans.size >= 256
+    inside = ((lons >= lon_0) *
+              (lons < lon_1) *
+              (lats >= lat_0) *
+              (lats < lat_1))
+    assert np.any(inside)
