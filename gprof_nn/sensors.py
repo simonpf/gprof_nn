@@ -2305,7 +2305,7 @@ SSMIS = ConstellationScanner(
     SSMIS_VIEWING_GEOMETRY,
     "/pdata4/veljko/SSMIS2MRMS_match2019/monthly_2021/",
     "SSMIS.dbsatTb.??????{day}.??????.sim",
-    "/qdata1/pbrown/dbaseV7/simV7_ssmi",
+    "/qdata1/pbrown/dbaseV7/simV7_ssmis",
     SSMIS_GMI_CHANNELS,
     modeling_error=SSMIS_MODELING_ERROR,
     #correction=DATA_FOLDER / "corrections_ssmis.nc",
