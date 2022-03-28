@@ -573,11 +573,21 @@ class ValidationFileProcessor:
         mrms_file = Path(mrms_file)
         preprocessor_file = Path(preprocessor_file)
 
-        l1c_file = L1CFile.open_granule(granule, self.sensor.l1c_file_path, self.sensor)
+        l1c_file = L1CFile.open_granule(
+            granule,
+            self.sensor.l1c_file_path,
+            self.sensor
+        )
         with TemporaryDirectory() as tmp:
             tmp = Path(tmp)
             l1c_sub_file = tmp / "l1c_file.HDF5"
-            scan_start, scan_end = l1c_file.extract_scans(CONUS, l1c_sub_file)
+            scan_start, scan_end = l1c_file.extract_scans(
+                CONUS,
+                l1c_sub_file,
+                min_scans=256
+            )
+            if scan_end - scan_start <= 0:
+                return None
 
             # Extract reference data from MRMS file.
             if not mrms_file.exists():
