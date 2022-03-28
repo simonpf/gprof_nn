@@ -245,12 +245,13 @@ class ZonalDistribution(Statistic):
     results in either GPROF binary format or NetCDF format.
     """
 
-    def __init__(self, monthly=False):
+    def __init__(self, monthly=False, statistics=None):
         """
         Args:
             Name of the retrieval variable for which to compute the
             scan position mean.
         """
+        self.statistics = statistics
         self.latitude_bins = np.linspace(-90, 90, 181)
         self.surface_precip_bins = np.logspace(-2, 2.5, 201)
         self.has_time = monthly
@@ -367,6 +368,10 @@ class ZonalDistribution(Statistic):
         """
         self.sensor = sensor
         data = open_file(filename)
+
+        if self.statistics is not None:
+            resample_scans(data, self.statistics)
+
         if self.counts is None:
             self._initialize(data)
 
