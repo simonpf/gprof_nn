@@ -325,6 +325,23 @@ class SimFile:
             results[key] = dims, self.data[key]
 
         dataset = xr.Dataset(results)
+
+        year = dataset["scan_time"].data["year"] - 1970
+        month = dataset["scan_time"].data["month"] - 1
+        day = dataset["scan_time"].data["day"] - 1
+        hour = dataset["scan_time"].data["hour"]
+        minute = dataset["scan_time"].data["minute"]
+        second = dataset["scan_time"].data["second"]
+        dates = (
+            year.astype("datetime64[Y]") +
+            month.astype("timedelta64[M]") +
+            day.astype("timedelta64[D]") +
+            hour.astype("timedelta64[h]") +
+            minute.astype("timedelta64[m]") +
+            second.astype("timedelta64[s]")
+        )
+        dataset["scan_time"] = (("samples",), dates)
+
         return dataset
 
 
