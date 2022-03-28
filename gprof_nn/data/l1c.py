@@ -56,14 +56,21 @@ class L1CFile:
             month = date.month
             day = date.day
             path = Path(path) / f"{year:02}{month:02}" / f"{year:02}{month:02}{day:02}"
-            files = path.glob(sensor.l1c_file_prefix + f"*{granule:06}*.HDF5")
+            files = path.glob(sensor.l1c_file_prefix + f"*.{granule:06}.*.HDF5")
         else:
             path = Path(path)
             files = path.glob(
-                "**/" + sensor.l1c_file_prefix + f"*{granule:06}*.HDF5"
+                "**/" + sensor.l1c_file_prefix + f"*.{granule:06}.*.HDF5"
             )
 
+        files = list(files)
+        if len(files) > 1:
+            raise Exception(
+                f"Found more than 1 matching L1C file. This indicates something"
+                f"went wrong. Found the following files: {files}"
+            )
         try:
+            f = files[0]
             f = next(iter(files))
             return L1CFile(f)
         except StopIteration:
@@ -268,13 +275,18 @@ class L1CFile:
             if any(d_inds > 1):
                 ind = np.where(d_inds > 1)[0][0]
                 indices = indices[:ind]
-            i_start, i_end = indices[[0, -1]]
-            n_scans = i_end - i_start
-            if min_scans is not None and n_scans < min_scans:
-                diff_l = (min_scans - n_scans) // 2
-                i_start = max(0, i_start - diff_l)
-                diff_r = min_scans - (i_end - i_start)
-                i_end = i_end + diff_r
+
+            if len(indices) > 0:
+                i_start, i_end = indices[[0, -1]]
+                n_scans = i_end - i_start
+                if min_scans is not None and n_scans < min_scans:
+                    diff_l = (min_scans - n_scans) // 2
+                    i_start = max(0, i_start - diff_l)
+                    diff_r = min_scans - (i_end - i_start)
+                    i_end = i_end + diff_r
+            else:
+                i_start = 0
+                i_end = 0
             scans = slice(i_start, i_end)
 
             with h5py.File(output_filename, "w") as output:
@@ -404,7 +416,7 @@ class L1CFile:
                 for a in input.attrs:
                     output.attrs[a] = input.attrs[a]
 
-        return indices.min(), indices.max()
+        return i_start, i_end
 
     def extract_scans_and_pixels(self, scans, output_filename, n_pixels=-1):
         """
