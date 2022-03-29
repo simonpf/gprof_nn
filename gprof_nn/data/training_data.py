@@ -47,6 +47,7 @@ _INPUT_DIMENSIONS = {
     "TMIPR": (96, 128),
     "TMIPO": (96, 128),
     "SSMI": (96, 128),
+    "SSMIS": (96, 128),
     "MHS": (24, 128),
 }
 
@@ -546,11 +547,12 @@ class GPROF_NN_1D_Dataset(Dataset1DBase):
 
         latitudes = self.dataset.latitude.mean(("scans", "pixels")).data
         longitudes = self.dataset.longitude.mean(("scans", "pixels")).data
-        scan_time = self.dataset.scan_time.mean(("scans")).data
+        scan_time = self.dataset.scan_time.mean(("scans"))
         local_time = (
             scan_time + (longitudes / 360 * 24 * 60 * 60).astype("timedelta64[s]")
         )
-        indices = calculate_resampling_indices(latitudes, local_time, self.sensor)
+        minutes = local_time.dt.hour * 60 + local_time.dt.minute.data
+        indices = calculate_resampling_indices(latitudes, minutes, self.sensor)
         if indices is None:
             kwargs = {}
         else:
@@ -822,11 +824,12 @@ class GPROF_NN_3D_Dataset:
 
         latitudes = self.dataset.latitude.mean(("scans", "pixels")).data
         longitudes = self.dataset.longitude.mean(("scans", "pixels")).data
-        scan_time = self.dataset.scan_time.mean(("scans")).data
+        scan_time = self.dataset.scan_time.mean(("scans"))
         local_time = (
             scan_time + (longitudes / 360 * 24 * 60 * 60).astype("timedelta64[s]")
         )
-        indices = calculate_resampling_indices(latitudes, local_time, self.sensor)
+        minutes = local_time.dt.hour.data * 60 + local_time.dt.minute.data
+        indices = calculate_resampling_indices(latitudes, minutes, self.sensor)
         if indices is None:
             kwargs = {}
         else:

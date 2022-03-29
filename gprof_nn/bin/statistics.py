@@ -12,6 +12,8 @@ import logging
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
+import numpy as np
+
 import gprof_nn.logging
 from gprof_nn.retrieval import RetrievalDriver, RetrievalGradientDriver
 from gprof_nn import sensors
@@ -70,30 +72,44 @@ def add_parser(subparsers):
     parser.set_defaults(func=run)
 
 
-STATS = {
-    "training_1d": [
-        statistics.TrainingDataStatistics(kind="1d"),
-        statistics.ZonalDistribution(),
-        statistics.GlobalDistribution()
-    ],
-    "training_3d": [
-        statistics.TrainingDataStatistics(kind="3d"),
-        statistics.ZonalDistribution(),
-        statistics.GlobalDistribution()
-    ],
-    "bin": [
-        statistics.BinFileStatistics(),
-        statistics.GlobalDistribution()
-    ],
-    "observations": [statistics.ObservationStatistics()],
-    "retrieval": [
-        statistics.RetrievalStatistics(),
-        statistics.ZonalDistribution(),
-        statistics.GlobalDistribution(),
-        statistics.ScanPositionMean()
-        ],
-    "combined": [statistics.GPMCMBStatistics(monthly=False)]
-}
+def get_stats(kind, latitude_ratios):
+    if kind == "training_1d":
+        stats = [
+            statistics.TrainingDataStatistics(kind="1d"),
+            statistics.ZonalDistribution(statistics=latitude_ratios),
+            statistics.GlobalDistribution()
+        ]
+    elif kind == "training_3d":
+        stats = [
+            statistics.TrainingDataStatistics(kind="3d"),
+            statistics.ZonalDistribution(statistics=latitude_ratios),
+            statistics.GlobalDistribution()
+        ]
+    elif kind == "bin":
+        stats = [
+            statistics.BinFileStatistics(),
+            statistics.GlobalDistribution()
+        ]
+    elif kind == "observations":
+        stats = [statistics.ObservationStatistics()],
+    elif kind == "retrieval":
+        stats = [
+            statistics.RetrievalStatistics(statistics=latitude_ratios),
+            statistics.ZonalDistribution(statistics=latitude_ratios),
+            statistics.GlobalDistribution(),
+            statistics.ScanPositionMean()
+        ]
+    elif kind == "combined":
+        stats = [statistics.GPMCMBStatistics(monthly=False)]
+    else:
+        LOGGER.error(
+            "Kind must be one of ['training_1d', 'training_3d', "
+            "'bin', 'observations', 'retrieval' 'combined'] not"
+            "%s", kind
+        )
+        return None
+    return stats
+
 
 PATTERNS = {
     "training_1d": "**/*.nc*",
@@ -128,18 +144,15 @@ def run(args):
         sensor._latitude_ratios = None
     if args.no_correction:
         sensor._correction = None
+
+    latitude_ratios = None
     if args.latitude_ratios is not None:
         sensor._latitude_ratios = args.latitude_ratios
+        latitude_ratios = np.load(args.latitude_ratios)
 
     kind = args.kind.lower().strip()
     if kind == "training":
         kind = "training_1d"
-
-    if not kind in STATS.keys():
-        LOGGER.error(
-            f"'kind' argument must be one of {list(STATS.keys())}."
-        )
-        return 1
 
     inputs = [Path(f) for f in args.input]
     for path in inputs:
@@ -164,6 +177,9 @@ def run(args):
     for path in inputs:
         input_files += list(path.glob(endings))
 
-    stats = STATS[kind]
+    stats = get_stats(kind, latitude_ratios)
+    if stats is None:
+        return 1
+
     processor = statistics.StatisticsProcessor(sensor, input_files, stats)
     processor.run(n_procs, output)

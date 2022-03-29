@@ -489,6 +489,7 @@ class RetrievalDriver:
                 "two_meter_temperature",
                 "surface_type",
                 "airmass_type",
+                "scan_time"
             ]
             for var in variables:
                 if var in input_data.data.variables:

@@ -515,16 +515,19 @@ class ValidationFileProcessor:
 
         surface_precip.data[:] = sp
         surface_precip = surface_precip.interp(
-            latitude=lats_5, longitude=lons_5, time=time
+            latitude=lats_5, longitude=lons_5, time=time, method="nearest",
+                kwargs={"fill_value": "extrapolate"}
         )
         datasets = [surface_precip]
         rqi = mrms_data.radar_quality_index.interp(
-            latitude=lats_5, longitude=lons_5, time=time, method="nearest"
+            latitude=lats_5, longitude=lons_5, time=time, method="nearest",
+            kwargs={"fill_value": "extrapolate"}
         )
         datasets.append(rqi)
         if "mask" in mrms_data.variables:
             mask = mrms_data.mask.interp(
-                latitude=lats_5, longitude=lons_5, time=time, method="nearest"
+                latitude=lats_5, longitude=lons_5, time=time, method="nearest",
+                kwargs={"fill_value": "extrapolate"}
             )
             datasets.append(mask)
         mrms_data = xr.merge(datasets)
@@ -570,11 +573,21 @@ class ValidationFileProcessor:
         mrms_file = Path(mrms_file)
         preprocessor_file = Path(preprocessor_file)
 
-        l1c_file = L1CFile.open_granule(granule, self.sensor.l1c_file_path, self.sensor)
+        l1c_file = L1CFile.open_granule(
+            granule,
+            self.sensor.l1c_file_path,
+            self.sensor
+        )
         with TemporaryDirectory() as tmp:
             tmp = Path(tmp)
             l1c_sub_file = tmp / "l1c_file.HDF5"
-            scan_start, scan_end = l1c_file.extract_scans(CONUS, l1c_sub_file)
+            scan_start, scan_end = l1c_file.extract_scans(
+                CONUS,
+                l1c_sub_file,
+                min_scans=256
+            )
+            if scan_end - scan_start <= 0:
+                return None
 
             # Extract reference data from MRMS file.
             if not mrms_file.exists():

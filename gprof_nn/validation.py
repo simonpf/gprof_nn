@@ -22,11 +22,14 @@ from scipy.signal import convolve
 from gprof_nn.data.training_data import decompress_and_load
 from gprof_nn.data.retrieval import RetrievalFile
 from gprof_nn.data.sim import SimFile
+from gprof_nn.data.combined import GPMCMBFile
 from gprof_nn.utils import calculate_interpolation_weights, interpolate
+from gprof_nn.data.validation import CONUS
 
 
 VALIDATION_VARIABLES = [
     "surface_precip",
+    "surface_precip_avg",
     "frozen_precip",
     "pop",
     "precip_1st_tercile",
@@ -71,13 +74,13 @@ def smooth_reference_field(surface_precip, angles, steps=11):
     # Calculate smoothing kernels for different angles.
     #
 
-    fwhm_a = 18.0 / 5.0
+    fwhm_a = 13.5 / 5.0
     w_a = int(fwhm_a) + 1
-    fwhm_x = 11.0 / 5.0
+    fwhm_x = 5.0 / 5.0
     w_x = int(fwhm_x) + 1
     d_a = 2 * np.arange(-w_a, w_a + 1e-6).reshape(-1, 1) / fwhm_a
     d_x = 2 * np.arange(-w_x, w_x + 1e-6).reshape(1, -1) / fwhm_x
-    k = np.exp(np.log(0.5) *  (d_a ** 2 + d_x **2))
+    k = np.exp(np.log(0.5) * (d_a ** 2 + d_x ** 2))
     k = k / k.sum()
     ks = []
     kernel_angles = np.linspace(-70, 70, steps)
@@ -130,12 +133,16 @@ class GPROFNN1DResults:
         return len(self.granules)
 
     @property
+    def smooth(self):
+        return False
+
+    @property
     def group_name(self):
         return "gprof_nn_1d"
 
     def open_granule(self, granule):
         data = RetrievalFile(self.granules[granule]).to_xarray_dataset()
-        return data[VALIDATION_VARIABLES + ["latitude", "longitude"]]
+        return data
 
 
 class GPROFNN3DResults(GPROFNN1DResults):
@@ -185,6 +192,10 @@ class GPROFResults:
         return len(self.granules)
 
     @property
+    def smooth(self):
+        return False
+
+    @property
     def group_name(self):
         return "gprof_v7"
 
@@ -219,6 +230,10 @@ class GPROFLegacyResults:
         return len(self.granules)
 
     @property
+    def smooth(self):
+        return False
+
+    @property
     def group_name(self):
         return "gprof_v5"
 
@@ -248,7 +263,7 @@ class GPROFLegacyResults:
         return dataset
 
 
-class GPROFCMBResults(GPROFLegacyResults):
+class GPMCMBResults(GPROFLegacyResults):
     """
     Data interface class to collect results from GPROF V6 result files.
     """
@@ -270,27 +285,32 @@ class GPROFCMBResults(GPROFLegacyResults):
             except IndexError:
                 pass
 
+    @property
+    def smooth(self):
+        return False
+
     def __len__(self):
         return len(self.granules)
 
     @property
     def group_name(self):
-        return "cmb"
+        return "combined"
 
     def open_granule(self, granule):
-        with File(str(self.granules[granule]), "r") as data:
-            data = data["NS"]
-            latitude = data["Latitude"][:]
-            longitude = data["Longitude"][:]
-            surface_precip = data["surfPrecipTotRate"][:]
-
-        dims = ("scans", "pixels")
-        dataset = xr.Dataset({
-            "latitude": (dims, latitude),
-            "longitude": (dims, longitude),
-            "surface_precip": (dims, surface_precip),
-        })
-        return dataset
+        input_file = GPMCMBFile(self.granules[granule])
+        data = input_file.to_xarray_dataset(
+            profiles=False,
+            smooth=False,
+        )
+        data_smooth = input_file.to_xarray_dataset(
+            profiles=False,
+            smooth=True,
+        )
+        data["surface_precip_avg"] = (
+            ("scans", "pixels"),
+            data_smooth["surface_precip"].data
+        )
+        return data
 
 
 class SimulatorFiles():
@@ -313,6 +333,10 @@ class SimulatorFiles():
                 pass
             except IndexError:
                 pass
+
+    @property
+    def smooth(self):
+        return False
 
     def __len__(self):
         return len(self.granules)
@@ -434,26 +458,56 @@ class ResultCollector:
                     data_grid,
                     result_grid,
                     10e3,
-                    neighbours=1
+                    neighbours=8
                 )
                 valid_inputs, valid_outputs, indices, distances = resampling_info
+
+                resampling_info = kd_tree.get_neighbour_info(
+                    data_grid,
+                    result_grid,
+                    10e3,
+                    neighbours=1
+                )
+                valid_inputs_nn, valid_outputs_nn, indices_nn, distances_nn = resampling_info
 
                 data_r = xr.Dataset({
                     "along_track": (("along_track",), reference_data.along_track.data),
                     "across_track": (("across_track",), reference_data.across_track.data),
                 })
 
+                def weighting_function(distance):
+                    return np.exp(np.log(0.5) * (2.0 * (distance / 5e3)) ** 2)
+
                 for variable in VALIDATION_VARIABLES:
                     if variable in data.variables:
-                        missing = np.nan
                         if data[variable].dtype not in [np.float32, np.float64]:
                             missing = -999
-                        resampled = kd_tree.get_sample_from_neighbour_info(
-                            'nn', result_grid.shape, data[variable].data,
-                            valid_inputs, valid_outputs, indices,
-                            fill_value=missing
-                        )
+                            resampled = kd_tree.get_sample_from_neighbour_info(
+                                'nn', result_grid.shape, data[variable].data,
+                                valid_inputs_nn, valid_outputs_nn, indices_nn,
+                                fill_value=missing
+                            )
+                        else:
+                            missing = np.nan
+                            resampled = kd_tree.get_sample_from_neighbour_info(
+                                'custom', result_grid.shape, data[variable].data,
+                                valid_inputs, valid_outputs, indices,
+                                fill_value=missing, weight_funcs=weighting_function,
+                                distance_array=distances
+                            )
                         data_r[variable] = (("along_track", "across_track"), resampled)
+
+                    if dataset.smooth and "surface_precip" in data_r:
+                        surface_precip = data_r["surface_precip"].data
+                        angles = reference_data.angles.data
+                        surface_precip_smoothed = smooth_reference_field(
+                            surface_precip,
+                            angles
+                        )
+                        reference_data["surface_precip_avg"] = (
+                            ("along_track", "across_track"),
+                            surface_precip_smoothed
+                        )
 
                 data_r.to_netcdf(output_file, group=dataset.group_name, mode="a")
             except KeyError as error:
@@ -514,13 +568,14 @@ class ResultCollector:
             files.append(reference_file)
 
         for filename, task in track(list(zip(files, tasks))):
-            try:
-                task.result()
-            except Exception as e:
-                LOGGER.error(
-                    "The following error was encountered when processing "
-                    "file %s: \n %s", filename, e
-                )
+            task.result()
+            #try:
+            #    task.result()
+            #except Exception as e:
+            #    LOGGER.error(
+            #        "The following error was encountered when processing "
+            #        "file %s: \n %s", filename, e
+            #    )
 
 ###############################################################################
 # Utilities

@@ -5,14 +5,265 @@ gprof_nn.data.combined
 
 Interface to read in L2b files of the GPM combined product.
 """
+from copy import copy
 from datetime import datetime
+import io
+import logging
 from pathlib import Path
+from tempfile import TemporaryDirectory
+import subprocess
 
 import numpy as np
 import pandas as pd
 import scipy
 from scipy.signal import convolve
 import xarray as xr
+
+
+LOGGER = logging.getLogger(__name__)
+
+
+# Known dimensions of variables of combined data in .bin
+# format.
+BIN_DIMENSIONS = {
+    "pixels": 25,
+    "levels": 88,
+    "spectral_levels": 80,
+    "nodes": 10,
+    "env_nodes": 10,
+    "psd_nodes": 9,
+    "phase_nodes": 5,
+    "channels": 13,
+    "top_bottom": 2,
+    "indices": 2,
+    "date": 6
+}
+
+# Types of the variables of the combined data in .bin
+# format.
+BIN_TYPES = [
+    ("latitude", "f4", ("scans", "pixels")),
+    ("longitude", "f4", ("scans", "pixels")),
+    ("elevation", "f4", ("scans", "pixels")),
+    ("surface_type", "f4", ("scans", "pixels")),
+    ("precip_flag", "f4", ("scans", "pixels")),
+    ("precip_type", "f4", ("scans", "pixels")),
+    ("quality", "f4", ("scans", "pixels")),
+    ("surface_range_bin", "f4", ("scans", "pixels")),
+    ("surface_pressure", "f4", ("scans", "pixels")),
+    ("skin_temperature", "f4", ("scans", "pixels")),
+    ("envnode", "f4", ("scans", "pixels", "nodes")),
+    ("water_vapor", "f4", ("scans", "pixels", "nodes")),
+    ("pressure", "f4", ("scans", "pixels", "nodes")),
+    ("surface_air_temperature", "f4", ("scans", "pixels")),
+    ("temperature", "f4", ("scans", "pixels", "nodes")),
+    ("ten_meter_wind", "f4", ("scans", "pixels")),
+    ("emissivity", "f4", ("scans", "pixels", "channels")),
+    ("surface_precip", "f4", ("scans", "pixels")),
+    ("cloud_water", "f4", ("scans", "pixels", "levels")),
+    ("phase_bin_nodes", "f4", ("scans", "pixels", "phase_nodes")),
+    ("total_water_content", "f4", ("scans", "pixels", "levels")),
+    ("total_precip_rate", "f4", ("scans", "pixels", "levels")),
+    ("liquid_water_content", "f4", ("scans", "pixels", "levels")),
+    ("total_precip_d0", "f4", ("scans", "pixels", "levels")),
+    ("total_precip_n0", "f4", ("scans", "pixels", "levels")),
+    ("total_precip_mu", "f4", ("scans", "pixels", "levels")),
+    ("simulated_brightness_temperatures", "f4", ("scans", "pixels", "channels")),
+    ("pia", "f4", ("scans", "pixels", "top_bottom")),
+    ("radar_reflectivity", "f4", ("scans", "pixels", "levels", "top_bottom")),
+    ("scan_time", "f4", ("date", "scans")),
+    ("theta_dpr", "f4", ("scans", "pixels")),
+    ("latent_heat", "f4", ("scans", "pixels", "spectral_levels")),
+]
+
+
+def load_combined_data_bin(filename):
+    """
+    Load data from combined retrieval special run into a '.bin; file.
+
+    Args:
+        filename: Path pointing to the file to read.
+
+    Return:
+        An xarray.Dataset containing the data from the file.
+    """
+    filename = Path(filename)
+
+    # Decompress file if compressed.
+    if filename.suffix == ".gz":
+        with TemporaryDirectory() as tmp:
+            data = io.BytesIO()
+            args = ["gunzip", "-c", str(filename)]
+            with subprocess.Popen(args, stdout=subprocess.PIPE) as proc:
+                data.write(proc.stdout.read())
+            data.seek(0)
+            data = data.read()
+    else:
+        data = open(filename, "rb").read()
+
+    dataset = {}
+    n_scans = np.frombuffer(data, "i", 1)[0]
+    dimensions = copy(BIN_DIMENSIONS)
+    dimensions["scans"] = n_scans
+    offset = np.dtype("i").itemsize
+    for name, dtype, dims in BIN_TYPES:
+        shape = [dimensions[name] for name in dims]
+        size = np.prod(shape)
+        array = np.frombuffer(data, dtype=dtype, count=size, offset=offset)
+        array = array.reshape(shape)
+        dataset[name] = (dims, array)
+        offset += size * np.dtype(dtype).itemsize
+
+    # Ensure all data is read.
+    assert offset == len(data)
+
+    return xr.Dataset(dataset)
+
+
+def load_combined_data_special(
+        filename,
+        smooth=False,
+        profiles=True,
+        slh_path=None,
+        roi=None
+):
+    """
+    Load data from specal combined run for generation of GPROF database.
+
+    Args:
+        filename: Path pointing to the file to read.
+        profiles: Wether or not to include profiles in the output.
+        slh_path: If provided the function will look into the given
+            path to load latent heating data from the 2A_SLH product.
+        roi: Optional bounding box given as list
+                ``[lon_0, lat_0, lon_1, lat_1]`` specifying the longitude
+                and latitude coordinates of the lower left
+                (``lon_0, lat_0``) and upper right (``lon_1, lat_1``)
+                corners. If given, only scans containing at least one pixel
+                within the given bounding box will be returned.
+
+    Return:
+        An xarray.Dataset containing the data from the file.
+    """
+    from h5py import File
+    filename = Path(filename)
+
+    # Decompress file if compressed.
+    if filename.suffix == ".gz":
+        with TemporaryDirectory() as tmp:
+            data = io.BytesIO()
+            args = ["gunzip", "-c", str(filename)]
+            with subprocess.Popen(args, stdout=subprocess.PIPE) as proc:
+                data.write(proc.stdout.read())
+            data.seek(0)
+            data = File(data)
+    else:
+        data = File(filename, "r")
+
+    data = data["KuKaGMI"]
+
+    surface_fields = {
+        "latitude": "Latitude",
+        "longitude": "Longitude",
+        "surface_precip": "nearSurfPrecipTotRate",
+    }
+
+    latitude = data["Latitude"][:]
+    longitude = data["Longitude"][:]
+
+    if roi is not None:
+        lon_0, lat_0, lon_1, lat_1 = roi
+        inside = (
+            (longitude >= lon_0)
+            * (latitude >= lat_0)
+            * (longitude < lon_1)
+            * (latitude < lat_1)
+        )
+        inside = np.any(inside, axis=1)
+        i_start, i_end = np.where(inside)[0][[0, -1]]
+    else:
+        i_start = 0
+        i_end = latitude.shape[0]
+    scans = slice(i_start, i_end)
+
+    dataset = {}
+    for name, var in surface_fields.items():
+        array = data[var][scans]
+        if name == "surface_precip" and smooth:
+            k = calculate_smoothing_kernels(18e3, 11e3)
+            array = smooth_field(array, k)
+        dataset[name] = (("scans", "pixels"), array)
+
+    dataset = xr.Dataset(dataset)
+
+    if profiles:
+        total_water = data["precipTotWaterCont"][scans][..., ::-1]
+        total_water[total_water < 0] = np.nan
+
+        liquid_water = data["precipLiqWaterCont"][scans][..., ::-1]
+        liquid_water[liquid_water < 0] = np.nan
+
+        ice_water = total_water - liquid_water
+
+        cloud_water = data["cloudLiqWaterCont"][scans][..., ::-1]
+        cloud_water[cloud_water < 0] = np.nan
+
+        cloud_water = cloud_water[..., :80]
+        liquid_water = liquid_water[..., :80]
+        ice_water = ice_water[..., :80]
+
+        dims = ("scans", "pixels", "levels")
+        dataset["rain_water_content"] = (dims, liquid_water)
+        dataset["snow_water_content"] = (dims, ice_water)
+        dataset["cloud_water_content"] = (dims, cloud_water)
+
+        if slh_path is not None:
+            year = data["ScanTime/Year"][0]
+            month = data["ScanTime/Month"][0]
+            day = data["ScanTime/DayOfMonth"][0]
+            hour = data["ScanTime/Hour"][0]
+            minute = data["ScanTime/Minute"][0]
+
+            path = (
+                Path(slh_path) /
+                f"{year % 2000:02}{month:02}" /
+                f"{year % 2000:02}{month:02}{day:02}"
+            )
+            files = list(path.glob(f"*S{hour:02}{minute:02}*.HDF5"))
+            if len(files) == 0:
+                LOGGER.warning(
+                    "Did not find SLH file for start time %s-%s-%s %s:%s",
+                    year, month, day, hour, minute
+                )
+                slh = np.zeros_like(liquid_water)
+                slh[:] = np.nan
+            else:
+                slh_data = File(files[0])
+                slh = slh_data["Swath/latentHeating"][scans]
+            slh[slh < -999] = np.nan
+
+            dataset["latent_heating"] = (dims, slh)
+
+        # Fill to surface
+        dataset = dataset.bfill("levels")
+        dataset = 0.5 * (
+            dataset[{"levels": slice(0, 80, 2)}] +
+            dataset[{"levels": slice(1, 80, 2)}]
+        )
+
+        if smooth:
+            profile_names = [
+                "rain_water_content",
+                "snow_water_content",
+                "cloud_water_content",
+                "latent_heating"
+            ]
+            for var in profile_names:
+                if var in dataset:
+                    array = dataset[var].data
+                    dataset[var].data = smooth_field(array, k)
+
+    return dataset
 
 
 def calculate_smoothing_kernels(fwhm_a, fwhm_x):
@@ -80,27 +331,64 @@ class GPMCMBFile:
 
         """
         self.filename = Path(filename)
-        time = self.filename.stem.split(".")[4][:-8]
-        self.start_time = datetime.strptime(time, "%Y%m%d-S%H%M%S")
+        if self.filename.suffix != ".HDF5":
+            self.format = "BIN"
+            time, granule = self.filename.stem.split(".")[2:4]
+            self.start_time = datetime.strptime(time, "%Y%m%d")
+            self.granule = int(granule)
+        else:
+            time, granule, format = self.filename.stem.split(".")[4:7]
+            self.format = format
+            self.start_time = datetime.strptime(time[:-8], "%Y%m%d-S%H%M%S")
+            self.granule = int(granule)
 
-    def to_xarray_dataset(self, smooth=False, profiles=False, roi=None):
+
+    def to_xarray_dataset(
+            self,
+            smooth=False,
+            profiles=False,
+            roi=None,
+            slh_path=None
+    ):
         """
         Load data in file into 'xarray.Dataset'.
 
         Args:
             smooth: If set to true the 'surface_precip' field will be smoothed
                 to match the footprint of the GMI 23.8 GHz channels.
+            profiles: Whether or not to also load profile variables.
             roi: Optional bounding box given as list
                  ``[lon_0, lat_0, lon_1, lat_1]`` specifying the longitude
                  and latitude coordinates of the lower left
                  (``lon_0, lat_0``) and upper right (``lon_1, lat_1``)
                  corners. If given, only scans containing at least one pixel
                  within the given bounding box will be returned.
+            slh_path: Path to load spectral latent heating data from. Only
+                 used for ITE768 format.
         """
+        if self.format == "BIN":
+            data = load_combined_data_bin(self.filename)
+            return data
+        elif self.format == "ITE768":
+            data = load_combined_data_special(
+                self.filename,
+                smooth=smooth,
+                profiles=profiles,
+                slh_path=slh_path,
+                roi=roi
+            )
+            return data
+
         from h5py import File
         with File(str(self.filename), "r") as data:
 
-            data = data["NS"]
+            if self.format.startswith("ITE"):
+                data = data["KuKaGMI"]
+                sp_var = "estimSurfPrecipTotRate"
+            else:
+                data = data["NS"]
+                sp_var = "surfPrecipTotRate"
+
             latitude = data["Latitude"][:]
             longitude = data["Longitude"][:]
 
@@ -131,9 +419,9 @@ class GPMCMBFile:
             }
             date = pd.to_datetime(date)
 
-            surface_precip = data["surfPrecipTotRate"][i_start:i_end]
+            surface_precip = data[sp_var][i_start:i_end]
             if smooth:
-                k = calculate_smoothing_kernels(16e3, 10e3)
+                k = calculate_smoothing_kernels(18e3, 11e3)
                 surface_precip = smooth_field(surface_precip, k)
 
             dataset = {
@@ -145,7 +433,11 @@ class GPMCMBFile:
 
             if profiles:
                 twc = data["precipTotWaterCont"][i_start:i_end]
-                l_frac = data["liqMassFracTrans"][i_start:i_end]
+
+                if self.format.startswith("ITE"):
+                    l_frac = data["precipLiqRate"][i_start:i_end]
+                else:
+                    l_frac = data["liqMassFracTrans"][i_start:i_end]
                 l_frac[l_frac < 0] = 1.0
                 levels = (np.arange(88) + 1).reshape(1, 1, -1)
                 phases = data["phaseBinNodes"][i_start:i_end]

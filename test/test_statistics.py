@@ -9,21 +9,21 @@ import xarray as xr
 from gprof_nn import sensors
 from gprof_nn.data.bin import BinFile
 from gprof_nn.data import get_test_data_path
-from gprof_nn.definitions import ALL_TARGETS
+from gprof_nn.definitions import ALL_TARGETS, LAT_BINS, TIME_BINS
 from gprof_nn.data.preprocessor import PreprocessorFile
 from gprof_nn.data.retrieval import RetrievalFile
 from gprof_nn.data.training_data import (GPROF_NN_1D_Dataset,
                                          decompress_and_load)
 from gprof_nn.data.combined import GPMCMBFile
 from gprof_nn.statistics import (StatisticsProcessor,
-                                 LatitudeDistribution,
                                  TrainingDataStatistics,
                                  BinFileStatistics,
                                  ObservationStatistics,
                                  GlobalDistribution,
                                  ZonalDistribution,
                                  RetrievalStatistics,
-                                 GPMCMBStatistics)
+                                 GPMCMBStatistics,
+                                 resample_scans)
 
 
 DATA_PATH = get_test_data_path()
@@ -438,6 +438,24 @@ def test_observation_statistics_gmi(tmpdir):
     counts = results["surface_type"].data
     assert np.all(np.isclose(counts, 2.0 * counts_ref))
 
+    # Ensure latitude distributions match.
+    bins = np.linspace(-90, 90, 181)
+    lats = input_data["latitude"].data
+    counts_ref, _ = np.histogram(lats, bins=bins)
+    counts = results["latitudes"].data
+    assert np.all(np.isclose(counts, 2.0 * counts_ref))
+
+    # Ensure local time distributions match.
+    bins = (np.linspace(0, 24, 25) - 0.5) * 60
+    lons = input_data["longitude"]
+    scan_time = input_data["scan_time"]
+    local_time = (scan_time
+                  + (lons / 360 * 24 * 60 * 60).astype("timedelta64[s]"))
+    minutes = local_time.dt.hour * 60 + local_time.dt.minute.data
+    counts_ref, _ = np.histogram(minutes, bins=bins)
+    counts = results["local_time"].data
+    assert np.all(np.isclose(counts, 2.0 * counts_ref))
+
 
 def test_observation_statistics_mhs(tmpdir):
     """
@@ -502,6 +520,24 @@ def test_observation_statistics_mhs(tmpdir):
     counts = results["surface_type"].data
     assert np.all(np.isclose(counts, 2.0 * counts_ref))
 
+    # Ensure latitude distributions match.
+    bins = np.linspace(-90, 90, 181)
+    lats = input_data["latitude"].data
+    counts_ref, _ = np.histogram(lats, bins=bins)
+    counts = results["latitudes"].data
+    assert np.all(np.isclose(counts, 2.0 * counts_ref))
+
+    # Ensure local time distributions match.
+    bins = (np.linspace(0, 24, 25) - 0.5) * 60
+    lons = input_data["longitude"]
+    scan_time = input_data["scan_time"]
+    local_time = (scan_time
+                  + (lons / 360 * 24 * 60 * 60).astype("timedelta64[s]"))
+    minutes = local_time.dt.hour * 60 + local_time.dt.minute.data
+    counts_ref, _ = np.histogram(minutes, bins=bins)
+    counts = results["local_time"].data
+    assert np.all(np.isclose(counts, 2.0 * counts_ref))
+
 
 def test_retrieval_statistics_gmi(tmpdir):
     """
@@ -521,7 +557,7 @@ def test_retrieval_statistics_gmi(tmpdir):
                                     stats)
     processor.run(2, str(tmpdir))
 
-    results = xr.load_dataset(str(tmpdir / "retrieval_statistics_gmi.nc"))
+    results = xr.load_dataset(str(tmpdir / "retrieval_statistics.nc"))
 
     mean_sp = results["surface_precip_mean_t2m"][0, 33]
     st = data.surface_type.data
@@ -574,3 +610,85 @@ def test_gpm_cmb_statistics(tmpdir):
     cs = results["surface_precip"].data.sum(axis=1)
 
     assert np.all(np.isclose(cs, 2.0 * cs_ref))
+
+
+def test_resample_scans():
+    """
+    Tests the resampling of observation along the scan dimension.
+    """
+    n = 24 * 60
+    lats = np.linspace(-90, 89, n) + 0.5
+    lons = np.zeros(n)
+    scan_time = np.arange(0, n, dtype="datetime64[m]")
+
+    dataset = xr.Dataset({
+        "scan_time": (("scans",), scan_time),
+        "latitude": (("scans", "pixels"), lats[..., np.newaxis]),
+        "longitude": (("scans", "pixels"), lons[..., np.newaxis])
+    })
+
+    weights = np.zeros(LAT_BINS.size - 1)
+    weights[LAT_BINS.size // 2:] = 1.0
+    dataset = resample_scans(dataset, weights)
+    assert np.all(dataset.latitude.data > 0)
+
+    weights = np.zeros((LAT_BINS.size - 1, TIME_BINS.size - 1))
+    weights[..., TIME_BINS.size // 2:] = 1.0
+    dataset = resample_scans(dataset, weights)
+    minutes = (dataset.scan_time.dt.hour * 60 +
+               dataset.scan_time.dt.minute)
+    assert np.all(minutes.data > n // 2)
+
+
+def test_retrieval_statistics_resampled(tmpdir):
+    """
+    Test calculating retrieval statistics with latitude resampling.
+    """
+    source_file = DATA_PATH / "gmi" / "retrieval" / "GMIERA5_190101_027510.bin"
+    # This retrieval file contains profiles so it has to be converted
+    # to a netcdf file first.
+    data = RetrievalFile(source_file, has_profiles=True).to_xarray_dataset()
+    data.to_netcdf(tmpdir / "input.nc")
+
+    # Set statistics so that only scans over
+    # equator are considered.
+    statistics = np.zeros(LAT_BINS.size - 1)
+    lats = 0.5 * (LAT_BINS[1:] + LAT_BINS[:-1])
+    statistics[lats < 0] = 1.0
+
+    files = [tmpdir / "input.nc"] * 2
+    stats = [RetrievalStatistics(statistics)]
+    processor = StatisticsProcessor(sensors.GMI,
+                                    files,
+                                    stats)
+    processor.run(2, str(tmpdir))
+
+    results = xr.load_dataset(str(tmpdir / "retrieval_statistics.nc"))
+
+    # Select only scans who's mean latitude is above equator.
+    mean_lats = data.latitude.data.mean()
+    print(mean_lats)
+    data = data[{"scans": mean_lats < 0}]
+
+    mean_sp = results["surface_precip_mean_t2m"][0, 33]
+    st = data.surface_type.data
+    l_t2m, r_t2m = np.linspace(239.5, 339.5, 101)[33:35]
+    indices = ((data.surface_type.data == 1) *
+               (data.two_meter_temperature.data >= l_t2m) *
+               (data.two_meter_temperature.data < r_t2m) *
+               (data.surface_precip.data > -999))
+    mean_sp_ref = data.surface_precip.data[indices].mean()
+
+    assert np.isclose(mean_sp_ref, mean_sp, atol=1e-2)
+
+    mean_sp = results["surface_precip_mean_tcwv"][0, 10]
+    st = data.surface_type.data
+    l_tcwv, r_tcwv = np.linspace(-0.5, 99.5, 101)[10:12]
+    indices = ((data.surface_type.data == 1) *
+               (data.total_column_water_vapor.data >= l_tcwv) *
+               (data.total_column_water_vapor.data < r_tcwv) *
+               (data.surface_precip.data > -999))
+    mean_sp_ref = data.surface_precip.data[indices].mean()
+
+    assert np.isclose(mean_sp_ref, mean_sp, atol=1e-2)
+

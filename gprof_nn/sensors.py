@@ -856,6 +856,13 @@ class ConstellationScanner(ConicalScanner):
         # Calculate scence resampling factors
         self._latitude_ratios = latitude_ratios
 
+        # MRMS types
+        self._mrms_file_record = types.get_mrms_file_record(
+            self.n_chans,
+            self.n_angles,
+            types.CONICAL_CONST
+        )
+
     @property
     def correction(self):
         if self._correction is not None:
@@ -1269,7 +1276,7 @@ class ConstellationScanner(ConicalScanner):
             vs += ["surface_precip"]
 
         if indices is None:
-            indinces = range(n)
+            indices = range(n)
         for sample_index in indices:
             scene = decompress_scene(dataset[{"samples": sample_index}], targets + vs)
             source = scene.source
@@ -1334,7 +1341,7 @@ class CrossTrackScanner(Sensor):
             self._correction = correction
         # Convert modeling error to list of channel-wise modeling errors.
         if isinstance(modeling_error, int):
-            modeling_error = [modelling_error] * n_chans
+            modeling_error = [modeling_error] * n_chans
         self.modeling_error = modeling_error
 
     def __repr__(self):
@@ -1858,9 +1865,11 @@ class Platform:
         return f"Platform(name={self.name})"
 
 
-TRMM = Platform("TRMM", "/pdata4/archive/GPM/1C_TMI/", "1C.TRMM.TMI")
+TRMM = Platform("TRMM", "/pdata4/archive/GPM/1C_TMI_ITE/", "1C.TRMM.TMI")
 NOAA19 = Platform("NOAA19", "/pdata4/archive/GPM/1C_NOAA19/", "1C.NOAA19.MHS")
 GPM = Platform("GPM-CO", "/pdata4/archive/GPM/1CR_GMI/", "1C-R.GPM.GMI")
+F15 = Platform("F15", "/pdata4/archive/GPM/1C_F15_ITE/", "1C.F15.SSMI")
+F17 = Platform("F17", "/pdata4/archive/GPM/1C_F17_ITE/", "1C.F17.SSMIS")
 
 ###############################################################################
 # GMI
@@ -2160,6 +2169,16 @@ SSMI_NEDT = np.array([
  	0.31,
 ])
 
+SSMI_MODELING_ERROR = np.sqrt(np.array([
+    1.0,
+    1.5,
+    0.5,
+    1.0,
+    2.0,
+    1.5,
+    2.0,
+]))
+
 SSMI_GMI_CHANNELS = [2, 3, 4, 6, 7, 8, 9]
 
 SSMI_VIEWING_GEOMETRY = Conical(
@@ -2175,12 +2194,14 @@ SSMI = ConstellationScanner(
     SSMI_CHANNELS,
     SSMI_NEDT,
     SSMI_ANGLES,
-    TRMM,
+    F15,
     SSMI_VIEWING_GEOMETRY,
     None,
     "SSMI.dbsatTb.??????{day}.??????.sim",
     "/qdata1/pbrown/dbaseV7/simV7_ssmi",
-    SSMI_GMI_CHANNELS
+    SSMI_GMI_CHANNELS,
+    modeling_error=SSMI_MODELING_ERROR,
+    correction=DATA_FOLDER / "corrections_ssmi.nc",
 )
 
 SSMI_F08 = ConstellationScanner(
@@ -2188,11 +2209,105 @@ SSMI_F08 = ConstellationScanner(
     SSMI_CHANNELS,
     SSMI_NEDT,
     SSMI_ANGLES,
-    TRMM,
+    F15,
     SSMI_VIEWING_GEOMETRY,
     None,
     "SSMI.dbsatTb.??????{day}.??????.sim",
     "/qdata1/pbrown/dbaseV7/simV7_ssmi",
-    SSMI_GMI_CHANNELS
+    SSMI_GMI_CHANNELS,
+    modeling_error=SSMI_MODELING_ERROR,
+    correction=DATA_FOLDER / "corrections_ssmi.nc",
 )
 SSMI_F08.missing_channels = [5, 6]
+
+###############################################################################
+# SSMIS
+###############################################################################
+
+
+SSMIS_CHANNELS = [
+    (19.35, "V"),
+    (19.35, "H"),
+    (22.235, "V"),
+    (37.0, "V"),
+    (37.0, "H"),
+    (91.655, "V"),
+    (91.655, "H"),
+    (150, "H"),
+    (186, "H"),
+    (189, "H"),
+]
+
+SSMIS_ANGLES = np.array([
+    53.1,
+    53.1,
+    53.1,
+    53.1,
+    53.1,
+    53.1,
+    53.1,
+    53.1,
+    53.1,
+])
+
+SSMIS_NEDT = np.array([
+    0.7,
+ 	0.7,
+ 	0.7,
+ 	0.5,
+ 	0.5,
+ 	0.9,
+ 	0.9,
+ 	1.0,
+ 	1.0,
+])
+
+SSMIS_MODELING_ERROR = np.sqrt(np.array([
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+]))
+
+SSMIS_GMI_CHANNELS = [
+    2,
+    3,
+    4,
+    6,
+    7,
+    8,
+    9,
+    11,
+    13,
+    14
+]
+
+SSMIS_VIEWING_GEOMETRY = Conical(
+    altitude=848e3,
+    earth_incidence_angle=53.0,
+    scan_range=102,
+    pixels_per_scan=128,
+    scan_offset=12.5e3,
+)
+
+SSMIS = ConstellationScanner(
+    "SSMIS",
+    SSMIS_CHANNELS,
+    SSMIS_NEDT,
+    SSMIS_ANGLES,
+    F17,
+    SSMIS_VIEWING_GEOMETRY,
+    "/pdata4/veljko/SSMIS2MRMS_match2019/monthly_2021/",
+    "SSMIS.dbsatTb.??????{day}.??????.sim",
+    "/qdata1/pbrown/dbaseV7/simV7_ssmis",
+    SSMIS_GMI_CHANNELS,
+    modeling_error=SSMIS_MODELING_ERROR,
+    #correction=DATA_FOLDER / "corrections_ssmis.nc",
+)
+

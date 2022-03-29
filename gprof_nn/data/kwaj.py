@@ -650,7 +650,17 @@ class FileExtractor:
                 tmp = Path(tmp)
 
                 l1c_sub_file = tmp / "l1c_file.HDF5"
-                scan_start, scan_end = l1c_file.extract_scans(ROI, l1c_sub_file)
+                scan_start, scan_end = l1c_file.extract_scans(
+                    ROI,
+                    l1c_sub_file,
+                    min_scans=256
+                )
+                if scan_end - scan_start <= 0:
+                    LOGGER.info(
+                        "No pixels in ROI for granule %s.",
+                        granule
+                    )
+                    return None
 
                 # Extract reference data from Kwajalein radar archive.
                 if not kwaj_file.exists():

@@ -56,14 +56,21 @@ class L1CFile:
             month = date.month
             day = date.day
             path = Path(path) / f"{year:02}{month:02}" / f"{year:02}{month:02}{day:02}"
-            files = path.glob(sensor.l1c_file_prefix + f"*{granule:06}.V05A.HDF5")
+            files = path.glob(sensor.l1c_file_prefix + f"*.{granule:06}.*.HDF5")
         else:
             path = Path(path)
             files = path.glob(
-                "**/" + sensor.l1c_file_prefix + f"*{granule:06}.V05A.HDF5"
+                "**/" + sensor.l1c_file_prefix + f"*.{granule:06}.*.HDF5"
             )
 
+        files = list(files)
+        if len(files) > 1:
+            raise Exception(
+                f"Found more than 1 matching L1C file. This indicates something"
+                f"went wrong. Found the following files: {files}"
+            )
         try:
+            f = files[0]
             f = next(iter(files))
             return L1CFile(f)
         except StopIteration:
@@ -92,7 +99,7 @@ class L1CFile:
         month = date.month
         day = date.day
         data_path = Path(path) / f"{year:02}{month:02}" / f"{year:02}{month:02}{day:02}"
-        files = list(data_path.glob(sensor.l1c_file_prefix + "*.V05A.HDF5"))
+        files = list(data_path.glob(sensor.l1c_file_prefix + "*.HDF5"))
 
         # Add files from following day.
         date_f = date + pd.DateOffset(1)
@@ -100,7 +107,7 @@ class L1CFile:
         month = date_f.month
         day = date_f.day
         data_path = Path(path) / f"{year:02}{month:02}" / f"{year:02}{month:02}{day:02}"
-        files += list(data_path.glob(sensor.l1c_file_prefix + "*.V05A.HDF5"))
+        files += list(data_path.glob(sensor.l1c_file_prefix + "*.HDF5"))
 
         # Add files from previous day.
         date_f = date - pd.DateOffset(1)
@@ -109,9 +116,9 @@ class L1CFile:
         day = date_f.day
         data_path = Path(path) / f"{year:02}{month:02}" / f"{year:02}{month:02}{day:02}"
 
-        files += list(data_path.glob(sensor.l1c_file_prefix + "*.V05A.HDF5"))
+        files += list(data_path.glob(sensor.l1c_file_prefix + "*.HDF5"))
 
-        files += list(path.glob(sensor.l1c_file_prefix + "*.V05A.HDF5"))
+        files += list(path.glob(sensor.l1c_file_prefix + "*.HDF5"))
 
         start_times = []
         end_times = []
@@ -165,12 +172,12 @@ class L1CFile:
         data_path = Path(path) / f"{year:02}{month:02}" / f"{year:02}{month:02}{day:02}"
         files = list(
             data_path.glob(
-                sensor.l1c_file_prefix + f"*{date.year:04}{month:02}{day:02}*.V05A.HDF5"
+                sensor.l1c_file_prefix + f"*{date.year:04}{month:02}{day:02}*.HDF5"
             )
         )
         files += list(
             path.glob(
-                sensor.l1c_file_prefix + f"*{date.year:04}{month:02}{day:02}*.V05A.HDF5"
+                sensor.l1c_file_prefix + f"*{date.year:04}{month:02}{day:02}*.HDF5"
             )
         )
         for f in files:
@@ -236,7 +243,7 @@ class L1CFile:
         """String representation for file."""
         return f"L1CFile(filename='{self.path.name}')"
 
-    def extract_scans(self, roi, output_filename):
+    def extract_scans(self, roi, output_filename, min_scans=None):
         """
         Extract scans over a rectangular region of interest (ROI).
 
@@ -257,27 +264,40 @@ class L1CFile:
 
             indices = np.where(
                 np.any(
-                    (lats > lat_min)
+                    (lats >= lat_min)
                     * (lats < lat_max)
-                    * (lons > lon_min)
+                    * (lons >= lon_min)
                     * (lons < lon_max),
                     axis=-1,
                 )
             )[0]
             d_inds = np.diff(indices)
             if any(d_inds > 1):
-                ind = np.where(d_inds > 1)[0]
+                ind = np.where(d_inds > 1)[0][0]
                 indices = indices[:ind]
+
+            if len(indices) > 0:
+                i_start, i_end = indices[[0, -1]]
+                n_scans = i_end - i_start
+                if min_scans is not None and n_scans < min_scans:
+                    diff_l = (min_scans - n_scans) // 2
+                    i_start = max(0, i_start - diff_l)
+                    diff_r = min_scans - (i_end - i_start)
+                    i_end = i_end + diff_r
+            else:
+                i_start = 0
+                i_end = 0
+            scans = slice(i_start, i_end)
 
             with h5py.File(output_filename, "w") as output:
 
                 g = output.create_group("S1")
-                n_scans = indices.size
+                n_scans = i_end - i_start
                 for name, item in input["S1"].items():
                     if isinstance(item, h5py.Dataset):
                         shape = item.shape
                         g.create_dataset(
-                            name, shape=(n_scans,) + shape[1:], data=item[indices]
+                            name, shape=(n_scans,) + shape[1:], data=item[scans]
                         )
 
                 for a in input["S1"].attrs:
@@ -291,7 +311,7 @@ class L1CFile:
                     if isinstance(item, h5py.Dataset):
                         shape = item.shape
                         g_st.create_dataset(
-                            name, shape=(n_scans,) + shape[1:], data=item[indices]
+                            name, shape=(n_scans,) + shape[1:], data=item[scans]
                         )
 
                 g_sc = g.create_group("SCstatus")
@@ -299,7 +319,7 @@ class L1CFile:
                     if isinstance(item, h5py.Dataset):
                         shape = item.shape
                         g_sc.create_dataset(
-                            name, shape=(n_scans,) + shape[1:], data=item[indices]
+                            name, shape=(n_scans,) + shape[1:], data=item[scans]
                         )
 
                 if "S2" in input.keys():
@@ -308,7 +328,7 @@ class L1CFile:
                         if isinstance(item, h5py.Dataset):
                             shape = item.shape
                             g.create_dataset(
-                                name, shape=(n_scans,) + shape[1:], data=item[indices]
+                                name, shape=(n_scans,) + shape[1:], data=item[scans]
                             )
                     for a in input["S2"].attrs:
                         s = input["S2"].attrs[a].decode()
@@ -321,7 +341,7 @@ class L1CFile:
                         if isinstance(item, h5py.Dataset):
                             shape = item.shape
                             g_st.create_dataset(
-                                name, shape=(n_scans,) + shape[1:], data=item[indices]
+                                name, shape=(n_scans,) + shape[1:], data=item[scans]
                             )
 
                     g_sc = g.create_group("SCstatus")
@@ -329,7 +349,7 @@ class L1CFile:
                         if isinstance(item, h5py.Dataset):
                             shape = item.shape
                             g_sc.create_dataset(
-                                name, shape=(n_scans,) + shape[1:], data=item[indices]
+                                name, shape=(n_scans,) + shape[1:], data=item[scans]
                             )
 
                 if "S3" in input.keys():
@@ -338,7 +358,7 @@ class L1CFile:
                         if isinstance(item, h5py.Dataset):
                             shape = item.shape
                             g.create_dataset(
-                                name, shape=(n_scans,) + shape[1:], data=item[indices]
+                                name, shape=(n_scans,) + shape[1:], data=item[scans]
                             )
                     for a in input["S3"].attrs:
                         s = input["S3"].attrs[a].decode()
@@ -351,7 +371,7 @@ class L1CFile:
                         if isinstance(item, h5py.Dataset):
                             shape = item.shape
                             g_st.create_dataset(
-                                name, shape=(n_scans,) + shape[1:], data=item[indices]
+                                name, shape=(n_scans,) + shape[1:], data=item[scans]
                             )
 
                     g_sc = g.create_group("SCstatus")
@@ -359,12 +379,44 @@ class L1CFile:
                         if isinstance(item, h5py.Dataset):
                             shape = item.shape
                             g_sc.create_dataset(
-                                name, shape=(n_scans,) + shape[1:], data=item[indices]
+                                name, shape=(n_scans,) + shape[1:], data=item[scans]
                             )
                 for a in input.attrs:
                     output.attrs[a] = input.attrs[a]
 
-        return indices.min(), indices.max()
+                if "S4" in input.keys():
+                    g = output.create_group("S4")
+                    for name, item in input["S4"].items():
+                        if isinstance(item, h5py.Dataset):
+                            shape = item.shape
+                            g.create_dataset(
+                                name, shape=(n_scans,) + shape[1:], data=item[scans]
+                            )
+                    for a in input["S4"].attrs:
+                        s = input["S4"].attrs[a].decode()
+                        s = _RE_META_INFO.sub(f"NumberScansGranule={n_scans};", s)
+                        s = np.bytes_(s)
+                        g.attrs[a] = s
+
+                    g_st = g.create_group("ScanTime")
+                    for name, item in input["S4/ScanTime"].items():
+                        if isinstance(item, h5py.Dataset):
+                            shape = item.shape
+                            g_st.create_dataset(
+                                name, shape=(n_scans,) + shape[1:], data=item[scans]
+                            )
+
+                    g_sc = g.create_group("SCstatus")
+                    for name, item in input["S4/SCstatus"].items():
+                        if isinstance(item, h5py.Dataset):
+                            shape = item.shape
+                            g_sc.create_dataset(
+                                name, shape=(n_scans,) + shape[1:], data=item[scans]
+                            )
+                for a in input.attrs:
+                    output.attrs[a] = input.attrs[a]
+
+        return i_start, i_end
 
     def extract_scans_and_pixels(self, scans, output_filename, n_pixels=-1):
         """
@@ -546,11 +598,11 @@ class L1CFile:
 
             # Handle case that observations are split up.
             tbs = []
-            tbs.append(input[f"{swath}/Tc"][indices])
+            tbs.append(input[f"{swath}/Tc"][:][indices])
             if "S2" in input.keys():
-                tbs.append(input["S2/Tc"][indices])
+                tbs.append(input["S2/Tc"][:][indices])
             if "S3" in input.keys():
-                tbs.append(input["S3/Tc"][indices])
+                tbs.append(input["S3/Tc"][:][indices])
 
             n_pixels = max([array.shape[1] for array in tbs])
             tbs_r = []

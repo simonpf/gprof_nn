@@ -248,6 +248,16 @@ class RetrievalFile:
         for i in range(self.n_scans):
             yield self.get_scan(i)
 
+    @property
+    def scan_headers(self):
+        """
+        Iterates of the scans headers in the file. Each header is returned as
+        Numpy structured array of size 1  and dtype SCAN_HEADER_TYPES.
+        """
+        for i in range(self.n_scans):
+            yield self.get_scan_header(i)
+
+
     def __repr__(self):
         return (
             f"RetrievalFile(filename={self.filename}, "
@@ -391,5 +401,29 @@ class RetrievalFile:
         for k, d in data.items():
             if "profile" not in k:
                 dataset[k] = (dims[: len(d.shape)], d)
+
+
+        # Assemble scan times.
+        dates = []
+        for scan_header in self.scan_headers:
+            dates.append(scan_header["scan_date"])
+        dates = np.concatenate(dates)
+        year = dates["year"] - 1970
+        month = dates["month"] - 1
+        day = dates["day"] - 1
+        hour = dates["hour"]
+        minute = dates["minute"]
+        second = dates["second"]
+        ms = dates["millisecond"]
+        dates = (
+            year.astype("datetime64[Y]") +
+            month.astype("timedelta64[M]") +
+            day.astype("timedelta64[D]") +
+            hour.astype("timedelta64[h]") +
+            minute.astype("timedelta64[m]") +
+            second.astype("timedelta64[s]") +
+            ms.astype("timedelta64[ms]")
+        )
+        dataset["scan_time"] = (("scans",), dates)
 
         return xarray.Dataset(dataset)
