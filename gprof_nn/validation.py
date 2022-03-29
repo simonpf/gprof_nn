@@ -18,7 +18,9 @@ import xarray as xr
 from rich.progress import track
 from scipy.ndimage import rotate
 from scipy.signal import convolve
+import pandas as pd
 
+from gprof_nn.coordinates import latlon_to_ecef
 from gprof_nn.data.training_data import decompress_and_load
 from gprof_nn.data.retrieval import RetrievalFile
 from gprof_nn.data.sim import SimFile
@@ -449,53 +451,81 @@ class ResultCollector:
         for dataset in self.datasets:
             try:
                 data = dataset.open_granule(granule)
-                data_grid = geometry.SwathDefinition(
-                    lats=data.latitude.data,
-                    lons=data.longitude.data
-                )
-
-                resampling_info = kd_tree.get_neighbour_info(
-                    data_grid,
-                    result_grid,
-                    10e3,
-                    neighbours=8
-                )
-                valid_inputs, valid_outputs, indices, distances = resampling_info
-
-                resampling_info = kd_tree.get_neighbour_info(
-                    data_grid,
-                    result_grid,
-                    10e3,
-                    neighbours=1
-                )
-                valid_inputs_nn, valid_outputs_nn, indices_nn, distances_nn = resampling_info
-
                 data_r = xr.Dataset({
                     "along_track": (("along_track",), reference_data.along_track.data),
                     "across_track": (("across_track",), reference_data.across_track.data),
                 })
 
-                def weighting_function(distance):
-                    return np.exp(np.log(0.5) * (2.0 * (distance / 5e3)) ** 2)
+                if dataset.name == "simulator":
+                    lats = data["latitude"].data.reshape(-1, 1)
+                    lons = data["longitude"].data.reshape(-1, 1)
+                    coords = latlon_to_ecef(lons_1c, lats_1c)
+                    coords = np.concatenate(coords_1c, axis=1)
 
-                for variable in VALIDATION_VARIABLES:
-                    if variable in data.variables:
-                        if data[variable].dtype not in [np.float32, np.float64]:
-                            missing = -999
-                            resampled = kd_tree.get_sample_from_neighbour_info(
-                                'nn', result_grid.shape, data[variable].data,
-                                valid_inputs_nn, valid_outputs_nn, indices_nn,
-                                fill_value=missing
-                            )
-                        else:
+                    lats = self.data["latitude"].reshape(-1, 1)
+                    lons = self.data["longitude"].reshape(-1, 1)
+                    coords_sim = latlon_to_ecef(lons, lats)
+                    coords_sim = np.concatenate(coords_sim, 1)
+
+                    # Determine indices of matching L1C observations.
+                    kdtree = KDTree(coords)
+                    dists, indices = kdtree.query(coords_sim)
+
+                    data_r = xr.Dataset({
+                        "along_track": (("along_track",), reference_data.along_track.data),
+                    })
+
+                    # Extract matching data
+                    for variable in VALIDATION_VARIABLES:
+                        if variable in data:
+                            matched = np.zeros_like(lats).ravel()
+                            matched[:] = np.nan
+                            matched[indices, ...] = data[target]
+                            matched[indices, ...][dists > 5e3] = np.nan
+                            matched = matched.reshape(lats.shape)
+                            data_r[variable] = (("along_track", "across_track"), matched)
+
+                else:
+                    data_grid = geometry.SwathDefinition(
+                        lats=data.latitude.data,
+                        lons=data.longitude.data
+                    )
+                    resampling_info = kd_tree.get_neighbour_info(
+                        data_grid,
+                        result_grid,
+                        10e3,
+                        neighbours=8
+                    )
+                    valid_inputs, valid_outputs, indices, distances = resampling_info
+
+                    resampling_info = kd_tree.get_neighbour_info(
+                        data_grid,
+                        result_grid,
+                        10e3,
+                        neighbours=1
+                    )
+                    valid_inputs_nn, valid_outputs_nn, indices_nn, distances_nn = resampling_info
+
+
+                    for variable in VALIDATION_VARIABLES:
+                        if variable in data.variables:
                             missing = np.nan
-                            resampled = kd_tree.get_sample_from_neighbour_info(
-                                'custom', result_grid.shape, data[variable].data,
-                                valid_inputs, valid_outputs, indices,
-                                fill_value=missing, weight_funcs=weighting_function,
-                                distance_array=distances
-                            )
-                        data_r[variable] = (("along_track", "across_track"), resampled)
+                            if data[variable].dtype not in [np.float32, np.float64]:
+                                missing = -999
+                                resampled = kd_tree.get_sample_from_neighbour_info(
+                                    'nn', result_grid.shape, data[variable].data,
+                                    valid_inputs_nn, valid_outputs_nn, indices_nn,
+                                    fill_value=missing
+                                )
+                            else:
+                                missing = np.nan
+                                resampled = kd_tree.get_sample_from_neighbour_info(
+                                    'custom', result_grid.shape, data[variable].data,
+                                    valid_inputs, valid_outputs, indices,
+                                    fill_value=missing, weight_funcs=weighting_function,
+                                    distance_array=distances
+                                )
+                            data_r[variable] = (("along_track", "across_track"), resampled)
 
                     if dataset.smooth and "surface_precip" in data_r:
                         surface_precip = data_r["surface_precip"].data
@@ -580,6 +610,23 @@ class ResultCollector:
 ###############################################################################
 # Utilities
 ###############################################################################
+
+NAMES = {
+    "gprof_nn_1d": "GPROF-NN 1D",
+    "gprof_nn_3d": "GPROF-NN 3D",
+    "gprof_v5": "GPROF V5",
+    "gprof_v7": "GPROF V7",
+    "simulator": "Simulator",
+    "combined": "Combined"
+}
+
+REGIONS = {
+    "C": [-102, 35, -91.6, 45.4],
+    "NW": [-124, 38.6, -113.6, 49.0],
+    "SW": [-113, 29, -102.6, 39.4],
+    "NE": [-81.4, 38.6, -71, 49.0],
+    "SE": [-91, 25, -80.6, 35.4],
+}
 
 def open_reference_file(reference_path, granule):
     """
@@ -685,3 +732,276 @@ def plot_granule(reference_path, granule, datasets, n_cols=3, height=4, width=4)
     ax = f.add_subplot(gs[:, -1])
     plt.colorbar(m, label="Surface precip. [mm/h]", cax=ax)
     return f
+
+def calculate_scatter_plot(results, group, rqi_threshold=0.8):
+    """
+    Calculate normalized scatter plot for a given retrieval.
+
+    Uses only observations over surface types 1 - 8 and 12 - 16 and
+    that are not marked as snow by the radar.
+
+    Args:
+        results: Dict of xarray.Dataset containing the matched retrieved
+            and reference precipitation for the different algorithms.
+        group: The key to use to obtain the validation results form 'results'.
+        rqi_threshold: Additional RQI threshold to select subsets of validation
+            samples.
+
+    Return:
+        A tuple ``(bins, y)`` containing the precipitation bins ``bins`` and the
+        corresponding conditional PDFs ``y``
+    """
+    bins = np.logspace(-2, 2, 101)
+
+    sp_ref = results[group].surface_precip_avg.data
+    sp = results[group].surface_precip.data
+    valid = (sp_ref >= 0) * (sp >= 0)
+
+    surface_type = results[group].surface_type.data
+    valid *= ((surface_type < 8) + ((surface_type > 11) * (surface_type < 17)))
+
+    mask = results[group].mask
+    snow = np.isclose(mask, 3.0) + np.isclose(mask, 4.0)
+    valid *= ~snow
+
+    y, _, _ = np.histogram2d(
+        sp_ref[valid],
+        sp[valid],
+        bins=bins,
+        density=True
+    )
+    dx = np.diff(bins)
+    x = 0.5 * (bins[1:] + bins[:-1])
+    dx = dx.reshape(1, -1)
+    y /= (y * dx).sum(axis=1, keepdims=True)
+
+    return bins, y
+
+
+def calculate_conditional_mean(results, group, rqi_threshold=0.8):
+    """
+    Calculate normalized scatter plot for a given retrieval.
+
+    Uses only observations over surface types 1 - 8 and 12 - 16 and
+    that are not marked as snow by the radar.
+
+    Args:
+        results: Dict of xarray.Dataset containing the matched retrieved
+            and reference precipitation for the different algorithms.
+        group: The key to use to obtain the validation results form 'results'.
+        rqi_threshold: Additional RQI threshold to select subsets of validation
+            samples.
+
+    Return:
+        A tuple ``(x, means)`` containing values of reference precipitation and
+        the corresponding conditional mean.
+    """
+    bins = np.logspace(-2, 2, 101)
+
+    sp_ref = results[group].surface_precip_avg.data
+    sp = results[group].surface_precip.data
+    valid = (sp_ref >= 0) * (sp >= 0)
+
+    surface_type = results[group].surface_type.data
+    valid = ((surface_type < 8) + ((surface_type > 11) * (surface_type < 17)))
+
+    mask = results[group].mask
+    snow = np.isclose(mask, 3.0) + np.isclose(mask, 4.0)
+    valid *= ~snow
+
+    sp_ref = sp_ref[valid]
+    sp = sp[valid]
+
+    sums, _, = np.histogram(sp_ref, weights=sp, bins=bins)
+    cts, _, = np.histogram(sp_ref, bins=bins)
+    means = sums / cts
+    x = 0.5 * (bins[1:] + bins[:-1])
+    return x, means
+
+
+def calculate_error_metrics(results, groups, rqi_threshold=0.8, region=None):
+    """
+    Calculate error metrics for validation data.
+
+    Uses only observations over surface types 1 - 8 and 12 - 16 and
+    that are not marked as snow by the radar.
+
+    Args:
+       results: Dictionary holding xr.Datasets with the results for the different retrievals.
+       groups: Names of the retrievals for which to calculate error metrics.
+       rqi_threshold: Optional additional rqi_threshold to filter co-locations.
+    """
+    bias = {}
+    correlation = {}
+    mse = {}
+    mae = {}
+    mape = {}
+    far = {}
+    pod = {}
+
+    for group in groups:
+        if group == "cmb":
+            sp_ref = results[group].surface_precip_ref.data
+        else:
+            if "surface_precip_ref" not in results[group].variables:
+                sp_ref = results[group].surface_precip_mrms.data
+            else:
+                sp_ref = results[group].surface_precip_ref.data
+            sp_ref = results[group].surface_precip_avg.data
+        sp = results[group].surface_precip.data
+
+        valid = (sp_ref >= 0) * (sp >= 0)
+
+        surface_type = results[group].surface_type.data
+        valid *= ((surface_type < 8) + ((surface_type > 11) * (surface_type < 17)))
+
+        lats = results[group].latitude.data
+        lons = results[group].longitude.data
+        if region is not None:
+            lon_0, lat_0, lon_1, lat_1 = REGIONS[region]
+            valid *= ((lons >= lon_0) * (lons < lon_1) *
+                    (lats >= lat_0) * (lats < lat_1))
+
+
+        if "mask" in results[group]:
+            mask = results[group].mask
+            snow = np.isclose(mask, 3.0) + np.isclose(mask, 4.0)
+            valid *= ~snow
+
+        if "rqi" in results[group].variables:
+            rqi = results[group].rqi.data
+            valid *=  (rqi > rqi_threshold)
+
+        sp = sp[valid]
+        sp_ref = sp_ref[valid]
+
+        bias[group] = np.mean(sp - sp_ref)
+        print(group, np.std(sp - sp_ref) / np.sqrt(valid.sum() / 3), valid.sum())
+        mse[group] = np.mean((sp - sp_ref) ** 2)
+        mae[group] = np.mean(np.abs(sp - sp_ref))
+
+        ref = 0.5 * np.abs(sp) + np.abs(sp_ref)
+        rel_err = np.abs((sp - sp_ref) / ref)
+
+        mape[group] = np.mean(rel_err[ref > 1e-1])
+        corr = np.corrcoef(x=sp_ref, y=sp)
+        correlation[group] = corr[0, 1]
+
+    data = {
+        "Bias": list(bias.values()),
+        "MAE": list(mae.values()),
+        "MSE": list(mse.values()),
+        "Correlation": list(correlation.values()),
+        "SMAPE": list(mape.values()),
+    }
+    names = [NAMES[g] for g in groups]
+    return pd.DataFrame(data, index=names)
+
+
+def calculate_monthly_statistics(results, group, rqi_threshold=0.8, region=None):
+    """
+    Calculates monthly relative biases and correlations.
+
+    Uses only observations over surface types 1 - 8 and 12 - 16 and
+    that are not marked as snow by the radar.
+
+    Args:
+       results: Dictionary holding xr.Datasets with the results for the different retrievals.
+       groups: Names of the retrievals for which to calculate error metrics.
+       rqi_threshold: Optional additional rqi_threshold to filter co-locations.
+    """
+    sp_ref = results[group].surface_precip_avg.data
+    sp = results[group].surface_precip.data
+    valid = (sp_ref >= 0) * (sp >= 0)
+
+    surface_type = results[group].surface_type.data
+    valid *= ((surface_type < 8) + ((surface_type > 11) * (surface_type < 17)))
+
+    mask = results[group].mask
+    snow = np.isclose(mask, 3.0) + np.isclose(mask, 4.0)
+    valid *= ~snow
+
+    lats = results[group].latitude.data
+    lons = results[group].longitude.data
+
+    if region is not None:
+        lon_0, lat_0, lon_1, lat_1 = REGIONS[region]
+        valid *= ((lons >= lon_0) * (lons < lon_1) *
+                  (lats >= lat_0) * (lats < lat_1))
+
+
+    sp_ref = sp_ref[valid]
+    sp = sp[valid]
+
+    months = results[group].time.dt.month[valid]
+
+    bins = np.linspace(0, 12, 13) - 0.5
+    sums, _ = np.histogram(months, weights=sp_ref - sp, bins=bins)
+    cts, _ = np.histogram(months, bins=bins)
+    means = sums / cts
+
+    corrs = []
+    for i in range(1, 13):
+        indices = months == i
+        sp_m = sp[indices]
+        sp_ref_m = sp_ref[indices]
+        corrs.append(np.corrcoef(sp_m, sp_ref_m)[0, 1])
+
+    months = np.arange(1, 13)
+    return months, means, np.array(corrs)
+    return pd.DataFrame(data, index=names)
+
+
+def calculate_daily_cycles(results, group, rqi_threshold=0.8, region=None):
+    """
+    Calculates daily cycles.
+
+    Uses only observations over surface types 1 - 8 and 12 - 16 and
+    that are not marked as snow by the radar.
+
+    Args:
+       results: Dictionary holding xr.Datasets with the results for the different retrievals.
+       groups: Names of the retrievals for which to calculate error metrics.
+       rqi_threshold: Optional additional rqi_threshold to filter co-locations.
+    """
+    if group == "reference":
+        sp_ref = results["gprof_nn_1d"].surface_precip_avg.data
+        sp = results["gprof_nn_1d"].surface_precip_avg.data
+        group = "gprof_nn_1d"
+    else:
+        sp_ref = results[group].surface_precip_avg.data
+        sp = results[group].surface_precip.data
+    valid = (sp_ref >= 0) * (sp >= 0)
+
+    surface_type = results[group].surface_type.data
+    valid *= ((surface_type < 8) + ((surface_type > 11) * (surface_type < 17)))
+
+    mask = results[group].mask
+    snow = np.isclose(mask, 3.0) + np.isclose(mask, 4.0)
+    valid *= ~snow
+
+
+    lats = results[group].latitude.data
+    lons = results[group].longitude.data
+
+    if region is not None:
+        lon_0, lat_0, lon_1, lat_1 = REGIONS[region]
+        valid *= ((lons >= lon_0) * (lons < lon_1) *
+                  (lats >= lat_0) * (lats < lat_1))
+
+
+    sp_ref = sp_ref[valid]
+    sp = sp[valid]
+
+    time = results[group].time[valid]
+    time += (lons[valid] / 360 * 24 * 60 * 60).astype("timedelta64[s]")
+    minutes = time.dt.hour.data + 60 * time.dt.minute.data
+
+    bins = (np.linspace(0, 24, 9) - 0.5) * 60
+    sums, _ = np.histogram(minutes, weights=sp, bins=bins)
+    cts, _ = np.histogram(minutes, bins=bins)
+    means = sums / cts
+
+    hours = np.arange(0, 24, 3)
+
+    return hours, means
