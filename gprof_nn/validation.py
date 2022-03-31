@@ -19,13 +19,19 @@ from rich.progress import track
 from scipy.ndimage import rotate
 from scipy.signal import convolve
 import pandas as pd
+from pykdtree.kdtree import KDTree
 
 from gprof_nn.coordinates import latlon_to_ecef
 from gprof_nn.data.training_data import decompress_and_load
 from gprof_nn.data.retrieval import RetrievalFile
 from gprof_nn.data.sim import SimFile
 from gprof_nn.data.combined import GPMCMBFile
-from gprof_nn.utils import calculate_interpolation_weights, interpolate
+from gprof_nn.definitions import LIMITS
+from gprof_nn.utils import (
+    calculate_interpolation_weights,
+    interpolate,
+    get_mask
+)
 from gprof_nn.data.validation import CONUS
 
 
@@ -96,6 +102,7 @@ def smooth_reference_field(surface_precip, angles, steps=11):
 
     fields = []
     for k in ks:
+        k = k / k.sum()
         counts = convolve(cts, k, mode="same", method="direct")
         smoothed = convolve(sp, k, mode="same", method="direct")
         smoothed = smoothed / counts
@@ -348,7 +355,9 @@ class SimulatorFiles():
         return "simulator"
 
     def open_granule(self, granule):
-        return SimFile(self.granules[granule]).to_xarray_dataset()
+        sim_data = SimFile(self.granules[granule]).to_xarray_dataset()
+        return sim_data
+
 
 
 class ResultCollector:
@@ -455,34 +464,33 @@ class ResultCollector:
                     "along_track": (("along_track",), reference_data.along_track.data),
                     "across_track": (("across_track",), reference_data.across_track.data),
                 })
+                def weighting_function(distance):
+                    return np.exp(np.log(0.5) * (2.0  * (distance / 5e3)) ** 2)
 
-                if dataset.name == "simulator":
-                    lats = data["latitude"].data.reshape(-1, 1)
-                    lons = data["longitude"].data.reshape(-1, 1)
-                    coords = latlon_to_ecef(lons_1c, lats_1c)
-                    coords = np.concatenate(coords_1c, axis=1)
+                if dataset.group_name == "simulator":
+                    lats = reference_data["latitude"].data.reshape(-1, 1)
+                    lons = reference_data["longitude"].data.reshape(-1, 1)
+                    coords = latlon_to_ecef(lons, lats)
+                    coords = np.concatenate(coords, axis=1)
 
-                    lats = self.data["latitude"].reshape(-1, 1)
-                    lons = self.data["longitude"].reshape(-1, 1)
-                    coords_sim = latlon_to_ecef(lons, lats)
+                    lats_sim = data["latitude"].data.reshape(-1, 1)
+                    lons_sim = data["longitude"].data.reshape(-1, 1)
+                    coords_sim = latlon_to_ecef(lons_sim, lats_sim)
                     coords_sim = np.concatenate(coords_sim, 1)
 
                     # Determine indices of matching L1C observations.
                     kdtree = KDTree(coords)
                     dists, indices = kdtree.query(coords_sim)
 
-                    data_r = xr.Dataset({
-                        "along_track": (("along_track",), reference_data.along_track.data),
-                    })
-
                     # Extract matching data
                     for variable in VALIDATION_VARIABLES:
                         if variable in data:
-                            matched = np.zeros_like(lats).ravel()
+                            shape = reference_data["latitude"].data.shape
+                            matched = np.zeros(shape, dtype=np.float32).ravel()
                             matched[:] = np.nan
-                            matched[indices, ...] = data[target]
-                            matched[indices, ...][dists > 5e3] = np.nan
-                            matched = matched.reshape(lats.shape)
+                            matched[indices, ...] = data[variable]
+                            matched[indices[dists > 5e3], ...] = np.nan
+                            matched = matched.reshape(shape)
                             data_r[variable] = (("along_track", "across_track"), matched)
 
                 else:
@@ -493,7 +501,7 @@ class ResultCollector:
                     resampling_info = kd_tree.get_neighbour_info(
                         data_grid,
                         result_grid,
-                        10e3,
+                        7.5e3,
                         neighbours=8
                     )
                     valid_inputs, valid_outputs, indices, distances = resampling_info
@@ -501,7 +509,7 @@ class ResultCollector:
                     resampling_info = kd_tree.get_neighbour_info(
                         data_grid,
                         result_grid,
-                        10e3,
+                        7.5e3,
                         neighbours=1
                     )
                     valid_inputs_nn, valid_outputs_nn, indices_nn, distances_nn = resampling_info
@@ -539,6 +547,9 @@ class ResultCollector:
                             surface_precip_smoothed
                         )
 
+                if "scan_time" in data:
+                    time = data["scan_time"].mean()
+                    data["time"] = (("time",), [time.data])
                 data_r.to_netcdf(output_file, group=dataset.group_name, mode="a")
             except KeyError as error:
                 LOGGER.error(
@@ -598,14 +609,13 @@ class ResultCollector:
             files.append(reference_file)
 
         for filename, task in track(list(zip(files, tasks))):
-            task.result()
-            #try:
-            #    task.result()
-            #except Exception as e:
-            #    LOGGER.error(
-            #        "The following error was encountered when processing "
-            #        "file %s: \n %s", filename, e
-            #    )
+            try:
+                task.result()
+            except Exception as e:
+                LOGGER.error(
+                    "The following error was encountered when processing "
+                    "file %s: \n %s", filename, e
+                )
 
 ###############################################################################
 # Utilities
@@ -876,7 +886,6 @@ def calculate_error_metrics(results, groups, rqi_threshold=0.8, region=None):
         sp_ref = sp_ref[valid]
 
         bias[group] = np.mean(sp - sp_ref)
-        print(group, np.std(sp - sp_ref) / np.sqrt(valid.sum() / 3), valid.sum())
         mse[group] = np.mean((sp - sp_ref) ** 2)
         mae[group] = np.mean(np.abs(sp - sp_ref))
 
