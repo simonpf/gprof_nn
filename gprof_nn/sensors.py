@@ -23,6 +23,7 @@ GPM constellation. Most sensors exist in two or three variants:
 """
 from abc import ABC, abstractmethod, abstractproperty
 from concurrent.futures import ProcessPoolExecutor
+from copy import copy
 from pathlib import Path
 
 import numpy as np
@@ -676,9 +677,17 @@ class ConicalScanner(Sensor):
 
         lats = scene.latitude.data
         lons = scene.longitude.data
+        if augment:
+            alt_old = copy(self.viewing_geometry.altitude)
+            so_old = copy(self.viewing_geometry.scan_offset)
+            self.viewing_geometry.altitude = alt_old + np.random.uniform(-10, 10)
+            self.viewing_geometry.scan_offset = so_old + np.random.uniform(-0.2, 0.2)
         coords = get_transformation_coordinates(
             lats, lons, self.viewing_geometry, width, height, p_x_i, p_x_o, p_y
         )
+        if augment:
+            self.viewing_geometry.altitude = alt_old
+            self.viewing_geometry.scan_offset = so_old
 
         scene = remap_scene(scene, coords, targets)
 
@@ -1893,6 +1902,7 @@ GMI_CHANNELS = [
     (190.0, "H"),
 ]
 
+
 GMI_ANGLES = np.array([
     52.8,
     52.8,
@@ -1913,11 +1923,11 @@ GMI_ANGLES = np.array([
 
 
 GMI_VIEWING_GEOMETRY = Conical(
-    altitude=455e3,
+    altitude=444e3,
     earth_incidence_angle=53.0,
     scan_range=140.0,
     pixels_per_scan=221,
-    scan_offset=13.4e3,
+    scan_offset=13.2e3,
 )
 
 
@@ -2224,7 +2234,6 @@ SSMI_F08.missing_channels = [5, 6]
 # SSMIS
 ###############################################################################
 
-
 SSMIS_CHANNELS = [
     (19.35, "V"),
     (19.35, "H"),
@@ -2234,11 +2243,13 @@ SSMIS_CHANNELS = [
     (91.655, "V"),
     (91.655, "H"),
     (150, "H"),
-    (186, "H"),
     (189, "H"),
+    (186, "H"),
+    (184, "H")
 ]
 
 SSMIS_ANGLES = np.array([
+    53.1,
     53.1,
     53.1,
     53.1,
@@ -2260,9 +2271,11 @@ SSMIS_NEDT = np.array([
  	0.9,
  	1.0,
  	1.0,
+ 	1.0,
 ])
 
 SSMIS_MODELING_ERROR = np.sqrt(np.array([
+    1.0,
     1.0,
     1.0,
     1.0,
@@ -2284,9 +2297,11 @@ SSMIS_GMI_CHANNELS = [
     8,
     9,
     11,
-    13,
-    14
+    14,
+    14,
+    13
 ]
+
 
 SSMIS_VIEWING_GEOMETRY = Conical(
     altitude=848e3,
