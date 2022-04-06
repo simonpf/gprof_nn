@@ -337,7 +337,7 @@ def test_bin_file_ssmis():
 
     input_data = BinFile(input_file).to_xarray_dataset()
 
-    assert input_data.channels.size == 10
+    assert input_data.channels.size == 11
 
     assert np.all(input_data["surface_precip"] >= 0)
     assert np.all(input_data["surface_precip"] <= 500)
