@@ -130,7 +130,6 @@ def open_validation_data(files):
     rqi = np.zeros((len(times), n_rows, n_cols), dtype=np.float32)
     for i, f in enumerate(rqi_files):
         rqi[i, :, :] = np.loadtxt(f, skiprows=6, dtype=np.float32)
-    print(rqi.max())
     rqi[rqi < 0.0] = np.nan
     data["radar_quality_index"] = (dims, rqi)
 
