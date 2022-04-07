@@ -547,11 +547,14 @@ class GPROF_NN_1D_Dataset(Dataset1DBase):
 
         latitudes = self.dataset.latitude.mean(("scans", "pixels")).data
         longitudes = self.dataset.longitude.mean(("scans", "pixels")).data
-        scan_time = self.dataset.scan_time.mean(("scans"))
+        if "pixels" in self.dataset.scan_time.dims:
+            scan_time = self.dataset.scan_time.mean(("scans", "pixels"))
+        else:
+            scan_time = self.dataset.scan_time.mean(("scans",))
         local_time = (
             scan_time + (longitudes / 360 * 24 * 60 * 60).astype("timedelta64[s]")
         )
-        minutes = local_time.dt.hour * 60 + local_time.dt.minute.data
+        minutes = local_time.dt.hour.data * 60 + local_time.dt.minute.data
         indices = calculate_resampling_indices(latitudes, minutes, self.sensor)
         if indices is None:
             kwargs = {}
@@ -1169,6 +1172,187 @@ class SimulatorDataset(GPROF_NN_3D_Dataset):
         for i in range(n):
 
             scene = decompress_scene(dataset[{"samples": i}], targets + vs)
+
+            if augment:
+                p_x_o = rng.random()
+                p_x_i = rng.random()
+                p_y = rng.random()
+            else:
+                p_x_o = 0.5
+                p_x_i = 0.5
+                p_y = 0.5
+
+            lats = scene.latitude.data
+            lons = scene.longitude.data
+            geometry = sensors.GMI.viewing_geometry
+            coords = get_transformation_coordinates(
+                lats, lons, geometry, 96, 128, p_x_i, p_x_o, p_y
+            )
+
+            scene = remap_scene(scene, coords, targets + vs)
+
+            #
+            # Input data
+            #
+
+            if sensor == sensors.GMI:
+                tbs = sensor.load_brightness_temperatures(scene)
+            else:
+                tbs = load_variable(scene, "brightness_temperatures_gmi")
+            tbs = np.transpose(tbs, (2, 0, 1))
+            if augment:
+                r = rng.random()
+                n_p = rng.integers(10, 30)
+                if r > 0.80:
+                    tbs[10:15, :, :n_p] = np.nan
+            t2m = sensor.load_two_meter_temperature(scene)[np.newaxis]
+            tcwv = sensor.load_total_column_water_vapor(scene)[np.newaxis]
+            st = sensor.load_surface_type(scene)
+            st = np.transpose(st, (2, 0, 1))
+            am = sensor.load_airmass_type(scene)
+            am = np.transpose(am, (2, 0, 1))
+            x.append(np.concatenate([tbs, t2m, tcwv, st, am], axis=0))
+
+            #
+            # Output data
+            #
+
+            for t in targets:
+                y_t = sensor.load_target(scene, t, None)
+                y_t = np.nan_to_num(y_t, nan=MASKED_OUTPUT)
+                dims_sp = tuple(range(2))
+                dims_t = tuple(range(2, y_t.ndim))
+
+                y.setdefault(t, []).append(np.transpose(y_t, dims_t + dims_sp))
+
+            # Also flip data if requested.
+            if augment:
+                r = rng.random()
+                if r > 0.5:
+                    x[i] = np.flip(x[i], -2)
+                    for k in targets:
+                        y[k][i] = np.flip(y[k][i], -2)
+
+                r = rng.random()
+                if r > 0.5:
+                    x[i] = np.flip(x[i], -1)
+                    for k in targets:
+                        y[k][i] = np.flip(y[k][i], -1)
+
+        x = np.stack(x)
+        for k in targets:
+            y[k] = np.stack(y[k])
+
+        return x, y
+
+
+class GPROF_NN_HR_Dataset(GPROF_NN_3D_Dataset):
+    """
+    Dataset to tran a neural network model on high resolution output
+    data.
+    """
+    def __init__(
+        self,
+        filename,
+        batch_size=32,
+        normalize=True,
+        normalizer=None,
+        transform_zeros=True,
+        shuffle=True,
+        augment=True,
+        targets=None
+    ):
+        """
+        Args:
+            filename: Path to the NetCDF file containing the training data.
+            normalize: Whether or not to normalize the input data.
+            batch_size: Number of samples in each training batch.
+            normalizer: The normalizer used to normalize the data.
+            shuffle: Whether or not to shuffle the training data.
+            augment: Whether or not to randomly mask high-frequency channels
+                and to randomly permute ancillary data.
+        """
+        self.filename = Path(filename)
+        # Load and decompress data but keep only scenes for which
+        # contain simulated obs.
+        self.dataset = decompress_and_load(self.filename)
+        self.dataset = self.dataset[{"samples": self.dataset.source == 0}]
+
+        if targets is None:
+            targets = ALL_TARGETS
+
+        self.transform_zeros = transform_zeros
+        self.batch_size = batch_size
+        self.shuffle = shuffle
+        self.augment = augment
+
+        seed = int.from_bytes(os.urandom(4), "big") + os.getpid()
+        self._rng = np.random.default_rng(seed)
+
+        x, y = self.load_training_data_3d(self.dataset, targets, augment, self._rng)
+        if normalizer is None:
+            self.normalizer = MinMaxNormalizer(x)
+        elif isinstance(normalizer, type):
+            self.normalizer = normalizer(x)
+        else:
+            self.normalizer = normalizer
+
+        self.normalize = normalize
+        if normalize:
+            x = self.normalizer(x)
+
+        self.x = x
+        self.y = {}
+
+        self.x = self.x.astype(np.float32)
+        if isinstance(self.y, dict):
+            self.y = {k: self.y[k].astype(np.float32) for k in self.y}
+        else:
+            self.y = self.y.astype(np.float32)
+
+        self._shuffled = False
+        self.indices = np.arange(self.x.shape[0])
+        if self.shuffle:
+            self._shuffle()
+
+    def load_training_data_3d(self, dataset, targets, augment, rng):
+        """
+        Load data for training a simulator data.
+
+        This function is a replacement for the ``load_training_data3d``
+        method of the sensor that is called by the other training data
+        objects to load the data. This is required because the data
+        the input for the simulator are always the GMI Tbs.
+
+        Args:
+            dataset: The 'xarray.Dataset' from which to load the training
+                data.
+            targets: List of the targets to load.
+            augment: Whether or not to augment the training data.
+            rng: 'numpy.random.Generator' to use to generate random numbers.
+
+        Return:
+
+            Tuple ``(x, y)`` containing the training input ``x`` and a
+            dictionary of target data ``y``.
+        """
+        #
+        # Input data
+        #
+
+        # Brightness temperatures
+        n = dataset.samples.size
+
+        x = []
+        y = {}
+
+        vs = ["latitude", "longitude"]
+        if sensor != sensors.GMI:
+            vs += ["brightness_temperatures_gmi"]
+
+        for i in range(n):
+
+            scene = dataset[{"samples": i}]
 
             if augment:
                 p_x_o = rng.random()
