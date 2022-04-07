@@ -63,6 +63,17 @@ def add_parser(subparsers):
                         type=int,
                         default=4,
                         help='The number of processes to use for the processing.')
+    parser.add_argument('--high_resolution',
+                        action='store_true',
+                        help="Extract high-reslution data.")
+    parser.add_argument('--combined_path',
+                        type=str,
+                        default=None,
+                        help="Base path of GPM combined data")
+    parser.add_argument('--slh_path',
+                        type=str,
+                        default=None,
+                        help="Base path of GPM SLH data")
     parser.set_defaults(func=run)
 
 
@@ -76,6 +87,7 @@ def run(args):
     """
     from gprof_nn import sensors
     from gprof_nn.data.sim import SimFileProcessor
+    from gprof_nn.data.combined import CombinedFileProcessor
 
     # Check sensor
     sensor = getattr(sensors, args.sensor.strip().upper(), None)
@@ -97,6 +109,15 @@ def run(args):
         LOGGER.error("The kind should be 'train' 'val' or 'test' not '%s'.",
                      args.kind)
         return 1
+
+    high_res = args.high_resolution
+    combined_path = args.combined_path
+    slh_path = args.slh_path
+    if high_res and combined_path is None:
+        LOGGER.error(
+            "Root of the combined path must be provided if high-resolution"
+            "data is to be extracted."
+        )
 
     output = Path(args.output)
     if not output.exists() or not output.is_dir():
@@ -121,10 +142,21 @@ def run(args):
         output_file = (
                 output / f"gprof_nn_{sensor.name.lower()}_{config}_{d:02}"
         )
-        processor = SimFileProcessor(output_file,
-                                     sensor,
-                                     config.upper(),
-                                     era5_path=era5_path,
-                                     n_workers=n_procs,
-                                     day=d)
+        if not high_res:
+            processor = SimFileProcessor(
+                output_file,
+                sensor,
+                config.upper(),
+                era5_path=era5_path,
+                n_workers=n_procs,
+                day=d
+            )
+        else:
+            processor = CombinedFileProcessor(
+                output_file,
+                combined_path,
+                slh_path,
+                n_workers=n_procs,
+                day=d
+            )
         processor.run()
