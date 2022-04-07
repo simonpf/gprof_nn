@@ -12,12 +12,22 @@ import logging
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import subprocess
+from concurrent import futures
 
 import numpy as np
 import pandas as pd
+from pyresample import geometry, kd_tree
+from rich.progress import Progress
 import scipy
 from scipy.signal import convolve
 import xarray as xr
+
+from gprof_nn.definitions import ALL_TARGETS, PROFILE_NAMES, DATABASE_MONTHS
+from gprof_nn.data.utils import compressed_pixel_range
+from gprof_nn.data.l1c import L1CFile
+from gprof_nn.logging import get_console
+import gprof_nn.logging
+from gprof_nn import sensors
 
 
 LOGGER = logging.getLogger(__name__)
@@ -156,7 +166,7 @@ def load_combined_data_special(
             with subprocess.Popen(args, stdout=subprocess.PIPE) as proc:
                 data.write(proc.stdout.read())
             data.seek(0)
-            data = File(data)
+            data = File(data, "r")
     else:
         data = File(filename, "r")
 
@@ -238,11 +248,11 @@ def load_combined_data_special(
                 slh = np.zeros_like(liquid_water)
                 slh[:] = np.nan
             else:
-                slh_data = File(files[0])
+                slh_data = File(files[0], "r")
                 slh = slh_data["Swath/latentHeating"][scans]
             slh[slh < -999] = np.nan
 
-            dataset["latent_heating"] = (dims, slh)
+            dataset["latent_heat"] = (dims, slh)
 
         # Fill to surface
         dataset = dataset.bfill("levels")
@@ -256,12 +266,16 @@ def load_combined_data_special(
                 "rain_water_content",
                 "snow_water_content",
                 "cloud_water_content",
-                "latent_heating"
+                "latent_heat"
             ]
             for var in profile_names:
                 if var in dataset:
                     array = dataset[var].data
                     dataset[var].data = smooth_field(array, k)
+
+    levels = np.linspace(0, 20e3, 41)
+    levels = 0.5 * (levels[1:] + levels[:-1])
+    dataset["levels"] = (("levels",), levels)
 
     return dataset
 
@@ -321,6 +335,38 @@ class GPMCMBFile:
     """
     Class to read in GPM combined data.
     """
+    @staticmethod
+    def find_file(path, granule, date=None):
+        """
+        Find GPM combined file by granule number.
+
+        Args:
+            path: The root of the directory tree containing the observation
+                files.
+            granule: The granule number as integer,
+            data: The data of the granule.
+
+        Return:
+            Path object pointing to the GPM CMB file.
+        """
+        pattern = f"2B.GPM.DPRGMI.*.{granule:06}.*.HDF5"
+        if date:
+            year = date.year
+            month = date.month
+            day = date.day
+            pattern = (f"{(year - 2000):02}{month:02}" +
+                       f"/{(year - 2000):02}{month:02}{day:02}/" +
+                       pattern)
+        else:
+            pattern = "**/" + pattern
+
+        files = list(Path(path).glob(pattern))
+        if len(files) == 0:
+            raise ValueError(
+                f"Couldn't find a combind file for granule {granule}"
+                f"at the given path."
+            )
+        return files[0]
 
     def __init__(self, filename):
         """
@@ -477,6 +523,101 @@ class GPMCMBFile:
             return xr.Dataset(dataset)
 
 
+    def match_targets(self, input_data, targets=None, slh_path=None):
+        """
+        Match retrieval targets from combined file to points in
+        xarray dataset.
+
+        Args:
+            input_data: xarray dataset containing the input data from
+                the preprocessor.
+            targets: List of retrieval target variables to extract from
+                the sim file.
+        Return:
+            The input dataset but with the requested retrieval targets added.
+        """
+        if targets is None:
+            targets = ALL_TARGETS
+
+        n_scans = input_data.scans.size
+        n_pixels = 221
+        w_c = 40
+        i_c = 110
+        ix_start = i_c - w_c // 2
+        ix_end = i_c + 1 + w_c // 2
+        i_left, i_right = compressed_pixel_range()
+
+        lats_1c = input_data["latitude"][:, ix_start:ix_end]
+        lons_1c = input_data["longitude"][:, ix_start:ix_end] + 360
+
+        m, n = lats_1c.shape
+        lats3 = np.zeros((3 * m - 2, n), dtype=np.float32)
+        lons3 = np.zeros((3 * m - 2, n), dtype=np.float32)
+
+        lats_l = lats_1c[:-1]
+        lats_r = lats_1c[1:]
+        lats3[::3, :] = lats_1c
+        lats3[1::3, :] = 2 / 3 * lats_l + 1 / 3 * lats_r
+        lats3[2::3, :] = 1 / 3 * lats_l + 2 / 3 * lats_r
+
+        lons_l = lons_1c[:-1]
+        lons_r = lons_1c[1:]
+        lons3[::3, :] = lons_1c
+        lons3[1::3, :] = 2 / 3 * lons_l + 1 / 3 * lons_r
+        lons3[2::3, :] = 1 / 3 * lons_l + 2 / 3 * lons_r
+        lons3 -= 360
+
+        data = self.to_xarray_dataset(profiles=True, slh_path=slh_path)
+
+        lats = data["latitude"].data
+        lons = data["longitude"].data
+        levels = data["levels"].data
+        input_data["levels"] = (("levels"), levels)
+
+        # Prepare nearest neighbor interpolation.
+        input_grid = geometry.SwathDefinition(lats=lats, lons=lons)
+        output_grid = geometry.SwathDefinition(lats=lats3, lons=lons3)
+        resampling_info = kd_tree.get_neighbour_info(
+            input_grid,
+            output_grid,
+            4.0e3,
+            neighbours=1
+        )
+        valid_inputs, valid_outputs, indices, distances = resampling_info
+
+        # Extract matching data
+        for target in targets:
+
+            if not target in data:
+                continue
+
+            resampled = kd_tree.get_sample_from_neighbour_info(
+                'nn', output_grid.shape, data[target].data,
+                valid_inputs, valid_outputs, indices,
+                fill_value=np.nan
+            )
+
+            if target in PROFILE_NAMES:
+                input_data[target] = (
+                    ("scans_3", "pixels_3", "levels"),
+                    resampled.astype(np.float32),
+                )
+                if "content" in target:
+                    path = np.trapz(resampled, x=levels, axis=-1) * 1e-3
+                    path_name = target.replace("content", "path").replace("snow", "ice")
+                    input_data[path_name] = (("scans_3", "pixels_3"), path)
+            else:
+                if target in ["surface_precip", "convective_precip"]:
+                    dims = ("scans_3", "pixels_3")
+                    input_data[target] = (dims, resampled.astype(np.float32))
+                else:
+                    input_data[target] = (
+                        ("scans_3", "pixels_3"),
+                        resampled[:, i_left:i_right].astype(np.float32),
+                    )
+        return input_data
+
+
 class GPMLHFile:
     """
     Class to read in DPR spectral latent heating files.
@@ -550,3 +691,237 @@ class GPMLHFile:
                 "latent_heat": (("scans", "pixels", "levels"), latent_heat),
             }
             return xr.Dataset(dataset)
+
+
+###############################################################################
+# Extraction of training data from combined.
+###############################################################################
+
+
+def _extract_scenes(data):
+    """
+    Extract 221 x 221 pixel wide scenes from dataset where
+    ground truth surface precipitation rain rates are
+    available.
+
+    Args:
+        xarray.Dataset containing the data from the preprocessor together
+        with the matches surface precipitation from the .sim file.
+
+    Return:
+        New xarray.Dataset which containing 128x128 patches of input data
+        and corresponding surface precipitation.
+    """
+    n = 221
+    surface_precip = data["surface_precip"].data
+
+    if np.all(np.isnan(surface_precip)):
+        return None
+
+    i_start = 0
+    i_end = data.scans.size
+
+    scenes = []
+    while i_start + n < i_end:
+        subscene = data[{
+            "scans": slice(i_start, i_start + n),
+            "scans_3": slice(3 * i_start, 3 * (i_start + n))
+        }]
+        surface_precip = subscene["surface_precip"].data
+        if np.isfinite(surface_precip).sum() > 50:
+            scenes.append(subscene)
+            i_start += n
+        else:
+            i_start += n // 2
+
+    if scenes:
+        return xr.concat(scenes, "samples")
+    return None
+
+
+def process_l1c_file(
+        l1c_filename,
+        cmb_path,
+        slh_path,
+        log_queue=None):
+    """
+    Match L1C files with ERA5 surface and convective precipitation for
+    sea-ice and sea-ice-edge surfaces.
+
+    Args:
+        l1c_filename: Path to a L1C file which to match with ERA5 precip.
+        sensor: Sensor class defining the sensor for which to process the
+            L1C files.
+        era5_path: Root of the directory tree containing the ERA5 data.
+    """
+    import gprof_nn.logging
+    if log_queue is not None:
+        gprof_nn.logging.configure_queue_logging(log_queue)
+    LOGGER.info("Starting processing L1C file %s.", l1c_filename)
+
+    l1c_file = L1CFile(l1c_filename)
+    l1c_data = l1c_file.to_xarray_dataset()
+    granule = l1c_file.granule
+
+    cmb_filename = GPMCMBFile.find_file(cmb_path, granule)
+    cmb_file = GPMCMBFile(cmb_filename)
+    data = cmb_file.match_targets(l1c_data, slh_path=slh_path)
+
+    scenes = _extract_scenes(data)
+    return scenes
+
+
+class CombinedFileProcessor:
+    """
+    Processor class that manages the extraction of GPROF training data. A
+    single processor instance processes all *.sim, MRMRS matchup and L1C
+    files for a given day from each month of the database period.
+    """
+
+    def __init__(
+            self,
+            output_file,
+            combined_path,
+            slh_path,
+            n_workers=4,
+            day=None,
+    ):
+        """
+        Create retrieval driver.
+
+        Args:
+            output_file: The file in which to store the extracted data.
+            sensor: Sensor object defining the sensor for which to extract
+                training data.
+            era_5_path: Path to the root of the directory tree containing
+                ERA5 data.
+            n_workers: The number of worker processes to use.
+            day: Day of the month for which to extract the data.
+        """
+        self.output_file = output_file
+        self.combined_path = combined_path
+        self.slh_path = slh_path
+        self.pool = futures.ProcessPoolExecutor(max_workers=n_workers)
+
+        if day is None:
+            self.day = 1
+        else:
+            self.day = day
+
+    def run(self):
+        """
+        Start the processing.
+
+        This will start processing all suitable input files that have been found and
+        stores the names of the produced result files in the ``processed`` attribute
+        of the driver.
+        """
+        l1c_file_path = sensors.GMI.l1c_file_path
+        l1c_files = []
+        for year, month in DATABASE_MONTHS:
+            try:
+                date = datetime(year, month, self.day)
+                l1c_files += L1CFile.find_files(
+                    date,
+                    l1c_file_path,
+                    sensor=sensors.GMI
+                )
+            except ValueError:
+                pass
+
+        # If no L1C files are found use GMI co-locations.
+        if len(l1c_files) < 1:
+            for year, month in DATABASE_MONTHS:
+                try:
+                    date = datetime(year, month, self.day)
+                    l1c_file_path = sensors.GMI.l1c_file_path
+                    l1c_files += L1CFile.find_files(
+                        date, l1c_file_path, sensor=sensors.GMI
+                    )
+                except ValueError:
+                    pass
+        l1c_files = [f.filename for f in l1c_files]
+        l1c_files = np.random.permutation(l1c_files)
+
+        n_l1c_files = len(l1c_files)
+        LOGGER.debug("Found %s L1C files.", n_l1c_files)
+
+        # Submit tasks interleaving .sim and MRMS files.
+        log_queue = gprof_nn.logging.get_log_queue()
+        tasks = []
+        for l1c_file in l1c_files:
+            tasks.append(
+                self.pool.submit(
+                    process_l1c_file,
+                    l1c_file,
+                    self.combined_path,
+                    self.slh_path,
+                    log_queue=log_queue,
+                )
+            )
+
+        datasets = []
+        output_path = Path(self.output_file).parent
+        output_file = Path(self.output_file).stem
+
+        # Retrieve extracted observations and concatenate into
+        # single dataset.
+
+        n_tasks = len(tasks)
+        n_chunks = 4
+        chunk = 1
+
+        with Progress(console=get_console()) as progress:
+            gprof_nn.logging.set_log_level("INFO")
+            pbar = progress.add_task("Extracting data:", total=len(tasks))
+            for task in tasks:
+                # Log messages from processes.
+                task_done = False
+                dataset = None
+                while not task_done:
+                    try:
+                        gprof_nn.logging.log_messages()
+                        dataset = task.result(timeout=1)
+                        task_done = True
+                    except futures.TimeoutError:
+                        pass
+                    except Exception as exc:
+                        LOGGER.warning(
+                            "The following error was encountered while "
+                            "collecting results: %s",
+                            exc,
+                        )
+                        get_console().print_exception()
+                        task_done = True
+                progress.advance(pbar)
+
+                if dataset is not None:
+                    datasets.append(dataset)
+                    if len(datasets) > n_tasks // n_chunks:
+                        dataset = xr.concat(datasets, "samples")
+                        filename = output_path / (output_file + f"_{chunk:02}.nc")
+                        dataset.attrs["sensor"] = sensors.GMI.name
+                        dataset.to_netcdf(filename)
+                        subprocess.run(["lz4", "-f", "--rm", filename], check=True)
+                        LOGGER.info("Finished writing file: %s", filename)
+                        datasets = []
+                        chunk += 1
+
+        # Store dataset with sensor name as attribute.
+        dataset = xr.concat(datasets, "samples")
+        filename = output_path / (output_file + f"_{chunk:02}.nc")
+        dataset.attrs["sensor"] =  sensors.GMI.name
+        LOGGER.info("Writing file: %s", filename)
+        dataset.to_netcdf(filename)
+        subprocess.run(["lz4", "-f", "--rm", filename], check=True)
+
+        # Explicit clean up to avoid memory leak.
+        del datasets
+        del dataset
+
+
+processor = CombinedFileProcessor(
+    "test.nc",
+    "/qdata1/pbrown/dbaseV7/2B_DPRGMI_ITE768",
+    "/pdata4/archive/GPM/2A_SLH"
+)
