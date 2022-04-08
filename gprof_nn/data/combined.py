@@ -918,10 +918,3 @@ class CombinedFileProcessor:
         # Explicit clean up to avoid memory leak.
         del datasets
         del dataset
-
-
-processor = CombinedFileProcessor(
-    "test.nc",
-    "/qdata1/pbrown/dbaseV7/2B_DPRGMI_ITE768",
-    "/pdata4/archive/GPM/2A_SLH"
-)
