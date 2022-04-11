@@ -8,6 +8,7 @@ validation results.
 """
 import logging
 from pathlib import Path
+import warnings
 
 import numpy as np
 
@@ -115,6 +116,7 @@ def run(args):
                                      GPROFLegacyResults,
                                      GPMCMBResults,
                                      SimulatorFiles)
+    warnings.filterwarnings("ignore")
 
     validation_path = Path(args.validation_data)
     if not validation_path.exists():
