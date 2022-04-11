@@ -532,7 +532,6 @@ def get_transformation_coordinates(
         define the reprojection of the input data with respect to the scene
         coordinates.
     """
-
     center_out = viewing_geometry.get_window_center(x_o, width, height)
     d_i = np.arange(height) - np.floor(height / 2.0)
     d_j = np.arange(width) - np.floor(width / 2.0)
