@@ -17,7 +17,6 @@ import numpy as np
 import gprof_nn.logging
 from gprof_nn.retrieval import RetrievalDriver, RetrievalGradientDriver
 from gprof_nn import sensors
-from gprof_nn import statistics
 
 
 LOGGER = logging.getLogger(__name__)
@@ -85,6 +84,7 @@ def get_stats(kind, latitude_ratios):
         A list with statistics object to calculate the requested
         statistics type.
     """
+    from gprof_nn import statistics
     if kind == "training_1d":
         stats = [
             statistics.TrainingDataStatistics(kind="1d"),
@@ -140,6 +140,7 @@ def run(args):
     Args:
         args: The namespace object provided by the top-level parser.
     """
+    from gprof_nn import statistics
 
     #
     # Check and load inputs.
