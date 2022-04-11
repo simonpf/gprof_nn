@@ -6,19 +6,13 @@ gprof_nn.bin.run_preprocessor
 This module implements a CLI interface to run the preprocessor on a
 range of L1C files.
 """
-import argparse
 import logging
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
-from quantnn.qrnn import QRNN
-from quantnn.normalizer import Normalizer
-from rich.progress import track
-
 import gprof_nn.logging
-from gprof_nn.retrieval import RetrievalDriver, RetrievalGradientDriver
 from gprof_nn import sensors
-from gprof_nn import statistics
+from rich.progress import track
 
 
 LOGGER = logging.getLogger(__name__)
