@@ -95,7 +95,7 @@ def smooth_reference_field(surface_precip, angles, steps=11):
     for angle in kernel_angles:
         # Need to inverse angle because y-axis points in
         # opposite direction.
-        ks.append(rotate(k, -angle))
+        ks.append(rotate(k, -angle, order=1))
 
     cts = (surface_precip >= 0).astype(np.float32)
     sp = np.nan_to_num(surface_precip.copy(), 0.0)
@@ -451,8 +451,6 @@ class ResultCollector:
                 "surface_precip_rc_avg": "surface_precip_avg"
                 })
 
-        reference_data.to_netcdf(output_file, group="reference")
-
         lats = reference_data.latitude.data
         lons = reference_data.longitude.data
         result_grid = geometry.SwathDefinition(lats=lats, lons=lons)
@@ -550,7 +548,10 @@ class ResultCollector:
                 if "scan_time" in data:
                     time = data["scan_time"].mean()
                     data["time"] = (("time",), [time.data])
-                data_r.to_netcdf(output_file, group=dataset.group_name, mode="a")
+                if output_file.exists():
+                    data_r.to_netcdf(output_file, group=dataset.group_name, mode="a")
+                else:
+                    data_r.to_netcdf(output_file, group=dataset.group_name)
             except KeyError as error:
                 LOGGER.error(
                     "The following error was encountered while processing granule "
@@ -558,6 +559,10 @@ class ResultCollector:
                     granule,
                     dataset.group_name,
                     error)
+
+        if output_file.exists():
+            reference_data.to_netcdf(output_file, group="reference", mode="a")
+
 
 
     def run(self, output_path, start=None, end=None, n_processes=4):
