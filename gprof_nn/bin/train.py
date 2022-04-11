@@ -12,7 +12,7 @@ import logging
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
-from gprof_nn import sensors, statistics
+from gprof_nn import sensors
 import gprof_nn.logging
 from gprof_nn.retrieval import RetrievalDriver, RetrievalGradientDriver
 from gprof_nn.definitions import (
