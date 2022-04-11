@@ -78,6 +78,10 @@ DATABASE_MONTHS = [
     (2019, 9),
 ]
 
+SEAICE_YEARS = {
+    "SSMI": 2003
+}
+
 TEST_DAYS = [1, 2, 3]
 VALIDATION_DAYS = [4, 5]
 TRAINING_DAYS = list(range(6, 32))

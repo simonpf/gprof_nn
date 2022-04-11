@@ -31,7 +31,7 @@ from gprof_nn.data.training_data import (
 from gprof_nn.data.l1c import L1CFile
 from gprof_nn.data.preprocessor import PreprocessorFile, run_preprocessor
 from gprof_nn.data.utils import load_variable
-from gprof_nn.utils import calculate_tiles_and_cuts
+from gprof_nn.utils import calculate_tiles_and_cuts, expand_tbs
 
 
 LOGGER = logging.getLogger(__name__)
@@ -40,32 +40,6 @@ LOGGER = logging.getLogger(__name__)
 ###############################################################################
 # Helper functions.
 ###############################################################################
-
-
-def expand_tbs(tbs):
-    """
-    Helper functions to expand GMI observations to the 15 channels.
-
-    The GMI preprocessor as well as the simulator all produce observation
-    data with 15 channels for GMI with two of them containing only missing
-    values. Since the GPROF-NN networks expect 15 channel as input, data
-    that comes directly from a L1C file must extended accordingly.
-
-    Args:
-        tbs: An array containing 13 brightness temperatures of GMI
-            oriented along its last axis.
-
-    Return:
-        Array containing the same observations but with two empty
-        chanels added at indices 5 and 12.
-    """
-    tbs_e = np.zeros(tbs.shape[:-1] + (15,), dtype=np.float32)
-    tbs_e[..., :5] = tbs[..., :5]
-    tbs_e[..., 5] = np.nan
-    tbs_e[..., 6:12] = tbs[..., 5:11]
-    tbs_e[..., 12] = np.nan
-    tbs_e[..., 13:] = tbs[..., 11:]
-    return tbs_e
 
 
 def calculate_padding_dimensions(t):
@@ -269,8 +243,9 @@ class RetrievalDriver:
         input_file,
         model,
         output_file=None,
+        output_format=None,
         device="cpu",
-        compress=True,
+        compress=False,
         preserve_structure=False,
         sensor=None,
         tile=False
@@ -306,17 +281,20 @@ class RetrievalDriver:
             self.input_format = NETCDF
 
         # Determine output format.
-        if output_file is None or Path(output_file).is_dir():
-            self.output_format = self.input_format
+        if output_format is not None:
+            self.output_format = output_format
         else:
-            if self.input_format in [NETCDF, L1C]:
-                self.output_format = NETCDF
+            if output_file is None or Path(output_file).is_dir():
+                self.output_format = self.input_format
             else:
-                output_file = Path(output_file)
-                if output_file.suffix.lower() == ".bin":
-                    self.output_format = GPROF_BINARY
-                else:
+                if self.input_format in [NETCDF, L1C]:
                     self.output_format = NETCDF
+                else:
+                    output_file = Path(output_file)
+                    if output_file.suffix.lower() == ".bin":
+                        self.output_format = GPROF_BINARY
+                    else:
+                        self.output_format = NETCDF
 
         output_suffix = ".BIN"
         if self.output_format == NETCDF:
@@ -1122,7 +1100,7 @@ class ObservationLoader3D:
             self.tiles, self.cuts = calculate_tiles_and_cuts(
                 self.n_scans,
                 256,
-                32
+                0
             )
         else:
             self.tiles, self.cuts = calculate_tiles_and_cuts(

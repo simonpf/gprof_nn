@@ -290,3 +290,30 @@ def calculate_tiles_and_cuts(n, tile_size, overlap):
     cuts.append(slice(overlap_left, None))
 
     return tiles, cuts
+
+
+def expand_tbs(tbs):
+    """
+    Helper functions to expand GMI observations to the 15 channels.
+
+    The GMI preprocessor as well as the simulator all produce observation
+    data with 15 channels for GMI with two of them containing only missing
+    values. Since the GPROF-NN networks expect 15 channel as input, data
+    that comes directly from a L1C file must extended accordingly.
+
+    Args:
+        tbs: An array containing 13 brightness temperatures of GMI
+            oriented along its last axis.
+
+    Return:
+        Array containing the same observations but with two empty
+        chanels added at indices 5 and 12.
+    """
+    tbs_e = np.zeros(tbs.shape[:-1] + (15,), dtype=np.float32)
+    tbs_e[..., :5] = tbs[..., :5]
+    tbs_e[..., 5] = np.nan
+    tbs_e[..., 6:12] = tbs[..., 5:11]
+    tbs_e[..., 12] = np.nan
+    tbs_e[..., 13:] = tbs[..., 11:]
+    return tbs_e
+

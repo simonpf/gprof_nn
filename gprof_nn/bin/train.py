@@ -24,7 +24,9 @@ from gprof_nn.definitions import (
 from gprof_nn.data.training_data import (
     GPROF_NN_1D_Dataset,
     GPROF_NN_3D_Dataset,
+    GPROF_NN_HR_Dataset,
     SimulatorDataset,
+    HR_TARGETS,
 )
 from gprof_nn.models import (
     GPROF_NN_1D_DRNN,
@@ -32,6 +34,7 @@ from gprof_nn.models import (
     GPROF_NN_3D_DRNN,
     GPROF_NN_3D_QRNN,
     Simulator,
+    GPROF_NN_HR,
 )
 
 
@@ -58,9 +61,9 @@ def add_parser(subparsers):
     # Input and output data
     parser.add_argument(
         "variant",
-        metavar="kind",
+        metavar="variant",
         type=str,
-        help="The type of GPROF-NN model to train: '1D' or '3D' or 'SIM'",
+        help="The type of GPROF-NN model to train: '1D', '3D', 'SIM' or 'HR'",
     )
     parser.add_argument(
         "sensor",
@@ -248,8 +251,8 @@ def run(args):
         return 1
 
     variant = args.variant
-    if variant.upper() not in ["1D", "3D", "SIM"]:
-        LOGGER.error("'variant' should be one of ['1D', '3D', 'SIM']")
+    if variant.upper() not in ["1D", "3D", "SIM", "HR"]:
+        LOGGER.error("'variant' should be one of ['1D', '3D', 'SIM', 'HR']")
         return 1
 
     #
@@ -289,6 +292,10 @@ def run(args):
     elif variant.upper() == "SIM":
         run_training_sim(
             sensor, configuration, training_data, validation_data, output, args
+        )
+    elif variant.upper() == "HR":
+        run_training_hr(
+            configuration, training_data, validation_data, output, args
         )
     else:
         raise ValueError("'variant' should be one of '1D', '3D', 'SIM'.")
@@ -762,6 +769,147 @@ def run_training_sim(
     xrnn.normalizer = normalizer
     xrnn.configuration = configuration
     xrnn.sensor = sensor.full_name
+
+    ###############################################################################
+    # Run the training.
+    ###############################################################################
+
+    n_epochs_tot = sum(n_epochs)
+    logger = TensorBoardLogger(n_epochs_tot)
+    logger.set_attributes(
+        {
+            "n_blocks": n_blocks,
+            "n_neurons_body": n_neurons_body,
+            "n_layers_head": n_layers_head,
+            "n_neurons_head": n_neurons_head,
+            "optimizer": "adam",
+        }
+    )
+
+    metrics = ["MeanSquaredError", "Bias", "CalibrationPlot", "CRPS"]
+    scatter_plot = ScatterPlot()
+    metrics.append(scatter_plot)
+
+    for n, r in zip(n_epochs, lr):
+        LOGGER.info(f"Starting training for {n} epochs with learning rate {r}")
+        optimizer = optim.Adam(model.parameters(), lr=r)
+        if no_schedule:
+            scheduler = None
+        else:
+            scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, n)
+        xrnn.train(
+            training_data=training_data,
+            validation_data=validation_data,
+            n_epochs=n,
+            optimizer=optimizer,
+            scheduler=scheduler,
+            logger=logger,
+            metrics=metrics,
+            device=device,
+            mask=-9999,
+        )
+        LOGGER.info(f"Saving training network to {output}.")
+        xrnn.save(output)
+
+
+def run_training_hr(
+     configuration, training_data, validation_data, output, args
+):
+    """
+    Train simulator network for sensors other than GMI.
+
+    Args:
+        sensor: Sensor object representing the sensor for which to train
+            the model.
+        configuration: String identifying the retrieval configuration.
+        training_data: The path to the training data.
+        validation_data: The path to the validation data.
+        output: Path to which to write the resulting model.
+        args: Namespace with the remaining command line arguments.
+    """
+    from quantnn.qrnn import QRNN
+    from quantnn.normalizer import Normalizer
+    from quantnn.data import DataFolder
+    from quantnn.transformations import LogLinear
+    from quantnn.models.pytorch.logging import TensorBoardLogger
+    from quantnn.metrics import ScatterPlot
+    import torch
+    from torch import optim
+
+    torch.multiprocessing.set_sharing_strategy("file_system")
+    torch.set_num_threads(1)
+
+    n_blocks = args.n_blocks[0]
+    n_neurons_body = args.n_neurons_body
+    n_layers_head = args.n_layers_head
+    n_neurons_head = args.n_neurons_head
+
+    device = args.device
+    batch_size = args.batch_size
+
+    n_epochs = args.n_epochs
+    lr = args.learning_rate
+    no_schedule = args.no_lr_schedule
+    ancillary = args.no_ancillary
+
+    if len(n_epochs) == 1:
+        n_epochs = n_epochs * len(lr)
+    if len(lr) == 1:
+        lr = lr * len(n_epochs)
+
+    #
+    # Load training data.
+    #
+
+    dataset_factory = GPROF_NN_HR_Dataset
+    normalizer_path = GPROF_NN_DATA_PATH / f"normalizer_gmi.pckl"
+    normalizer = Normalizer.load(normalizer_path)
+    kwargs = {"batch_size": batch_size, "normalizer": normalizer, "augment": True}
+
+    training_data = DataFolder(
+        training_data, dataset_factory, queue_size=256, kwargs=kwargs, n_workers=4
+    )
+
+
+    if args.no_validation:
+        validation_data = None
+    else:
+        kwargs = {"batch_size": 4 * batch_size, "normalizer": normalizer, "augment": False}
+        validation_data = DataFolder(
+            validation_data, dataset_factory, queue_size=256, kwargs=kwargs, n_workers=2
+        )
+
+    ###############################################################################
+    # Prepare in- and output.
+    ###############################################################################
+
+    #
+    # Create neural network model
+    #
+
+    if Path(output).exists():
+        try:
+            xrnn = QRNN.load(output)
+            LOGGER.info(f"Continuing training of existing model {output}.")
+        except Exception:
+            xrnn = None
+    else:
+        xrnn = None
+
+    if xrnn is None:
+        transformation = {t: LogLinear() for t in HR_TARGETS}
+        transformation["latent_heat"] = None
+        xrnn = GPROF_NN_HR(
+            n_blocks,
+            n_neurons_body,
+            n_layers_head,
+            n_neurons_head
+        )
+
+    model = xrnn.model
+    xrnn.normalizer = normalizer
+    xrnn.configuration = configuration
+    xrnn.sensor = "GMI"
 
     ###############################################################################
     # Run the training.

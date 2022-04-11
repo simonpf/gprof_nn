@@ -16,7 +16,8 @@ from gprof_nn.utils import (apply_limits,
                             calculate_tiles_and_cuts)
 from gprof_nn.data.utils import (load_variable,
                                  decompress_scene,
-                                 remap_scene)
+                                 remap_scene,
+                                 upsample_scans)
 from gprof_nn.data.training_data import decompress_and_load
 
 
@@ -166,4 +167,12 @@ def test_calculate_tiles_and_cuts():
     array_rec = np.concatenate(arrays, 0)
     assert array_rec.shape == array.shape
     assert np.all(np.isclose(array, array_rec))
+
+def test_upsample_scans():
+
+    array = np.arange(10).astype(np.float32)
+    array_3 = upsample_scans(array)
+
+    assert array_3.size == 28
+    assert np.all(np.isclose(array_3, np.linspace(0, 9, 28)))
 

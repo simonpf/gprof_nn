@@ -28,9 +28,11 @@ from gprof_nn.retrieval import (
     L1CLoader3D,
     SimulatorLoader,
 )
+from gprof_nn.sensors import GMI
 from gprof_nn.data.training_data import (GPROF_NN_1D_Dataset,
                                          GPROF_NN_3D_Dataset,
-                                         _INPUT_DIMENSIONS)
+                                         _INPUT_DIMENSIONS,
+                                         HR_TARGETS)
 
 
 # Define bins for DRNN models.
@@ -57,6 +59,8 @@ for k in BINS:
 QUANTILES = np.linspace(0.0, 1.0, 66)[1:-1]
 # Quantiles for profile variables
 PROFILE_QUANTILES = np.linspace(0.0, 1.0, 18)[1:-1]
+PROFILE_QUANTILES[0] = 0.01
+PROFILE_QUANTILES[-1] = 0.99
 # Define types of residuals for MLP models.
 RESIDUALS = ["none", "simple", "hyper"]
 
@@ -931,6 +935,46 @@ class UpsamplingStage(nn.Module):
         return self.block(x_merged)
 
 
+class UpsamplingStage3(nn.Module):
+    """
+    Upsampling stage consisting of Xception blocks.
+    """
+    def __init__(self, n_channels, n_blocks=2):
+        """
+        Args:
+            n_channels: The number of incoming and outgoing channels.
+            across_track: Whether to upsample also along ``across_track``
+                dimension.
+        """
+        super().__init__()
+
+        self.in_block = XceptionBlock(
+            2 * n_channels,
+            n_channels,
+        )
+        blocks = []
+        channels_in = n_channels
+        for i in range(n_blocks):
+            blocks.append(
+                XceptionBlock(
+                    channels_in,
+                    n_channels // 2,
+                )
+            )
+            channels_in = n_channels // 2
+        self.body = nn.Sequential(*blocks)
+
+    def forward(self, x):
+        """
+        Propagate input through block.
+        """
+        x_in = self.in_block(x)
+        b, c, h, w = x_in.shape
+        size_out = (3 * (h - 1) + 1, w)
+        x_up = nn.functional.interpolate(x_in, size_out)
+        return self.body(x_up)
+
+
 class MLPHead(nn.Module):
     """
     Fully-convolutional implementation of a fully-connected network
@@ -1272,6 +1316,72 @@ class XceptionFPN(nn.Module):
         return new_model
 
 
+class XceptionHR(XceptionFPN):
+    def __init__(self,
+                 n_outputs,
+                 n_blocks,
+                 n_features_body,
+                 n_layers_head,
+                 n_features_head,
+                 targets=None):
+        super().__init__(
+            GMI,
+            n_outputs,
+            n_blocks,
+            n_features_body,
+            n_layers_head,
+            n_features_head,
+            ancillary=False,
+            targets=targets
+        )
+        self.hr_block = UpsamplingStage3(n_features_body, n_blocks=2)
+
+        self.heads = nn.ModuleDict()
+        for k in targets:
+            if k in PROFILE_NAMES:
+                self.heads[k] = MLPHead(
+                    n_features_body // 2, n_features_head, 40 * 16, n_layers_head
+                )
+            else:
+                self.heads[k] = MLPHead(
+                    n_features_body // 2, n_features_head, n_outputs, n_layers_head
+                )
+
+    def forward(self, x):
+        """
+        Propagate input through block.
+        """
+        n_chans = self.sensor.n_chans
+        x_in = self.in_block(x[:, :n_chans])
+        x_in[:, :n_chans] += x[:, :n_chans]
+
+        x_2 = self.down_block_2(x_in)
+        x_4 = self.down_block_4(x_2)
+        x_8 = self.down_block_8(x_4)
+        x_16 = self.down_block_16(x_8)
+        x_32 = self.down_block_32(x_16)
+
+        x_16_u = self.up_block_16(x_32, x_16)
+        x_8_u = self.up_block_8(x_16_u, x_8)
+        x_4_u = self.up_block_4(x_8_u, x_4)
+        x_2_u = self.up_block_2(x_4_u, x_2)
+        x_u = self.up_block(x_2_u, x_in)
+
+        x = torch.cat([x_in, x_u], 1)
+        x_hr =  self.hr_block(x)
+
+        targets = self.targets
+        results = {}
+
+        profile_shape = (x.shape[0], 16, 40) + x_hr.shape[2:]
+        for k in targets:
+            y = self.heads[k](x_hr)
+            if k in PROFILE_NAMES:
+                results[k] = y.reshape(profile_shape)
+            else:
+                results[k] = y
+        return results
+
 
 class GPROF_NN_3D_QRNN(MRNN):
     """
@@ -1364,6 +1474,100 @@ class GPROF_NN_3D_QRNN(MRNN):
                     f"targets={self.targets})")
         else:
             return (f"GPROF_NN_3D_QRNN(sensor={self.sensor}, "
+                    f"targets={self.targets})")
+
+    def set_targets(self, targets):
+        """
+        Set target list.
+
+        This function can be used to reduc
+        """
+        if not all([t in self.targets for t in targets]):
+            raise ValueError("'targets' must be a sub-set of the models targets.")
+        self.targets = targets
+        self.model.targets = targets
+
+
+class GPROF_NN_HR(MRNN):
+    """
+    Neural network for the GPROF-NN 3D algorithm using quantnn's mixed
+    regression neural network (MRNN) class to combine quantile regression
+    for scalar variables and least-squares regression for profile targets.
+    """
+    def __init__(
+        self,
+        n_blocks,
+        n_features_body,
+        n_layers_head,
+        n_features_head,
+        targets=None,
+        transformation=None
+    ):
+        """
+        Args:
+            n_blocks: The number of blocks in each downsampling stage.
+            n_features_body: The number of features in the network body.
+            n_layers_head: The number of hidden layers in each head.
+            n_features_head: The number of features in each head.
+            activation: The activation to use in the network.
+            targets: List of retrieval targets to retrieve.
+            transformation: Transformation to apply to outputs.
+            ancillary: Whether to use ancillary data in head.
+        """
+        if targets is None:
+            targets = HR_TARGETS
+        self.targets = targets
+
+        if transformation is not None and not isinstance(transformation, dict):
+            if type(transformation) is type:
+                transformation = {t: transformation() for t in targets}
+            else:
+                transformation = {t: transformation for t in targets}
+            if "latent_heat" in targets:
+                transformation["latent_heat"] = None
+
+        model = XceptionHR(
+            64,
+            n_blocks,
+            n_features_body,
+            n_layers_head,
+            n_features_head,
+            targets=targets
+        )
+
+        losses = {}
+        for target in targets:
+            if target in PROFILE_NAMES:
+                losses[target] = Quantiles(PROFILE_QUANTILES)
+            else:
+                losses[target] = Quantiles(QUANTILES)
+
+        super().__init__(
+            n_inputs=GMI.n_inputs,
+            losses=losses,
+            model=model,
+            transformation=transformation,
+        )
+
+        self.preprocessor_class = PreprocessorLoader3D
+
+        # Initialize attributes that will be set during training.
+        self.normalizer = None
+        self.configuration = None
+
+    @property
+    def suffix(self):
+        return "HR"
+
+    def __repr__(self):
+        trained = getattr(self, "configuration", None) is not None
+        return (f"GPROF_NN_HR_QRNN(targets={self.targets})")
+        if trained:
+            return (f"GPROF_NN_HR_QRNN(sensor={self.sensor}, "
+                    f"configuration={self.configuration}, "
+                    f"targets={self.targets})")
+        else:
+            return (f"GPROF_NN_HR_QRNN(sensor={self.sensor}, "
                     f"targets={self.targets})")
 
     def set_targets(self, targets):

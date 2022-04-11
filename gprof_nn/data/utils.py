@@ -164,3 +164,38 @@ def remap_scene(scene, coords, targets):
         else:
             data[v] = (scene[v].dims, scene[v].data)
     return xr.Dataset(data)
+
+
+def upsample_scans(array, axis=0):
+    """
+    Upsample array by a factor of 3 using linear interpolation.
+
+    Args:
+        array: The array to upsample.
+        axis: The dimension along which to upsample the array.
+
+    Return:
+        A new array containign the upsampled data from 'array'.
+    """
+    n_dims = array.ndim
+
+    new_shape = list(array.shape)
+    new_shape[axis] = 3 * (new_shape[axis] - 1) + 1
+    array_3 = np.zeros(new_shape, dtype=array.dtype)
+
+    indices_l = [slice(0, None)] * n_dims
+    indices_l[axis] = slice(0, -1)
+    indices_r = [slice(0, None)] * n_dims
+    indices_r[axis] = slice(1, None)
+    array_l = array[tuple(indices_l)]
+    array_r = array[tuple(indices_r)]
+
+    indices = [slice(0, None)] * n_dims
+    indices[axis] = slice(0, None, 3)
+    array_3[tuple(indices)] = array
+    indices[axis] = slice(1, None, 3)
+    array_3[tuple(indices)] = 2 / 3 * array_l + 1 / 3 * array_r
+    indices[axis] = slice(2, None, 3)
+    array_3[tuple(indices)] = 1 / 3 * array_l + 2 / 3 * array_r
+
+    return array_3

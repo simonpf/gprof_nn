@@ -984,7 +984,7 @@ class ConstellationScanner(ConicalScanner):
                 )
             else:
                 tbs = scene["brightness_temperatures"].data
-                mask = mask * np.all((tbs > 0) * (tbs < 500), axis=-1)
+                mask = mask * np.any((tbs > 0) * (tbs < 500), axis=-1)
 
             #
             # Input data

@@ -21,10 +21,21 @@ import xarray as xr
 from quantnn.normalizer import MinMaxNormalizer
 
 from gprof_nn import sensors
-from gprof_nn.data.utils import load_variable, decompress_scene, remap_scene
-from gprof_nn.definitions import MASKED_OUTPUT, LAT_BINS, TIME_BINS
+from gprof_nn.data.utils import (apply_limits,
+                                 compressed_pixel_range,
+                                 load_variable,
+                                 decompress_scene,
+                                 remap_scene,
+                                 upsample_scans)
+from gprof_nn.utils import expand_tbs
+from gprof_nn.definitions import (MASKED_OUTPUT,
+                                  LAT_BINS,
+                                  TIME_BINS,
+                                  LIMITS,
+                                  ALL_TARGETS)
 from gprof_nn.data.preprocessor import PreprocessorFile
-from gprof_nn.augmentation import get_transformation_coordinates
+from gprof_nn.augmentation import (get_transformation_coordinates,
+                                   extract_domain)
 
 LOGGER = logging.getLogger(__name__)
 
@@ -543,7 +554,6 @@ class GPROF_NN_1D_Dataset(Dataset1DBase):
                 self.sensor = dataset_sensor
             else:
                 self.sensor = sensor
-
 
         latitudes = self.dataset.latitude.mean(("scans", "pixels")).data
         longitudes = self.dataset.longitude.mean(("scans", "pixels")).data
@@ -1246,6 +1256,49 @@ class SimulatorDataset(GPROF_NN_3D_Dataset):
         return x, y
 
 
+HR_TARGETS = [
+    "surface_precip",
+    "rain_water_path",
+    "ice_water_path",
+    "cloud_water_path",
+    "rain_water_content",
+    "snow_water_content",
+    "cloud_water_content",
+    "latent_heat",
+]
+
+
+def _remap_scene(scene, coords, targets):
+    variables = ["brightness_temperatures",] + targets
+    data = {}
+
+    dims = ("scans", "pixels")
+    dims_3 = ("scans_3", "pixels")
+
+    i_start, _ = compressed_pixel_range()
+    coords_3 = upsample_scans(coords, axis=1)
+    coords_3[1] -= i_start
+
+    for v in variables:
+        if v in HR_TARGETS:
+            remap_coords = coords_3
+            dims = ("scans_3", "pixels")
+        else:
+            remap_coords = coords
+            dims = ("scans", "pixels")
+
+        data_v = scene[v].data
+        if v in LIMITS:
+            data_v = apply_limits(data_v, *LIMITS[v])
+            data_r = extract_domain(data_v, remap_coords, order=1)
+            data_r = data_r.astype(np.float32)
+            data[v] = (dims + scene[v].dims[2:], data_r)
+        else:
+            data[v] = (scene[v].dims, scene[v].data)
+
+    return xr.Dataset(data)
+
+
 class GPROF_NN_HR_Dataset(GPROF_NN_3D_Dataset):
     """
     Dataset to tran a neural network model on high resolution output
@@ -1265,21 +1318,23 @@ class GPROF_NN_HR_Dataset(GPROF_NN_3D_Dataset):
         """
         Args:
             filename: Path to the NetCDF file containing the training data.
-            normalize: Whether or not to normalize the input data.
             batch_size: Number of samples in each training batch.
+            normalize: Whether or not to normalize the input data.
             normalizer: The normalizer used to normalize the data.
+            transform_zeros: Whether or not to transform zeros to small
+                random values.
             shuffle: Whether or not to shuffle the training data.
             augment: Whether or not to randomly mask high-frequency channels
                 and to randomly permute ancillary data.
+            targets: List of targets to load.
         """
         self.filename = Path(filename)
         # Load and decompress data but keep only scenes for which
         # contain simulated obs.
         self.dataset = decompress_and_load(self.filename)
-        self.dataset = self.dataset[{"samples": self.dataset.source == 0}]
 
         if targets is None:
-            targets = ALL_TARGETS
+            targets = HR_TARGETS
 
         self.transform_zeros = transform_zeros
         self.batch_size = batch_size
@@ -1302,7 +1357,7 @@ class GPROF_NN_HR_Dataset(GPROF_NN_3D_Dataset):
             x = self.normalizer(x)
 
         self.x = x
-        self.y = {}
+        self.y = y
 
         self.x = self.x.astype(np.float32)
         if isinstance(self.y, dict):
@@ -1314,6 +1369,7 @@ class GPROF_NN_HR_Dataset(GPROF_NN_3D_Dataset):
         self.indices = np.arange(self.x.shape[0])
         if self.shuffle:
             self._shuffle()
+
 
     def load_training_data_3d(self, dataset, targets, augment, rng):
         """
@@ -1336,10 +1392,6 @@ class GPROF_NN_HR_Dataset(GPROF_NN_3D_Dataset):
             Tuple ``(x, y)`` containing the training input ``x`` and a
             dictionary of target data ``y``.
         """
-        #
-        # Input data
-        #
-
         # Brightness temperatures
         n = dataset.samples.size
 
@@ -1347,8 +1399,6 @@ class GPROF_NN_HR_Dataset(GPROF_NN_3D_Dataset):
         y = {}
 
         vs = ["latitude", "longitude"]
-        if sensor != sensors.GMI:
-            vs += ["brightness_temperatures_gmi"]
 
         for i in range(n):
 
@@ -1370,36 +1420,28 @@ class GPROF_NN_HR_Dataset(GPROF_NN_3D_Dataset):
                 lats, lons, geometry, 96, 128, p_x_i, p_x_o, p_y
             )
 
-            scene = remap_scene(scene, coords, targets + vs)
+            scene = _remap_scene(scene, coords, targets + vs)
 
             #
             # Input data
             #
 
-            if sensor == sensors.GMI:
-                tbs = sensor.load_brightness_temperatures(scene)
-            else:
-                tbs = load_variable(scene, "brightness_temperatures_gmi")
+            tbs = sensors.GMI.load_brightness_temperatures(scene)
+            tbs = expand_tbs(tbs)
             tbs = np.transpose(tbs, (2, 0, 1))
             if augment:
                 r = rng.random()
                 n_p = rng.integers(10, 30)
                 if r > 0.80:
                     tbs[10:15, :, :n_p] = np.nan
-            t2m = sensor.load_two_meter_temperature(scene)[np.newaxis]
-            tcwv = sensor.load_total_column_water_vapor(scene)[np.newaxis]
-            st = sensor.load_surface_type(scene)
-            st = np.transpose(st, (2, 0, 1))
-            am = sensor.load_airmass_type(scene)
-            am = np.transpose(am, (2, 0, 1))
-            x.append(np.concatenate([tbs, t2m, tcwv, st, am], axis=0))
+            x.append(tbs)
 
             #
             # Output data
             #
 
             for t in targets:
-                y_t = sensor.load_target(scene, t, None)
+                y_t = sensors.GMI.load_target(scene, t, None)
                 y_t = np.nan_to_num(y_t, nan=MASKED_OUTPUT)
                 dims_sp = tuple(range(2))
                 dims_t = tuple(range(2, y_t.ndim))
@@ -1425,3 +1467,6 @@ class GPROF_NN_HR_Dataset(GPROF_NN_3D_Dataset):
             y[k] = np.stack(y[k])
 
         return x, y
+
+
+#dataset = GPROF_NN_HR_Dataset("/gdata1/simon/gprof_nn/training_data/gmi_hr/gprof_nn_gmi_era5_06_01.nc.lz4")
