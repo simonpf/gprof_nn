@@ -73,16 +73,28 @@ def add_parser(subparsers):
 
 
 def get_stats(kind, latitude_ratios):
+    """
+    Provide list of statistic types for given statistics type.
+
+    Args:
+        kind: The kind of statistics to be computed
+        latitude_ratios: Optional array with latitude or latitude-time
+            ratios to use to resample the observations.
+
+    Return:
+        A list with statistics object to calculate the requested
+        statistics type.
+    """
     if kind == "training_1d":
         stats = [
             statistics.TrainingDataStatistics(kind="1d"),
-            statistics.ZonalDistribution(statistics=latitude_ratios),
+            statistics.ZonalDistribution(),
             statistics.GlobalDistribution()
         ]
     elif kind == "training_3d":
         stats = [
             statistics.TrainingDataStatistics(kind="3d"),
-            statistics.ZonalDistribution(statistics=latitude_ratios),
+            statistics.ZonalDistribution(),
             statistics.GlobalDistribution()
         ]
     elif kind == "bin":
@@ -91,7 +103,7 @@ def get_stats(kind, latitude_ratios):
             statistics.GlobalDistribution()
         ]
     elif kind == "observations":
-        stats = [statistics.ObservationStatistics()],
+        stats = [statistics.ObservationStatistics(statistics=latitude_ratios)]
     elif kind == "retrieval":
         stats = [
             statistics.RetrievalStatistics(statistics=latitude_ratios),
