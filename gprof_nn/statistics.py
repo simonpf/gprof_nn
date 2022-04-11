@@ -109,7 +109,7 @@ def resample_scans(dataset, statistics):
 
     longitude = dataset.longitude.mean("pixels")
     latitude = dataset.latitude.mean("pixels")
-    scan_time = dataset.scan_time
+    scan_time = dataset.scan_time.mean("scans")
     local_time = (
         scan_time + (longitude / 360 * 24 * 60 * 60).astype("timedelta64[s]")
     )
@@ -370,7 +370,7 @@ class ZonalDistribution(Statistic):
         data = open_file(filename)
 
         if self.statistics is not None:
-            resample_scans(data, self.statistics)
+            data = resample_scans(data, self.statistics)
 
         if self.counts is None:
             self._initialize(data)
@@ -1680,12 +1680,14 @@ class ObservationStatistics(Statistic):
     This statistic calculates TB distributions from L1C files.
     """
 
-    def __init__(self, conditional=None):
+    def __init__(self, conditional=None, statistics=None, gmi_range=True):
         """
         Args:
             conditional: If provided should identify a channel for which
                 conditional of all other channels will be calculated.
         """
+        self.statistics = statistics
+        self.gmi_range = gmi_range
         self.angle_bins = None
         self.has_angles = None
         self.tbs = None
@@ -1747,12 +1749,21 @@ class ObservationStatistics(Statistic):
         """
         self.sensor = sensor
         dataset = open_file(filename)
+
+        if self.statistics is not None:
+            dataset = resample_scans(dataset, self.statistics)
+
         if self.tbs is None:
             self._initialize_data(sensor, dataset)
 
         st = dataset["surface_type"]
         for i in range(18):
+
             i_st = (st == i + 1).data
+            if self.gmi_range and self.statistics is None:
+                lats = dataset["latitude"].data
+                i_st *= (lats >= -65.5) * (lats <= 65.5)
+
             tcwv = dataset["total_column_water_vapor"].data[i_st]
 
             # Sensor with varying EIA (cross track).
@@ -1806,13 +1817,13 @@ class ObservationStatistics(Statistic):
         lons = dataset["longitude"]
         local_time = (scan_time +
                       (lons / 360 * 24 * 60 * 60).astype("timedelta64[s]"))
-        minutes = local_time.dt.hour * 60 + local_time.dt.minute.data
+        minutes = local_time.dt.hour.data * 60 + local_time.dt.minute.data
         counts, _ = np.histogram(minutes, bins=self.time_bins)
         self.local_time += counts
 
         counts, _, _ = np.histogram2d(
             lats.ravel(),
-            minutes.data.ravel(),
+            minutes.ravel(),
             bins=(self.lat_bins, self.time_bins)
         )
         self.lat_local_time += counts
@@ -2165,8 +2176,10 @@ def process_files(sensor, files, statistics, log_queue):
     gprof_nn.logging.configure_queue_logging(log_queue)
     for file in files:
         for stat in statistics:
+            stat.process_file(sensor, file)
             try:
-                stat.process_file(sensor, file)
+                #stat.process_file(sensor, file)
+                pass
             except Exception as exc:
                 LOGGER.error("Error during processing of %s: %s", file, exc)
 
