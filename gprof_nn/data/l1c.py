@@ -200,9 +200,10 @@ class L1CFile:
 
         import h5py
         with h5py.File(self.path, "r") as data:
-            header = data.attrs["FileHeader"].decode().split()[6:8]
-            satellite = header[0].split("=")[1][:-1]
-            sensor = header[1].split("=")[1][:-1]
+            header = data.attrs["FileHeader"].decode().splitlines()
+            satellite = header[6].split("=")[1][:-1]
+            sensor = header[7].split("=")[1][:-1]
+            self.granule = int(header[11].split("=")[1][:-1])
             date = self.start_time
             self.sensor = sensors.get_sensor(
                 sensor,
