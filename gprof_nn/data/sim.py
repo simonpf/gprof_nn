@@ -32,6 +32,7 @@ from gprof_nn.definitions import (
     LEVELS,
     DATABASE_MONTHS,
     PROFILE_NAMES,
+    SEAICE_YEARS
 )
 
 from gprof_nn.coordinates import latlon_to_ecef
@@ -61,6 +62,14 @@ GENERIC_HEADER = np.dtype(
 ###############################################################################
 # GPROF GMI Simulation files
 ###############################################################################
+
+
+CHANNEL_INDICES = {
+    "SSMI": [2, 3, 4, 6, 7, 8, 9],
+    "SSMIS": [2, 3, 4, 6, 7, 8, 9, 11, 14, 13, 12],
+    "TMIPO": [0, 1, 2, 3, 4, 6, 7, 8, 9],
+    "TMIPR": [0, 1, 2, 3, 4, 6, 7, 8, 9],
+}
 
 
 class SimFile:
@@ -200,8 +209,9 @@ class SimFile:
             indices = np.clip(indices, 0, matched.shape[0] - 1)
 
             tbs = self.data["tbs_simulated"]
-            if isinstance(self.sensor, sensors.ConstellationScanner):
-                tbs = tbs[..., self.sensor.gmi_channels]
+            if self.sensor.sensor_name in CHANNEL_INDICES:
+                ch_inds = CHANNEL_INDICES[self.sensor.sensor_name]
+                tbs = tbs[..., ch_inds]
             # tbs = tbs.reshape((-1,) + shape[2:])
 
             matched[indices, ...] = tbs
@@ -225,8 +235,9 @@ class SimFile:
             matched[:] = np.nan
 
             biases = self.data["tbs_bias"]
-            if isinstance(self.sensor, sensors.ConstellationScanner):
-                biases = biases[..., self.sensor.gmi_channels]
+            if self.sensor.sensor_name in CHANNEL_INDICES:
+                ch_inds = CHANNEL_INDICES[self.sensor.sensor_name]
+                biases = biases[..., ch_inds]
             matched[indices, ...] = biases
 
             matched[indices, ...][dists > 10e3] = np.nan
@@ -315,8 +326,9 @@ class SimFile:
                 "tbs_bias",
                 "d_tbs",
             ]:
-                if isinstance(self.sensor, sensors.ConstellationScanner):
-                    data = data[..., self.sensor.gmi_channels]
+                if self.sensor.sensor_name in CHANNEL_INDICES:
+                    ch_inds = CHANNEL_INDICES[self.sensor.sensor_name]
+                    data = data[..., ch_inds]
 
             dims = ("samples",)
             if len(data.shape) > 1:
@@ -743,10 +755,10 @@ def process_l1c_file(l1c_filename, sensor, configuration, era5_path, log_queue=N
     data_pp = run_preprocessor(
         l1c_filename, sensor=sensor, configuration=configuration, robust=False
     )
-
     l1c_file = L1CFile(l1c_filename)
     if l1c_file.sensor != sensor:
         data_pp = data_pp[{"channels": sensor.gmi_channels}]
+
     # Drop unneeded variables.
     drop = ["sunglint_angle", "quality_flag", "wet_bulb_temperature", "lapse_rate"]
     if not isinstance(sensor, sensors.CrossTrackScanner):
@@ -769,9 +781,6 @@ def process_l1c_file(l1c_filename, sensor, configuration, era5_path, log_queue=N
     sea_ice = (surface_type == 2) + (surface_type == 16)
     for v in ["surface_precip", "convective_precip"]:
         data_pp[v].data[~sea_ice] = np.nan
-
-    if data_pp.channels.size > sensor.n_chans:
-        data_pp = data_pp[{"channels": sensor.gmi_channels}]
 
     scenes = _extract_scenes(data_pp)
     scenes["source"] = (("samples",), 2 * np.ones(scenes.samples.size, dtype=np.int8))
@@ -995,12 +1004,21 @@ class SimFileProcessor:
 
         l1c_file_path = self.sensor.l1c_file_path
         l1c_files = []
-        for year, month in DATABASE_MONTHS:
-            try:
+
+        # Get L1C for specific year ...
+        if self.sensor.name in SEAICE_YEARS:
+            year = SEAICE_YEARS[self.sensor.name]
+            for month in range(1, 13):
                 date = datetime(year, month, self.day)
                 l1c_files += L1CFile.find_files(date, l1c_file_path, sensor=self.sensor)
-            except ValueError:
-                pass
+        # Or database period
+        else:
+            for year, month in DATABASE_MONTHS:
+                try:
+                    date = datetime(year, month, self.day)
+                    l1c_files += L1CFile.find_files(date, l1c_file_path, sensor=self.sensor)
+                except ValueError:
+                    pass
 
         # If no L1C files are found use GMI co-locations.
         if len(l1c_files) < 1:

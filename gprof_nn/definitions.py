@@ -79,12 +79,13 @@ DATABASE_MONTHS = [
 ]
 
 SEAICE_YEARS = {
-    "SSMI": 2003
+    "SSMI": 2003,
+    "SSMIS": 2015,
 }
 
 TEST_DAYS = [1, 2, 3]
 VALIDATION_DAYS = [4, 5]
-TRAINING_DAYS = list(range(6, 32))
+TRAINING_DAYS = list(range(1, 32))
 
 LIMITS = {
     "brightness_temperatures": (0, 400),

@@ -42,6 +42,10 @@ LOGGER = logging.getLogger(__name__)
 # Struct types
 ###############################################################################
 
+CHANNEL_INDICES = {
+    "SSMIS": [2, 3, 4, 6, 7, 8, 9, 11, 12, 13, 14],
+}
+
 N_SPECIES = 5
 N_TEMPERATURES = 12
 N_LAYERS = 28
@@ -342,11 +346,12 @@ class PreprocessorFile:
             for k, d in data.items():
                 d[i] = s[k]
 
-        if isinstance(self.sensor, sensors.ConstellationScanner):
+        if self.sensor.sensor_name in CHANNEL_INDICES:
+            ch_inds = CHANNEL_INDICES[self.sensor.sensor_name]
             tbs = data["brightness_temperatures"]
-            data["brightness_temperatures"] = tbs[..., self.sensor.gmi_channels]
+            data["brightness_temperatures"] = tbs[..., ch_inds]
             eia = data["earth_incidence_angle"]
-            data["earth_incidence_angle"] = eia[..., self.sensor.gmi_channels]
+            data["earth_incidence_angle"] = eia[..., ch_inds]
 
         dims = ["scans", "pixels", "channels"]
         data = {k: (dims[: len(d.shape)], d) for k, d in data.items()}
