@@ -282,17 +282,16 @@ def unify_grid(latitude, longitude):
 
 def calculate_angles(l1c_data):
     """
-    For L1C data from a conical scanner, calculate the angle that each
-    footprint in the scan is rotated with respect to along-track
-    direction.
+    Calculate the rotation angle of each footprint with respect to the
+    along-track direction.
 
     Args:
         l1c_data: xarray.Dataset containing the L1C data.
 
     Return:
-        2D array containing the angles between local along-track direction
-        and the projection of the viewing vector onto the horizontal local
-        horizontal plane.
+        2D array containing the angles between the along-track direction and
+        the projection of the viewing vector onto the local tangent plane of
+        the Earth.
     """
     lats = l1c_data.latitude
     lats_sc = l1c_data.spacecraft_latitude
@@ -311,12 +310,15 @@ def calculate_angles(l1c_data):
     alt_sc = alt_sc.data
 
     t = augmentation.latlon_to_ecef()
+    # Earth-centered earth-fixed (ECEF) coordinats at surface.
     xyz = np.stack(t.transform(
         lons, lats, np.zeros_like(lons), radians=False
     ), axis=-1)
+    # ECEF coordinates at 1m, used to derive local up vector.
     xyz_1 = np.stack(t.transform(
         lons, lats, np.ones_like(lons), radians=False
     ), axis=-1)
+    # ECEF coordinates of space craft.
     xyz_sc = np.stack(t.transform(
         lons_sc, lats_sc, alt_sc, radians=False
     ), axis=-1)
@@ -324,6 +326,7 @@ def calculate_angles(l1c_data):
     # Calculate local along track vector
     a = xyz[1:] - xyz[:-1]
     a /= np.sqrt((a ** 2).sum(axis=-1, keepdims=True))
+    # Extend center points to GPM pixels.
     a_e = np.zeros((a.shape[0] + 1, a.shape[1], 3))
     a_e[:-1] += 0.5 * a
     a_e[1:] += 0.5 * a
@@ -335,8 +338,10 @@ def calculate_angles(l1c_data):
     z = xyz_1 - xyz
     z = z / np.sqrt((z ** 2).sum(axis=-1, keepdims=True))
     x = np.cross(z, a)
-
     v = xyz - xyz_sc
+
+    # Calculate projection components in tangent plane
+    # and return angle.
     v_p_a = (v * a).sum(axis=-1)
     v_p_x = (v * x).sum(axis=-1)
     return np.rad2deg(np.arctan2(v_p_x, v_p_a))
