@@ -12,6 +12,7 @@ import logging
 from pathlib import Path
 
 from h5py import File
+from matplotlib.colors import to_rgba
 import numpy as np
 from pyresample import geometry, kd_tree
 import xarray as xr
@@ -632,7 +633,7 @@ NAMES = {
     "gprof_v5": "GPROF V5",
     "gprof_v7": "GPROF V7",
     "simulator": "Simulator",
-    "combined": "Combined"
+    "combined": "GPM-CMB"
 }
 
 REGIONS = {
@@ -641,6 +642,7 @@ REGIONS = {
     "SW": [-113, 29, -102.6, 39.4],
     "NE": [-81.4, 38.6, -71, 49.0],
     "SE": [-91, 25, -80.6, 35.4],
+    "KWAJ": [163.732, 4.71, 171.731, 12.71]
 }
 
 def open_reference_file(reference_path, granule):
@@ -772,12 +774,14 @@ def calculate_scatter_plot(results, group, rqi_threshold=0.8):
     sp = results[group].surface_precip.data
     valid = (sp_ref >= 0) * (sp >= 0)
 
-    surface_type = results[group].surface_type.data
-    valid *= ((surface_type < 8) + ((surface_type > 11) * (surface_type < 17)))
+    if "surface_type" in results[group]:
+        surface_type = results[group].surface_type.data
+        valid *= ((surface_type < 8) + ((surface_type > 11) * (surface_type < 17)))
 
-    mask = results[group].mask
-    snow = np.isclose(mask, 3.0) + np.isclose(mask, 4.0)
-    valid *= ~snow
+    if "mask" in results[group].variables:
+        mask = results[group].mask
+        snow = np.isclose(mask, 3.0) + np.isclose(mask, 4.0)
+        valid *= ~snow
 
     y, _, _ = np.histogram2d(
         sp_ref[valid],
@@ -817,8 +821,9 @@ def calculate_conditional_mean(results, group, rqi_threshold=0.8):
     sp = results[group].surface_precip.data
     valid = (sp_ref >= 0) * (sp >= 0)
 
-    surface_type = results[group].surface_type.data
-    valid = ((surface_type < 8) + ((surface_type > 11) * (surface_type < 17)))
+    if "surface_type" in results[group]:
+        surface_type = results[group].surface_type.data
+        valid = ((surface_type < 8) + ((surface_type > 11) * (surface_type < 17)))
 
     mask = results[group].mask
     snow = np.isclose(mask, 3.0) + np.isclose(mask, 4.0)
@@ -867,8 +872,9 @@ def calculate_error_metrics(results, groups, rqi_threshold=0.8, region=None):
 
         valid = (sp_ref >= 0) * (sp >= 0)
 
-        surface_type = results[group].surface_type.data
-        valid *= ((surface_type < 8) + ((surface_type > 11) * (surface_type < 17)))
+        if "surface_type" in results[group]:
+            surface_type = results[group].surface_type.data
+            valid *= ((surface_type < 8) + ((surface_type > 11) * (surface_type < 17)))
 
         lats = results[group].latitude.data
         lons = results[group].longitude.data
@@ -890,14 +896,14 @@ def calculate_error_metrics(results, groups, rqi_threshold=0.8, region=None):
         sp = sp[valid]
         sp_ref = sp_ref[valid]
 
-        bias[group] = np.mean(sp - sp_ref)
+        bias[group] = 100 * np.mean(sp - sp_ref) / np.mean(sp_ref)
         mse[group] = np.mean((sp - sp_ref) ** 2)
         mae[group] = np.mean(np.abs(sp - sp_ref))
 
         ref = 0.5 * np.abs(sp) + np.abs(sp_ref)
         rel_err = np.abs((sp - sp_ref) / ref)
 
-        mape[group] = np.mean(rel_err[ref > 1e-1])
+        mape[group] = np.mean(rel_err[ref > 1e-1]) * 100
         corr = np.corrcoef(x=sp_ref, y=sp)
         correlation[group] = corr[0, 1]
 
@@ -966,6 +972,60 @@ def calculate_monthly_statistics(results, group, rqi_threshold=0.8, region=None)
     return pd.DataFrame(data, index=names)
 
 
+def calculate_seasonal_cycles(results, group, rqi_threshold=0.8, region=None):
+    """
+    Calculates daily cycles.
+
+    Uses only observations over surface types 1 - 8 and 12 - 16 and
+    that are not marked as snow by the radar.
+
+    Args:
+       results: Dictionary holding xr.Datasets with the results for the different retrievals.
+       groups: Names of the retrievals for which to calculate error metrics.
+       rqi_threshold: Optional additional rqi_threshold to filter co-locations.
+    """
+    if group == "reference":
+        sp_ref = results["gprof_nn_1d"].surface_precip_avg.data
+        sp = results["gprof_nn_1d"].surface_precip_avg.data
+        group = "gprof_nn_1d"
+    else:
+        sp_ref = results[group].surface_precip_avg.data
+        sp = results[group].surface_precip.data
+    valid = (sp_ref >= 0) * (sp >= 0)
+
+    surface_type = results[group].surface_type.data
+    valid *= ((surface_type < 8) + ((surface_type > 11) * (surface_type < 17)))
+
+    mask = results[group].mask
+    snow = np.isclose(mask, 3.0) + np.isclose(mask, 4.0)
+    valid *= ~snow
+
+    lats = results[group].latitude.data
+    lons = results[group].longitude.data
+
+    if region is not None:
+        lon_0, lat_0, lon_1, lat_1 = REGIONS[region]
+        valid *= ((lons >= lon_0) * (lons < lon_1) *
+                  (lats >= lat_0) * (lats < lat_1))
+
+
+    sp_ref = sp_ref[valid]
+    sp = sp[valid]
+
+    time = results[group].time[valid]
+    months = time.dt.month.data
+
+    bins = (np.linspace(0, 12, 13) + 0.5)
+    sums, _ = np.histogram(months, weights=sp, bins=bins)
+    cts, _ = np.histogram(months, bins=bins)
+    means = sums / cts
+
+    means = np.concatenate([means[-1:], means, means[:1]])
+    means = 0.5  * (means[1:] + means[:-1])
+
+    months = np.arange(1, 14)
+    return months, means
+
 def calculate_daily_cycles(results, group, rqi_threshold=0.8, region=None):
     """
     Calculates daily cycles.
@@ -994,7 +1054,6 @@ def calculate_daily_cycles(results, group, rqi_threshold=0.8, region=None):
     snow = np.isclose(mask, 3.0) + np.isclose(mask, 4.0)
     valid *= ~snow
 
-
     lats = results[group].latitude.data
     lons = results[group].longitude.data
 
@@ -1011,11 +1070,35 @@ def calculate_daily_cycles(results, group, rqi_threshold=0.8, region=None):
     time += (lons[valid] / 360 * 24 * 60 * 60).astype("timedelta64[s]")
     minutes = time.dt.hour.data + 60 * time.dt.minute.data
 
-    bins = (np.linspace(0, 24, 9) - 0.5) * 60
+    bins = (np.linspace(0, 24, 25) - 0.5) * 60
     sums, _ = np.histogram(minutes, weights=sp, bins=bins)
     cts, _ = np.histogram(minutes, bins=bins)
     means = sums / cts
 
-    hours = np.arange(0, 24, 3)
+    means = np.concatenate([means[-1:], means, means[:1]])
+    means = 0.5  * (means[1:] + means[:-1])
+    hours = np.arange(0, 25, 1)
 
     return hours, means
+
+
+def get_colors():
+    """
+    Return dictionary of plot colors for different retrievals.
+    """
+    c0 = to_rgba("C0")
+    c0_d = np.array(c0).copy()
+    c0_d[:3] *= 0.6
+    c1 = to_rgba("C1")
+    c1_d = np.array(c1).copy()
+    c1_d[:3] *= 0.6
+    c2 = to_rgba("C2")
+    bar_palette = [c0, c0_d, c1, c1_d, c2]
+
+    return {
+        "gprof_v5": c0,
+        "gprof_v7": c0_d,
+        "gprof_nn_1d": c1,
+        "gprof_nn_3d": c1_d,
+        "combined": c2
+    }

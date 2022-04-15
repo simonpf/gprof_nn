@@ -154,7 +154,7 @@ text.usetex         : True  ## use latex for all text handling. The following fo
                               ## If another font is desired which can loaded using the
                               ## LaTeX \usepackage command, please inquire at the
                               ## matplotlib mailing list
-text.latex.preamble : \usepackage{amsmath}\usepackage{lmodern}\usepackage{siunitx}
+text.latex.preamble : \usepackage{amsmath}\usepackage{lmodern}\usepackage{siunitx}\usepackage{cmbright}\renewcommand*\sfdefault{cmss}\renewcommand*\ttdefault{cmtt}
                             ## AND IS THEREFORE UNSUPPORTED. PLEASE DO NOT ASK FOR HELP
                             ## IF THIS FEATURE DOES NOT DO WHAT YOU EXPECT IT TO.
                             ## text.latex.preamble is a single line of LaTeX code that
