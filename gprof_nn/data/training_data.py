@@ -1278,6 +1278,9 @@ def _remap_scene(scene, coords, targets):
     i_start, _ = compressed_pixel_range()
     coords_3 = upsample_scans(coords, axis=1)
     coords_3[1] -= i_start
+    n_scans = scene.scans.size
+    scaling = (3 * n_scans - 2) / n_scans
+    coords_3[0] *= scaling
 
     for v in variables:
         if v in HR_TARGETS:
@@ -1369,6 +1372,9 @@ class GPROF_NN_HR_Dataset(GPROF_NN_3D_Dataset):
         self.indices = np.arange(self.x.shape[0])
         if self.shuffle:
             self._shuffle()
+
+        # Delete decompressed raw input data.
+        del self.dataset
 
 
     def load_training_data_3d(self, dataset, targets, augment, rng):
