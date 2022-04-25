@@ -337,7 +337,8 @@ class HyperResidualMLP(ResidualMLP):
             if li > 1:
                 y += (1.0 / (li - 1)) * acc
             acc += x
-        return y, acc
+            return y, acc
+        return y
 
 
 class MultiHeadMLP(nn.Module):

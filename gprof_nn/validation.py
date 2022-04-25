@@ -839,7 +839,13 @@ def calculate_conditional_mean(results, group, rqi_threshold=0.8):
     return x, means
 
 
-def calculate_error_metrics(results, groups, rqi_threshold=0.8, region=None):
+def calculate_error_metrics(
+        results,
+        groups,
+        rqi_threshold=0.8,
+        region=None,
+        ranges=None
+):
     """
     Calculate error metrics for validation data.
 
@@ -875,6 +881,10 @@ def calculate_error_metrics(results, groups, rqi_threshold=0.8, region=None):
         if "surface_type" in results[group]:
             surface_type = results[group].surface_type.data
             valid *= ((surface_type < 8) + ((surface_type > 11) * (surface_type < 17)))
+
+        if ranges is not None:
+            rng = results[group].range.data
+            valid *= (rng <= ranges)
 
         lats = results[group].latitude.data
         lons = results[group].longitude.data
@@ -918,7 +928,13 @@ def calculate_error_metrics(results, groups, rqi_threshold=0.8, region=None):
     return pd.DataFrame(data, index=names)
 
 
-def calculate_monthly_statistics(results, group, rqi_threshold=0.8, region=None):
+def calculate_monthly_statistics(
+        results,
+        group,
+        rqi_threshold=0.8,
+        region=None,
+        ranges=None
+):
     """
     Calculates monthly relative biases and correlations.
 
@@ -940,6 +956,10 @@ def calculate_monthly_statistics(results, group, rqi_threshold=0.8, region=None)
     mask = results[group].mask
     snow = np.isclose(mask, 3.0) + np.isclose(mask, 4.0)
     valid *= ~snow
+
+    if ranges is not None:
+        rng = results[group].range.data
+        valid *= (rng <= ranges)
 
     lats = results[group].latitude.data
     lons = results[group].longitude.data
@@ -972,7 +992,13 @@ def calculate_monthly_statistics(results, group, rqi_threshold=0.8, region=None)
     return pd.DataFrame(data, index=names)
 
 
-def calculate_seasonal_cycles(results, group, rqi_threshold=0.8, region=None):
+def calculate_seasonal_cycles(
+        results,
+        group,
+        rqi_threshold=0.8,
+        region=None,
+        ranges=None
+):
     """
     Calculates daily cycles.
 
@@ -1008,6 +1034,9 @@ def calculate_seasonal_cycles(results, group, rqi_threshold=0.8, region=None):
         valid *= ((lons >= lon_0) * (lons < lon_1) *
                   (lats >= lat_0) * (lats < lat_1))
 
+    if ranges is not None:
+        rng = results[group].range.data
+        valid *= (rng <= ranges)
 
     sp_ref = sp_ref[valid]
     sp = sp[valid]
@@ -1026,7 +1055,13 @@ def calculate_seasonal_cycles(results, group, rqi_threshold=0.8, region=None):
     months = np.arange(1, 14)
     return months, means
 
-def calculate_daily_cycles(results, group, rqi_threshold=0.8, region=None):
+def calculate_daily_cycles(
+        results,
+        group,
+        rqi_threshold=0.8,
+        region=None,
+        ranges=None
+):
     """
     Calculates daily cycles.
 
@@ -1053,6 +1088,10 @@ def calculate_daily_cycles(results, group, rqi_threshold=0.8, region=None):
     mask = results[group].mask
     snow = np.isclose(mask, 3.0) + np.isclose(mask, 4.0)
     valid *= ~snow
+
+    if ranges is not None:
+        rng = results[group].range.data
+        valid *= (rng <= ranges)
 
     lats = results[group].latitude.data
     lons = results[group].longitude.data

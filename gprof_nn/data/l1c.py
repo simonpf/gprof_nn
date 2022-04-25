@@ -19,7 +19,6 @@ from rich.progress import track
 import xarray as xr
 
 from gprof_nn import sensors
-from gprof_nn.data.preprocessor import PreprocessorFile, run_preprocessor
 from gprof_nn.definitions import DATABASE_MONTHS
 from gprof_nn.logging import get_console
 
@@ -211,6 +210,12 @@ class L1CFile:
                 date=self.start_time
             )
 
+    @property
+    def header(self):
+        import h5py
+        with h5py.File(self.path, "r") as data:
+            header = data.attrs["FileHeader"].decode().splitlines()
+        return header
 
     @property
     def start_time(self):
@@ -604,6 +609,18 @@ class L1CFile:
                 tbs.append(input["S2/Tc"][:][indices])
             if "S3" in input.keys():
                 tbs.append(input["S3/Tc"][:][indices])
+            if "S4" in input.keys():
+                tbs.append(input["S4/Tc"][:][indices])
+            if "S5" in input.keys():
+                tbs_s = input["S5/Tc"][:][indices]
+                if tbs_s.shape[-2] > tbs[-1].shape[-2]:
+                    tbs_s = tbs_s[..., ::2, :]
+                tbs.append(tbs_s)
+            if "S6" in input.keys():
+                tbs_s = input["S6/Tc"][:][indices]
+                if tbs_s.shape[-2] > tbs[-1].shape[-2]:
+                    tbs_s = tbs_s[..., ::2, :]
+                tbs.append(tbs_s)
 
             n_pixels = max([array.shape[1] for array in tbs])
             tbs_r = []
@@ -707,6 +724,7 @@ def process_l1c_file(l1c_filename, sensor):
             the data originates.
     """
     import gprof_nn.logging
+    from gprof_nn.data.preprocessor import run_preprocessor
 
     data_pp = run_preprocessor(l1c_filename, sensor=sensor)
     return extract_scenes(data_pp)
