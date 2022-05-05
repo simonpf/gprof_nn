@@ -55,6 +55,7 @@ def add_parser(subparsers):
                         help='Folder or file to which to write the output.')
     parser.add_argument('--gradients', action='store_true')
     parser.add_argument('--no_profiles', action='store_true')
+    parser.add_argument('--format', type=str, help='Output file format')
     parser.add_argument(
         '--sensor',
         type=str,
@@ -93,6 +94,7 @@ def process_file(input_file,
                  device,
                  log_queue,
                  preserve_structure=False,
+                 format=format,
                  sensor=None):
     """
     Process input file.
@@ -111,7 +113,8 @@ def process_file(input_file,
 
     LOGGER.info("Processing file %s.", input_file)
     xrnn = QRNN.load(model)
-    xrnn.set_targets(targets)
+    if targets is not None:
+        xrnn.set_targets(targets)
     driver = RetrievalDriver
     if gradients:
         driver = RetrievalGradientDriver
@@ -121,6 +124,7 @@ def process_file(input_file,
                        device=device,
                        preserve_structure=preserve_structure,
                        sensor=sensor,
+                       output_format=format,
                        tile=True)
     retrieval.run()
 
@@ -172,6 +176,7 @@ def run(args):
     gradients = args.gradients
     n_procs = args.n_processes
     device = args.device
+    format = args.format
     if device.startswith("cuda"):
         mp.set_start_method("spawn")
 
@@ -211,7 +216,7 @@ def run(args):
     if args.no_profiles:
         targets = [t for t in ALL_TARGETS if not t in PROFILE_NAMES]
     else:
-        targets = ALL_TARGETS
+        targets = None
 
     #
     # Run retrieval.
@@ -234,6 +239,7 @@ def run(args):
                               device,
                               log_queue,
                               sensor=sensor,
+                              format=format,
                               preserve_structure=preserve_structure)]
 
     for filename, task in track(list(zip(input_files, tasks)),
