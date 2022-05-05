@@ -868,7 +868,7 @@ class CombinedFileProcessor:
         # single dataset.
 
         n_tasks = len(tasks)
-        n_chunks = 4
+        n_chunks = 32
         chunk = 1
 
         with Progress(console=get_console()) as progress:
@@ -908,12 +908,13 @@ class CombinedFileProcessor:
                         chunk += 1
 
         # Store dataset with sensor name as attribute.
-        dataset = xr.concat(datasets, "samples")
-        filename = output_path / (output_file + f"_{chunk:02}.nc")
-        dataset.attrs["sensor"] =  sensors.GMI.name
-        LOGGER.info("Writing file: %s", filename)
-        dataset.to_netcdf(filename)
-        subprocess.run(["lz4", "-f", "--rm", filename], check=True)
+        if len(datasets) > 0:
+            dataset = xr.concat(datasets, "samples")
+            filename = output_path / (output_file + f"_{chunk:02}.nc")
+            dataset.attrs["sensor"] =  sensors.GMI.name
+            LOGGER.info("Writing file: %s", filename)
+            dataset.to_netcdf(filename)
+            subprocess.run(["lz4", "-f", "--rm", filename], check=True)
 
         # Explicit clean up to avoid memory leak.
         del datasets
