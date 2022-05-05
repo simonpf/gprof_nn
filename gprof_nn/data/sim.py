@@ -66,7 +66,7 @@ GENERIC_HEADER = np.dtype(
 
 CHANNEL_INDICES = {
     "SSMI": [2, 3, 4, 6, 7, 8, 9],
-    "SSMIS": [2, 3, 4, 6, 7, 8, 9, 11, 14, 13, 12],
+    "SSMIS": [2, 3, 4, 6, 7, 8, 9, 11, 12, 13, 14],
     "TMIPO": [0, 1, 2, 3, 4, 6, 7, 8, 9],
     "TMIPR": [0, 1, 2, 3, 4, 6, 7, 8, 9],
 }
@@ -1009,8 +1009,11 @@ class SimFileProcessor:
         if self.sensor.name in SEAICE_YEARS:
             year = SEAICE_YEARS[self.sensor.name]
             for month in range(1, 13):
-                date = datetime(year, month, self.day)
-                l1c_files += L1CFile.find_files(date, l1c_file_path, sensor=self.sensor)
+                try:
+                    date = datetime(year, month, self.day)
+                    l1c_files += L1CFile.find_files(date, l1c_file_path, sensor=self.sensor)
+                except ValueError:
+                    pass
         # Or database period
         else:
             for year, month in DATABASE_MONTHS:
