@@ -37,7 +37,8 @@ _BASE_URL = "https://pmm-gv.gsfc.nasa.gov/pub/NMQ/level2/"
 
 PATHS = {
     "GMI": "GPM/",
-    "TMIPO": "TRMM/"
+    "TMIPO": "TRMM/",
+    "SSMIS": "F17/"
 }
 
 LINK_REGEX = re.compile(r"<a href=\"([\w\.]*)\">")
@@ -517,21 +518,20 @@ class ValidationFileProcessor:
         # Set pixel with too few valid neighboring pixels to nan.
         sp[sp_cts < 1e-1] = np.nan
 
-        surface_precip.data[:] = sp
         surface_precip = surface_precip.interp(
             latitude=lats_5, longitude=lons_5, time=time, method="nearest",
-                kwargs={"fill_value": "extrapolate"}
+                kwargs={"fill_value": np.nan}
         )
         datasets = [surface_precip]
         rqi = mrms_data.radar_quality_index.interp(
             latitude=lats_5, longitude=lons_5, time=time, method="nearest",
-            kwargs={"fill_value": "extrapolate"}
+            kwargs={"fill_value": np.nan}
         )
         datasets.append(rqi)
         if "mask" in mrms_data.variables:
             mask = mrms_data.mask.interp(
                 latitude=lats_5, longitude=lons_5, time=time, method="nearest",
-                kwargs={"fill_value": "extrapolate"}
+                kwargs={"fill_value": -1}
             )
             datasets.append(mask)
         mrms_data = xr.merge(datasets)
