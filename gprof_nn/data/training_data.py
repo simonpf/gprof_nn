@@ -58,7 +58,7 @@ _INPUT_DIMENSIONS = {
     "TMIPR": (96, 128),
     "TMIPO": (96, 128),
     "SSMI": (96, 128),
-    "SSMIS": (96, 128),
+    "SSMIS": (32, 128),
     "MHS": (24, 128),
 }
 
@@ -1473,6 +1473,3 @@ class GPROF_NN_HR_Dataset(GPROF_NN_3D_Dataset):
             y[k] = np.stack(y[k])
 
         return x, y
-
-
-#dataset = GPROF_NN_HR_Dataset("/gdata1/simon/gprof_nn/training_data/gmi_hr/gprof_nn_gmi_era5_06_01.nc.lz4")
