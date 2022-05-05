@@ -181,7 +181,10 @@ class L1CFile:
             )
         )
         for f in files:
-            f = L1CFile(f)
+            try:
+                f = L1CFile(f)
+            except Exception:
+                continue
             if roi is not None:
                 if f.covers_roi(roi):
                     yield f
