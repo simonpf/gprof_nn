@@ -30,7 +30,7 @@ from gprof_nn.data.training_data import (
 )
 from gprof_nn.data.l1c import L1CFile
 from gprof_nn.data.preprocessor import PreprocessorFile, run_preprocessor
-from gprof_nn.data.utils import load_variable
+from gprof_nn.data.utils import load_variable, upsample_scans
 from gprof_nn.utils import calculate_tiles_and_cuts, expand_tbs
 
 
@@ -448,8 +448,9 @@ class RetrievalDriver:
         folder = Path(self.output_file).parent
         folder.mkdir(parents=True, exist_ok=True)
 
-        ancillary_data = get_profile_clusters()
+        # Write output in GPROF format.
         if self.output_format == GPROF_BINARY:
+            ancillary_data = get_profile_clusters()
             return input_data.write_retrieval_results(
                 self.output_file,
                 results,
@@ -471,7 +472,12 @@ class RetrievalDriver:
             ]
             for var in variables:
                 if var in input_data.data.variables:
-                    results[var] = input_data.data[var]
+                    n_scans = results.scans.size
+                    var_data = input_data.data[var].data
+                    if n_scans > var_data.shape[0]:
+                        var_data = upsample_scans(var_data, axis=0)
+                    dims = ("scans", "pixels")
+                    results[var] = (dims[:var_data.ndim], var_data)
 
         LOGGER.info("Writing retrieval results to file '%s'.", self.output_file)
         results.to_netcdf(self.output_file)
@@ -1080,7 +1086,6 @@ class ObservationLoader3D:
 
         input_file = file_class(filename)
         self.data = input_file.to_xarray_dataset()
-        tcwv = self.data["total_column_water_vapor"]
         self.n_scans = self.data.scans.size
         self.n_pixels = self.data.pixels.size
 
@@ -1238,6 +1243,80 @@ class L1CLoader3D(ObservationLoader3D):
             tile: Whether to tile the orbit in along track dimension.
         """
         super().__init__(filename, L1CFile, normalizer, tile=tile)
+
+
+class L1CLoaderHR(ObservationLoader3D):
+    """
+    Interface class to load retrieval input for the GPROF-NN 3D retrieval
+    form L1C files.
+    """
+
+    def __init__(self, filename, normalizer, tile=False):
+        """
+        Create preprocessor loader.
+
+        Args:
+            filename: Path to the preprocessor file from which to load the
+                input data.
+            normalizer: The normalizer object to use to normalize the input
+                data.
+            tile: Whether to tile the orbit in along track dimension.
+        """
+        super().__init__(filename, L1CFile, normalizer, tile=tile)
+
+        if tile:
+            self.tiles, self.cuts = calculate_tiles_and_cuts(
+                self.n_scans,
+                256,
+                8
+            )
+        else:
+            self.tiles, self.cuts = calculate_tiles_and_cuts(
+                self.n_scans,
+                self.n_scans,
+                8
+            )
+        self.batch_size = 4
+        tile_0 = self.input_data[:, :, self.tiles[0]]
+        self.padding = calculate_padding_dimensions(tile_0)
+
+
+    def finalize(self, data):
+        """
+        Reshape retrieval results into shape of input data.
+        """
+        n_scans = data.scans.size
+        n_pixels = data.pixels.size
+        tiles = []
+
+        data = data[
+            {
+                "scans": slice(self.padding[2] * 3, n_scans - self.padding[3] * 3),
+                "pixels": slice(self.padding[0], n_pixels - self.padding[1]),
+            }
+        ]
+
+        for i_s, cut in enumerate(self.cuts):
+            tile_size = (data.scans.size + 2) // 3
+            left = cut.start
+            if cut.stop is not None:
+                right = tile_size - cut.stop
+            else:
+                right = 0
+            if right > 0:
+                cut = slice(3 * left, 3 * (tile_size - right))
+            else:
+                cut = slice(3 * left, None)
+            print(tile_size, left, right, cut)
+            tile = data[{"samples": i_s, "scans": cut}]
+            tiles.append(tile)
+        data = xr.concat(tiles, "scans")
+        print(data)
+
+        if "layers" in data.dims:
+            dims = ["scans", "pixels", "layers"]
+            data = data.transpose(*dims)
+        return data
 
 
 # Kept for backwards compatibility.
