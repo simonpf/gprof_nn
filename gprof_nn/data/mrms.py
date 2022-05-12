@@ -62,6 +62,8 @@ class MRMSMatchFile:
                 sensor = sensors.MHS
             elif "SSMIS" in filename.name:
                 sensor = sensors.SSMIS
+            elif "AMSR2" in filename.name:
+                sensor = sensors.AMSR2
             else:
                 raise ValueError(
                     "Could not infer sensor from filename. Consider passing "

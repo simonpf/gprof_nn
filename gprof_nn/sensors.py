@@ -1007,10 +1007,11 @@ class ConstellationScanner(ConicalScanner):
 
             # Randomly set missing channels to missing.
             if self.missing_channels is not None:
+                p_thresh = 1 / len(self.missing_channels)
                 for channel in self.missing_channels:
                     tbs_c = tbs[..., channel]
                     p = rng.uniform(size=tbs_c.shape)
-                    tbs_c[p > 0.5] = np.nan
+                    tbs_c[p <= p_thresh] = np.nan
 
             st = self.load_surface_type(scene, mask=mask)
             t2m = t2m[..., np.newaxis]
@@ -1116,11 +1117,15 @@ class ConstellationScanner(ConicalScanner):
                 tbs[:, -n_p:] = np.nan
 
             # Randomly set missing channels to missing.
-            if self.missing_channels is not None:
-                for channel in self.missing_channels:
-                    p = rng.uniform()
-                    if p > 0.5:
-                        tbs[..., channel] = np.nan
+            if augment:
+                p = rng.uniform()
+                if p > 0.75:
+                    if self.missing_channels is not None:
+                        p_thresh = 0.5
+                        for channel in self.missing_channels:
+                            p = rng.uniform()
+                            if p <= p_thresh:
+                                tbs[..., channel] = np.nan
 
         tcwv = tcwv[np.newaxis]
         t2m = t2m[np.newaxis]
@@ -1207,11 +1212,14 @@ class ConstellationScanner(ConicalScanner):
 
         # Randomly set missing channels to missing.
         if augment:
-            if self.missing_channels is not None:
-                for channel in self.missing_channels:
-                    p = rng.uniform()
-                    if p > 0.5:
-                        tbs[..., channel] = np.nan
+            p = rng.uniform()
+            if p > 0.75:
+                if self.missing_channels is not None:
+                    p_thresh = 0.5
+                    for channel in self.missing_channels:
+                        p = rng.uniform()
+                        if p <= p_thresh:
+                            tbs[..., channel] = np.nan
 
         # Move channel to first dim.
         tbs = np.transpose(tbs, (2, 0, 1))
@@ -1879,6 +1887,11 @@ NOAA19 = Platform("NOAA19", "/pdata4/archive/GPM/1C_NOAA19/", "1C.NOAA19.MHS")
 GPM = Platform("GPM-CO", "/pdata4/archive/GPM/1CR_GMI/", "1C-R.GPM.GMI")
 F15 = Platform("F15", "/pdata4/archive/GPM/1C_F15_ITE/", "1C.F15.SSMI")
 F17 = Platform("F17", "/pdata4/archive/GPM/1C_F17_ITE/", "1C.F17.SSMIS")
+GCOMW1 = Platform(
+    "GCOM-W1",
+    "/pdata4/archive/GPM/1C_AMSR2_ITE/",
+    "1C.GCOMW1.AMSR2"
+)
 
 ###############################################################################
 # GMI
@@ -2276,17 +2289,17 @@ SSMIS_NEDT = np.array([
 ])
 
 SSMIS_MODELING_ERROR = np.sqrt(np.array([
-    1.0,
-    1.0,
-    1.0,
-    1.0,
-    1.0,
-    1.0,
-    1.0,
-    1.0,
-    1.0,
-    1.0,
-    1.0,
+    2.0,
+    2.0,
+    2.0,
+    2.0,
+    2.0,
+    2.0,
+    2.0,
+    2.0,
+    2.0,
+    2.0,
+    2.0,
 ]))
 
 SSMIS_GMI_CHANNELS = [
@@ -2305,10 +2318,10 @@ SSMIS_GMI_CHANNELS = [
 
 
 SSMIS_VIEWING_GEOMETRY = Conical(
-    altitude=848e3,
+    altitude=880e3,
     earth_incidence_angle=53.0,
-    scan_range=102,
-    pixels_per_scan=128,
+    scan_range=140,
+    pixels_per_scan=180,
     scan_offset=12.5e3,
 )
 
@@ -2324,7 +2337,98 @@ SSMIS = ConstellationScanner(
     "/qdata1/pbrown/dbaseV7/simV7_ssmis",
     SSMIS_GMI_CHANNELS,
     modeling_error=SSMIS_MODELING_ERROR,
-    #correction=DATA_FOLDER / "corrections_ssmis.nc",
+    correction=DATA_FOLDER / "corrections_ssmis.nc",
 )
 
-SSMIS.missing_channels = [0, 1, 2, 3, 4, 5, 7, 8, 9, 10]
+SSMIS.missing_channels = [3, 7, 8, 9, 10]
+
+###############################################################################
+# AMSR2
+###############################################################################
+
+AMSR2_CHANNELS = [
+    (10.65, "V"),
+    (10.65, "H"),
+    (18.7, "V"),
+    (18.7, "H"),
+    (23.8, "V"),
+    (23.8, "H"),
+    (36.5, "V"),
+    (36.5, "H"),
+    (89, "V"),
+    (89, "H"),
+]
+
+AMSR2_ANGLES = np.array([
+    53.1,
+    53.1,
+    53.1,
+    53.1,
+    53.1,
+    53.1,
+    53.1,
+    53.1,
+    53.1,
+    53.1,
+])
+
+AMSR2_NEDT = np.array([
+    0.7,
+    0.7,
+    0.7,
+    0.7,
+    0.6,
+    0.6,
+    0.7,
+    0.7,
+    1.2,
+    1.4
+])
+
+AMSR2_MODELING_ERROR = np.sqrt(np.array([
+    2.0,
+    2.0,
+    2.0,
+    2.0,
+    2.0,
+    2.0,
+    2.0,
+    2.0,
+    2.0,
+    2.0,
+]))
+
+AMSR2_GMI_CHANNELS = [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9
+]
+
+AMSR2_VIEWING_GEOMETRY = Conical(
+    altitude=700e3,
+    earth_incidence_angle=55.0,
+    scan_range=140,
+    pixels_per_scan=180,
+    scan_offset=12.5e3,
+)
+
+AMSR2 = ConstellationScanner(
+    "AMSR2",
+    AMSR2_CHANNELS,
+    AMSR2_NEDT,
+    AMSR2_ANGLES,
+    GCOMW1,
+    AMSR2_VIEWING_GEOMETRY,
+    "/pdata4/veljko/AMSR22MRMS_match2019/monthly_2021/",
+    "AMSR2.dbsatTb.??????{day}.??????.sim",
+    "/qdata1/pbrown/dbaseV7/simV7_amsr2",
+    AMSR2_GMI_CHANNELS,
+    modeling_error=AMSR2_MODELING_ERROR
+)

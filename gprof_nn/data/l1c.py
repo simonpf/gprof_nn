@@ -206,6 +206,7 @@ class L1CFile:
             header = data.attrs["FileHeader"].decode().splitlines()
             satellite = header[6].split("=")[1][:-1]
             sensor = header[7].split("=")[1][:-1]
+            self.header = header
             self.granule = int(header[11].split("=")[1][:-1])
             date = self.start_time
             self.sensor = sensors.get_sensor(
@@ -417,6 +418,67 @@ class L1CFile:
                             g_sc.create_dataset(
                                 name, shape=(n_scans,) + shape[1:], data=item[scans]
                             )
+
+                if "S5" in input.keys():
+                    g = output.create_group("S5")
+                    for name, item in input["S5"].items():
+                        if isinstance(item, h5py.Dataset):
+                            shape = item.shape
+                            g.create_dataset(
+                                name, shape=(n_scans,) + shape[1:], data=item[scans]
+                            )
+                    for a in input["S5"].attrs:
+                        s = input["S5"].attrs[a].decode()
+                        s = _RE_META_INFO.sub(f"NumberScansGranule={n_scans};", s)
+                        s = np.bytes_(s)
+                        g.attrs[a] = s
+
+                    g_st = g.create_group("ScanTime")
+                    for name, item in input["S5/ScanTime"].items():
+                        if isinstance(item, h5py.Dataset):
+                            shape = item.shape
+                            g_st.create_dataset(
+                                name, shape=(n_scans,) + shape[1:], data=item[scans]
+                            )
+
+                    g_sc = g.create_group("SCstatus")
+                    for name, item in input["S5/SCstatus"].items():
+                        if isinstance(item, h5py.Dataset):
+                            shape = item.shape
+                            g_sc.create_dataset(
+                                name, shape=(n_scans,) + shape[1:], data=item[scans]
+                            )
+
+                if "S6" in input.keys():
+                    g = output.create_group("S6")
+                    for name, item in input["S6"].items():
+                        if isinstance(item, h5py.Dataset):
+                            shape = item.shape
+                            g.create_dataset(
+                                name, shape=(n_scans,) + shape[1:], data=item[scans]
+                            )
+                    for a in input["S6"].attrs:
+                        s = input["S6"].attrs[a].decode()
+                        s = _RE_META_INFO.sub(f"NumberScansGranule={n_scans};", s)
+                        s = np.bytes_(s)
+                        g.attrs[a] = s
+
+                    g_st = g.create_group("ScanTime")
+                    for name, item in input["S6/ScanTime"].items():
+                        if isinstance(item, h5py.Dataset):
+                            shape = item.shape
+                            g_st.create_dataset(
+                                name, shape=(n_scans,) + shape[1:], data=item[scans]
+                            )
+
+                    g_sc = g.create_group("SCstatus")
+                    for name, item in input["S6/SCstatus"].items():
+                        if isinstance(item, h5py.Dataset):
+                            shape = item.shape
+                            g_sc.create_dataset(
+                                name, shape=(n_scans,) + shape[1:], data=item[scans]
+                            )
+
                 for a in input.attrs:
                     output.attrs[a] = input.attrs[a]
 

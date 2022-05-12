@@ -20,9 +20,10 @@ DATA_PATH = get_test_data_path()
 TEST_FILE_GMI = "1801_MRMS2GMI_gprof_db_08all.bin.gz"
 TEST_FILE_MHS = "1801_MRMS2MHS_DB1_01.bin.gz"
 TEST_FILE_SSMIS = "1810_MRMS2SSMIS_01.bin.gz"
+TEST_FILE_AMSR2 = "1810_MRMS2AMSR2_01.bin.gz"
 
 HAS_SNOWDAS_RATIOS = has_snowdas_ratios()
-print("SNOWDAS :: ", HAS_SNOWDAS_RATIOS)
+
 
 def test_read_file_gmi():
     """
@@ -75,8 +76,30 @@ def test_read_file_ssmis():
     assert np.all((tbs >= 0) * (tbs <= 400))
 
 
-#@pytest.mark.skipif(HAS_SNOWDAS_RATIOS,
-#                    reason="SNOWDAS files not available.")
+def test_read_file_amsr2():
+    """
+    Read AMSR2 match file and ensure that all latitudes roughly match
+    CONUS coordinates.
+    """
+    DATA_PATH = Path(__file__).parent / "data"
+    path = DATA_PATH / "amsr2" / "mrms" / TEST_FILE_AMSR2
+    ms = MRMSMatchFile(path)
+
+    assert np.all(ms.data["latitude"] > 20.0)
+    assert np.all(ms.data["latitude"] < 70.0)
+    assert np.all(ms.data["longitude"] > -130.0)
+    assert np.all(ms.data["longitude"] < -50.0)
+
+    data = ms.to_xarray_dataset(day=23)
+    tbs = data.brightness_temperatures.data
+    valid = tbs >= 0
+    tbs = tbs[valid]
+    assert np.all((tbs >= 0) * (tbs <= 400))
+
+    surface_precip = data.surface_precip.data
+    assert np.any(np.isfinite(surface_precip))
+
+
 def test_match_precip_gmi():
     """
     Match surface precip from MRMS file to observations in L1C file.
@@ -93,8 +116,6 @@ def test_match_precip_gmi():
         data.to_netcdf("test.nc")
 
 
-#@pytest.mark.skipif(HAS_SNOWDAS_RATIOS,
-#                    reason="SNOWDAS files not available.")
 def test_match_precip_mhs():
     """
     Match surface precip from MRMS file to observations in L1C file.
