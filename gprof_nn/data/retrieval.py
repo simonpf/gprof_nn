@@ -365,8 +365,8 @@ class RetrievalFile:
 
             invalid = profile_indices <= 0
             profile_indices[invalid] = 1
-            profile_indices = np.clip(profile_indices, 1, 12)
-            temperature_indices = np.clip(temperature_indices, 1, 12)
+            profile_indices = np.clip(profile_indices, 1, N_PROFILES + 1)
+            temperature_indices = np.clip(temperature_indices, 1, N_TEMPERATURES + 1)
 
             rwc = (
                 profiles[0, temperature_indices - 1, :, profile_indices[..., 0] - 1]
