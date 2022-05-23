@@ -1,5 +1,5 @@
-The ``gprof_nn`` Python package
-===============================
+Python package
+==============
 
 
 .. toctree::
