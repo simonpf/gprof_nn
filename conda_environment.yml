@@ -1,0 +1,8 @@
+name: gprof_nn
+channels:
+  - defaults
+dependencies:
+  - python=3.8
+  - h5py
+  - pyproj
+prefix: /home/simon/.conda/envs/gprof_nn
