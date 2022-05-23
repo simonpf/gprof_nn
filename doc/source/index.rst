@@ -14,6 +14,7 @@ principal parts:
    :maxdepth: 2
    :caption: Contents:
 
+   installation
    cli
    python_package
 
