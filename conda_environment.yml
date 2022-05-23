@@ -5,4 +5,5 @@ dependencies:
   - python=3.8
   - h5py
   - pyproj
+  - pyresample
 prefix: /home/simon/.conda/envs/gprof_nn
