@@ -215,3 +215,20 @@ def test_extract_scans(tmpdir):
               (lats >= lat_0) *
               (lats < lat_1))
     assert np.any(inside)
+
+
+def test_extract_scan_range(tmpdir):
+    """
+    Test finding of specific GMI L1C file and reading data into
+    xarray.Dataset.
+    """
+    l1c_path = DATA_PATH / "gmi" / "l1c"
+    l1c_file = L1CFile.open_granule(27510, l1c_path, sensors.GMI)
+    l1c_data = l1c_file.to_xarray_dataset()
+
+    roi_path = tmpdir / "l1c_file.HDF5"
+    l1c_file.extract_scan_range(0, 256, roi_path)
+    roi_file = L1CFile(roi_path)
+    roi_data = roi_file.to_xarray_dataset()
+
+    assert roi_data.scans.size == 256
