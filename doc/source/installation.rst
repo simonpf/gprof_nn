@@ -13,7 +13,7 @@ want to develop new retrievals.
 PIP
 ---
 
-To install the latest release of ``gprof_nn`` simply run
+To install the latest, official release of ``gprof_nn`` simply run
 
 .. code-block:: console
   
@@ -25,26 +25,18 @@ Development version
 -------------------
 
 The development version of ``gprof_nn`` is required to train new GPROF retrievals.
-To install it, first clone the source code from GitHub:
 
-.. code-block:: console
-  
-   git clone https://github.com/simonpf/gprof_nn
+External dependencies
+^^^^^^^^^^^^^^^^^^^^^
 
-Then, install the Python package in editable mode using
+Unfortunately, not all dependencies for the development verions of ``gprof_nn``
+are available through PyPI and therefore are not installed automatically with
+``pip``. The dependencies are listed in the ``conda_environment.yml`` file
+in the root directory of the repository.
 
-.. code-block:: console
-  
-   cd gprof_nn && pip install -e . [development]
-
-
-Additional dependencies
-^^^^^^^^^^^^^^^^^^^^^^^
-
-Unfortunately, not all dependencies for the development verions of ``gprof_nn`` are available
-through PyPI. These additional dependencies are listed in the ``conda_environment.yml`` file
-in the root directory of the repository. The corresponding ``gprof_nn`` conda environment can be
-installed using 
+The following command creates a conda environment called ``gprof_nn`` and
+installs the required packages. After activating the environment, your system
+will be set up with all external dependencies of ``gprof_nn``.
 
 .. code-block:: console
   
@@ -53,6 +45,39 @@ installed using
 .. note ::
    Don't forget to install the environment using ``conda activate gprof_nn`` after installing
    it.
+
+Getting or updating the code
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+The most recent version of the ``gprof_nn`` code can be obtained from GitHub using
+
+.. code-block:: console
+  
+   git clone https://github.com/simonpf/gprof_nn
+
+If the ``gprof_nn`` code has been updated, you can update your local copy of the
+by issuing the following command from the folder that you cloned the repository
+into.
+
+.. code-block:: console
+
+   git pull
+
+Installing ``gprof_nn``
+^^^^^^^^^^^^^^^^^^^^^^^
+
+Finally, you can install ``gprof_nn`` by issuing the following command from the folder
+you have cloned the code into.
+  
+.. code-block:: console
+
+   pip install -e .[development]
+
+.. note ::
+   Passing the ``-e`` flag to the ``pip`` command installs the package in editable mode.
+   This ensures that changes to the source code in this folder propagate to the ``gprof_nn``
+   package installed in your Python environment.
+   
 
 Preprocessor binaries
 ^^^^^^^^^^^^^^^^^^^^^
@@ -64,12 +89,12 @@ is expected to follow the naming convention
 
 .. code-block:: console
   
-   gprof2020pp_<SENSOR>_L1C
+   gprof2021pp_<SENSOR>_L1C
 
-That is, the binary for GMI should be called ``gprof2020pp_GMI_L1C``.
+That is, the binary for GMI should be called ``gprof2021pp_GMI_L1C``.
 
 
 For sensors other than GMI and additional preprocessor binary must be available. This
 should be a modified version, which loads the surface type map for the sensor.
 For a given sensor ``SENSOR``, the executable is expected to be named
-``gprof2020pp_GMI_<SENSOR>_L1C``.
+``gprof2021pp_GMI_<SENSOR>_L1C``.
