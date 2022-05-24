@@ -49,15 +49,17 @@ will be set up with all external dependencies of ``gprof_nn``.
 Getting or updating the code
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-The most recent version of the ``gprof_nn`` code can be obtained from GitHub using
+The central repository containing the source code for ``gprof_nn`` is located
+at `github.com/simonpf/gprof_nn <https://github.com/simonpf/gprof_nn>`_. To
+obtain a local copy of the code, run
 
 .. code-block:: console
   
    git clone https://github.com/simonpf/gprof_nn
 
-If the ``gprof_nn`` code has been updated, you can update your local copy of the
-by issuing the following command from the folder that you cloned the repository
-into.
+If you already have a local copy of the code and want to update it to the most
+recent version, use the following command from the folder you have copied the
+code to.
 
 .. code-block:: console
 
@@ -67,7 +69,7 @@ Installing ``gprof_nn``
 ^^^^^^^^^^^^^^^^^^^^^^^
 
 Finally, you can install ``gprof_nn`` by issuing the following command from the folder
-you have cloned the code into.
+you have cloned the code into:
   
 .. code-block:: console
 
@@ -82,9 +84,9 @@ you have cloned the code into.
 Preprocessor binaries
 ^^^^^^^^^^^^^^^^^^^^^
 
-Generating the ``gprof_nn`` training data requires the GPROF preprocessor binaries
-to be found on the binary search path. The preprocessor binary for the sensor ``SENSOR``
-is expected to follow the naming convention
+Generating the ``gprof_nn`` training data requires the GPROF preprocessor
+binaries to be available on the binary search path. The preprocessor binary for
+the sensor ``SENSOR`` is expected to follow the naming convention
 
 
 .. code-block:: console
@@ -94,7 +96,8 @@ is expected to follow the naming convention
 That is, the binary for GMI should be called ``gprof2021pp_GMI_L1C``.
 
 
-For sensors other than GMI and additional preprocessor binary must be available. This
-should be a modified version, which loads the surface type map for the sensor.
-For a given sensor ``SENSOR``, the executable is expected to be named
+For sensors other than GMI an additional preprocessor binary must be available.
+This should be a modified version of the GMI preprocessor, which loads the
+surface type map for the sensor. For a given sensor ``SENSOR``, the executable
+is expected to be named
 ``gprof2021pp_GMI_<SENSOR>_L1C``.
