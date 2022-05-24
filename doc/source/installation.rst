@@ -43,12 +43,12 @@ Additional dependencies
 
 Unfortunately, not all dependencies for the development verions of ``gprof_nn`` are available
 through PyPI. These additional dependencies are listed in the ``conda_environment.yml`` file
-in the root directory of the repository. The corresponding ``gprof_nn`` environment can be
+in the root directory of the repository. The corresponding ``gprof_nn`` conda environment can be
 installed using 
 
 .. code-block:: console
   
-   conda env create -f environment.yml
+   conda env create -f conda_environment.yml
 
 .. note ::
    Don't forget to install the environment using ``conda activate gprof_nn`` after installing
@@ -56,8 +56,6 @@ installed using
 
 Preprocessor binaries
 ^^^^^^^^^^^^^^^^^^^^^
-
-
 
 Generating the ``gprof_nn`` training data requires the GPROF preprocessor binaries
 to be found on the binary search path. The preprocessor binary for the sensor ``SENSOR``
