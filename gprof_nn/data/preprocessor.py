@@ -704,19 +704,19 @@ def has_preprocessor():
 
 # Dictionary mapping sensor IDs to preprocessor executables.
 PREPROCESSOR_EXECUTABLES = {
-    "GMI": "gprof2020pp_GMI_L1C",
-    "MHS": "gprof2020pp_MHS_L1C",
+    "GMI": "gprof2021pp_GMI_L1C",
+    "MHS": "gprof2021pp_MHS_L1C",
     "TMIPR": "gprof2021pp_TMI_L1C",
     "TMIPO": "gprof2021pp_TMI_L1C",
-    "SSMI": "gprof2020pp_SSMI_L1C",
+    "SSMI": "gprof2021pp_SSMI_L1C",
     "SSMIS": "gprof2021pp_SSMIS_L1C",
     "AMSR2": "gprof2021pp_AMSR2_L1C",
-    ("GMI", "MHS"): "gprof2020pp_GMI_MHS_L1C",
-    ("GMI", "TMIPR"): "gprof2020pp_GMI_TMI_L1C",
-    ("GMI", "TMIPO"): "gprof2020pp_GMI_TMI_L1C",
-    ("GMI", "SSMI"): "gprof2020pp_GMI_SSMI_L1C",
-    ("GMI", "SSMIS"): "gprof2020pp_GMI_SSMIS_L1C",
-    ("GMI", "AMSR2"): "gprof2020pp_GMI_AMSR2_L1C"
+    ("GMI", "MHS"): "gprof2021pp_GMI_MHS_L1C",
+    ("GMI", "TMIPR"): "gprof2021pp_GMI_TMI_L1C",
+    ("GMI", "TMIPO"): "gprof2021pp_GMI_TMI_L1C",
+    ("GMI", "SSMI"): "gprof2021pp_GMI_SSMI_L1C",
+    ("GMI", "SSMIS"): "gprof2021pp_GMI_SSMIS_L1C",
+    ("GMI", "AMSR2"): "gprof2021pp_GMI_AMSR2_L1C"
 }
 
 
