@@ -21,6 +21,11 @@ setup(
         "numpy", "scipy", "xarray", "torch", "appdirs", "rich",
         "quantnn>=0.0.4dev"
     ],
+    extras_require = {
+        'development': [
+            'pytest', 'pykdtree'
+            ]
+        },
     entry_points = {
         'console_scripts': ['gprof_nn=gprof_nn.bin:gprof_nn'],
     },

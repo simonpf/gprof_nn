@@ -3,7 +3,7 @@
 gprof_nn.data.cdf
 =================
 
-Functions to read Paula Browns binary files containing the CDFs
+Functions to read GPM binary files containing the CDFs
 and histograms of the simulated and observed brightness
 temperatures.
 """

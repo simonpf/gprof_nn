@@ -3,11 +3,8 @@
 gprof_nn.data
 =============
 
-The data module provides functionality to dynamically download
-data needed by the module.
-
-Its sub-modules provide functionality to read and process various
-data formats required for the processing of training data.
+The ``gprof_nn.data`` module collects interfaces to read different GPM-related
+data formats.
 """
 from pathlib import Path
 import shutil
