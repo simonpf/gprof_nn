@@ -11,3 +11,5 @@ jobs:
       - run: pip install -e .
       - run: cd test; ./test_retrieval_gmi.sh
       - run: cd test; ./test_retrieval_tmi.sh
+      - run: cd test; ./test_retrieval_f15.sh
+      - run: cd test; ./test_retrieval_f17.sh
