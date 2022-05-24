@@ -105,8 +105,8 @@ def run(args):
 
     # Check kind
     kind = args.kind.lower().strip()
-    if not kind in ["train", "val", "test"]:
-        LOGGER.error("The kind should be 'train' 'val' or 'test' not '%s'.",
+    if not kind in ["training", "validation", "test"]:
+        LOGGER.error("The kind should be 'training', 'validation' or 'test' not '%s'.",
                      args.kind)
         return 1
 
@@ -127,9 +127,9 @@ def run(args):
     era5_path = args.era5_path
     n_procs = args.n_processes
 
-    if kind == "train":
+    if kind == "training":
         days = TRAINING_DAYS
-    elif kind == "val":
+    elif kind == "validation":
         days = VALIDATION_DAYS
     elif kind == "test":
         days = TEST_DAYS
