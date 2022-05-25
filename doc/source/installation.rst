@@ -34,16 +34,26 @@ are available through PyPI and therefore are not installed automatically with
 ``pip``. The dependencies are listed in the ``conda_environment.yml`` file
 in the root directory of the repository.
 
-The following command creates a conda environment called ``gprof_nn`` and
-installs the required packages. After activating the environment, your system
-will be set up with all external dependencies of ``gprof_nn``.
+Some of these packages are only available through the ``conda-forge``
+channel. If you haven't done so already, it may thus be necessary to add
+the channel to conda. This can be done with the following two commands.
+
+.. code-block:: console
+
+   conda config --add channels conda-forge  
+   conda config --set channel_priority strict 
+
+
+You can then install these packages into a new conda environment called
+``gprof_nn`` using the command below. After activating the environment, your
+system will be set up with all external dependencies of ``gprof_nn``.
 
 .. code-block:: console
   
    conda env create -f conda_environment.yml
 
 .. note ::
-   Don't forget to install the environment using ``conda activate gprof_nn`` after installing
+   Don't forget to activate the environment using ``conda activate gprof_nn`` after installing
    it.
 
 Getting or updating the code
