@@ -2430,5 +2430,6 @@ AMSR2 = ConstellationScanner(
     "AMSR2.dbsatTb.??????{day}.??????.sim",
     "/qdata1/pbrown/dbaseV7/simV7_amsr2",
     AMSR2_GMI_CHANNELS,
-    modeling_error=AMSR2_MODELING_ERROR
+    modeling_error=AMSR2_MODELING_ERROR,
+    correction=DATA_FOLDER / "corrections_amsr2.nc",
 )

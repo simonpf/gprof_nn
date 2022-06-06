@@ -59,6 +59,7 @@ _INPUT_DIMENSIONS = {
     "TMIPO": (96, 128),
     "SSMI": (96, 128),
     "SSMIS": (32, 128),
+    "AMSR2": (32, 128),
     "MHS": (24, 128),
 }
 
@@ -90,6 +91,8 @@ def calculate_resampling_indices(latitudes, time, sensor):
         weights = latitude_ratios[lat_indices]
     else:
         weights = latitude_ratios[lat_indices, time_indices]
+    weights = np.nan_to_num(weights, 0.0)
+    print(weights.sum())
     indices = np.arange(latitudes.size)
     probs = weights / weights.sum()
     return np.random.choice(indices, size=latitudes.size, p=probs)

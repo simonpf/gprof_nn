@@ -38,7 +38,8 @@ _BASE_URL = "https://pmm-gv.gsfc.nasa.gov/pub/NMQ/level2/"
 PATHS = {
     "GMI": "GPM/",
     "TMIPO": "TRMM/",
-    "SSMIS": "F17/"
+    "SSMIS": "F17/",
+    "AMSR2": "GCOMW1/",
 }
 
 LINK_REGEX = re.compile(r"<a href=\"([\w\.]*)\">")
