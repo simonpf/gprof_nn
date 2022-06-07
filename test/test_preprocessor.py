@@ -322,7 +322,7 @@ def test_run_preprocessor_gmi_era5():
     """
     Test running the GMI preprocessor on a specific L1C file.
     """
-    l1c_path = Path("/pdata4/archive/GPM/1CR_GMI")
+    l1c_path = Path("/pdata4/archive/GPM/1CR_GMI_ITE")
     l1c_file = L1CFile.open_granule(27510, l1c_path, sensors.GMI)
     data = run_preprocessor(l1c_file.filename, sensor=sensors.GMI)
 
@@ -353,7 +353,7 @@ def test_run_preprocessor_gmi_ganal():
     """
     Test running the GMI preprocessor on a specific L1C file.
     """
-    l1c_path = Path("/pdata4/archive/GPM/1CR_GMI")
+    l1c_path = Path("/pdata4/archive/GPM/1CR_GMI_ITE")
     l1c_file = L1CFile.open_granule(27510, l1c_path, sensors.GMI)
     data = run_preprocessor(l1c_file.filename, sensor=sensors.GMI, configuration=GANAL)
 
