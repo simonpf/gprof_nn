@@ -321,14 +321,22 @@ class CrossTrack(ViewingGeometry):
         altitude: The altitude of the sensor in m.
         scan_range: The active scan range of the sensor.
         pixels_per_scan: The number of pixels contained in each scan.
-        scan_offset: The distance between consecutive scans.
+        scan_offset: The distance between consecutive scans in meters
+        beam_width: The antenna beam width in degrees
     """
-
-    def __init__(self, altitude, scan_range, pixels_per_scan, scan_offset):
+    def __init__(
+            self,
+            altitude,
+            scan_range,
+            pixels_per_scan,
+            scan_offset,
+            beam_width
+    ):
         self.altitude = altitude
         self.scan_range = scan_range
         self.pixels_per_scan = pixels_per_scan
         self.scan_offset = scan_offset
+        self.beam_width = beam_width
 
     def pixel_coordinates_to_euclidean(self, c_p):
         """
@@ -455,17 +463,28 @@ class CrossTrack(ViewingGeometry):
         beta = np.arcsin(sin_ang)
 
         c = (R_EARTH + self.altitude) / R_EARTH
-        dg_db = -c * np.cos(beta) / np.sqrt(1 - np.sin(beta * c) ** 2)
-        da_db = -(dg_db + 1)
+        dg_db = c * np.cos(beta) / np.sqrt(1 - c * np.sin(beta) ** 2)
+        da_db = R_EARTH * (dg_db - 1)
 
-        r = da_db * R_EARTH * np.deg2rad(1.1)
+        r = da_db * np.deg2rad(self.beam_width)
         return r
 
-    def get_resolution_a(self):
+    def get_resolution_a(self, earth_incidence_angle):
         """
         The along-track resolution.
         """
-        return self.scan_offset
+        gamma = np.deg2rad(earth_incidence_angle)
+        sin_ang = (
+            R_EARTH
+            / (R_EARTH + self.altitude)
+            * np.sin(np.pi - gamma)
+        )
+        beta = np.arcsin(sin_ang)
+
+        alpha = gamma - beta
+        c = np.sin(alpha) * R_EARTH / np.sin(beta)
+
+        return np.deg2rad(self.beam_width) * c
 
 
 def get_center_pixels(p_o, p_i):
