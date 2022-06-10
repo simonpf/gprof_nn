@@ -77,7 +77,7 @@ def get_model_path(kind, sensor, configuration):
         raise ValueError("'configuration' must be one of: 'ERA5', 'GANAL'")
 
     sensor_name = sensor.full_name.lower()
-    if kind.lower() == "hr":
+    if kind.lower() in ["1d", "3d"]:
         model_name = f"gprof_nn_{kind}_{sensor_name}_{configuration}.pckl"
     else:
         model_name = f"gprof_nn_{kind}_{sensor_name}.pckl"
@@ -90,7 +90,7 @@ def get_model_path(kind, sensor, configuration):
         pass
 
     sensor_name = sensor.sensor_name.lower()
-    if kind.lower() == "hr":
+    if kind.lower() in ["1d", "3d"]:
         model_name = f"gprof_nn_{kind}_{sensor_name}_{configuration}.pckl"
     else:
         model_name = f"gprof_nn_{kind}_{sensor_name}.pckl"

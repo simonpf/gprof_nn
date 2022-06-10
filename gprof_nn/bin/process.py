@@ -106,8 +106,8 @@ def process_file(
     )
     model = QRNN.load(model_path)
     LOGGER.info(
-        "Loaded '%s' model for sensor '%s' and configuration '%s'.",
-        kind, sensor.name, configuration
+        "Loaded '%s' model for sensor '%s' and kind '%s'.",
+        kind, sensor.name, kind
     )
 
     driver = RetrievalDriver(
@@ -126,13 +126,16 @@ def run(kind, args):
         kind: '1D' or '3D'
         args: The args namespace containing the command line arguments.
     """
-    configuration = args.configuration.upper()
-    if configuration not in ["ERA5", "GANAL"]:
-        LOGGER.error(
-            "Configuration should be one of 'ERA5' or 'GANAL', not '%s'",
-            configuration
-        )
-        return 1
+    if kind.lower() in ["1d", "3d"]:
+        configuration = args.configuration.upper()
+        if configuration not in ["ERA5", "GANAL"]:
+            LOGGER.error(
+                "Configuration should be one of 'ERA5' or 'GANAL', not '%s'",
+                configuration
+            )
+            return 1
+    else:
+        configuration = "ERA5"
 
     input_file = Path(args.input)
     if not input_file.exists():

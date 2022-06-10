@@ -1307,11 +1307,9 @@ class L1CLoaderHR(ObservationLoader3D):
                 cut = slice(3 * left, 3 * (tile_size - right))
             else:
                 cut = slice(3 * left, None)
-            print(tile_size, left, right, cut)
             tile = data[{"samples": i_s, "scans": cut}]
             tiles.append(tile)
         data = xr.concat(tiles, "scans")
-        print(data)
 
         if "layers" in data.dims:
             dims = ["scans", "pixels", "layers"]
