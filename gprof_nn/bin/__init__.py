@@ -57,6 +57,7 @@ def gprof_nn():
 
     process.add_parser(subparsers, "1d")
     process.add_parser(subparsers, "3d")
+    process.add_parser(subparsers, "hr")
 
     if len(sys.argv) == 1:
         parser.print_help(sys.stderr)

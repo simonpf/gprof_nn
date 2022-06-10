@@ -12,8 +12,8 @@ LOGGER = logging.getLogger(__name__)
 
 def add_parser(subparsers, mode):
     """
-    Add parser for '1d' or '2d' commands to top-level parser. This function
-    is called from the top-level parser defined in 'gprof_nn.bin'.
+    Add parser for '1d', '3d', or 'hr' commands to top-level parser. This
+    function is called from the top-level parser defined in 'gprof_nn.bin'.
 
     Args: subparsers: The subparsers object provided by the top-level parser.
     """
@@ -28,12 +28,13 @@ def add_parser(subparsers, mode):
             """
             )
     )
-    parser.add_argument(
-        'configuration',
-        metavar="configuration",
-        type=str,
-        help="The retrieval configuration to run: 'ERA5' or 'GANAL'"
-    )
+    if mode.lower() in ["1d", "3d"]:
+        parser.add_argument(
+            'configuration',
+            metavar="configuration",
+            type=str,
+            help="The retrieval configuration to run: 'ERA5' or 'GANAL'"
+        )
     parser.add_argument(
         'input',
         metavar="input", type=str,
@@ -76,7 +77,6 @@ def process_file(
     from gprof_nn.data.preprocessor import PreprocessorFile
     from gprof_nn.retrieval import RetrievalDriver
 
-    # Need to open the file to figure out the sensor.
     try:
         if input_file.suffix in [".pp", ".bin"]:
             input_data = PreprocessorFile(input_file)
@@ -144,7 +144,3 @@ def run(kind, args):
         output_file = Path(".")
 
     process_file(kind, configuration, input_file, output_file=output_file)
-
-
-
-
