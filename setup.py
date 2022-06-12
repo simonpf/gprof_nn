@@ -19,7 +19,7 @@ setup(
     author_email="simon.pfreundschuh@chalmers.se",
     install_requires=[
         "numpy", "scipy", "xarray", "torch", "appdirs", "rich",
-        "quantnn>=0.0.4dev", "h5py"
+        "quantnn>=0.0.4dev", "h5py", "netCDF4"
     ],
     extras_require = {
         'development': [
