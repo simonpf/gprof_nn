@@ -472,11 +472,15 @@ class RetrievalDriver:
             ]
             for var in variables:
                 if var in input_data.data.variables:
-                    n_scans = results.scans.size
                     var_data = input_data.data[var].data
-                    if n_scans > var_data.shape[0]:
-                        var_data = upsample_scans(var_data, axis=0)
-                    dims = ("scans", "pixels")
+                    if list(input_data.data[var].dims)[0] == "samples":
+                        dims = ("samples", "scans", "pixels")
+                    else:
+                        if "scans" in input_data.data[var].dims:
+                            n_scans = results.scans.size
+                            if n_scans > var_data.shape[0]:
+                                var_data = upsample_scans(var_data, axis=0)
+                        dims = ("scans", "pixels")
                     results[var] = (dims[:var_data.ndim], var_data)
 
         LOGGER.info("Writing retrieval results to file '%s'.", self.output_file)
