@@ -369,7 +369,7 @@ def run_training_1d(
     }
 
     training_data = DataFolder(
-        training_data, dataset_factory, kwargs=kwargs, queue_size=64, n_workers=6
+        training_data, dataset_factory, kwargs=kwargs, queue_size=64, n_workers=8
     )
 
     if args.no_validation:
@@ -903,7 +903,8 @@ def run_training_hr(
             n_blocks,
             n_neurons_body,
             n_layers_head,
-            n_neurons_head
+            n_neurons_head,
+            transformation=transformation
         )
 
     model = xrnn.model

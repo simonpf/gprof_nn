@@ -58,7 +58,8 @@ _INPUT_DIMENSIONS = {
     "TMIPR": (96, 128),
     "TMIPO": (96, 128),
     "SSMI": (96, 128),
-    "SSMIS": (96, 128),
+    "SSMIS": (32, 128),
+    "AMSR2": (32, 128),
     "MHS": (24, 128),
 }
 
@@ -90,6 +91,8 @@ def calculate_resampling_indices(latitudes, time, sensor):
         weights = latitude_ratios[lat_indices]
     else:
         weights = latitude_ratios[lat_indices, time_indices]
+    weights = np.nan_to_num(weights, 0.0)
+    print(weights.sum())
     indices = np.arange(latitudes.size)
     probs = weights / weights.sum()
     return np.random.choice(indices, size=latitudes.size, p=probs)
@@ -1278,6 +1281,9 @@ def _remap_scene(scene, coords, targets):
     i_start, _ = compressed_pixel_range()
     coords_3 = upsample_scans(coords, axis=1)
     coords_3[1] -= i_start
+    n_scans = scene.scans.size
+    scaling = (3 * n_scans - 2) / n_scans
+    coords_3[0] *= scaling
 
     for v in variables:
         if v in HR_TARGETS:
@@ -1369,6 +1375,9 @@ class GPROF_NN_HR_Dataset(GPROF_NN_3D_Dataset):
         self.indices = np.arange(self.x.shape[0])
         if self.shuffle:
             self._shuffle()
+
+        # Delete decompressed raw input data.
+        del self.dataset
 
 
     def load_training_data_3d(self, dataset, targets, augment, rng):
@@ -1467,6 +1476,3 @@ class GPROF_NN_HR_Dataset(GPROF_NN_3D_Dataset):
             y[k] = np.stack(y[k])
 
         return x, y
-
-
-#dataset = GPROF_NN_HR_Dataset("/gdata1/simon/gprof_nn/training_data/gmi_hr/gprof_nn_gmi_era5_06_01.nc.lz4")

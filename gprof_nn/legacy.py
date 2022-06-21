@@ -16,6 +16,7 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 
+from gprof_nn import sensors
 from gprof_nn.augmentation import SCANS_PER_SAMPLE
 from gprof_nn.definitions import ALL_TARGETS
 from gprof_nn.data.preprocessor import run_preprocessor
@@ -31,15 +32,14 @@ from gprof_nn.sensors import CrossTrackScanner, ConicalScanner
 LOGGER = logging.getLogger(__name__)
 
 
-EXECUTABLES = {
-    "STANDARD": "GPROF_2021_V1",
+EXECUTABLES = {"STANDARD": "GPROF_2021_V1",
     "SENSITIVITY": "GPROF_2020_V1_grads",
     "PROFILES": "GPROF_2021_V1_profs",
 }
 
 
 EXECUTABLES_X = {
-    "STANDARD": "GPROF_2020_V1x",
+    "STANDARD": "GPROF_2021_V1x",
     "PROFILES": "GPROF_2020_V1x_profiles"
 }
 
@@ -106,7 +106,10 @@ def write_sensitivity_file(sensor, filename, nedts):
     """
     Write sensitivity file for GPROF algorithm.
     """
-    formats = ["%3d"] + 15 * ["%6.2f"]
+    if isinstance(sensor, sensors.ConicalScanner):
+        formats = ["%3d"] + 15 * ["%6.2f"]
+    else:
+        formats = ["%3d"] + 5 * ["%6.2f"]
     np.savetxt(filename, nedts, fmt=formats, header=SENSITIVITY_HEADER)
 
 
@@ -154,11 +157,6 @@ def execute_gprof(
     working_directory = Path(working_directory)
     output_file = working_directory / "output.bin"
     log_file = working_directory / "log"
-
-    sensitivity_file = working_directory / "channel_sensitivities.txt"
-    if nedts is None:
-        nedts = load_sensitivities(sensor, configuration)
-    write_sensitivity_file(sensor, sensitivity_file, nedts=nedts)
 
     if profiles:
         profiles = "1"

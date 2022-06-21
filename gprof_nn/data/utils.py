@@ -189,13 +189,14 @@ def upsample_scans(array, axis=0):
     indices_r[axis] = slice(1, None)
     array_l = array[tuple(indices_l)]
     array_r = array[tuple(indices_r)]
+    diff = array_r - array_l
 
     indices = [slice(0, None)] * n_dims
     indices[axis] = slice(0, None, 3)
     array_3[tuple(indices)] = array
     indices[axis] = slice(1, None, 3)
-    array_3[tuple(indices)] = 2 / 3 * array_l + 1 / 3 * array_r
+    array_3[tuple(indices)] = array_l + 1 / 3 * diff#2 / 3 * array_l + 1 / 3 * array_r
     indices[axis] = slice(2, None, 3)
-    array_3[tuple(indices)] = 1 / 3 * array_l + 2 / 3 * array_r
+    array_3[tuple(indices)] = array_l + 2 / 3 * diff#1 / 3 * array_l + 2 / 3 * array_r
 
     return array_3

@@ -83,9 +83,9 @@ def smooth_reference_field(surface_precip, angles, steps=11):
     # Calculate smoothing kernels for different angles.
     #
 
-    fwhm_a = 13.5 / 5.0
+    fwhm_a = 37.5 / 5.0
     w_a = int(fwhm_a) + 1
-    fwhm_x = 5.0 / 5.0
+    fwhm_x = 37.5 / 5.0
     w_x = int(fwhm_x) + 1
     d_a = 2 * np.arange(-w_a, w_a + 1e-6).reshape(-1, 1) / fwhm_a
     d_x = 2 * np.arange(-w_x, w_x + 1e-6).reshape(1, -1) / fwhm_x

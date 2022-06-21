@@ -5,6 +5,8 @@ gprof_nn.utils
 
 Collection of utility attributes and functions.
 """
+from copy import copy
+
 import numpy as np
 import xarray as xr
 
@@ -316,4 +318,27 @@ def expand_tbs(tbs):
     tbs_e[..., 12] = np.nan
     tbs_e[..., 13:] = tbs[..., 11:]
     return tbs_e
+
+
+def adapt_normalizer(gmi_normalizer, sensor):
+    """
+    Create input normalizer for a given sensor based on the normalizer used
+    for GMI.
+
+    Args:
+        gmi_normalizer: The ``quantnn.normalizer.Normalizer`` object
+            used for GMI.
+        sensor: Sensor object representing the sensor for which to create
+            the normalizer.
+
+    """
+    ch_inds = sensor.gmi_channels
+    stats = {}
+    for ind, ind_gmi in enumerate(ch_inds):
+        stats[ind] = gmi_normalizer.stats[ind_gmi]
+    for ind, ind_gmi in enumerate(range(15, 17)):
+        stats[ind + sensor.n_chans] = gmi_normalizer.stats[ind_gmi]
+    normalizer = copy(gmi_normalizer)
+    normalizer.stats = stats
+    return normalizer
 

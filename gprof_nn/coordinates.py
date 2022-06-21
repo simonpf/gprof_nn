@@ -8,18 +8,31 @@ systems.
 """
 import numpy as np
 
-try:
-    from pyproj import Transformer
 
-    LATLON_TO_ECEF_TRANSFORMER = Transformer.from_crs("epsg:4326", "epsg:4978")
-except:
-    raise ModuleNotFoundError(
-        """
-        This functionality of the 'gprof_nn' package requires the 'pyproj'
-        package to be installed on your system.
-        """
-    )
-    LATLON_TO_ECEF_TRANSFORMER = None
+LATLON_TO_ECEF_TRANSFORMER = None
+
+
+def get_latlon_to_ecef_transformer():
+    """
+    Function to delay import of pyproj.
+    """
+    global LATLON_TO_ECEF_TRANSFORMER
+
+    if LATLON_TO_ECEF_TRANSFORMER is None:
+        try:
+            from pyproj import Transformer
+
+            LATLON_TO_ECEF_TRANSFORMER = Transformer.from_crs("epsg:4326", "epsg:4978")
+        except:
+            raise ModuleNotFoundError(
+                """
+                This functionality of the 'gprof_nn' package requires the 'pyproj'
+                package to be installed on your system.
+                """
+            )
+            LATLON_TO_ECEF_TRANSFORMER = None
+
+    return LATLON_TO_ECEF_TRANSFORMER
 
 
 def latlon_to_ecef(longitudes, latitudes, altitudes=None):
@@ -44,9 +57,11 @@ def latlon_to_ecef(longitudes, latitudes, altitudes=None):
     longitudes = np.array(longitudes)
     latitudes = np.array(latitudes)
 
+
     if altitudes is None:
         altitudes = np.zeros(latitudes.shape)
     else:
         altitudes = np.array(altitudes)
 
-    return LATLON_TO_ECEF_TRANSFORMER.transform(latitudes, longitudes, altitudes)
+    transformer = get_latlon_to_ecef_transformer()
+    return transformer.transform(latitudes, longitudes, altitudes)

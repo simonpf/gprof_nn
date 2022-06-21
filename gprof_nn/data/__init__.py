@@ -3,16 +3,12 @@
 gprof_nn.data
 =============
 
-The data module provides functionality to dynamically download
-data needed by the module.
-
-Its sub-modules provide functionality to read and process various
-data formats required for the processing of training data.
+The ``gprof_nn.data`` module collects interfaces to read different GPM-related
+data formats.
 """
 from pathlib import Path
 import shutil
 import subprocess
-from tempfile import mkdtemp
 import urllib
 
 from appdirs import user_config_dir
@@ -74,14 +70,18 @@ def get_model_path(kind, sensor, configuration):
         Local path to the requested model.
     """
     kind = kind.lower()
-    if kind not in ["1d", "3d"]:
-        raise ValueError("'kind' must be one of: '1D', '3D'")
+    if kind not in ["1d", "3d", "hr"]:
+        raise ValueError("'kind' must be one of: '1D', '3D', 'HR'")
     configuration = configuration.lower()
     if configuration not in ["era5", "ganal"]:
         raise ValueError("'configuration' must be one of: 'ERA5', 'GANAL'")
 
     sensor_name = sensor.full_name.lower()
-    model_name = f"gprof_nn_{kind}_{sensor_name}_{configuration}.pckl"
+    if kind.lower() in ["1d", "3d"]:
+        model_name = f"gprof_nn_{kind}_{sensor_name}_{configuration}.pckl"
+    else:
+        model_name = f"gprof_nn_{kind}_{sensor_name}.pckl"
+
     path = Path("models") / model_name
 
     try:
@@ -90,7 +90,10 @@ def get_model_path(kind, sensor, configuration):
         pass
 
     sensor_name = sensor.sensor_name.lower()
-    model_name = f"gprof_nn_{kind}_{sensor_name}_{configuration}.pckl"
+    if kind.lower() in ["1d", "3d"]:
+        model_name = f"gprof_nn_{kind}_{sensor_name}_{configuration}.pckl"
+    else:
+        model_name = f"gprof_nn_{kind}_{sensor_name}.pckl"
     path = Path("models") / model_name
     try:
         return get_file(path)
@@ -124,7 +127,6 @@ def get_test_data_path():
     """
     test_data_path = _TEST_DIR / "data"
     if not test_data_path.exists():
-        tmp = None
         get_file("test/data.tar.gz")
         subprocess.run(
             ["tar", "-xvf", str(_TEST_DIR / "data.tar.gz")],

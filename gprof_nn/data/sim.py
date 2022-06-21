@@ -65,10 +65,11 @@ GENERIC_HEADER = np.dtype(
 
 
 CHANNEL_INDICES = {
-    "SSMI": [2, 3, 4, 6, 7, 8, 9],
-    "SSMIS": [2, 3, 4, 6, 7, 8, 9, 11, 14, 13, 12],
     "TMIPO": [0, 1, 2, 3, 4, 6, 7, 8, 9],
     "TMIPR": [0, 1, 2, 3, 4, 6, 7, 8, 9],
+    "SSMI": [2, 3, 4, 6, 7, 8, 9],
+    "SSMIS": [2, 3, 4, 6, 7, 8, 9, 11, 12, 13, 14],
+    "AMSR2": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
 }
 
 
@@ -334,7 +335,7 @@ class SimFile:
             if len(data.shape) > 1:
                 dims = dims + tuple([dim_dict[s] for s in data.shape[1:]])
 
-            results[key] = dims, self.data[key]
+            results[key] = dims, data
 
         dataset = xr.Dataset(results)
 
@@ -435,16 +436,30 @@ def _extract_scenes(data):
 
     i_start = 0
     i_end = data.scans.size
+    i_step = n
+    j_end = data.pixels.size
+    j_step = min(data.pixels.size, n)
 
     scenes = []
-    while i_start + n < i_end:
-        subscene = data[{"scans": slice(i_start, i_start + n)}]
-        surface_precip = subscene["surface_precip"].data
-        if np.isfinite(surface_precip).sum() > 50:
-            scenes.append(subscene)
-            i_start += n
+    while i_start + i_step <= i_end:
+        j_start = 0
+        had_scene = False
+        while j_start + j_step <= j_end:
+            subscene = data[{
+                "scans": slice(i_start, i_start + n),
+                "pixels": slice(j_start, j_start + n)
+            }]
+            surface_precip = subscene["surface_precip"].data
+            if np.isfinite(surface_precip).sum() > 50:
+                scenes.append(subscene)
+                j_start += j_step
+                had_scene = True
+            else:
+                j_start += j_step // 2
+        if had_scene:
+            i_start += i_step
         else:
-            i_start += n // 2
+            i_start += i_step // 2
 
     if scenes:
         return xr.concat(scenes, "samples")
@@ -518,8 +533,8 @@ def _add_era5_precip(input_data, l1c_data, era5_data):
     l_0 = era5_data[{"longitude": slice(0, 1)}].copy(deep=True)
     l_0 = l_0.assign_coords({"longitude": [360.0]})
     era5_data = xr.concat([era5_data, l_0], "longitude")
-    n_scans = l1c_data.scans.size
-    n_pixels = l1c_data.pixels.size
+    n_scans = input_data.scans.size
+    n_pixels = input_data.pixels.size
 
     surface_types = input_data["surface_type"].data
     indices = (surface_types == 2) + (surface_types == 16)
@@ -529,7 +544,7 @@ def _add_era5_precip(input_data, l1c_data, era5_data):
     lons = np.where(lons < 0.0, lons + 360, lons)
     lons = xr.DataArray(lons, dims="samples")
     time = np.broadcast_to(
-        l1c_data["scan_time"].data.reshape(-1, 1), (n_scans, n_pixels)
+        input_data["scan_time"].data.reshape(-1, 1), (n_scans, n_pixels)
     )[indices]
     time = xr.DataArray(time, dims="samples")
     # Interpolate and convert to mm/h
@@ -594,7 +609,7 @@ def process_sim_file(sim_filename, sensor, configuration, era5_path, log_queue=N
     data_pp = run_preprocessor(
         l1c_file.filename, sensor=sensor, configuration=configuration, robust=False
     )
-    data_pp = data_pp.drop(
+    data_pp = data_pp.drop_vars(
         ["earth_incidence_angle", "sunglint_angle", "quality_flag",
          "wet_bulb_temperature", "lapse_rate"]
     )
@@ -687,7 +702,11 @@ def process_mrms_file(sensor, mrms_filename, configuration, day, log_queue=None)
     )
 
     scenes = []
-    LOGGER.debug("Found %s L1C file for MRMS file %s.", len(l1c_files), mrms_filename)
+    LOGGER.debug(
+        "Found %s L1C file for MRMS file %s.",
+        len(l1c_files),
+        mrms_filename
+    )
     for file in l1c_files:
         # Extract scans over CONUS ans run preprocessor.
         _, f_roi = tempfile.mkstemp()
@@ -700,14 +719,17 @@ def process_mrms_file(sensor, mrms_filename, configuration, day, log_queue=None)
             Path(f_roi).unlink()
         if data_pp is None:
             continue
+
         if data_pp.channels.size > sensor.n_chans:
-            data_pp = data_pp[{"channels": sensor.gmi_channels}]
+            if sensor.sensor_name in CHANNEL_INDICES:
+                ch_inds = CHANNEL_INDICES[sensor.sensor_name]
+                data_pp = data_pp[{"channels": ch_inds}]
 
         # Drop unneeded variables.
         drop = ["sunglint_angle", "quality_flag", "wet_bulb_temperature", "lapse_rate"]
         if not isinstance(sensor, sensors.CrossTrackScanner):
             drop.append("earth_incidence_angle")
-        data_pp = data_pp.drop(drop)
+        data_pp = data_pp.drop_vars(drop)
 
         LOGGER.debug("Matching MRMS data for %s.", file.filename)
         mrms_file.match_targets(data_pp)
@@ -725,6 +747,7 @@ def process_mrms_file(sensor, mrms_filename, configuration, day, log_queue=None)
         new_scenes = _extract_scenes(data_pp)
         if new_scenes is not None:
             scenes.append(new_scenes)
+
 
     if scenes:
         dataset = xr.concat(scenes, "samples")
@@ -756,17 +779,20 @@ def process_l1c_file(l1c_filename, sensor, configuration, era5_path, log_queue=N
         l1c_filename, sensor=sensor, configuration=configuration, robust=False
     )
     l1c_file = L1CFile(l1c_filename)
-    if l1c_file.sensor != sensor:
-        data_pp = data_pp[{"channels": sensor.gmi_channels}]
 
     # Drop unneeded variables.
     drop = ["sunglint_angle", "quality_flag", "wet_bulb_temperature", "lapse_rate"]
     if not isinstance(sensor, sensors.CrossTrackScanner):
         drop.append("earth_incidence_angle")
-    data_pp = data_pp.drop(drop)
+    data_pp = data_pp.drop_vars(drop)
 
     if data_pp is None:
         return None
+    if data_pp.channels.size > sensor.n_chans:
+        if sensor.sensor_name in CHANNEL_INDICES:
+            ch_inds = CHANNEL_INDICES[self.sensor.sensor_name]
+            data_pp = data_pp[{"channels": ch_inds}]
+
     data_pp = add_targets(data_pp, sensor)
 
     l1c_data = L1CFile(l1c_filename).to_xarray_dataset()
@@ -1009,8 +1035,11 @@ class SimFileProcessor:
         if self.sensor.name in SEAICE_YEARS:
             year = SEAICE_YEARS[self.sensor.name]
             for month in range(1, 13):
-                date = datetime(year, month, self.day)
-                l1c_files += L1CFile.find_files(date, l1c_file_path, sensor=self.sensor)
+                try:
+                    date = datetime(year, month, self.day)
+                    l1c_files += L1CFile.find_files(date, l1c_file_path, sensor=self.sensor)
+                except ValueError:
+                    pass
         # Or database period
         else:
             for year, month in DATABASE_MONTHS:

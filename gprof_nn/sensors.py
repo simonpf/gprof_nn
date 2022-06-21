@@ -109,12 +109,12 @@ def calculate_smoothing_kernels(sensor):
     res_a_source = 13.5e3
     angles = sensor.angles
     res_x_target = geometry.get_resolution_x(angles)
-    res_a_target = geometry.get_resolution_a()
+    res_a_target = geometry.get_resolution_a(angles)
 
     kernels = []
-    for res in res_x_target:
+    for res_a, res_x in zip(res_a_target, res_x_target):
         k = calculate_smoothing_kernel(
-            res_x_source, res_a_source, res, res_a_target, size=11
+            res_x_source, res_a_source, res_x, res_a, size=11
         )
         kernels.append(k)
     return kernels
@@ -187,6 +187,7 @@ class Sensor(ABC):
         n_angles = len(angles)
         self._n_chans = n_chans
         self._n_angles = n_angles
+        self._latitude_ratios = None
         self.platform = platform
         self.viewing_geometry = viewing_geometry
         self.missing_channels = None
@@ -410,6 +411,16 @@ class Sensor(ABC):
             inputs in ``x``.
         """
         pass
+
+    @property
+    def latitude_ratios(self):
+        """
+        Latitude ratios to use for resampling of training data.
+        """
+        if self._latitude_ratios is not None:
+            if not isinstance(self._latitude_ratios, np.ndarray):
+                self._latitude_ratios = np.load(self._latitude_ratios)
+        return self._latitude_ratios
 
     def load_training_data_3d(self, filename, targets):
         """
@@ -862,7 +873,6 @@ class ConstellationScanner(ConicalScanner):
 
         self.modeling_error = modeling_error
 
-        # Calculate scence resampling factors
         self._latitude_ratios = latitude_ratios
 
         # MRMS types
@@ -878,13 +888,6 @@ class ConstellationScanner(ConicalScanner):
             if not isinstance(self._correction, CdfCorrection):
                 self._correction = CdfCorrection(self._correction)
         return self._correction
-
-    @property
-    def latitude_ratios(self):
-        if self._latitude_ratios is not None:
-            if not isinstance(self._latitude_ratios, np.ndarray):
-                self._latitude_ratios = np.load(self._latitude_ratios)
-        return self._latitude_ratios
 
     def load_brightness_temperatures(self, data, mask=None):
         """
@@ -1007,10 +1010,11 @@ class ConstellationScanner(ConicalScanner):
 
             # Randomly set missing channels to missing.
             if self.missing_channels is not None:
+                p_thresh = 1 / len(self.missing_channels)
                 for channel in self.missing_channels:
                     tbs_c = tbs[..., channel]
                     p = rng.uniform(size=tbs_c.shape)
-                    tbs_c[p > 0.5] = np.nan
+                    tbs_c[p <= p_thresh] = np.nan
 
             st = self.load_surface_type(scene, mask=mask)
             t2m = t2m[..., np.newaxis]
@@ -1116,11 +1120,15 @@ class ConstellationScanner(ConicalScanner):
                 tbs[:, -n_p:] = np.nan
 
             # Randomly set missing channels to missing.
-            if self.missing_channels is not None:
-                for channel in self.missing_channels:
-                    p = rng.uniform()
-                    if p > 0.5:
-                        tbs[..., channel] = np.nan
+            if augment:
+                p = rng.uniform()
+                if p > 0.75:
+                    if self.missing_channels is not None:
+                        p_thresh = 0.5
+                        for channel in self.missing_channels:
+                            p = rng.uniform()
+                            if p <= p_thresh:
+                                tbs[..., channel] = np.nan
 
         tcwv = tcwv[np.newaxis]
         t2m = t2m[np.newaxis]
@@ -1207,11 +1215,14 @@ class ConstellationScanner(ConicalScanner):
 
         # Randomly set missing channels to missing.
         if augment:
-            if self.missing_channels is not None:
-                for channel in self.missing_channels:
-                    p = rng.uniform()
-                    if p > 0.5:
-                        tbs[..., channel] = np.nan
+            p = rng.uniform()
+            if p > 0.75:
+                if self.missing_channels is not None:
+                    p_thresh = 0.5
+                    for channel in self.missing_channels:
+                        p = rng.uniform()
+                        if p <= p_thresh:
+                            tbs[..., channel] = np.nan
 
         # Move channel to first dim.
         tbs = np.transpose(tbs, (2, 0, 1))
@@ -1441,7 +1452,7 @@ class CrossTrackScanner(Sensor):
                 v = v[..., 0]
         return v
 
-    def load_training_data_1d(self, dataset, targets, augment, rng):
+    def load_training_data_1d(self, dataset, targets, augment, rng, indices=None):
         """
         Load training data for GPROF-NN 1D retrieval. This function will
         only load pixels that with a finite surface precip value in order
@@ -1492,9 +1503,12 @@ class CrossTrackScanner(Sensor):
         if "surface_precip" not in targets:
             vs += ["surface_precip"]
 
-        for i in range(n_samples):
-            scene = decompress_scene(dataset[{"samples": i}], targets + vs)
-            source = dataset.source[i]
+        if indices is None:
+            indices = range(n_samples)
+
+        for sample_index in indices:
+            scene = decompress_scene(dataset[{"samples": sample_index}], targets + vs)
+            source = dataset.source[sample_index]
 
             sp = scene["surface_precip"].data
             mask = np.all(sp >= 0, axis=-1)
@@ -1525,9 +1539,7 @@ class CrossTrackScanner(Sensor):
                 weights = None
                 tbs = scene["brightness_temperatures"].data
                 mask = mask * np.all((tbs > 0) * (tbs < 500), axis=-1)
-                eia = load_variable(scene, "earth_incidence_angle", mask=mask)[
-                    ..., 0
-                ]
+                eia = load_variable(scene, "earth_incidence_angle", mask=mask)
 
             #
             # Input data
@@ -1756,7 +1768,7 @@ class CrossTrackScanner(Sensor):
             tbs[:, -n_p:] = np.nan
 
         eia = self.load_earth_incidence_angle(scene)
-        eia = eia[np.newaxis, i_start:i_end, j_start:j_end, 0]
+        eia = eia[np.newaxis, i_start:i_end, j_start:j_end]
 
         t2m = self.load_two_meter_temperature(scene)
         t2m = t2m[np.newaxis, i_start:i_end, j_start:j_end]
@@ -1875,10 +1887,15 @@ class Platform:
 
 
 TRMM = Platform("TRMM", "/pdata4/archive/GPM/1C_TMI_ITE/", "1C.TRMM.TMI")
-NOAA19 = Platform("NOAA19", "/pdata4/archive/GPM/1C_NOAA19/", "1C.NOAA19.MHS")
-GPM = Platform("GPM-CO", "/pdata4/archive/GPM/1CR_GMI/", "1C-R.GPM.GMI")
+NOAA19 = Platform("NOAA19", "/pdata4/archive/GPM/1C_NOAA19_ITE/", "1C.NOAA19.MHS")
+GPM = Platform("GPM-CO", "/pdata4/archive/GPM/1CR_GMI_ITE/", "1C-R.GPM.GMI")
 F15 = Platform("F15", "/pdata4/archive/GPM/1C_F15_ITE/", "1C.F15.SSMI")
 F17 = Platform("F17", "/pdata4/archive/GPM/1C_F17_ITE/", "1C.F17.SSMIS")
+GCOMW1 = Platform(
+    "GCOM-W1",
+    "/pdata4/archive/GPM/1C_AMSR2_ITE/",
+    "1C.GCOMW1.AMSR2"
+)
 
 ###############################################################################
 # GMI
@@ -1961,7 +1978,11 @@ MHS_CHANNELS = [
 MHS_NEDT = np.array([0.3, 0.5, 3.8, 0.7, 0.3])
 
 MHS_VIEWING_GEOMETRY = CrossTrack(
-    altitude=855e3, scan_range=2.0 * 49.5, pixels_per_scan=90, scan_offset=17e3
+    altitude=855e3,
+    scan_range=2.0 * 49.5,
+    pixels_per_scan=90,
+    scan_offset=17e3,
+    beam_width=1.1
 )
 
 MHS_GMI_CHANNELS = [8, 11, 13, 13, 14]
@@ -1977,6 +1998,8 @@ MHS = CrossTrackScanner(
     "MHS.dbsatTb.??????{day}.??????.sim",
     "/qdata1/pbrown/dbaseV7/simV7x",
     MHS_GMI_CHANNELS,
+    correction=DATA_FOLDER / "corrections_mhs.nc",
+    modeling_error=[3.0, 2.0, 2.0, 2.0, 2.0]
 )
 
 MHS_NOAA19 = CrossTrackScanner(
@@ -2276,17 +2299,17 @@ SSMIS_NEDT = np.array([
 ])
 
 SSMIS_MODELING_ERROR = np.sqrt(np.array([
-    1.0,
-    1.0,
-    1.0,
-    1.0,
-    1.0,
-    1.0,
-    1.0,
-    1.0,
-    1.0,
-    1.0,
-    1.0,
+    2.0,
+    2.0,
+    2.0,
+    2.0,
+    2.0,
+    2.0,
+    2.0,
+    2.0,
+    2.0,
+    2.0,
+    2.0,
 ]))
 
 SSMIS_GMI_CHANNELS = [
@@ -2305,10 +2328,10 @@ SSMIS_GMI_CHANNELS = [
 
 
 SSMIS_VIEWING_GEOMETRY = Conical(
-    altitude=848e3,
+    altitude=880e3,
     earth_incidence_angle=53.0,
-    scan_range=102,
-    pixels_per_scan=128,
+    scan_range=140,
+    pixels_per_scan=180,
     scan_offset=12.5e3,
 )
 
@@ -2324,10 +2347,99 @@ SSMIS = ConstellationScanner(
     "/qdata1/pbrown/dbaseV7/simV7_ssmis",
     SSMIS_GMI_CHANNELS,
     modeling_error=SSMIS_MODELING_ERROR,
-    #correction=DATA_FOLDER / "corrections_ssmis.nc",
+    correction=DATA_FOLDER / "corrections_ssmis.nc",
 )
 
-SSMIS.missing_channels = [0, 1, 2, 3, 4, 5, 7, 8, 9, 10]
+SSMIS.missing_channels = [3, 7, 8, 9, 10]
 
-ATMS = SSMIS
-AMSR2 = SSMIS
+###############################################################################
+# AMSR2
+###############################################################################
+
+AMSR2_CHANNELS = [
+    (10.65, "V"),
+    (10.65, "H"),
+    (18.7, "V"),
+    (18.7, "H"),
+    (23.8, "V"),
+    (23.8, "H"),
+    (36.5, "V"),
+    (36.5, "H"),
+    (89, "V"),
+    (89, "H"),
+]
+
+AMSR2_ANGLES = np.array([
+    53.1,
+    53.1,
+    53.1,
+    53.1,
+    53.1,
+    53.1,
+    53.1,
+    53.1,
+    53.1,
+    53.1,
+])
+
+AMSR2_NEDT = np.array([
+    0.7,
+    0.7,
+    0.7,
+    0.7,
+    0.6,
+    0.6,
+    0.7,
+    0.7,
+    1.2,
+    1.4
+])
+
+AMSR2_MODELING_ERROR = np.sqrt(np.array([
+    2.0,
+    2.0,
+    2.0,
+    2.0,
+    2.0,
+    2.0,
+    2.0,
+    2.0,
+    2.0,
+    2.0,
+]))
+
+AMSR2_GMI_CHANNELS = [
+    0,
+    1,
+    2,
+    3,
+    4,
+    4,
+    6,
+    7,
+    8,
+    9
+]
+
+AMSR2_VIEWING_GEOMETRY = Conical(
+    altitude=700e3,
+    earth_incidence_angle=55.0,
+    scan_range=140,
+    pixels_per_scan=180,
+    scan_offset=12.5e3,
+)
+
+AMSR2 = ConstellationScanner(
+    "AMSR2",
+    AMSR2_CHANNELS,
+    AMSR2_NEDT,
+    AMSR2_ANGLES,
+    GCOMW1,
+    AMSR2_VIEWING_GEOMETRY,
+    "/pdata4/veljko/AMSR22MRMS_match2019/monthly_2021/",
+    "AMSR2.dbsatTb.??????{day}.??????.sim",
+    "/qdata1/pbrown/dbaseV7/simV7_amsr2",
+    AMSR2_GMI_CHANNELS,
+    modeling_error=AMSR2_MODELING_ERROR,
+    correction=DATA_FOLDER / "corrections_amsr2.nc",
+)
