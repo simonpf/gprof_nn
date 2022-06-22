@@ -7,21 +7,20 @@ Functions to read GPM binary files containing the CDFs
 and histograms of the simulated and observed brightness
 temperatures.
 """
-from pathlib import Path
-
 import numpy as np
+from scipy.interpolate import interp1d
 import xarray as xr
+
 
 def read_cdfs(filename):
     """
-    Read CDF and histogram ofebrightness temperatures from file.
+    Read CDF and histogram of brightness temperatures from file.
 
     Args:
         filename: Path pointing to the file.
 
     Return:
-        An 'xarray.Dataset' containing the CDFs and histograms
-        contained in the file.
+        An 'xarray.Dataset' containing the CDFs and histograms.
     """
     with open(filename, "rb") as file:
         meta = np.fromfile(file, "7i", count=1)[0]
@@ -36,8 +35,6 @@ def read_cdfs(filename):
         n_tcwv = tcwv_max - tcwv_min + 1
         n_tbs = tb_max - tb_min + 1
 
-        print(n_surfaces, n_channels, n_angles, n_tcwv, n_tbs)
-
         shape = (n_tbs, n_tcwv, n_angles, n_channels, n_surfaces)[::-1]
         n_elem = np.prod(shape)
         shape_all = (n_channels, n_angles, n_tbs)
@@ -45,36 +42,107 @@ def read_cdfs(filename):
 
         cdf = np.fromfile(file, "f4", count=n_elem).reshape(shape, order="f")
         hist = np.fromfile(file, "i8", count=n_elem).reshape(shape, order="f")
-        #cdf_all = np.fromfile(file, "f4", count=n_elem_all).reshape(
+        # cdf_all = np.fromfile(file, "f4", count=n_elem_all).reshape(
         #    shape_all, order="f"
-        #)
-        #hist_all = np.fromfile(
+        # )
+        # hist_all = np.fromfile(
         #    file,
         #    "i8",
         #    count=n_elem_all
-        #).reshape(shape_all, order="f")
+        # ).reshape(shape_all, order="f")
 
         tbs = np.arange(tb_min, tb_max + 1)
         tcwv = np.arange(tcwv_min, tcwv_max + 1)
 
-
-        dims = ("brightness_temperatures",
-                "total_column_water_vapor",
-                "angles",
-                "channels",
-                "surfaces")[::-1]
+        dims = (
+            "brightness_temperatures",
+            "total_column_water_vapor",
+            "angles",
+            "channels",
+            "surfaces",
+        )[::-1]
         dims_all = ("channels", "angles", "brightness_temperatures")
 
-        dataset = xr.Dataset({
-            "brightness_temperatures": (("brightness_temperatures",), tbs),
-            "total_column_water_vapor": (("total_column_water_vapor"), tcwv),
-            "cdf": (dims, cdf),
-            "histogram": (dims, hist),
-            #"cdf_all_surfaces": (dims_all, cdf_all),
-            #"hist_all_surfaces": (dims_all, hist_all)
-            })
+        dataset = xr.Dataset(
+            {
+                "brightness_temperatures": (("brightness_temperatures",), tbs),
+                "total_column_water_vapor": (("total_column_water_vapor"), tcwv),
+                "cdf": (dims, cdf),
+                "histogram": (dims, hist),
+                # "cdf_all_surfaces": (dims_all, cdf_all),
+                # "hist_all_surfaces": (dims_all, hist_all)
+            }
+        )
 
     return dataset
+
+
+def calculate_correction_gprof(cdf_sim, cdf_obs):
+    """
+    Calculate corrections from GPROF histogram data.
+
+    Args:
+        cdf_sim: ``numpy.ndarray`` containing the CDFs of the simulated
+             brightness temperatures.
+        cdf_obs: ``numpy.ndarray`` containing the CDFs of the L1C
+             brightness temperatures.
+
+    Return:
+        An 'xarray.Dataset' containing the correction statistics.
+    """
+    corrections = cdf_sim.copy()
+    with np.nditer(cdf_sim[..., 0], flags=['multi_index']) as it:
+        while not it.finished:
+
+            cdf_in = cdf_sim[it.multi_index]
+            cdf_out = cdf_obs[it.multi_index]
+
+            tbs = np.arange(cdf_in.size) + 0.5
+            if (np.all(np.isclose(cdf_out, 0.0)) or np.all(np.isclose(cdf_in, 0.0))):
+                corrections[it.multi_index] = 0.0
+                it.iternext()
+                continue
+
+            i_start = np.where(cdf_out > 0)[0][0]
+            i_end = np.where(cdf_out < 1)[0][-1]
+            if i_end - i_start < 2:
+                tbs_c = tbs
+            else:
+                f = interp1d(
+                    cdf_out[i_start:i_end],
+                    tbs[i_start:i_end],
+                    bounds_error=False
+                )
+                tbs_c = f(cdf_in)
+                if np.all(np.isnan(tbs_c)):
+                    tbs_c = tbs
+            d_tb = tbs_c - tbs
+
+            corrections[it.multi_index] = d_tb
+            it.iternext()
+
+    if corrections.ndim == 5:
+        dims = (
+            "surface_type",
+            "channels",
+            "angles",
+            "total_column_water_vapor",
+            "brightness_temperatures"
+        )
+    else:
+        dims = (
+            "surface_type",
+            "channels",
+            "total_column_water_vapor",
+            "brightness_temperatures"
+        )
+
+    dataset = xr.Dataset({
+        "correction": (dims, corrections),
+        "cdf": (dims, cdf_obs)
+    })
+    return dataset
+
 
 
 class CdfCorrection:
@@ -87,6 +155,7 @@ class CdfCorrection:
         corrections: ``xarray.Dataset`` containing the prepared correction
             data.
     """
+
     def __init__(self, correction_file):
         """
         Args:
@@ -112,13 +181,15 @@ class CdfCorrection:
             self._corrections = xr.load_dataset(self.correction_file)
         return self._corrections
 
-    def _apply_correction_cross_track(self,
-                                      sensor,
-                                      surface_type,
-                                      earth_incidence_angle,
-                                      total_column_water_vapor,
-                                      brightness_temperatures,
-                                      augment=False):
+    def _apply_correction_cross_track(
+        self,
+        sensor,
+        surface_type,
+        earth_incidence_angle,
+        total_column_water_vapor,
+        brightness_temperatures,
+        augment=False,
+    ):
         st = surface_type
         eia = earth_incidence_angle
         tcwv = total_column_water_vapor
@@ -144,7 +215,9 @@ class CdfCorrection:
 
         n_chans = sensor.n_chans
         for i in range(n_chans):
-            tbs_inds = np.trunc(tbs[..., i], ).astype(np.int32)
+            tbs_inds = np.trunc(
+                tbs[..., i],
+            ).astype(np.int32)
             tbs_inds = np.clip(tbs_inds, self.tbs_min, self.tbs_max)
             corrections = self.corrections.correction.data[
                 st_inds - 1, i, eia_inds, tcwv_inds, tbs_inds
@@ -159,18 +232,20 @@ class CdfCorrection:
                 err = 0.1 * corrections * err
                 corrections += err
 
-            #corrections[st_inds > 1] = 0.0
+            # corrections[st_inds > 1] = 0.0
 
             tbs[..., i] += corrections
 
         return tbs
 
-    def _apply_correction_conical(self,
-                                  sensor,
-                                  surface_type,
-                                  total_column_water_vapor,
-                                  brightness_temperatures,
-                                  augment=False):
+    def _apply_correction_conical(
+        self,
+        sensor,
+        surface_type,
+        total_column_water_vapor,
+        brightness_temperatures,
+        augment=False,
+    ):
         st = surface_type
         tcwv = total_column_water_vapor
         tbs = brightness_temperatures.copy()
@@ -191,7 +266,9 @@ class CdfCorrection:
 
         n_chans = sensor.n_chans
         for i in range(n_chans):
-            tbs_inds = np.trunc(tbs[..., i], ).astype(np.int32)
+            tbs_inds = np.trunc(
+                tbs[..., i],
+            ).astype(np.int32)
             tbs_inds = np.clip(tbs_inds, self.tbs_min, self.tbs_max)
             corrections = self.corrections.correction.data[
                 st_inds - 1, i, tcwv_inds, tbs_inds
@@ -211,13 +288,13 @@ class CdfCorrection:
         return tbs
 
     def __call__(
-            self,
-            sensor,
-            surface_type,
-            earth_incidence_angle,
-            total_column_water_vapor,
-            brightness_temperatures,
-            augment=False
+        self,
+        sensor,
+        surface_type,
+        earth_incidence_angle,
+        total_column_water_vapor,
+        brightness_temperatures,
+        augment=False,
     ):
         """
         Apply correction to scene.
@@ -228,13 +305,17 @@ class CdfCorrection:
         """
         if sensor.n_angles > 1:
             return self._apply_correction_cross_track(
-                sensor, surface_type, earth_incidence_angle,
-                total_column_water_vapor, brightness_temperatures,
-                augment=augment
+                sensor,
+                surface_type,
+                earth_incidence_angle,
+                total_column_water_vapor,
+                brightness_temperatures,
+                augment=augment,
             )
         return self._apply_correction_conical(
-            sensor, surface_type, total_column_water_vapor,
-            brightness_temperatures, augment=augment
+            sensor,
+            surface_type,
+            total_column_water_vapor,
+            brightness_temperatures,
+            augment=augment,
         )
-
-
