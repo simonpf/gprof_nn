@@ -23,6 +23,7 @@ from scipy.signal import convolve
 import xarray as xr
 
 from gprof_nn import augmentation
+from gprof_nn import sensors
 from gprof_nn.logging import get_console
 from gprof_nn.utils import great_circle_distance
 from gprof_nn.data.l1c import L1CFile
@@ -40,6 +41,13 @@ PATHS = {
     "TMIPO": "TRMM/",
     "SSMIS": "F17/",
     "AMSR2": "GCOMW1/",
+    "MHS": "NOAA19/"
+}
+
+GRID_WIDTH = {
+        "GMI": 100,
+        "MHS": 200,
+        "AMSR2": 200
 }
 
 LINK_REGEX = re.compile(r"<a href=\"([\w\.]*)\">")
@@ -208,7 +216,7 @@ def shift(latitude, longitude, d):
     return lats, lons
 
 
-def unify_grid(latitude, longitude):
+def unify_grid(latitude, longitude, sensor):
     """
     Give an arbitrary grid of latitude and longitude coordinates this
     function computes a grid that is approximately rectangular and equidistant
@@ -266,12 +274,14 @@ def unify_grid(latitude, longitude):
     slices_lat.append(lats_c_5)
     slices_lon.append(lons_c_5)
 
-    for i in range(100):
+    width = 100
+    if sensor.name in GRID_WIDTH:
+        width = GRID_WIDTH[sensor.name]
+    for i in range(width):
         lats_5, lons_5 = shift(slices_lat[0], slices_lon[0], -5e3)
         slices_lat.insert(0, lats_5)
         slices_lon.insert(0, lons_5)
-
-    for i in range(100):
+    for i in range(width):
         lats_5, lons_5 = shift(slices_lat[-1], slices_lon[-1], 5e3)
         slices_lat.append(lats_5)
         slices_lon.append(lons_5)
@@ -479,10 +489,19 @@ class ValidationFileProcessor:
         l1c_data = L1CFile(l1c_file).to_xarray_dataset()
         lats = l1c_data.latitude.data
         lons = l1c_data.longitude.data
-        angles = calculate_angles(l1c_data)
+
+        if isinstance(self.sensor, sensors.ConicalScanner):
+            angles = calculate_angles(l1c_data)
+        elif isinstance(self.sensor, sensors.CrossTrackScanner):
+            angles = l1c_data.incidence_angle.data
+        else:
+            raise ValueError(
+                "Sensor object must be either a 'ConicalScanner' or "
+                "a 'CrossTrackScanner'."
+            )
 
         # Calculate 5km x 5km grid.
-        lats_5, lons_5 = unify_grid(lats, lons)
+        lats_5, lons_5 = unify_grid(lats, lons, self.sensor)
         lats_5 = xr.DataArray(data=lats_5, dims=["along_track", "across_track"])
         lons_5 = xr.DataArray(data=lons_5, dims=["along_track", "across_track"])
 
@@ -501,7 +520,6 @@ class ValidationFileProcessor:
         time, lons_5 = xr.broadcast(time, lons_5)
 
         # Smooth and interpolate surface precip
-
         surface_precip = mrms_data.surface_precip
         k = np.arange(-5, 5 + 1e-6, 1) / 2.5
         k2 = (k.reshape(-1, 1) ** 2) + (k.reshape(1, -1) ** 2)
