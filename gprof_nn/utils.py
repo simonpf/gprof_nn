@@ -342,3 +342,31 @@ def adapt_normalizer(gmi_normalizer, sensor):
     normalizer.stats = stats
     return normalizer
 
+
+def calculate_smoothing_kernel(
+        fwhm_a,
+        fwhm_x,
+        res_a=1.0,
+        res_x=1.0
+):
+    """
+    Calculate Gaussian smoothing kernal with given FWHM.
+
+    Args:
+        fwhm_a: FWHM in along the first dimension
+        fwhm_x: FWHM in the second dimension
+        res_a: Grid resolution along first dimension.
+        res_x: Grid resolution along second dimension.
+
+    Return:
+        A 2D array containing the Gaussian smoothing kernel.
+    """
+    fwhm_a = fwhm_a / res_a
+    w_a = int(fwhm_a) + 1
+    fwhm_x = fwhm_x / res_x
+    w_x = int(fwhm_x) + 1
+    d_a = 2 * np.arange(-w_a, w_a + 1e-6).reshape(-1, 1) / fwhm_a
+    d_x = 2 * np.arange(-w_x, w_x + 1e-6).reshape(1, -1) / fwhm_x
+    k = np.exp(np.log(0.5) * (d_a ** 2 + d_x ** 2))
+    k = k / k.sum()
+    return k

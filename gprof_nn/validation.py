@@ -22,6 +22,7 @@ from scipy.signal import convolve
 import pandas as pd
 from pykdtree.kdtree import KDTree
 
+from gprof_nn import sensors
 from gprof_nn.coordinates import latlon_to_ecef
 from gprof_nn.data.training_data import decompress_and_load
 from gprof_nn.data.retrieval import RetrievalFile
@@ -31,7 +32,8 @@ from gprof_nn.definitions import LIMITS
 from gprof_nn.utils import (
     calculate_interpolation_weights,
     interpolate,
-    get_mask
+    get_mask,
+    calculate_smoothing_kernel
 )
 from gprof_nn.data.validation import CONUS
 
@@ -61,8 +63,20 @@ PRECIP_TYPES = {
     "Tropical/convective rain mix": [96.0]
 }
 
+FOOTPRINTS = {
+        "GMI": (12.5, 5),
+        "AMSR2": (10.0, 10.0),
+        "SSMIS": (38, 38)
+}
 
-def smooth_reference_field(surface_precip, angles, steps=11):
+
+def smooth_reference_field(
+        sensor,
+        surface_precip,
+        angles,
+        steps=11,
+        resolution=5
+):
     """
     Smooth the reference precip field using rotating smoothing kernels.
 
@@ -83,34 +97,49 @@ def smooth_reference_field(surface_precip, angles, steps=11):
     # Calculate smoothing kernels for different angles.
     #
 
-    fwhm_a = 37.5 / 5.0
-    w_a = int(fwhm_a) + 1
-    fwhm_x = 37.5 / 5.0
-    w_x = int(fwhm_x) + 1
-    d_a = 2 * np.arange(-w_a, w_a + 1e-6).reshape(-1, 1) / fwhm_a
-    d_x = 2 * np.arange(-w_x, w_x + 1e-6).reshape(1, -1) / fwhm_x
-    k = np.exp(np.log(0.5) * (d_a ** 2 + d_x ** 2))
-    k = k / k.sum()
-    ks = []
-    kernel_angles = np.linspace(-70, 70, steps)
-    for angle in kernel_angles:
-        # Need to inverse angle because y-axis points in
-        # opposite direction.
-        ks.append(rotate(k, -angle, order=1))
+    kernels = []
+
+    if isinstance(sensor, sensors.ConicalScanner):
+        along_track, across_track = FOOTPRINTS[sensor.name]
+        kernel_angles = np.linspace(-70, 70, steps)
+        kernel = calculate_smoothing_kernel(
+            along_track,
+            across_track,
+            res_a=resolution,
+            res_x=resolution
+            )
+        for angle in kernel_angles:
+            # Need to inverse angle because y-axis points in
+            # opposite direction.
+            kernels.append(rotate(kernel, -angle, order=1))
+    elif isinstance(sensor, sensors.CrossTrackScanner):
+        kernel_angles = np.linspace(1e-3, angles.max(), steps)
+        angles = np.abs(angles)
+        along_track = sensor.viewing_geometry.get_resolution_a(kernel_angles)
+        across_track = sensor.viewing_geometry.get_resolution_x(kernel_angles)
+        for fwhm_a, fwhm_x in zip(along_track, across_track):
+            kernels.append(calculate_smoothing_kernel(
+                fwhm_a / 1e3, fwhm_x / 1e3, res_a=resolution, res_x=resolution
+            ))
+    else:
+        raise ValueError(
+            "Sensor object must be either a 'ConicalScanner' or "
+            "a 'CrossTrackScanner'."
+        )
 
     cts = (surface_precip >= 0).astype(np.float32)
     sp = np.nan_to_num(surface_precip.copy(), 0.0)
 
     fields = []
-    for k in ks:
-        k = k / k.sum()
-        counts = convolve(cts, k, mode="same", method="direct")
-        smoothed = convolve(sp, k, mode="same", method="direct")
+    for kernel in kernels:
+        kernel = kernel / kernel.sum()
+        counts = convolve(cts, kernel, mode="same", method="direct")
+        smoothed = convolve(sp, kernel, mode="same", method="direct")
         smoothed = smoothed / counts
         smoothed[counts < 0.5] = np.nan
         fields.append(smoothed)
-    fields = np.stack(fields, axis=-1)
 
+    fields = np.stack(fields, axis=-1)
     weights = calculate_interpolation_weights(angles, kernel_angles)
     smoothed = interpolate(fields, weights)
     smoothed[np.isnan(sp)] = np.nan
@@ -368,9 +397,11 @@ class ResultCollector:
     """
     def __init__(
             self,
+            sensor,
             reference_path,
             datasets
     ):
+        self.sensor = sensor
         self.reference_path = Path(reference_path)
         self.datasets = datasets
 
@@ -403,6 +434,7 @@ class ResultCollector:
                 surface_precip = reference_data[variable].data
                 angles = reference_data.angles.data
                 surface_precip_smoothed = smooth_reference_field(
+                    self.sensor,
                     surface_precip,
                     angles
                 )
@@ -418,6 +450,7 @@ class ResultCollector:
                 mask = reference_data["mask"]
                 mask = np.stack([np.isclose(mask, v) for v in values]).any(axis=0)
                 fields.append(smooth_reference_field(
+                    self.sensor,
                     mask,
                     angles
                 ))
@@ -438,6 +471,7 @@ class ResultCollector:
             rf = reference_data["raining_fraction"].data
             angles = reference_data.angles.data
             rf_smoothed = smooth_reference_field(
+                self.sensor,
                 rf,
                 angles
             )
@@ -500,7 +534,7 @@ class ResultCollector:
                     resampling_info = kd_tree.get_neighbour_info(
                         data_grid,
                         result_grid,
-                        7.5e3,
+                        20e3,
                         neighbours=8
                     )
                     valid_inputs, valid_outputs, indices, distances = resampling_info
@@ -508,7 +542,7 @@ class ResultCollector:
                     resampling_info = kd_tree.get_neighbour_info(
                         data_grid,
                         result_grid,
-                        7.5e3,
+                        20e3,
                         neighbours=1
                     )
                     valid_inputs_nn, valid_outputs_nn, indices_nn, distances_nn = resampling_info
@@ -527,10 +561,9 @@ class ResultCollector:
                             else:
                                 missing = np.nan
                                 resampled = kd_tree.get_sample_from_neighbour_info(
-                                    'custom', result_grid.shape, data[variable].data,
-                                    valid_inputs, valid_outputs, indices,
-                                    fill_value=missing, weight_funcs=weighting_function,
-                                    distance_array=distances
+                                    'nn', result_grid.shape, data[variable].data,
+                                    valid_inputs_nn, valid_outputs_nn, indices_nn,
+                                    fill_value=missing
                                 )
                             data_r[variable] = (("along_track", "across_track"), resampled)
 
@@ -538,6 +571,7 @@ class ResultCollector:
                         surface_precip = data_r["surface_precip"].data
                         angles = reference_data.angles.data
                         surface_precip_smoothed = smooth_reference_field(
+                            self.sensor,
                             surface_precip,
                             angles
                         )
@@ -662,7 +696,7 @@ def open_reference_file(reference_path, granule):
     return xr.load_dataset(next(iter(files)))
 
 
-def plot_granule(reference_path, granule, datasets, n_cols=3, height=4, width=4):
+def plot_granule(sensor, reference_path, granule, datasets, n_cols=3, height=4, width=4):
     """
     Plot overpass over reference data and corresponding retrieval results
     for a given granule.
@@ -710,8 +744,10 @@ def plot_granule(reference_path, granule, datasets, n_cols=3, height=4, width=4)
     ylims = [lats.min(), lats.max()]
 
     surface_precip = ref_data["surface_precip"].data
+
     angles = ref_data.angles.data
     surface_precip_smoothed = smooth_reference_field(
+        sensor,
         surface_precip,
         angles
     )

@@ -11,10 +11,14 @@ from pathlib import Path
 import numpy as np
 import xarray as xr
 import pandas as pd
+from pyresample import geometry, kd_tree
 from pykdtree.kdtree import KDTree
+from scipy.signal import convolve
 
 from gprof_nn import sensors
 from gprof_nn.coordinates import latlon_to_ecef
+from gprof_nn.data.validation import unify_grid, calculate_angles
+from gprof_nn.utils import calculate_smoothing_kernel
 
 
 class MRMSMatchFile:
@@ -199,9 +203,9 @@ class MRMSMatchFile:
         return input_data
 
 
-################################################################################
+###############################################################################
 # MRMS / snodas correction factors
-################################################################################
+###############################################################################
 
 _RATIO_FILE = (
     "/qdata1/pbrown/dbaseV7/mrms_snow_scale_factors/"
@@ -256,3 +260,168 @@ def get_mrms_ratios():
                 coords={"latitude": lats, "longitude": lons},
             ).fillna(1.0)
     return _MRMS_RATIOS
+
+
+def resample_to_swath(mrms_data, sensor, l1c_data):
+    """
+    Resample MRMS data to uniform grid along satellite swath.
+
+    Args:
+        mrms_data: xarray.Dataset containing the MRMS data.
+        sensor: Sensor object representing the sensor from which the L1C data
+            stems.
+        l1c_data: The L1C data matching the MRMS measurements.
+    """
+    from gprof_nn.validation import smooth_reference_field
+
+    mrms_data = mrms_data.copy(deep=True)
+    lons = mrms_data.longitude.data
+    lons[lons > 180] -= 360.0
+
+    lats = l1c_data.latitude.data
+    lons = l1c_data.longitude.data
+
+    # Find scans over MRMS domain.
+    lat_min = mrms_data.latitude.data.min()
+    lat_max = mrms_data.latitude.data.max()
+    lon_min = mrms_data.longitude.data.min()
+    lon_max = mrms_data.longitude.data.max()
+
+    indices = np.where(
+        np.any(
+            ((lats >= lat_min) *
+             (lats <= lat_max) *
+             (lons >= lon_min) *
+             (lons <= lon_max)),
+            axis=-1
+        )
+    )[0]
+    scan_start = indices[0]
+    scan_end = indices[-1]
+
+    l1c_data = l1c_data[{"scans": slice(scan_start, scan_end)}]
+    lats = l1c_data.latitude.data
+    lons = l1c_data.longitude.data
+
+    # Restrict MRMS to swath domain to speed up convolution
+    lat_min = lats.min() - 0.1
+    lat_max = lats.max() + 0.1
+    lon_min = lons.min() - 0.1
+    lon_max = lons.max() + 0.1
+    lon_start, lon_end = np.where(
+        (mrms_data.longitude.data > lon_min) *
+        (mrms_data.longitude.data < lon_max)
+    )[0][[0, -1]]
+    lat_start, lat_end = np.where(
+        (mrms_data.latitude.data > lat_min) *
+        (mrms_data.latitude.data < lat_max)
+    )[0][[0, -1]]
+    mrms_data = mrms_data[{
+        "longitude": slice(lon_start, lon_end),
+        "latitude": slice(lat_start, lat_end)
+    }]
+
+    # Calculate 5km x 5km grid.
+    lats_5, lons_5 = unify_grid(lats, lons, sensor)
+    lats_5 = xr.DataArray(data=lats_5, dims=["along_track", "across_track"])
+    lons_5 = xr.DataArray(data=lons_5, dims=["along_track", "across_track"])
+
+    # Calculate antenna angle
+    if isinstance(sensor, sensors.ConicalScanner):
+        angles = calculate_angles(l1c_data)
+    elif isinstance(sensor, sensors.CrossTrackScanner):
+        angles = l1c_data.incidence_angle.data
+    else:
+        raise ValueError(
+            "Sensor object must be either a 'ConicalScanner' or "
+            "a 'CrossTrackScanner'."
+        )
+
+    # Define swaths for resampling.
+    swath = geometry.SwathDefinition(lats=lats, lons=lons)
+    swath_5 = geometry.SwathDefinition(lats=lats_5, lons=lons_5)
+    angles = kd_tree.resample_nearest(
+        swath, angles, swath_5, radius_of_influence=20e3
+    )
+
+    results = xr.Dataset()
+    results["latitude"] = (
+        ("along_track", "across_track"),
+        lats_5
+    )
+    results["longitude"] = (
+        ("along_track", "across_track"),
+        lons_5
+    )
+
+    if "precip_rate" in mrms_data.variables:
+        # Smooth and interpolate surface precip
+        surface_precip = mrms_data.precip_rate.copy()
+        surface_precip.data[surface_precip.data < 0] = np.nan
+        k = calculate_smoothing_kernel(5, 5, 2, 2)
+        k /= k.sum()
+
+        sp = np.nan_to_num(surface_precip.data.copy())
+        counts = np.isfinite(surface_precip.data).astype(np.float32)
+
+        # Use direct method to avoid negative values in results.
+        sp_mean = convolve(sp, k, mode="same", method="direct")
+        sp_cts = convolve(counts, k, mode="same", method="direct")
+        sp = sp_mean / sp_cts
+        # Set pixel with too few valid neighboring pixels to nan.
+        sp[sp_cts < 1e-1] = np.nan
+        surface_precip.data = sp
+
+        surface_precip = surface_precip.interp(
+            latitude=lats_5,
+            longitude=lons_5,
+            method="nearest",
+            kwargs={"fill_value": np.nan}
+        )
+        results["surface_precip"] = (
+            ("along_track", "across_track"),
+            surface_precip
+        )
+        surface_precip_avg = smooth_reference_field(
+            sensor,
+            surface_precip.data,
+            angles,
+            steps=11,
+            resolution=5
+        )
+        results["surface_precip_avg"] = (
+            ("along_track", "across_track"),
+            surface_precip_avg
+        )
+
+    if "radar_quality_index" in mrms_data.variables:
+        rqi = mrms_data.radar_quality_index.interp(
+            latitude=lats_5, longitude=lons_5, method="nearest",
+            kwargs={"fill_value": -1}
+        )
+        results["radar_quality_index"] = (
+            ("along_track", "across_track"),
+            rqi
+        )
+
+    results.attrs["sensor"] = sensor.sensor_name
+    results.attrs["platform"] = sensor.platform.name
+
+    # Remove empty scan lines.
+    print(results)
+    if "surface_precip" in results.variables:
+        has_data = np.any(np.isfinite(results.surface_precip.data), -1)
+    else:
+        has_data = np.any(np.isfinite(results.radar_quality_index.data), -1)
+
+    indices = np.where(has_data)[0]
+    if len(indices) == 0:
+        raise ValueError(
+            "No valid precipitation pixels in overpass."
+            )
+    along_track_start = indices.min()
+    along_track_end = indices.max()
+    results = results[{
+        "along_track": slice(along_track_start, along_track_end)
+    }]
+    return results
