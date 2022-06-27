@@ -30,7 +30,8 @@ def latlon_to_ecef():
     global _LATLON_TO_ECEF
     if _LATLON_TO_ECEF is None:
         import pyproj
-        _LATLON_TO_ECEF =  pyproj.Transformer.from_crs(
+
+        _LATLON_TO_ECEF = pyproj.Transformer.from_crs(
             {"proj": "latlong", "ellps": "WGS84", "datum": "WGS84"},
             {"proj": "geocent", "ellps": "WGS84", "datum": "WGS84"},
         )
@@ -45,7 +46,8 @@ def ecef_to_latlon():
     global _ECEF_TO_LATLON
     if _ECEF_TO_LATLON is None:
         import pyproj
-        _ECEF_TO_LATLON =  pyproj.Transformer.from_crs(
+
+        _ECEF_TO_LATLON = pyproj.Transformer.from_crs(
             {"proj": "geocent", "ellps": "WGS84", "datum": "WGS84"},
             {"proj": "latlong", "ellps": "WGS84", "datum": "WGS84"},
         )
@@ -135,8 +137,8 @@ class Swath(ViewingGeometry):
         lon_c = lons[m // 2, n // 2]
 
         xyz = latlon_to_ecef().transform(
-            lons[m // 2: m // 2 + 2],
-            lats[m // 2: m // 2 + 2],
+            lons[m // 2 : m // 2 + 2],
+            lats[m // 2 : m // 2 + 2],
             np.zeros((2, lats.shape[1]), dtype=np.float32),
             radians=False,
         )
@@ -324,14 +326,8 @@ class CrossTrack(ViewingGeometry):
         scan_offset: The distance between consecutive scans in meters
         beam_width: The antenna beam width in degrees
     """
-    def __init__(
-            self,
-            altitude,
-            scan_range,
-            pixels_per_scan,
-            scan_offset,
-            beam_width
-    ):
+
+    def __init__(self, altitude, scan_range, pixels_per_scan, scan_offset, beam_width):
         self.altitude = altitude
         self.scan_range = scan_range
         self.pixels_per_scan = pixels_per_scan
@@ -436,6 +432,7 @@ class CrossTrack(ViewingGeometry):
             A numpy array containing the earth incidence angles across a scan
             of the sensor in degrees.
         """
+
         beta = np.linspace(
             -self.scan_range / 2, self.scan_range / 2, self.pixels_per_scan
         )
@@ -463,7 +460,7 @@ class CrossTrack(ViewingGeometry):
         beta = np.arcsin(sin_ang)
 
         c = (R_EARTH + self.altitude) / R_EARTH
-        dg_db = c * np.cos(beta) / np.sqrt(1 - c * np.sin(beta) ** 2)
+        dg_db = c * np.cos(beta) / np.sqrt(1 - (c * np.sin(beta)) ** 2)
         da_db = R_EARTH * (dg_db - 1)
 
         r = da_db * np.deg2rad(self.beam_width)
@@ -473,18 +470,19 @@ class CrossTrack(ViewingGeometry):
         """
         The along-track resolution.
         """
-        gamma = np.deg2rad(earth_incidence_angle)
+        # Convert earth incidence angle to viewing angle
         sin_ang = (
             R_EARTH
             / (R_EARTH + self.altitude)
-            * np.sin(np.pi - gamma)
+            * np.sin(np.pi - np.deg2rad(earth_incidence_angle))
         )
         beta = np.arcsin(sin_ang)
 
-        alpha = gamma - beta
-        c = np.sin(alpha) * R_EARTH / np.sin(beta)
+        gamma = np.deg2rad(earth_incidence_angle) - beta
+        pi_m_eia = np.pi - np.deg2rad(earth_incidence_angle)
+        l = np.sin(gamma) / np.sin(pi_m_eia) * (R_EARTH + self.altitude)
 
-        return np.deg2rad(self.beam_width) * c
+        return l / self.altitude * self.get_resolution_x(0.0)
 
 
 def get_center_pixels(p_o, p_i):
