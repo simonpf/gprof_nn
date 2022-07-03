@@ -9,6 +9,7 @@ temperatures.
 """
 import numpy as np
 from scipy.interpolate import interp1d
+from scipy.signal import convolve
 import xarray as xr
 
 
@@ -37,19 +38,9 @@ def read_cdfs(filename):
 
         shape = (n_tbs, n_tcwv, n_angles, n_channels, n_surfaces)[::-1]
         n_elem = np.prod(shape)
-        shape_all = (n_channels, n_angles, n_tbs)
-        n_elem_all = np.prod(shape_all)
 
         cdf = np.fromfile(file, "f4", count=n_elem).reshape(shape, order="f")
         hist = np.fromfile(file, "i8", count=n_elem).reshape(shape, order="f")
-        # cdf_all = np.fromfile(file, "f4", count=n_elem_all).reshape(
-        #    shape_all, order="f"
-        # )
-        # hist_all = np.fromfile(
-        #    file,
-        #    "i8",
-        #    count=n_elem_all
-        # ).reshape(shape_all, order="f")
 
         tbs = np.arange(tb_min, tb_max + 1)
         tcwv = np.arange(tcwv_min, tcwv_max + 1)
@@ -61,7 +52,6 @@ def read_cdfs(filename):
             "channels",
             "surfaces",
         )[::-1]
-        dims_all = ("channels", "angles", "brightness_temperatures")
 
         dataset = xr.Dataset(
             {
@@ -69,38 +59,99 @@ def read_cdfs(filename):
                 "total_column_water_vapor": (("total_column_water_vapor"), tcwv),
                 "cdf": (dims, cdf),
                 "histogram": (dims, hist),
-                # "cdf_all_surfaces": (dims_all, cdf_all),
-                # "hist_all_surfaces": (dims_all, hist_all)
             }
         )
 
     return dataset
 
 
-def calculate_correction_gprof(cdf_sim, cdf_obs):
+def calculate_cdfs(stats_obs, stats_sim):
     """
-    Calculate corrections from GPROF histogram data.
+    Calculate TB CDFs from observation and training data statistics.
 
     Args:
-        cdf_sim: ``numpy.ndarray`` containing the CDFs of the simulated
-             brightness temperatures.
+        stats_obs: ``xarray.Dataset`` containing the statistics of the
+            L1C observations.
+        stats_sim: ``xarray.Dataset`` containing the statistics of the
+            training data.
+
+    Return:
+        A tuple ``(cdf_obs, cdf_sim)`` of ``np.ndarray``s containing the CDFs
+        of observations and simulations.
+    """
+    N = 11
+    M = 5
+
+    tbs_obs = stats_obs.brightness_temperatures_tcwv.copy()
+
+    k = np.exp(-2 * np.arange(-5, 5.1, 1) ** 2 / 8)
+    k = np.stack([k] * M)
+    k = k / k.sum()
+    shape = [1] * tbs_obs.ndim
+    shape[-2] = M
+    shape[-1] = N
+    k = k.reshape(shape)
+
+    tbs_smoothed = convolve(tbs_obs.data, k, mode="same", method="direct")
+    tbs_obs.data[:] = tbs_smoothed
+    cdf_obs = tbs_obs.cumsum("brightness_temperature_bins")
+    cdf_obs.data /= cdf_obs.data[..., [-1]]
+    cdf_obs = cdf_obs.interpolate_na(
+        dim="total_column_water_vapor_bins",
+        method="nearest"
+    ).data
+
+    # Preprocessor removes TBs at outermost angles.
+    # Set dists to those of next angles
+    if "angles" in stats_obs.dims:
+        cdf_obs[:, :, 0] = cdf_obs[:, :, 1]
+
+    tbs_sim = stats_sim.brightness_temperatures_tcwv.copy()
+    tbs_smoothed = convolve(tbs_sim.data, k, mode="same", method="direct")
+    tbs_sim.data[:] = tbs_smoothed
+    cdf_sim = tbs_sim.cumsum("brightness_temperature_bins")
+    cdf_sim.data /= cdf_sim.data[..., [-1]]
+    cdf_sim = cdf_sim.interpolate_na(
+        dim="total_column_water_vapor_bins",
+        method="nearest"
+    ).data
+
+    # Replace outer angles also for obs derived surface
+    # types
+    if "angles" in stats_obs.dims:
+        cdf_sim[1, :, 0] = cdf_sim[1, :, 1]
+        cdf_sim[15, :, 0] = cdf_sim[15, :, 1]
+        cdf_sim[7:11, :, 0] = cdf_sim[7:11, :, 1]
+        cdf_obs[:, :, 0] = cdf_obs[:, :, 1]
+
+    return cdf_obs, cdf_sim
+
+
+def calculate_correction(cdf_obs, cdf_sim):
+    """
+    Calculate TB corrections from observations and training
+    data TB CDfs.
+
+    Args:
         cdf_obs: ``numpy.ndarray`` containing the CDFs of the L1C
+             brightness temperatures.
+        cdf_sim: ``numpy.ndarray`` containing the CDFs of the simulated
              brightness temperatures.
 
     Return:
         An 'xarray.Dataset' containing the correction statistics.
     """
     corrections = cdf_sim.copy()
-    with np.nditer(cdf_sim[..., 0], flags=['multi_index']) as it:
-        while not it.finished:
+    with np.nditer(cdf_sim[..., 0], flags=["multi_index"]) as index:
+        while not index.finished:
 
-            cdf_in = cdf_sim[it.multi_index]
-            cdf_out = cdf_obs[it.multi_index]
+            cdf_in = cdf_sim[index.multi_index]
+            cdf_out = cdf_obs[index.multi_index]
 
             tbs = np.arange(cdf_in.size) + 0.5
-            if (np.all(np.isclose(cdf_out, 0.0)) or np.all(np.isclose(cdf_in, 0.0))):
-                corrections[it.multi_index] = 0.0
-                it.iternext()
+            if not np.any(cdf_out > 0) or not np.any(cdf_in > 0):
+                corrections[index.multi_index] = 0.0
+                index.iternext()
                 continue
 
             i_start = np.where(cdf_out > 0)[0][0]
@@ -108,18 +159,16 @@ def calculate_correction_gprof(cdf_sim, cdf_obs):
             if i_end - i_start < 2:
                 tbs_c = tbs
             else:
-                f = interp1d(
-                    cdf_out[i_start:i_end],
-                    tbs[i_start:i_end],
-                    bounds_error=False
+                interp = interp1d(
+                    cdf_out[i_start:i_end], tbs[i_start:i_end], bounds_error=False
                 )
-                tbs_c = f(cdf_in)
+                tbs_c = interp(cdf_in)
                 if np.all(np.isnan(tbs_c)):
                     tbs_c = tbs
             d_tb = tbs_c - tbs
 
-            corrections[it.multi_index] = d_tb
-            it.iternext()
+            corrections[index.multi_index] = d_tb
+            index.iternext()
 
     if corrections.ndim == 5:
         dims = (
@@ -127,22 +176,19 @@ def calculate_correction_gprof(cdf_sim, cdf_obs):
             "channels",
             "angles",
             "total_column_water_vapor",
-            "brightness_temperatures"
+            "brightness_temperatures",
         )
     else:
         dims = (
             "surface_type",
             "channels",
             "total_column_water_vapor",
-            "brightness_temperatures"
+            "brightness_temperatures",
         )
 
-    dataset = xr.Dataset({
-        "correction": (dims, corrections),
-        "cdf": (dims, cdf_obs)
-    })
+    dataset = xr.Dataset({"correction": (dims, corrections), "cdf": (dims, cdf_obs)})
+    dataset["correction"] = dataset.correction.fillna(0.0)
     return dataset
-
 
 
 class CdfCorrection:
@@ -206,7 +252,12 @@ class CdfCorrection:
         else:
             st_inds = st.astype(np.int32)
 
-        n_bins = sensor.n_angles
+        # No correction for snow
+        st_mask = (st >= 8) * (st <= 11)
+        # No correction for sea ice
+        st_mask += st == 2
+        st_mask += st == 16
+
         eia_inds = np.digitize(np.abs(eia), sensor.angle_bins)
         eia_inds = np.clip(eia_inds, 1, sensor.n_angles) - 1
 
@@ -232,7 +283,7 @@ class CdfCorrection:
                 err = 0.1 * corrections * err
                 corrections += err
 
-            # corrections[st_inds > 1] = 0.0
+            corrections[st_mask] = 0.0
 
             tbs[..., i] += corrections
 
