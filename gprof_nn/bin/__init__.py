@@ -12,7 +12,6 @@ import sys
 import warnings
 
 import gprof_nn.logging
-from gprof_nn.logging import set_log_level
 
 
 def gprof_nn():
@@ -32,19 +31,15 @@ def gprof_nn():
     from gprof_nn.bin import combine_validation_data
 
     warnings.filterwarnings("ignore", category=RuntimeWarning)
-    set_log_level("INFO")
 
     description = (
         "GPROF-NN: A neural-network based implementation of the Goddard "
         "Profiling algorithm."
     )
 
-    parser = argparse.ArgumentParser(
-            prog='gprof_nn',
-            description=description
-            )
+    parser = argparse.ArgumentParser(prog="gprof_nn", description=description)
 
-    subparsers = parser.add_subparsers(help='Sub-commands')
+    subparsers = parser.add_subparsers(help="Sub-commands")
 
     extract_data.add_parser(subparsers)
     retrieve.add_parser(subparsers)
@@ -65,5 +60,3 @@ def gprof_nn():
 
     args = parser.parse_args()
     args.func(args)
-
-
