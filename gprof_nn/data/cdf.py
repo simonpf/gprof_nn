@@ -194,14 +194,14 @@ def calculate_correction(cdf_obs, cdf_sim):
 class CdfCorrection:
     """
     This class implements an correction operator for simulated brightness
-    temperatures based on the histogram matching of simulated and observed
-    brightness temperatures.
+    temperatures. This class loads an ``xarray.Dataset`` containing the
+    correction statistics and can be used to apply the corresponding
+    correction to GPROF-NN training data.
 
     Attributes:
         corrections: ``xarray.Dataset`` containing the prepared correction
             data.
     """
-
     def __init__(self, correction_file):
         """
         Args:
@@ -229,13 +229,30 @@ class CdfCorrection:
 
     def _apply_correction_cross_track(
         self,
+        rng,
         sensor,
+        brightness_temperatures,
         surface_type,
         earth_incidence_angle,
         total_column_water_vapor,
-        brightness_temperatures,
         augment=False,
     ):
+        """
+        Implementation of the TB correction for cross-track scanners.
+
+        Args:
+            rng: Random generator to use to generate random numbers.
+            sensor: The sensor from which the brightness temperatures originate.
+            brightness_temperatures: Array containing the brightness
+                temperatures to correct.
+            surface_type: Array containing the corresponding surface types.
+            earth_incidence_angles: Array containing the corresponding earth
+                incidence angles. May be ``None`` for conical scanners.
+            total_column_water_vapor: Array containing the corresponding total
+                column water vapor.
+            augment: Whether or not to apply augment the correction.
+
+        """
         st = surface_type
         eia = earth_incidence_angle
         tcwv = total_column_water_vapor
@@ -278,25 +295,43 @@ class CdfCorrection:
                 quantiles = self.corrections.cdf.data[
                     st_inds - 1, i, eia_inds, tcwv_inds, tbs_inds
                 ]
-                err_lo, err_hi = np.random.normal(size=2)
+                if st.ndim > 1:
+                    err_lo, err_hi = rng.uniform(-1.0, 1.0, size=2)
+                else:
+                    err_lo = rng.uniform(-1.0, 1.0, size=st.size)
+                    err_hi = rng.uniform(-1.0, 1.0, size=st.size)
                 err = (1.0 - quantiles) * err_lo + quantiles * err_hi
                 err = 0.1 * corrections * err
                 corrections += err
 
             corrections[st_mask] = 0.0
-
             tbs[..., i] += corrections
 
         return tbs
 
     def _apply_correction_conical(
         self,
+        rng,
+        brightness_temperatures,
         sensor,
         surface_type,
         total_column_water_vapor,
-        brightness_temperatures,
         augment=False,
     ):
+        """
+        Implementation of the TB correction for conical scanners.
+
+        Args:
+            rng: Random generator to use to generate random numbers.
+            sensor: The sensor from which the brightness temperatures originate.
+            brightness_temperatures: Array containing the brightness
+                temperatures to correct.
+            surface_type: Array containing the corresponding surface types.
+            total_column_water_vapor: Array containing the corresponding total
+                column water vapor.
+            augment: Whether or not to apply augment the correction.
+
+        """
         st = surface_type
         tcwv = total_column_water_vapor
         tbs = brightness_temperatures.copy()
@@ -315,6 +350,12 @@ class CdfCorrection:
         tcwv_inds = np.trunc(tcwv).astype(np.int32)
         tcwv_inds = np.clip(tcwv_inds, self.tcwv_min, self.tcwv_max)
 
+        # No correction for snow
+        st_mask = (st >= 8) * (st <= 11)
+        # No correction for sea ice
+        st_mask += st == 2
+        st_mask += st == 16
+
         n_chans = sensor.n_chans
         for i in range(n_chans):
             tbs_inds = np.trunc(
@@ -329,44 +370,56 @@ class CdfCorrection:
                 quantiles = self.corrections.cdf.data[
                     st_inds - 1, i, tcwv_inds, tbs_inds
                 ]
-                err_lo, err_hi = np.random.normal(size=2)
+                err_lo, err_hi = rng.uniform(-1.0, 1.0, size=2)
                 err = (1.0 - quantiles) * err_lo + quantiles * err_hi
                 err = 0.1 * corrections * err
                 corrections += err
 
+            corrections[st_mask] = 0.0
             tbs[..., i] += corrections
 
         return tbs
 
     def __call__(
         self,
+        rng,
         sensor,
+        brightness_temperatures,
         surface_type,
         earth_incidence_angle,
         total_column_water_vapor,
-        brightness_temperatures,
         augment=False,
     ):
         """
-        Apply correction to scene.
+        Apply brightness temperature correction to scene.
 
         Args:
-            scene: A training scene to which to apply the TB correction.
+            rng: Random generator to use to generate random numbers.
+            sensor: The sensor from which the brightness temperatures originate.
+            brightness_temperatures: Array containing the brightness
+                temperatures to correct.
+            surface_type: Array containing the corresponding surface types.
+            earth_incidence_angles: Array containing the corresponding earth
+                incidence angles. May be ``None`` for conical scanners.
+            total_column_water_vapor: Array containing the corresponding total
+                column water vapor.
             augment: Whether or not to apply augment the correction.
         """
         if sensor.n_angles > 1:
             return self._apply_correction_cross_track(
+                rng,
                 sensor,
+                brightness_temperatures,
                 surface_type,
                 earth_incidence_angle,
                 total_column_water_vapor,
-                brightness_temperatures,
                 augment=augment,
             )
         return self._apply_correction_conical(
+            rng,
             sensor,
+            brightness_temperatures,
             surface_type,
             total_column_water_vapor,
-            brightness_temperatures,
             augment=augment,
         )
