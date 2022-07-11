@@ -408,7 +408,6 @@ def resample_to_swath(mrms_data, sensor, l1c_data):
     results.attrs["platform"] = sensor.platform.name
 
     # Remove empty scan lines.
-    print(results)
     if "surface_precip" in results.variables:
         has_data = np.any(np.isfinite(results.surface_precip.data), -1)
     else:

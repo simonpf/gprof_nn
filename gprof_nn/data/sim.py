@@ -3,19 +3,17 @@
 gprof_nn.data.sim
 =================
 
-This module defines a class to read the simulator output files (*.sim) that
-contain the atmospheric profiles and corresponding simulated brightness
-temperatures.
+This module defines a class to read the output files of the GPROF
+simulator (*.sim), which contain the atmospheric profiles and
+corresponding simulated brightness temperatures.
 
-The module also provides functionality to extract the training data for the
-GPROF-NN algorithm from these files.
+The module also provides functionality to extract the training data
+ for the GPROF-NN algorithm from these files.
 """
 from concurrent import futures
 from datetime import datetime
 import logging
-import os
 from pathlib import Path
-import subprocess
 import tempfile
 
 import numpy as np
@@ -32,7 +30,7 @@ from gprof_nn.definitions import (
     LEVELS,
     DATABASE_MONTHS,
     PROFILE_NAMES,
-    SEAICE_YEARS
+    SEAICE_YEARS,
 )
 
 from gprof_nn.coordinates import latlon_to_ecef
@@ -91,7 +89,6 @@ class SimFile:
             file.
         data: Numpy structured array containing raw data of the file.
     """
-
     @classmethod
     def find_files(cls, path, sensor=sensors.GMI, day=None):
         """
@@ -102,8 +99,8 @@ class SimFile:
             path: Root of the directory tree in which to look for .sim
                 files.
             sensor: The sensor for which to find .sim files.
-            day: If given search is restricted to the given day within
-                each month.
+            day: Restricts the searth to given day of the month if
+                given.
 
         Return:
             A list containing the found .sim files.
@@ -151,7 +148,7 @@ class SimFile:
         xarray dataset.
 
         Args:
-            input_data: xarray dataset containing the input data from
+            input_data: ``xarray.Dataset`` containing the input data from
                 the preprocessor.
             targets: List of retrieval target variables to extract from
                 the sim file.
@@ -346,12 +343,12 @@ class SimFile:
         minute = dataset["scan_time"].data["minute"]
         second = dataset["scan_time"].data["second"]
         dates = (
-            year.astype("datetime64[Y]") +
-            month.astype("timedelta64[M]") +
-            day.astype("timedelta64[D]") +
-            hour.astype("timedelta64[h]") +
-            minute.astype("timedelta64[m]") +
-            second.astype("timedelta64[s]")
+            year.astype("datetime64[Y]")
+            + month.astype("timedelta64[M]")
+            + day.astype("timedelta64[D]")
+            + hour.astype("timedelta64[h]")
+            + minute.astype("timedelta64[m]")
+            + second.astype("timedelta64[s]")
         )
         dataset["scan_time"] = (("samples",), dates)
 
@@ -445,10 +442,12 @@ def _extract_scenes(data):
         j_start = 0
         had_scene = False
         while j_start + j_step <= j_end:
-            subscene = data[{
-                "scans": slice(i_start, i_start + n),
-                "pixels": slice(j_start, j_start + n)
-            }]
+            subscene = data[
+                {
+                    "scans": slice(i_start, i_start + n),
+                    "pixels": slice(j_start, j_start + n),
+                }
+            ]
             surface_precip = subscene["surface_precip"].data
             if np.isfinite(surface_precip).sum() > 50:
                 scenes.append(subscene)
@@ -597,6 +596,7 @@ def process_sim_file(sim_filename, sensor, configuration, era5_path, log_queue=N
 
     if log_queue is not None:
         gprof_nn.logging.configure_queue_logging(log_queue)
+    LOGGER = logging.getLogger(__name__)
     LOGGER.info("Processing sim file %s.", sim_filename)
 
     # Load sim file and corresponding GMI L1C file.
@@ -610,14 +610,19 @@ def process_sim_file(sim_filename, sensor, configuration, era5_path, log_queue=N
         l1c_file.filename, sensor=sensor, configuration=configuration, robust=False
     )
     data_pp = data_pp.drop_vars(
-        ["earth_incidence_angle", "sunglint_angle", "quality_flag",
-         "wet_bulb_temperature", "lapse_rate"]
+        [
+            "earth_incidence_angle",
+            "sunglint_angle",
+            "quality_flag",
+            "wet_bulb_temperature",
+            "lapse_rate",
+        ]
     )
     if isinstance(sensor, sensors.CrossTrackScanner):
-        data_pp["eart_incidence_angle"] = (
-            ("scans", "pixels"), np.ones_like(data_pp.two_meter_temperature.data)
+        data_pp["earth_incidence_angle"] = (
+            ("scans", "pixels"),
+            np.ones_like(data_pp.two_meter_temperature.data),
         )
-
 
     if data_pp is None:
         return None
@@ -687,6 +692,7 @@ def process_mrms_file(sensor, mrms_filename, configuration, day, log_queue=None)
 
     if log_queue is not None:
         gprof_nn.logging.configure_queue_logging(log_queue)
+    LOGGER = logging.getLogger(__name__)
     LOGGER.info("Processing MRMS file %s.", mrms_filename)
     mrms_file = MRMSMatchFile(mrms_filename)
     mrms_sensor = mrms_file.sensor
@@ -702,16 +708,12 @@ def process_mrms_file(sensor, mrms_filename, configuration, day, log_queue=None)
     )
 
     scenes = []
-    LOGGER.debug(
-        "Found %s L1C file for MRMS file %s.",
-        len(l1c_files),
-        mrms_filename
-    )
+    LOGGER.debug("Found %s L1C file for MRMS file %s.", len(l1c_files), mrms_filename)
     for file in l1c_files:
         # Extract scans over CONUS ans run preprocessor.
         _, f_roi = tempfile.mkstemp()
         try:
-            file.extract_scans(CONUS, f_roi)
+            file.extract_scans(CONUS, f_roi, min_scans=221)
             data_pp = run_preprocessor(
                 f_roi, configuration=configuration, sensor=sensor, robust=False
             )
@@ -748,7 +750,6 @@ def process_mrms_file(sensor, mrms_filename, configuration, day, log_queue=None)
         if new_scenes is not None:
             scenes.append(new_scenes)
 
-
     if scenes:
         dataset = xr.concat(scenes, "samples")
         dataset["source"] = (("samples",), np.ones(dataset.samples.size, dtype=np.int8))
@@ -773,12 +774,12 @@ def process_l1c_file(l1c_filename, sensor, configuration, era5_path, log_queue=N
 
     if log_queue is not None:
         gprof_nn.logging.configure_queue_logging(log_queue)
+    LOGGER = logging.getLogger(__name__)
     LOGGER.info("Starting processing L1C file %s.", l1c_filename)
 
     data_pp = run_preprocessor(
         l1c_filename, sensor=sensor, configuration=configuration, robust=False
     )
-    l1c_file = L1CFile(l1c_filename)
 
     # Drop unneeded variables.
     drop = ["sunglint_angle", "quality_flag", "wet_bulb_temperature", "lapse_rate"]
@@ -790,7 +791,7 @@ def process_l1c_file(l1c_filename, sensor, configuration, era5_path, log_queue=N
         return None
     if data_pp.channels.size > sensor.n_chans:
         if sensor.sensor_name in CHANNEL_INDICES:
-            ch_inds = CHANNEL_INDICES[self.sensor.sensor_name]
+            ch_inds = CHANNEL_INDICES[sensor.sensor_name]
             data_pp = data_pp[{"channels": ch_inds}]
 
     data_pp = add_targets(data_pp, sensor)
@@ -1037,7 +1038,9 @@ class SimFileProcessor:
             for month in range(1, 13):
                 try:
                     date = datetime(year, month, self.day)
-                    l1c_files += L1CFile.find_files(date, l1c_file_path, sensor=self.sensor)
+                    l1c_files += L1CFile.find_files(
+                        date, l1c_file_path, sensor=self.sensor
+                    )
                 except ValueError:
                     pass
         # Or database period
@@ -1045,7 +1048,9 @@ class SimFileProcessor:
             for year, month in DATABASE_MONTHS:
                 try:
                     date = datetime(year, month, self.day)
-                    l1c_files += L1CFile.find_files(date, l1c_file_path, sensor=self.sensor)
+                    l1c_files += L1CFile.find_files(
+                        date, l1c_file_path, sensor=self.sensor
+                    )
                 except ValueError:
                     pass
 
@@ -1074,9 +1079,11 @@ class SimFileProcessor:
         # Submit tasks interleaving .sim and MRMS files.
         log_queue = gprof_nn.logging.get_log_queue()
         tasks = []
+        files = []
         while i < max(n_sim_files, n_mrms_files, n_l1c_files):
             if i < n_sim_files:
                 sim_file = sim_files[i]
+                files.append(sim_file)
                 tasks.append(
                     self.pool.submit(
                         process_sim_file,
@@ -1089,6 +1096,7 @@ class SimFileProcessor:
                 )
             if i < n_mrms_files:
                 mrms_file = mrms_files[i]
+                files.append(mrms_file)
                 tasks.append(
                     self.pool.submit(
                         process_mrms_file,
@@ -1101,6 +1109,7 @@ class SimFileProcessor:
                 )
             if i < n_l1c_files:
                 l1c_file = l1c_files[i]
+                files.append(l1c_file)
                 tasks.append(
                     self.pool.submit(
                         process_l1c_file,
@@ -1125,23 +1134,23 @@ class SimFileProcessor:
         chunk = 1
 
         with Progress(console=get_console()) as progress:
-            gprof_nn.logging.set_log_level("INFO")
             pbar = progress.add_task("Extracting data:", total=len(tasks))
-            for task in tasks:
+            for task, filename in zip(tasks, files):
                 # Log messages from processes.
                 task_done = False
                 dataset = None
                 while not task_done:
                     try:
                         gprof_nn.logging.log_messages()
-                        dataset = task.result(timeout=1)
+                        dataset = task.result()
                         task_done = True
                     except futures.TimeoutError:
                         pass
                     except Exception as exc:
-                        LOGGER.warning(
+                        LOGGER.error(
                             "The following error was encountered while "
-                            "collecting results: %s",
+                            "processing file %f results: %s",
+                            filename,
                             exc,
                         )
                         get_console().print_exception()
@@ -1156,7 +1165,7 @@ class SimFileProcessor:
                         filename = output_path / (output_file + f"_{chunk:02}.nc")
                         dataset.attrs["sensor"] = self.sensor.name
                         dataset.to_netcdf(filename)
-                        #subprocess.run(["lz4", "-f", "--rm", filename], check=True)
+                        # subprocess.run(["lz4", "-f", "--rm", filename], check=True)
                         LOGGER.info("Finished writing file: %s", filename)
                         datasets = []
                         chunk += 1
@@ -1168,7 +1177,7 @@ class SimFileProcessor:
         dataset.attrs["configuration"] = self.configuration
         LOGGER.info("Writing file: %s", filename)
         dataset.to_netcdf(filename)
-        #subprocess.run(["lz4", "-f", "--rm", filename], check=True)
+        # subprocess.run(["lz4", "-f", "--rm", filename], check=True)
 
         # Explicit clean up to avoid memory leak.
         del datasets

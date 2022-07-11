@@ -29,14 +29,20 @@ def add_parser(subparsers):
         description=("Combined retrieval results with validation data.")
     )
     parser.add_argument(
+        "sensor",
+        metavar="sensor_name",
+        type=str,
+        help="The sensor from which the validation data stems.",
+    )
+    parser.add_argument(
         "validation_data",
-        metavar="path",
+        metavar="reference",
         type=str,
         help="Path to the validation data.",
     )
     parser.add_argument(
         "output_path",
-        metavar="path",
+        metavar="results",
         type=str,
         help="Path to write the results to.",
     )
@@ -118,6 +124,8 @@ def run(args):
                                      SimulatorFiles)
     warnings.filterwarnings("ignore")
 
+    sensor = sensors.get_sensor(args.sensor)
+
     validation_path = Path(args.validation_data)
     if not validation_path.exists():
         LOGGER.error(
@@ -179,7 +187,7 @@ def run(args):
 
     n_processes = args.n_processes
 
-    collector = ResultCollector(validation_path, datasets)
+    collector = ResultCollector(sensor, validation_path, datasets)
     collector.run(output_path,
                   start=start,
                   end=end,

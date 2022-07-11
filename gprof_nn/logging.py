@@ -19,10 +19,14 @@ from rich.console import Console
 # Basic logging
 #
 
-_LOG_LEVEL = os.environ.get('GPROF_NN_LOG_LEVEL', 'INFO').upper()
-
-
+_LOG_LEVEL = os.environ.get("GPROF_NN_LOG_LEVEL", "INFO").upper()
 _CONSOLE = Console()
+_HANDLER = RichHandler(console=_CONSOLE)
+
+# The parent logger for the module.
+LOGGER = logging.getLogger("gprof_nn")
+LOGGER.setLevel(_LOG_LEVEL)
+LOGGER.addHandler(_HANDLER)
 
 
 def get_console():
@@ -37,26 +41,17 @@ def set_log_level(level):
     Args:
         level: String defining the log level.
     """
-    logging.basicConfig(
-        level=level.upper(),
-        format="%(message)s",
-        datefmt="[%X]",
-        handlers=[RichHandler(console=get_console())]
-    )
-
-
-logging.basicConfig(
-    level=_LOG_LEVEL,
-    format="%(message)s",
-    datefmt="[%X]",
-    handlers=[RichHandler(level=_LOG_LEVEL, console=get_console())]
-)
+    # logging.basicConfig(
+    #    level=level.upper(),
+    #    format="%(message)s",
+    #    datefmt="[%X]",
+    #    handlers=[_HANDLER]
+    # )
 
 
 #
 # Multi-process logging.
 #
-
 
 _LOG_QUEUE = None
 
@@ -78,14 +73,10 @@ def configure_queue_logging(log_queue):
     Args:
         log_queue: The log queue provided from the parent process.
     """
-    log_level = os.environ.get('GPROF_NN_LOG_LEVEL', 'INFO').upper()
+    logger = logging.getLogger("gprof_nn")
     handler = logging.handlers.QueueHandler(log_queue)
-    logging.basicConfig(
-        level=log_level,
-        format="%(message)s",
-        datefmt="[%X]",
-        handlers=[handler]
-    )
+    logger.propagate = False
+    logger.handlers = [handler]
 
 
 def log_messages():
@@ -95,5 +86,4 @@ def log_messages():
     if _LOG_QUEUE is not None:
         while _LOG_QUEUE.qsize():
             record = _LOG_QUEUE.get()
-            logger = logging.getLogger(record.name)
-            logger.handle(record)
+            _HANDLER.emit(record)

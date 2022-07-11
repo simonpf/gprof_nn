@@ -6,7 +6,6 @@ gprof_nn.bin.retrieve
 This sub-module implements the command line interface to apply the GPROF-NN
 to input data.
 """
-import argparse
 import logging
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 import multiprocessing as mp
@@ -43,59 +42,74 @@ def add_parser(subparsers):
             to run a simulator model on a training dataset in order to extend
             the field of view of the simulated observations.
             """
-            )
+        ),
     )
-    parser.add_argument('model', metavar="model", type=str,
-                        help="The GPROF-NN model to use for the retrieval.")
-    parser.add_argument('inputs', metavar="input", type=str, nargs="+",
-                        help='Folder or file containing the input data.')
-    parser.add_argument('output',
-                        metavar="output",
-                        type=str,
-                        help='Folder or file to which to write the output.')
-    parser.add_argument('--gradients', action='store_true')
-    parser.add_argument('--no_profiles', action='store_true')
-    parser.add_argument('--format', type=str, help='Output file format')
     parser.add_argument(
-        '--sensor',
+        "model",
+        metavar="model",
+        type=str,
+        help="The GPROF-NN model to use for the retrieval.",
+    )
+    parser.add_argument(
+        "inputs",
+        metavar="input",
+        type=str,
+        nargs="+",
+        help="Folder or file containing the input data.",
+    )
+    parser.add_argument(
+        "output",
+        metavar="output",
+        type=str,
+        help="Folder or file to which to write the output.",
+    )
+    parser.add_argument("--gradients", action="store_true")
+    parser.add_argument("--no_profiles", action="store_true")
+    parser.add_argument("--format", type=str, help="Output file format")
+    parser.add_argument(
+        "--sensor",
         type=str,
         metavar="sensor",
         help="Name of a sensor object to use to load training data.",
-        default=None
+        default=None,
     )
     parser.add_argument(
-        '--preserve_structure',
-        action='store_true',
-        help=("Whether or not to preserve the spatial structure"
-              " of the 1D retrieval on training data.")
+        "--preserve_structure",
+        action="store_true",
+        help=(
+            "Whether or not to preserve the spatial structure"
+            " of the 1D retrieval on training data."
+        ),
     )
     parser.add_argument(
-        '--n_processes',
+        "--n_processes",
         metavar="n",
         type=int,
         default=4,
-        help='The number of processes to use for the processing.'
+        help="The number of processes to use for the processing.",
     )
     parser.add_argument(
-        '--device',
+        "--device",
         metavar="name",
         type=str,
         default="cpu",
-        help='Name of the PyTorch device to run the retrieval on.'
+        help="Name of the PyTorch device to run the retrieval on.",
     )
     parser.set_defaults(func=run)
 
 
-def process_file(input_file,
-                 output_file,
-                 model,
-                 targets,
-                 gradients,
-                 device,
-                 log_queue,
-                 preserve_structure=False,
-                 format=format,
-                 sensor=None):
+def process_file(
+    input_file,
+    output_file,
+    model,
+    targets,
+    gradients,
+    device,
+    log_queue,
+    preserve_structure=False,
+    fmt=None,
+    sensor=None,
+):
     """
     Process input file.
 
@@ -110,22 +124,24 @@ def process_file(input_file,
         log_queue: Queue object to use for multi process logging.
     """
     gprof_nn.logging.configure_queue_logging(log_queue)
-
-    LOGGER.info("Processing file %s.", input_file)
+    logger = logging.getLogger(__name__)
+    logger.info("Processing file %s.", input_file)
     xrnn = QRNN.load(model)
     if targets is not None:
         xrnn.set_targets(targets)
     driver = RetrievalDriver
     if gradients:
         driver = RetrievalGradientDriver
-    retrieval = driver(input_file,
-                       xrnn,
-                       output_file=output_file,
-                       device=device,
-                       preserve_structure=preserve_structure,
-                       sensor=sensor,
-                       output_format=format,
-                       tile=True)
+    retrieval = driver(
+        input_file,
+        xrnn,
+        output_file=output_file,
+        device=device,
+        preserve_structure=preserve_structure,
+        sensor=sensor,
+        output_format=fmt,
+        tile=False,
+    )
     retrieval.run()
 
 
@@ -149,8 +165,8 @@ def run(args):
     inputs = list(map(Path, args.inputs))
     output = Path(args.output)
 
-    for input in inputs:
-        if not input.exists():
+    for input_file in inputs:
+        if not input_file.exists():
             LOGGER.error("Input must be an existing file or folder.")
             return 1
 
@@ -166,8 +182,7 @@ def run(args):
             sensor = sensors.get_sensor(sensor_name)
         except KeyError:
             LOGGER.error(
-                "If provided, sensor must be a valid sensor name not '%s'.",
-                sensor_name
+                "If provided, sensor must be a valid sensor name not '%s'.", sensor_name
             )
             return 1
     else:
@@ -176,30 +191,30 @@ def run(args):
     gradients = args.gradients
     n_procs = args.n_processes
     device = args.device
-    format = args.format
+    fmt = args.format
     if device.startswith("cuda"):
         mp.set_start_method("spawn")
 
     # Find files and determine output names.
     input_files = []
     output_files = []
-    for input in inputs:
-        if input.is_dir():
+    for inp in inputs:
+        if inp.is_dir():
             if output is None or not output.is_dir():
                 LOGGER.error(
                     "If the input file is a directory, the 'output_file' argument "
                     "must point to a directory as well."
                 )
 
-            files = list(input.glob("**/*.nc"))
-            files += list(input.glob("**/*.nc.gz"))
-            files += list(input.glob("**/*.nc.bin.gz"))
-            files += list(input.glob("**/*.pp"))
-            files += list(input.glob("**/*.HDF5"))
+            files = list(inp.glob("**/*.nc"))
+            files += list(inp.glob("**/*.nc.gz"))
+            files += list(inp.glob("**/*.nc.bin.gz"))
+            files += list(inp.glob("**/*.pp"))
+            files += list(inp.glob("**/*.HDF5"))
             input_files += files
 
             for f in files:
-                of = f.relative_to(input)
+                of = f.relative_to(inp)
                 if of.suffix in [".nc", ".HDF5"]:
                     of = of.with_suffix(".nc")
                 elif of.suffix == ".gz":
@@ -208,13 +223,12 @@ def run(args):
                     of = of.with_suffix(".bin")
                 output_files.append(output / of)
         else:
-            input_files += [input]
+            input_files += [inp]
             output_files += [output]
 
     # Try to load the model.
-    xrnn = QRNN.load(model)
     if args.no_profiles:
-        targets = [t for t in ALL_TARGETS if not t in PROFILE_NAMES]
+        targets = [t for t in ALL_TARGETS if t not in PROFILE_NAMES]
     else:
         targets = None
 
@@ -229,29 +243,36 @@ def run(args):
 
     log_queue = gprof_nn.logging.get_log_queue()
     tasks = []
-    for input_file, output_file in (zip(input_files, output_files)):
-        tasks += [pool.submit(process_file,
-                              input_file,
-                              output_file,
-                              model,
-                              targets,
-                              gradients,
-                              device,
-                              log_queue,
-                              sensor=sensor,
-                              format=format,
-                              preserve_structure=preserve_structure)]
+    for input_file, output_file in zip(input_files, output_files):
+        tasks += [
+            pool.submit(
+                process_file,
+                input_file,
+                output_file,
+                model,
+                targets,
+                gradients,
+                device,
+                log_queue,
+                sensor=sensor,
+                fmt=fmt,
+                preserve_structure=preserve_structure,
+            )
+        ]
 
-    for filename, task in track(list(zip(input_files, tasks)),
-                                description="Processing files:"):
+    for filename, task in track(
+        list(zip(input_files, tasks)),
+        description="Processing files:",
+        console=gprof_nn.logging.get_console(),
+    ):
         gprof_nn.logging.log_messages()
         try:
             task.result()
-        except Exception as e:
+        except Exception as exc:
             LOGGER.error(
                 "The following error was encountered during the processing "
                 "of file %s:\n %s",
                 filename,
-                e
+                exc,
             )
     pool.shutdown()
