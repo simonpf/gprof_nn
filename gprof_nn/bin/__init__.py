@@ -3,9 +3,9 @@
 gprof_nn.bin
 ============
 
-This sub-module implements the top-level 'gprof_nn' command line applitcation.
-The top-level implementation delegates the processing to the sub-commands
-that are defined in the sub-module of the 'gprof_nn.bin' module.
+This sub-module implements the top-level 'gprof_nn' command line application.
+Its task is to delegate the processing to the sub-commands that are defined
+in the sub-module of the 'gprof_nn.bin' module.
 """
 import argparse
 import sys
