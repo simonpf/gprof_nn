@@ -345,14 +345,8 @@ def resample_to_swath(mrms_data, sensor, l1c_data):
     )
 
     results = xr.Dataset()
-    results["latitude"] = (
-        ("along_track", "across_track"),
-        lats_5
-    )
-    results["longitude"] = (
-        ("along_track", "across_track"),
-        lons_5
-    )
+    results["latitude"] = lats_5
+    results["longitude"] = lons_5
 
     if "precip_rate" in mrms_data.variables:
         # Smooth and interpolate surface precip
@@ -378,10 +372,7 @@ def resample_to_swath(mrms_data, sensor, l1c_data):
             method="nearest",
             kwargs={"fill_value": np.nan}
         )
-        results["surface_precip"] = (
-            ("along_track", "across_track"),
-            surface_precip
-        )
+        results["surface_precip"] = (("along_track", "across_track"), surface_precip.data)
         surface_precip_avg = smooth_reference_field(
             sensor,
             surface_precip.data,
@@ -401,7 +392,7 @@ def resample_to_swath(mrms_data, sensor, l1c_data):
         )
         results["radar_quality_index"] = (
             ("along_track", "across_track"),
-            rqi
+            rqi.data
         )
 
     results.attrs["sensor"] = sensor.sensor_name
