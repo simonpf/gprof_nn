@@ -1,0 +1,129 @@
+% Created 2018-06-25 Mo 13:07
+% Intended LaTeX compiler: pdflatex
+\documentclass[11pt]{scrreprt}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{graphicx}
+\usepackage{grffile}
+\usepackage{longtable}
+\usepackage{adjustbox}
+\usepackage{wrapfig}
+\usepackage{rotating}
+\usepackage[normalem]{ulem}
+\usepackage{amsmath}
+\usepackage{pdfpages}
+\usepackage{units}
+\usepackage{siunitx}
+\usepackage{textcomp}
+\usepackage{amssymb}
+\usepackage{capt-of}
+\usepackage{hyperref}
+\usepackage[framemethod=TikZ]{mdframed}
+\usepackage[authoryear,round]{natbib}
+\title{GPROF-NN: A neural network based implementation of the Goddard Profiling Algorithm}
+\subtitle{Response to reviewer comments}
+\date{}
+\hypersetup{
+ pdfauthor={Simon Pfreundschuh},
+ pdftitle={},
+ pdfkeywords={},
+ pdfsubject={},
+ pdfcreator={Emacs 24.5.1}, 
+ pdflang={English}}
+
+\RequirePackage[normalem]{ulem} %DIF PREAMBLE
+\RequirePackage{luacolor}\definecolor{RED}{rgb}{1,0,0}\definecolor{BLUE}{rgb}{0,0,1} %DIF PREAMBLE
+\providecommand{\DIFadd}[1]{{\protect\textcolor{blue}{\uwave{#1}}}} %DIF PREAMBLE
+\providecommand{\DIFdel}[1]{{\protect\textcolor{red}{\sout{#1}}}}                      %DIF PREAMBLE
+%DIF SAFE PREAMBLE %DIF PREAMBLE
+\providecommand{\DIFaddbegin}{} %DIF PREAMBLE
+\providecommand{\DIFaddend}{} %DIF PREAMBLE
+\providecommand{\DIFdelbegin}{} %DIF PREAMBLE
+\providecommand{\DIFdelend}{} %DIF PREAMBLE
+%DIF FLOATSAFE PREAMBLE %DIF PREAMBLE
+\providecommand{\DIFaddFL}[1]{\DIFadd{#1}} %DIF PREAMBLE
+\providecommand{\DIFdelFL}[1]{\DIFdel{#1}} %DIF PREAMBLE
+\providecommand{\DIFaddbeginFL}{} %DIF PREAMBLE
+\providecommand{\DIFaddendFL}{} %DIF PREAMBLE
+\providecommand{\DIFdelbeginFL}{} %DIF PREAMBLE
+\providecommand{\DIFdelendFL}{} %DIF PREAMBLE
+
+\mdfdefinestyle{change}{%
+  topline=false,
+  leftline=true,
+  rightline=false,
+  bottomline=false
+}
+
+\newenvironment{change}[1][]{%
+  \begin{mdframed}[frametitle={Changes starting in line #1:}, style=change]%
+}{%
+  \end{mdframed}%
+}
+
+\begin{document}
+\maketitle
+
+\setlength{\parindent}{0cm}
+
+This document contains the responses to the comments of each reviewer followed
+by the marked-up differences of the manuscript and the revised version. For each
+comment the author's response and, if applicable, the corresponding changes in
+the manuscript are listed. Line numbers of changes are given with respect to the
+revised manuscript.
+
+The two most prominent changes in the revised manuscript are:
+\begin{itemize}
+\item Addition of a figure showing the temporal delay between the active and
+  passive observations, which we suppose explains the larger residuals for the
+  C159 and C161 flight. Extension of the discussion of the residuals for those
+  flights to mention the temporal offsets between the active and passive
+  observations.
+\item Addition of a figure  showing scatter plots of IWP and residuals of the
+  $243\pm 2.5\ \unit{GHz}$ and $325\pm 9.5\ \unit{GHz}$ channels for flight B984,
+  which hint at a weak relationship particle shape and residuals for this flight.
+\end{itemize}
+
+%
+%\begin{itemize}
+%\item We have switched to an airborne measurement set-up and
+%   the manuscript has been modified accordingly.
+%\item The text in the result section has been shortened.
+%\item Redundant results for scene 2 have been placed in an appendix.
+%\item The selection of tested retrieval habits has been revised and changed.
+%\end{itemize}
+
+We want to thank both reviewers for taking the time to read our manuscript and
+provide valuable feedback. The feedback was very helpful in guiding our efforts
+to improve the manuscript.
+
+\section{Principal changes}
+
+Many comments from both reviewers were related to the description of the
+generation of the training data and the implementation of the retrievals. In
+order to address these comments and avoid excessive growth of the main text of
+the manuscript, we have added appendices that explain the generation of the
+training data, the training itself and the application of the retrievals. We
+have also rewritten much of Sec.~1 and 2 to improve the presentation of both the
+scope of the manuscript and the design of the GPROF-NN retrievals.
+
+In addition to that, an error in the simulated brightness temperatures for MHS
+was discovered and corrected. We have updated the results for MHS.
+While this improved the overall accuracy of the MHS retrievals, it did not affect the
+study's main findings. Furthermore, we identified and corrected a minor issue in
+our evaluation of GPROF that caused a slight overestimation of its accuracy.
+Again, this correction did not affect the conclusions of the paper.
+
+
+\chapter{Comments from reviewer 1}
+\input{response_1_1}
+
+\chapter{Comments from reviewer 2}
+\input{response_1_2}
+
+%\includepdf[pages=-]{amt_manuscript_diff}
+
+\bibliographystyle{copernicus}
+\bibliography{references}
+
+\end{document}

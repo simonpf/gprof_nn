@@ -1,0 +1,545 @@
+In what follows, line and figure numbers are given with respect to the revised manuscript.
+
+\section{Major comments}
+
+\subsection*{Reviewer comment 1}
+
+The validation scheme is not quite convincing. What you did is: using part of the training as
+the validation dataset (near L255, first three days of every month from the retrieval database).
+This can be a major issue since it is shown that GPROF-NN and GPROF-3D is better than
+GPGORF-Bayesian. The better performance from GPROF-NN and 3D may result from the over-
+fitting of the Neural network. I am particularly concerned about the over-fitting issue for
+surface precipitation from GPROF-NN-3D (Fig. 6, bottom left panel, it seems that the vast
+majority of the pixels are on 1-by-1 line from 0.1 to 10 mm/hr)
+
+Why not use 1-yr independent data (say, 2020 DPR) to validate your results? Based on Fig. 15, it
+takes about 120 ~ 250 seconds per orbit to get the results. I highly recommend to redo the
+validation.
+
+\subsubsection{Author response:}
+
+It seems that the reviewer has misunderstood our evaluation scheme. We have, of
+course, not evaluated the model on a sub-set of the data that was used for
+training. Instead, only days 6 until 31 of every month have been used for
+training, while days 1 until 3 were used for the evaluation. We will revise this
+section to make this more clear.
+
+The alternative validation proposed by the reviewer is not really suitable for
+this study. Firstly, it is not clear whether one year of DPR data would provide
+sufficiently many collocations with MHS. Secondly, the use of
+independent validation data introduces an additional error source into the
+evaluation. Since the declared aim of the study was to assess only the impact of
+the retrieval method, we consider the validation against independent
+measurements outside the scope of this study.
+
+We will extend the introduction of the manuscript to highlight these difficulties
+and better define the scope of the manuscript.
+
+%We have, of course, not used parts of the training data to evaluate the proposed
+%retrievals and would like to thank the reviewer for pointing out this
+%shortcoming of the manuscript. The data that was used for the evaluation was
+%never used in the training of the neural network models. In fact, only data from
+%days 6 - 31 of every month are used for the training while data from days 4 - 5
+%was used to monitor the retrieval performance during the training.
+%
+%There are two important issues with the validation scheme proposed by the
+%reviewer. Firstly, it does not provide a way to validate the MHS retrievals.
+%Secondly, the DPR retrievals will be different from the retrieval database and
+%thus distort the comparison of the retrieval algorithms.
+%
+%Since the declared aim of this study is to assess the impact of the retrieval
+%method, we have decided to limit the comparison to data with the same statistics
+%as the training data. While not representative of the effective accuracy of the
+%GPM retrievals, the evaluation provides a nominal accuracy. This nominal
+%accuracy provides an important reference point for the upcoming validation of
+%the retrievals against independent measurements and will allow to isolate the
+%impacts of the retrieval method and the retrieval database on the retrieval
+%accuracy.
+
+\subsubsection{Changes in manuscript:}
+
+\begin{itemize}
+  \item We will add a paragraph to the introduction that discusses the difficulties
+    of evaluating precipitation retrievals and explains the motivation for our
+    evaluation scheme.
+
+    \begin{change}[102]
+
+    \DIFadd{Before a retrieval can replace the current operational version of
+      GPROF, it is imperative to establish its ability to improve the retrieval
+      accuracy to avoid degradation of the GPM products. A balanced evaluation
+      of the accuracy of precipitation retrievals is difficult because it
+      depends on the statistics of the data used in the assessment. Data-driven
+      retrievals generally yield the most accurate results when evaluated on
+      data with the same distribution as the data used for their training. At
+      the same time, evaluation against independent measurements may distort the
+      evaluation when these measurements deviate significantly from the training
+      data. In this study, the retrieval performance of the GPROF-NN algorithms
+      is evaluated and compared to that of GPROF using }\DIFaddend a held-out
+    part of the retrieval database\DIFdelbegin \DIFdel{and compared to that of
+      the upcoming version of GPROF. This new version of GPROF }\DIFdelend
+    \DIFaddbegin \DIFadd{. This provides the most direct estimate of the
+      benefits of the neural network based retrievals because it avoids the
+      distorting effects of using test data from a different origin. Moreover,
+      the nominal accuracy of both the GPROF and GPROF-NN algorithms provides a
+      reference for future validation against independent measurements. }
+    \DIFaddend
+
+    \end{change}
+
+    \item We will add a paragraph that clearly states that the data we use for
+      evaluation is not used during the training of the neural network
+      retrievals.
+
+    \begin{change}[285]
+      \DIFadd{The held-out test data comprises }\DIFaddend observations from the
+      first three days of every month from the retrieval database. \DIFdelbegin
+      \DIFdel{It should be noted that we have deliberately limited this
+        evaluation to data from the retrieval database in order to isolate the
+        effect of the retrieval algorithm from that of the database. We conclude
+        this section with a case study of overpasses of Hurricane Harvey. These
+        results are based on real observations and thus provide an indication to
+        what extent the performance on the retrieval database can be expected to
+        generalize to real observations }\DIFdelend \DIFaddbegin \DIFadd{This
+        data has not been used for training the neural network retrievals. It
+        is, however, derived from the same data sources and thus stems from the
+        same distribution as the training data. }
+    \end{change}
+
+\end{itemize}
+
+
+
+
+
+\subsection*{Reviewer comment 2}
+
+The most noticeable improve from NN method is for the very light precipitation
+(<0.1 mm/hr to 0.01 mm/hr, Fig. 6, 1st column). Then the question is: such light
+precipitation is really beyond the detection capability of both GMI and MHS.
+Many previous studies showed that the detection threshold value is around 0.2
+mm/hr (e.g., Munchak, S. Joseph, and Gail Skofronick- Jackson. "Evaluation of
+precipitation detection over various surfaces from passive microwave imagers and
+sounders." Atmospheric Research 131 (2013): 81-94.). In other words, even if
+GPROF-NN and GPROF-NN-3D can make this light surface precipitation retrieval
+better, it is difficult to justify physically you did correctly since these
+light precipitation are beyond the GMI/MHS detection capability.
+
+\subsubsection{Author response:}
+
+We do not agree with the reviewer on this point. The findings from
+\citet{munchak13} are themselves based on a retrieval. It is therefore possible
+that a more advanced retrieval method can improve the detection threshold of the
+sensors.
+
+In fact, when we apply the technique from \citet{munchak13} but instead of the
+cost function of their variational retrieval use the probability of
+precipitation retrieved by GPROF, we obtain the graph shown in
+Fig.~\ref{fig:sensitivity}. The detection thresholds for GPROF, GPROF-NN 1D and
+GPROF-NN 3D are about 0.15, 0.08 and $\SI{0.04}{\milli \meter \per \hour}$,
+respectively, as can be seen from the graph. This indicates that the GPROF-NN 1D
+(3D) retrieval increases the minimum sensitivity of GMI by a factor of 2 (4) and
+that there is a precipitation signal even at precipitation rates below
+$\SI{0.1}{\milli \meter \per \hour}$
+
+Moreover, the simple fact that the neural network based retrievals can improve
+the retrieval of weak precipitation indicates the presence of a signal from that
+precipitation. If that wouldn't be the case, there would be no way for the
+neural network based retrievals to make better predictions than GPROF.
+
+\begin{figure}[hbpt!]
+  \centering \includegraphics[width=1.0\textwidth]{figs_revised/sensitivity}
+  \caption{
+    Factional occurence of rain (solid lines, left y-axis) and corresponding
+    mean precipitation (dotted lines, right y-axis). This figure is similar to
+    Fig.~6 in \citet{munchak13} but uses the retrieved probability of precipitation
+    instead of the OEM cost.
+  }
+  \label{fig:sensitivity}
+\end{figure}
+
+\section{Minor comments}
+
+\subsection*{Reviewer comment 1}
+
+Line 3: “at such high temporal resolution” to “at three hours temporal
+resolution”, because the temporal resolution from PMWs is rather low (even with
+the constellation), compared with IR (can be 10 minutes or less).
+
+\subsubsection*{Author response:}
+
+We will reformulate this first part of the abstract to improve the description of the role
+of PMW observations.
+
+\subsubsection{Changes in manuscript:}
+
+\begin{itemize}
+\item We will reformulate the first paragraph of the abstract.
+
+  \begin{change}[1]
+\DIFaddend The Global Precipitation Measurement (GPM) mission \DIFdelbegin \DIFdel{aims to provide global measurements of precipitation
+with }\DIFdelend \DIFaddbegin \DIFadd{measures global precipitation
+at }\DIFaddend a temporal resolution of \DIFdelbegin \DIFdel{three hours in order
+to allow }\DIFdelend \DIFaddbegin \DIFadd{a few hours to enable }\DIFaddend close monitoring of the global
+hydrological cycle. \DIFdelbegin \DIFdel{To achieve global
+coverage at such high temporal resolution, GPM combines }\DIFdelend \DIFaddbegin \DIFadd{GPM achieves this by combining }\DIFaddend observations from a
+\DIFaddbegin \DIFadd{space-borne precipitation radar, a }\DIFaddend constellation of passive microwave (PMW)
+sensors \DIFaddbegin \DIFadd{and geostationary satellites}\DIFaddend .
+  \end{change}
+
+\end{itemize}
+
+
+\subsection*{Reviewer comment 2}
+
+Line 23: “can be expect” to “can be expected”
+
+\subsubsection*{Author response:}
+
+We will reformulate the corresponding paragraph and corrected the mistake.
+
+\subsubsection*{Changes in manuscript}
+
+  \begin{change}[23]
+     Application of the \DIFdelbegin \DIFdel{retrieval algorithm to real observations from the GMI and MHS sensors of Hurricane Harvey suggest that these improvements can be expect to }\DIFdelend \DIFaddbegin \DIFadd{retrievals to GMI observations of hurricane Harvey shows
+      moderate improvements when compared to co-located GPM combined and ground-based
+      radar measurements indicating that the improvements at least partially }\DIFaddend carry
+    over to \DIFdelbegin \DIFdel{operational application. }\DIFdelend \DIFaddbegin \DIFadd{assessment against independent measurements.    }\DIFaddend 
+  \end{change}
+
+
+
+\subsection*{Reviewer comment 3}
+
+Line 33: “3 hours” to “three hours” to be consistent with what you have used in the abstract.
+
+\subsubsection*{Author response:}
+
+We will replace 'three' with 'few' in the revised version of the manuscript
+because IMERG actually achieves a temporal resolution of 30 minutes.
+
+
+\subsubsection*{Changes in manuscript}
+
+\begin{change}[21]
+  The Goddard Profiling Algorithm (GPROF, \citet{kummerow15}) is the operational
+  precipitation retrieval algorithm for the passive microwave (PMW) observations
+  from the \DIFdelbegin \DIFdel{constellation of satellites of }\DIFdelend \DIFaddbegin \DIFadd{radiometer constellation of }\DIFaddend the Global Precipitation Measurement (GPM,
+  \citet{hou14})\DIFdelbegin \DIFdel{mission}\DIFdelend , whose objective is to provide consistent global measurements of
+  precipitation at a temporal resolution of \DIFdelbegin \DIFdel{3 hours. In addition
+    to being used directly by meteorologists and climate scientists, the
+    precipitation
+    that is retrieved using }\DIFdelend \DIFaddbegin \DIFadd{a few hours} \DIFaddend.
+\end{change}
+
+
+
+\subsection*{Reviewer comment 4}
+
+Line 34: “GPM level 3 retrieval products” probably need to change to “GPM level 3 retrieval
+product”. My understanding is that: there is only one Level 3 product (ie.., IMERG). Also, it may
+be better to briefly introduce IMERG via one sentence since IMERG is more widely used and
+known. But not so many studies realized that PMWs form the foundation for IMERG.
+
+\subsubsection*{Author response:}
+
+Although, officially, there are many GPM level three products it is
+true that IMERG is probably the most popular one. We will therefore reformulate
+the sentence in the revised version of the manuscript to mention IMERG.
+
+
+\subsubsection*{Changes in manuscript}
+
+\begin{change}[36]
+  \DIFdelbegin \DIFdel{In addition
+    to being used directly by meteorologists and climate scientists, the
+    precipitation
+    that is retrieved using }\DIFdelend \DIFaddbegin \DIFadd{a few hours. The precipitation
+    retrieved by }\DIFaddend GPROF serves as input for \DIFdelbegin \DIFdel{GPM level 3
+    retrieval products}\DIFdelend \DIFaddbegin \DIFadd{the Integrated Multi-Satellite Retrievals
+    for GPM (IMERG), which can be considered the state-of-the-art of global
+    precipitation measurements}\DIFaddend .
+
+\end{change}
+
+\subsection*{Reviewer comment 5}
+
+Line 134: I believe there are two typos in the multiple-variate normal distribution: (1) $n_i$ should
+be 1; and (2) $2\pi$, should be $(2\pi)^n$ (n is the variable number, should be 13 TBs). Please double
+check.
+
+\subsubsection*{Author response:}
+
+We would like to thank the reviewer for pointing out this mistake. However,
+instead of removing $n_i$ from the Eq.~(2), we will remove it from Eq.~(1)
+and move the $2\pi$ inside the determinant.
+
+\subsubsection*{Changes in manuscript:}
+
+\begin{itemize}
+  \item Equation (1), which has been renamed to (A1), will look as follows in the revised
+    version of the manuscript:
+      \begin{align}\label{eq:gprof_retrieval}
+        \int_{\mathbf{x} } \mathbf{x} p(\mathbf{x} | \mathbf{y})\: d\mathbf{x} =
+        \int_{\mathbf{x} } \mathbf{x}\: \frac{p(\mathbf{y} |
+          \mathbf{x})p(\mathbf{x})}{p(\mathbf{y})}\: d\mathbf{x} \approx \frac{\sum_i
+          p(\mathbf{y}|\mathbf{x}_i) \mathbf{x}_i}{\sum_i
+          p(\mathbf{y}|\mathbf{x}_i)}.
+      \end{align}
+
+    \item Equation (2), which has been renamed to (A2), will look as follows in the revised
+      version of the manuscript:
+          \begin{align}\label{eq:gprof_error}
+            p(\mathbf{y}|\mathbf{x}_i) =
+            \frac{n_i}{\sqrt{\text{det}(2\pi\mathbf{S})}} \exp \left \{ - \frac{1}{2}
+            (\mathbf{y} - \mathbf{y}_i)^T \mathbf{S}^{-1} (\mathbf{y} - \mathbf{y}_i)
+            \right \}
+          \end{align}
+
+ \end{itemize}
+
+\subsection*{Reviewer comment 6}
+
+Line 157: “as well” to “as well as”
+
+
+
+\subsubsection*{Author response:}
+
+We will correct this in the revised version of the manuscript.
+
+\subsubsection*{Changes in manuscript:}
+
+\begin{change}[179]
+For the GPROF-NN retrievals, the
+predicted CDF is used to derive most likely and mean surface precipitation (the
+latter of which is identical to the solution that would have been obtained with
+common mean squared error regression), the terciles of the posterior
+distribution as well \DIFaddbegin \DIFadd{as }\DIFaddend the probability of precipitation.
+\end{change}
+
+\subsection*{Reviewer comment 7}
+
+Fig. 5. I don’t understand what is the color squares. In the caption, it is mentioned “Grey
+squares mark equilaterals with ...”, what are the colored squares? I guess grey and color
+squares are the same??
+
+\subsubsection*{Author response:}
+
+The shading in the background just shows the GMI brightness temperatures. Grey
+squares are drawn on top to better show the distorting effect of the conical
+viewing geometry. We will update the figure caption to hopefully make the figure
+easier to understand.
+
+\subsubsection*{Changes in manuscript}
+
+\begin{itemize}
+  \item The caption of Fig.~4 in the manuscript will be updated. The updated caption
+    is shown in Fig.~\ref{fig:data_augmentation}
+\end{itemize}
+
+\begin{figure}[hbpt]
+  \centering
+    \DIFdelbeginFL %DIFDELCMD < \includegraphics[width=\textwidth]{figs/fig05}
+%DIFDELCMD <     %%%
+\DIFdelendFL \DIFaddbeginFL \includegraphics[width=\textwidth]{figs_revised/fig04}
+    \DIFaddendFL \caption{
+      The effect of GMIs conical viewing geometry on observed features. Panel
+      (a) displays geolocated observations of the $10.6\ \unit{GHz}$ channel
+      \DIFaddbeginFL \DIFaddFL{(colored background)}\DIFaddendFL . Grey squares mark equilaterals with a side length of
+      $200\unit{km}$ oriented along the swath. The highlighted stripe located at
+      the swath center marks the region where the values of the retrieved
+      variables are known. Panel (b) shows the same observations viewed as an
+      image on a uniform grid. Panel (c) shows six synthetically generated
+      training inputs based on two input regions marked in Panel (b). The first
+      row shows three synthetic samples that simulate the effect of viewing the
+      input in region A at a different position across the GMI swath. The second
+      row shows the corresponding transformations for the input in region B.
+    }
+  \label{fig:data_augmentation}
+\end{figure}
+
+
+
+\subsection*{Reviewer comment 8}
+
+Line 250: To obtain two-dimensional training scenes that are sufficiently wide to train a CNN,
+we make use of an intermediate CNN based model to ’retrieve’ simulated brightness
+temperatures across the full GMI swath. Please explain in more details how you did this (i.e.,
+extend from DPR swath to the whole GMI swath).
+
+\subsubsection*{Author response:}
+
+We will add a section to the newly added appendix which describes the process of
+generating the GPROF-NN 3D training data for sensors other than GMI.
+
+\subsubsection*{Changes in manuscript:}
+
+\begin{itemize}
+  \item A description of the generation of the training data will be added to Sec.~B1 of
+    the revised manuscript.
+
+    \begin{change}[580]
+
+      \renewcommand{\thesection}{B}
+    \DIFaddend \subsection{\DIFaddbegin \DIFadd{Training data}\DIFaddend }     %% Appendix A1, A2, etc.
+    \DIFaddbegin \label{sec:gprof_nn_training_data}
+    \DIFaddend 
+
+    \DIFdelbegin %DIFDELCMD < \noappendix       %%%
+    %DIF < % use this to mark the end of the appendix section. Otherwise the figures might be numbered incorrectly (e.g. 10 instead of 1).
+    \DIFdelend \DIFaddbegin \subsubsection{\DIFadd{Structure}}
+    \DIFaddend 
+
+    %DIF < % Regarding figures and tables in appendices, the following two options are possible depending on your general handling of figures and tables in the manuscript environment:
+    \DIFaddbegin \DIFadd{The training data for the GPROF-NN retrievals is stored
+      in an intermediate format to simplify the loading of the data during the
+      training process. The data is organized into scenes measuring 221
+      contiguous GMI pixels in both along- and across-track directions. Each
+      scene contains the GMI L1C brightness temperatures and the corresponding
+      values of the retrieval quantities at the center of the GMI swath. For
+      sensors other than GMI, each scene also contains the simulated brightness
+      temperatures of the corresponding sensor.
+    }\DIFaddend 
+
+    %DIF < % Option 1: If you sorted all figures and tables into the sections of the text, please also sort the appendix figures and appendix tables into the respective appendix sections.
+    %DIF < % They will be correctly named automatically.
+    \DIFaddbegin \subsubsection{\DIFadd{Generation}}
+    \label{app:training_data}
+    \DIFaddend 
+
+    %DIF < % Option 2: If you put all figures after the reference list, please insert appendix tables and figures after the normal tables and figures.
+    %DIF < % To rename them correctly to A1, A2, etc., please add the following commands in front of them:
+    \DIFaddbegin \DIFadd{An overview of the data flow for the training data generation for the GPROF-NN retrievals is displayed in Fig.~\ref{fig:data_flow}. The training data originates from four primary sources: The GPROF simulator files, which contain surface precipitation, hydrometeor profiles, and simulated brightness temperatures for an orbit of the GPM combined product. Surface precipitation over snow surfaces and sea-ice are derived from MRMS and ERA5 data, respectively. This data is matched with GMI L1C-R brightness temperatures. The data is split into non-overlapping scenes measuring 221 scans and 221 pixels. For sensors other than GMI, the brightness temperature differences between actual and simulated GMI observations are included and added to the simulated observations to provide a first-order correction for the modeling error in the observations. 
+    }\DIFaddend 
+
+    \DIFaddbegin \DIFadd{Simulated brightness temperatures are only available where the hydrometeor profiles and surface precipitation is known, i.e., at the center of the training scenes. Because this is insufficient to train a CNN with 2D convolutions for sensors other than GMI, an intermediate simulator retrieval is trained to retrieve simulated brightness temperatures from GMI observations. This retrieval the applied to the training data to fill in the simulated brightness temperatures across the entire GMI swath. The simulator neural network uses the same architecture as GPROF-NN 3D retrieval.
+    }
+
+    \end{change}
+
+  \begin{figure}
+    \centering
+    \includegraphics[width=\textwidth]{figs_revised/fig16}
+    \caption{
+      \DIFaddFL{Data flow diagram for the generation and organization of the GPROF-NN training data. Grey rectangles represent datasets, and colored rectangles with rounded corners represent algorithms.
+    }}
+    \label{fig:data_flow}
+  \end{figure}
+\end{itemize}
+
+\subsection*{Reviewer comment 9}
+
+Both Figure 6 and Figure 7 are over all surface types (i.e., land, ocean, coast, ect)? Please clarify.
+
+\subsubsection*{Author response:}
+
+Yes, both plots use all surface types. We will add the clarification to the manuscript.
+
+\subsubsection*{Changes in manuscript:}
+
+\begin{change}[297]
+Scatter plots of the retrieval results for these five quantities \DIFaddbegin
+\DIFadd{over all surfaces }\DIFaddend are displayed in
+Fig.~5 for GMI and Fig.~6 for MHS.
+\end{change}
+
+\subsection*{Reviewer comment 10}
+
+Throughout the paper, I did not find which MHS you used (maybe I missed it). Please specify
+MHS onboard which satellite (there are 5 MHSs, I think).
+
+\subsubsection*{Author response:}
+
+The GPROF database doesn't distinguish between the different instances of the MHS sensors,
+which is why the platform is not stated in the manuscript. For the observations of hurricane
+Harvey the platform is stated in l. 432.
+
+\subsection*{Reviewer comment 11}
+
+Line 440: we are not aware of any other operational PMW algorithms that incorporate
+structural information using CNNs. Yes, you are probably correct that nobody is using structural
+information via CNN. However, structure information has long been used for retrieval from the
+TRMM era. The land algorithm did by Ferrao group used quite a bit structural information
+(spatial information) before GPROF transitioned into all Bayesian technique. (see “Estimation
+of convective/stratiform ratio for TMI pixels” in Gopalan, Kaushik, et al. "Status of the TRMM
+2A12 land precipitation algorithm." Journal of Atmospheric and Oceanic Technology 27.8
+(2010): 1343-1354.) A more recent paper to use the spatial information (Guilloteau, Clément,
+and Efi Foufoula-Georgiou. "Beyond the pixel: Using patterns and multiscale spatial information
+to improve the retrieval of precipitation from spaceborne passive microwave imagers." Journal
+of atmospheric and oceanic technology 37.9 (2020): 1571-1591.).
+It will be good to briefly discuss how previous studies are using the structural information.
+
+\subsubsection*{Author response}
+
+We would like to thank the reviewer for this suggestion and the provided
+references. We will extend our discussion of the use of spatial information in
+previous retrievals.
+
+\subsubsection*{Changes in manuscript:}
+
+\begin{itemize}
+  \item We will add a paragraph to the introduction that discusses machine learning
+    and the use of spatial information in remote sensing retrievals.
+
+
+  \begin{change}[64]
+  \DIFaddbegin \DIFadd{While GPROF is currently based on a data-driven method to solve Bayesian inverse
+  problems, more general machine learning techniques have recently gained
+  popularity for application in precipitation retrievals. }\DIFaddend Deep neural networks
+  \DIFdelbegin \DIFdel{have led to }\DIFdelend \DIFaddbegin \DIFadd{(DNNs), which have enabled }\DIFaddend a number of \DIFdelbegin \DIFdel{important break-throughs in the
+  fields of computer vision, natural language processing and artificial
+  intelligence. They have also gained popularity for remote sensing retrievals
+  of precipitation . 
+  }\DIFdelend \DIFaddbegin \DIFadd{significant breakthroughs in different
+  scientific fields \mbox{%DIFAUXCMD
+  \citep{silver16, jumper21}}\hskip0pt%DIFAUXCMD
+  , have in recent years been explored
+  for retrieving precipitation from satellite observations. Especially
+  convolutional neural networks (CNNs) are appealing for this application because
+  of their ability to leverage spatial patterns in image data. This property sets
+  them apart from traditional retrieval methods and shallow machine-learning
+  techniques, which are limited in their ability to use this information by
+  computational complexity \mbox{%DIFAUXCMD
+  \citep{duncan19} }\hskip0pt%DIFAUXCMD
+  or the need for feature engineering or
+  manual incorporation of spatial information through techniques such as
+  convective-stratiform discrimination \mbox{%DIFAUXCMD
+  \citep{kaushik10}}\hskip0pt%DIFAUXCMD
+  .
+  }\DIFaddend 
+
+\end{change}
+
+  \clearpage
+  \item We will also reformulate the discussion of the use of spatial information
+    to include the reference provided by the reviewer.
+
+  \begin{change}[509]
+  \DIFdelbegin \DIFdel{The use of structural information for
+  precipitation retrievals is common practice in algorithms based on infrared
+  observations \mbox{%DIFAUXCMD
+  \citep{sorooshian00, hong04} }\hskip0pt%DIFAUXCMD
+  and the potential benefits of CNN
+  based retrievals have been shown in \mbox{%DIFAUXCMD
+  \citet{sadeghi19}}\hskip0pt%DIFAUXCMD
+  . While basic structural
+  information has been used in earlier PMW precipitation retrieval algorithms, as
+  e.g. by \mbox{%DIFAUXCMD
+  \citet{kummerow94}}\hskip0pt%DIFAUXCMD
+  , we are not aware of any other operational PMW
+  algorithms that incorporate structural information using CNNs
+  }\DIFdelend \DIFaddbegin \DIFadd{Because precipitation exhibits distinct spatial patterns in
+  satellite observations, many algorithms make use of this information to improve
+  precipitation retrievals \mbox{%DIFAUXCMD
+  \citep{kummerow94, sorooshian00, hong04}}\hskip0pt%DIFAUXCMD
+  . Our results
+  confirm that CNNs learn to leverage this information directly from the satellite
+  imagery and that it can notably improve the retrieval accuracy, which is in
+  agreement with the findings from other precipitation retrievals that employ CNNs
+  \mbox{%DIFAUXCMD
+  \citep{tang18, sadeghi19, gorooh22, sano18}}\hskip0pt%DIFAUXCMD
+  }\DIFaddend .
+  \end{change}
+
+\end{itemize}

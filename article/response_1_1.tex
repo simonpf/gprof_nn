@@ -1,0 +1,1684 @@
+
+In what follows, line and figure numbers are given with respect to the revised manuscript.
+
+\section{Specific comments}
+
+\subsection*{Reviewer comment 1}
+
+Many of your readers may not be familiar with NNs terminology. Would you please highlight the
+advantages of the NNs, e.g., related CNN and QRNN methods, that today are popular in the
+satellite precipitation community compared to other ML techniques.
+
+\subsubsection*{Author response:}
+
+We will add two paragraphs to the introduction, which discuss the advantages of
+neural networks for remote sensing retrievals in general as well as the specific
+advantages of CNNs and QRNNs.
+
+\subsubsection*{Changes in manuscript:}
+
+\clearpage
+
+\begin{change}[64]
+\DIFaddbegin \DIFadd{While GPROF is currently based on a data-driven method to solve Bayesian inverse
+problems, more general machine learning techniques have recently gained
+popularity for application in precipitation retrievals. }\DIFaddend Deep neural networks
+\DIFdelbegin \DIFdel{have led to }\DIFdelend \DIFaddbegin \DIFadd{(DNNs), which have enabled }\DIFaddend a number of \DIFdelbegin \DIFdel{important break-throughs in the
+fields of computer vision, natural language processing and artificial
+intelligence. They have also gained popularity for remote sensing retrievals
+of precipitation . 
+}\DIFdelend \DIFaddbegin \DIFadd{significant breakthroughs in different
+scientific fields \mbox{%DIFAUXCMD
+\citep{silver16, jumper21}}\hskip0pt%DIFAUXCMD
+, have in recent years been explored
+for retrieving precipitation from satellite observations. Especially
+convolutional neural networks (CNNs) are appealing for this application because
+of their ability to leverage spatial patterns in image data. This property sets
+them apart from traditional retrieval methods and shallow machine-learning
+techniques, which are limited in their ability to use this information by
+computational complexity \mbox{%DIFAUXCMD
+\citep{duncan19} }\hskip0pt%DIFAUXCMD
+or the need for feature engineering or
+manual incorporation of spatial information through techniques such as
+convective-stratiform discrimination \mbox{%DIFAUXCMD
+\citep{kaushik10}}\hskip0pt%DIFAUXCMD
+.
+}\DIFaddend 
+
+\end{change}
+
+\begin{change}[97]
+\DIFadd{The proposed algorithms are based on quantile regression neural networks (QRNNs,
+  \mbox{%DIFAUXCMD
+    \citeauthor{pfreundschuh18}}\hskip0pt%DIFAUXCMD
+  , \mbox{%DIFAUXCMD
+    \citeyear{pfreundschuh18}}\hskip0pt%DIFAUXCMD
+  ), which can be used to
+  predict the posterior distribution of a Bayesian solution of the retrieval,
+  given that the assumed a priori distribution of the Bayesian solution is the
+  same as the distribution of the neural network's training data. Because of this, the
+}\DIFaddend GPROF-NN \DIFdelbegin \DIFdel{implementations is
+  assessed on }\DIFdelend \DIFaddbegin \DIFadd{retrievals can produce all of GPROF's retrieval outputs, which include
+  a probability of precipitation and an uncertainty estimate of the predicted
+  precipitation in the form of terciles of the posterior distribution.
+}
+
+\end{change}
+
+\subsection*{Reviewer comment 2}
+
+As mentioned before, the study lacks an adequate review of the recent literature about using NNs
+for satellite precipitation estimation. I suggest some relevant papers (but are not limited to) that
+are worth reviewing. Please briefly explain already published works in the literature, their
+challenges/their methodologies, etc., and mention how your work is different from them. What are
+the open questions you try to address that the previous studies have not considered?
+As an example, in Lines 65-70: I understand that you specifically explore the potentials for NNs
+algorithm in GPROF, so please acknowledge other studies that have already discussed using
+spatial features in retrieving precipitation.
+
+\begin{itemize}
+\item Li, Z., Wen, Y., Schreier, M., Behrangi, A., Hong, Y. and Lambrigtsen, B., 2021. Advancing satellite precipitation
+retrievals with data-driven approaches: Is black box model explainable?. Earth and Space Science, 8(2),
+p.e2020EA001423.
+\item Afzali Gorooh, V., Akbari Asanjan, A., Nguyen, P., Hsu, K. and Sorooshian, S., 2022. Deep neural network high
+SpatioTEmporal resolution Precipitation estimation (Deep-STEP) using Passive Microwave and Infrared
+Data. Journal of Hydrometeorology.
+\item Sanò, P., Panegrossi, G., Casella, D., Marra, A.C., D’Adderio, L.P., Rysman, J.F. and Dietrich, S., 2018. The
+passive microwave neural network precipitation retrieval (PNPR) algorithm for the CONICAL scanning Global
+Microwave Imager (GMI) radiometer. Remote Sensing, 10(7), p.1122.
+\item Ehsani, M.R., Zarei, A., Gupta, H.V., Barnard, K., Lyons, E. and Behrangi, A., 2022. NowCasting-nets:
+Representation Learning to Mitigate Latency Gap of Satellite Precipitation Products using Convolutional and
+Recurrent Neural Networks. IEEE Transactions on Geoscience and Remote Sensing.
+\end{itemize}
+
+\subsubsection*{Author response:}
+
+We agree with the reviewer that the discussion of previous work on precipitation
+retrieval with neural networks was insufficient in the first version of the
+manuscript. We will add a brief summary of previous work to the introduction and
+discuss the relevant differences to our work.
+
+
+\clearpage
+
+\subsubsection*{Changes in manuscript:}
+
+\begin{change}[72]
+\DIFdelbegin \DIFdel{This study investigates the benefits of using the GPROF retrieval database to train a neural network }\DIFdelend \DIFaddbegin \DIFadd{Shallow neural networks have long been used }\DIFaddend to retrieve precipitation
+\DIFdelbegin \DIFdel{and hydrometeor profiles. Since
+the retrieval database has grown to a size of several hundred million entries it
+is perfectly suited for the application of deep neural networks , which scale
+very well to
+large amounts of data and are
+capable of learning complex
+relationships from them
+. In addition to this, a neural network based
+implementation has the advantage of allowing the integration of spatial
+information into }\DIFdelend \DIFaddbegin \DIFadd{from PMW observations \mbox{%DIFAUXCMD
+\citep{staelin00, surssavadee08}}\hskip0pt%DIFAUXCMD
+. The Passive microwave
+Neural network Precipitation Retrieval (PNPR) presented in \mbox{%DIFAUXCMD
+\citet{sano15,
+  sano16, sano18} }\hskip0pt%DIFAUXCMD
+and the work by \mbox{%DIFAUXCMD
+\citet{tang18} }\hskip0pt%DIFAUXCMD
+are among the more recent
+algorithms that use neural networks for retrieving precipitation from PMW
+observations. They employ relatively shallow neural networks and retrieve
+precipitation in a pixel-wise manner, thus neglecting spatial structure of the
+observations. Other recent work demonstrates the ability of  CNNs to
+leverage spatial information in  satellite observations. Examples of this are
+IR-based retrievals by \mbox{%DIFAUXCMD
+\citet{sadeghi19}}\hskip0pt%DIFAUXCMD
+, PMW-based precipitation detection
+\mbox{%DIFAUXCMD
+\citep{li21} }\hskip0pt%DIFAUXCMD
+and retrievals combining PMW with IR observations \mbox{%DIFAUXCMD
+\citep{gorooh22}
+}\hskip0pt%DIFAUXCMD
+and gauge measurements \mbox{%DIFAUXCMD
+\citep{moraux19}}\hskip0pt%DIFAUXCMD
+.
+}
+
+\DIFadd{A shortcoming of the aforementioned studies is that none of them
+addresses the inherent uncertainty of the precipitation retrievals. Retrieving
+precipitation from PMW observations constitutes an inverse problem, whose
+ill-posed character leads to significant uncertainties in the retrieval results.
+Traditionally, these uncertainties are handled using Bayesian statistics.
+However, because the algorithms mentioned above neglect the probabilistic
+character of }\DIFaddend the retrieval, \DIFdelbegin \DIFdel{which is not as easily feasible with the current
+method.
+This study thus aims to answer the following two questions:
+}%DIFDELCMD < \begin{enumerate}
+\begin{enumerate}%DIFAUXCMD
+%DIFDELCMD < \item %%%
+\item%DIFAUXCMD
+\DIFdel{Can a deep learning based retrieval method with identical inputs improve
+  the accuracy of retrieved surface precipitation and
+vertical hydrometeor
+  profiles?
+  }%DIFDELCMD < \item %%%
+\item%DIFAUXCMD
+\DIFdel{Can the incorporation of spatial information into the retrieval help to
+    improve the retrievals?
+}
+\end{enumerate}%DIFAUXCMD
+%DIFDELCMD < \end{enumerate}
+%DIFDELCMD < %%%
+\DIFdelend \DIFaddbegin \DIFadd{there is no way to reconcile them with the Bayesian
+approach.
+}\DIFaddend 
+
+\DIFdelbegin \DIFdel{To answer these questions, this study presents two novel, neural network based
+implementations of the GPROF algorithm:
+}\DIFdelend \DIFaddbegin \DIFadd{Moreover, existing precipitation retrievals that make use of DNNs
+\mbox{%DIFAUXCMD
+\citep{moraux19, sadeghi19, li21, gorooh22} }\hskip0pt%DIFAUXCMD
+are experimental retrievals that are
+currently not used operationally. The design of an operational retrieval
+algorithm for the GPM PMW observations needs to address a number of additional
+requirements, such as the handling of observations from different sensors and
+the retrieval of multiple output variables. Furthermore, because GPM is an
+ongoing mission, continuity of the output variables must be ensured, which
+further constrains the design of the retrieval algorithm.
+}
+\end{change}
+
+
+
+\subsection*{Reviewer comment 3}
+
+Lines 13 and 435: How do you define accuracy? Please elaborate on the reported improvements.
+
+\subsubsection*{Author response:}
+
+We will rewrite the sentences to clearly state the observed improvements in the various
+metrics.
+
+\subsubsection*{Changes in manuscript:}
+
+\begin{change}[14]
+\DIFaddbegin \DIFadd{Despite using the
+same input information as GPROF, }\DIFaddend the GPROF-NN \DIFdelbegin \DIFdel{algorithms and the development of the current GPROFalgorithm. Comparison of GPROF and the GPROF-NN }\DIFdelend 1D \DIFdelbegin \DIFdel{algorithm shows that by
+replacing GPROF with an identical neural network based retrieval }\DIFdelend \DIFaddbegin \DIFadd{retrieval improves }\DIFaddend the accuracy of the
+retrieved surface precipitation \DIFdelbegin \DIFdel{from }\DIFdelend \DIFaddbegin \DIFadd{for }\DIFaddend the GPM Microwave Imager (GMI) \DIFdelbegin \DIFdel{can be
+improved by $10$ to $25 \unit{\%}$ }\DIFdelend \DIFaddbegin \DIFadd{from
+$0.079\ \unit{mm h^{-1}}$ to $0.059\ \unit{mm h^{-1}}$ }\DIFaddend in terms of
+\DIFdelbegin \DIFdel{absolute error, root mean squared
+error and }\DIFdelend \DIFaddbegin \DIFadd{mean absolute error (MAE), from $76.1 \ \unit{\%}$ to
+$69.5\ \unit{\%}$ in terms of }\DIFaddend symmetric mean absolute percentage error \DIFdelbegin \DIFdel{. }\DIFdelend \DIFaddbegin \DIFadd{(SMAPE)
+and from $0.797$ to $0.847$ in terms of correlation. The improvements for the Microwave
+Humidity Sounder (MHS) are from $0.085\ \unit{mm h^{-1}}$ to $0.061\ \unit{mm h^{-1}}$ in terms
+of MAE, from  $81\ \unit{\%}$ to $70.1\ \unit{\%}$ 
+for SMAPE and from $0.724$ to $0.804$ in terms of correlation. }\DIFaddend Comparable improvements are
+\DIFdelbegin \DIFdel{observed }\DIFdelend \DIFaddbegin \DIFadd{found }\DIFaddend for the retrieved hydrometeor profiles and  their column integrals \DIFdelbegin \DIFdel{. The
+improvements are consistent spatially }\DIFdelend as well
+as \DIFdelbegin \DIFdel{with respect to different
+surface types. The effective resolution in along track direction of the retrieved surface precipitationfields is increased from $23\ \unit{km}$ to
+$14\ \unit{km}$. Similar, additional improvements are found for the }\DIFdelend \DIFaddbegin \DIFadd{the detection of precipitation. Moreover, the ability of the retrievals to
+resolve small-scale variability is improved by more than $40\ \unit{\%}$ for
+GMI and $29\ \unit{\%}$ for MHS. The }\DIFaddend GPROF-NN 3D \DIFdelbegin \DIFdel{retrieval over the performance of the GPROF-NN 1D retrieval, showing the added
+benefits of incorporating structural information into the retrieval. The effective resolution in along-track direction of the GPROF-NN 3D algorithm is
+reduced to $13.5\ \unit{km}$, which is the upper limit imposed by the along
+track separation of consecutive scan lines. Comparable improvements are found
+also when the algorithms are applied to synthetic observations from the cross
+track scanning Microwave Humidity Sounder (MHS) sensor.
+}\DIFdelend \DIFaddbegin \DIFadd{retrieval further improves
+the  MAE  to $0.043\ \unit{mm h^{-1}}$, the SMAPE to $48.67\ \unit{\%}$
+  and the correlation to $0.897$ for GMI and $0.043\ \unit{mm h^{-1}}$,
+  $63.42\ \unit{\%}^2$ and $0.83$ for MHS.
+}
+
+\end{change}
+
+\begin{change}[483]
+The second important finding from this study is that by extending the retrieval
+to incorporate structural information, its accuracy can be further improved by
+\DIFdelbegin \DIFdel{another $10$ to $25\ \unit{\%}$ }\DIFdelend \DIFaddbegin \DIFadd{about $20\ \unit{\%}$ in terms of MAE, MSE and SMAPE and $5\ \unit{\%}$ in terms
+  of correlation }\DIFaddend compared to the GPROF-NN 1D retrieval at the same time as the
+effective resolution in along track direction is decreased to its lower limit of
+$13.5\ \unit{km}$ \DIFaddbegin \DIFadd{for GMI and improved by $70\ \unit{\%}$ for MHS.}\DIFaddend
+\end{change}
+
+
+\subsection*{Reviewer comment 4}
+
+Line 15: how do you see the spatial consistency in precipitation retrievals? Does this sentence refer
+to visualization of derived precipitation rates over Hurricane Harvey for one or two orbital tracks?
+Please report some statistics for the general spatial detection skills of your proposed models.
+
+\subsubsection*{Author response:}
+
+The sentence that the reviewer is referring to was badly formulated. It was
+meant to refer to Fig.~9 and A1 from the original manuscript, which show that
+the improvements are consistent across the globe. However, since we consider
+this information to be of minor importance we will remove it from the revised
+version of the manuscript.
+
+\subsubsection*{Changes in manuscript}
+
+\begin{itemize}
+  \item The sentence will be removed from the manuscript.
+\end{itemize}
+
+\subsection*{Reviewer comment 5}
+
+Lines 25, Section 3.3: I think the authors need to be cautious in reporting
+processing time and computational cost comparisons. It is obvious that
+pixel-wise predictions are faster compared to convolutional-based systems when
+models are trained and are ready to use. I mean the comparison between GPROF and
+NN 1D makes sense but including NN 3D is ‘Comparing Apples to Oranges'.
+Processing time means when we have everything set up and ready, let’s say we
+receive one or more orbital tracks (different channels have different
+footprints, etc.), how long does it take from getting a set of brightness
+temperatures (Level 1 product) to get the corresponding precipitation maps.
+
+\subsubsection*{Author response:}
+
+The reported processing time measure exactly what the reviewer is requesting,
+i.e., the time required to process a full orbit of L1C observations augmented with
+ancillary data. Input and output data are the same for all retrievals and the
+processing time includes reading and writing of the data. The times are therefore
+directly comparable.
+
+It seems that this has not been made sufficiently clear in the manuscript. We
+will rewrite the paragraph to emphasize that the timings are, in fact,
+comparable.
+
+\subsubsection*{Changes in manuscript:}
+
+\begin{change}[446]
+\DIFdelbegin \DIFdel{Another relevant question regarding the retrieval algorithm is the
+computational
+cost of processing the satellite observations . Since }\DIFdelend GPROF is used \DIFdelbegin \DIFdel{operationally
+on }\DIFdelend \DIFaddbegin \DIFadd{to process }\DIFaddend PMW observations from a constellation of sensors
+spanning several decades of observations\DIFaddbegin \DIFadd{. Therefore}\DIFaddend , the processing time must
+not be excessively high. Although neural networks are \DIFdelbegin \DIFdel{know to be }\DIFdelend \DIFaddbegin \DIFadd{generally  }\DIFaddend efficient to
+evaluate, this often assumes dedicated hardware, which \DIFdelbegin \DIFdel{is not yet }\DIFdelend \DIFaddbegin \DIFadd{can not yet be expected
+to be }\DIFaddend available at the processing centers.
+\DIFdelbegin \DIFdel{We therefore
+evaluated }\DIFdelend \DIFaddbegin 
+
+\DIFadd{We measure }\DIFaddend the processing time \DIFdelbegin \DIFdel{that is required for a retrieval of an }\DIFdelend \DIFaddbegin \DIFadd{required for retrieving precipitation from a full
+}\DIFaddend orbit of observations using a single CPU core \DIFaddbegin \DIFadd{of an Intel Xeon Gold 6234 CPU to
+assess the computational complexity of the three retrievals. The processing time
+here includes all steps from reading a GPROF input file to writing the
+corresponding output file. The input and output files are the same for all three
+algorithms, excluding, of course, differences in the retrieval results}\DIFaddend .
+\DIFdelbegin \DIFdel{The results }\DIFdelend \DIFaddbegin 
+
+\DIFadd{The results }\DIFaddend are displayed in Fig.~14. \DIFdelbegin \DIFdel{Despite their superior retrieval accuracy, }\DIFdelend \DIFaddbegin \DIFadd{The processing of a
+single GMI file takes about 4 minutes for GPROF but only about 2 minutes for }\DIFaddend the
+GPROF-NN \DIFdelbegin \DIFdel{algorithms are about twice as fast as GPROF for GMI and MHS. }\DIFdelend \DIFaddbegin \DIFadd{retrievals. Because of the lower number of pixels in a single orbit,
+all retrievals are significantly faster for MHS. However, also here the GPROF-NN
+retrievals are significantly faster than GPROF. This shows that, even in the
+absence of dedicated hardware, the GPROF-NN retrievals process observations
+faster than the current implementation.
+}\DIFaddend 
+
+
+\end{change}
+
+
+\subsection*{Reviewer comment 6}
+
+The data preprocessing steps are not clear in the methodology. I suggest
+summarizing all the training process and prediction (here means after train and
+validation stage) steps in a numbered list, especially for the CNN algorithm in
+the methodology section.
+
+\subsubsection*{Author response:}
+
+%The generation of the GPROF retrieval database is described in the corresponding
+%Algorithm Theoretical Basis Document (ATBD, \citeautor{atbd}, \citeyear{atbd}).
+%Since our work uses this data, we consider it to be outside the scope of the
+%paper to repeat the description and will therefore reference the ATBD where
+%necessary.
+
+We will add descriptions of the training and evaluation processes of the
+GPROF-NN retrievals to the manuscript. However, to avoid excessively increasing
+the length of the manuscript's main text, we will add these sections to the
+appendix.
+
+\subsubsection*{Changes in manuscript:}
+
+\begin{itemize}
+\item Section B2  will be added to the appendix, which describes the training processes
+  for the GPROF-NN retrievals.
+
+  \begin{change}[600]
+\renewcommand{\thesection}{B}
+\setcounter{subsection}{1}
+\subsection{\DIFadd{Training}}     %DIF > % Appendix A1, A2, etc.
+\label{sec:gprof_nn_training}
+
+
+\DIFadd{Tab.~\ref{tab:parameters} lists the number of parameters of the neural networks
+used in the GPROF-NN retrievals together with the number of samples in the
+training data. Owing to its more complex network architecture, the neural
+network employed by GPROF-NN 3D has a larger number of parameters. The training
+data comprises $86\,350$ scenes of $221\times 221$ GMI pixels. From those
+scenes, only the pixels with known surface precipitation are used for the
+training of the GPROF-NN 1D retrieval. The total number of those amounts to
+$2\,136\,604\,660$. The
+}
+
+\subsubsection{\DIFadd{GPROF-NN 1D}}
+
+\DIFadd{The GPROF-NN 1D network is trained by simultaneously minimizing the sum of the
+losses of all retrieval variables. The training is performed over 70 epochs
+using the Adam optimizer \mbox{%DIFAUXCMD
+\citep{kingma14} }\hskip0pt%DIFAUXCMD
+with an initial learning rate of
+$5\cdot10^{-4}$ and a cosine annealing learning rate schedule
+\mbox{%DIFAUXCMD
+\citep{loshchilov16}}\hskip0pt%DIFAUXCMD
+. Warm restarts are performed after 10, 30 and, 50 epochs.
+}
+
+\DIFadd{The following pre-processing steps are performed when the training data for the
+GPROF-NN 1D retrieval are loaded. The steps are performed anew for each training
+epoch. A detailed explanation follows.
+}
+
+\begin{enumerate}
+  \item \DIFadd{Extract pixels with known surface-precipitation
+  }\item \DIFadd{For cross-track scanners: Sample earth-incidence angle and interpolate in- and outputs
+  }\item \DIFadd{For sensors other than GMI: Application of the brightness temperature correction
+  }\item \DIFadd{Input normalization and encoding
+  }\item \DIFadd{Replacement of zeros
+  }\item \DIFadd{For sensors other than GMI: Addition of thermal noise
+  }\item \DIFadd{Shuffle training samples
+}\end{enumerate}
+
+ \DIFadd{The retrieval outputs in the GPROF-NN training data are known only at a limited
+ number of pixels at the center of each scene. Only these pixels are extracted
+ from each scene in step (2). For cross-track scanning sensors, the training data
+ contains retrieval in- and output for a sequence of discrete earth-incidence
+ angles. A random earth-incidence angle is generated for each training sample,
+ and the in- and outputs are interpolated to that angle (2). If the sensor
+ relies on simulations, the brightness temperatures are corrected using the
+ method described in Sec.~2.3.4. The retrieval inputs are then
+ encoded and normalized (4, see Sec.~\ref{sec:input_normalization}). Zero values
+ of non-negative retrieval quantities are replaced by very small, random values
+ to avoid degenerate quantiles and problems with the application of the
+ log-linear transformation Eq.~(3) (5). Finally, thermal noise
+ according to sensor specification is added to simulated observations for
+ sensors other than GMI (6) and the loaded samples are shuffled (7).
+}
+
+
+\subsubsection{\DIFadd{GPROF-NN 3D}}
+
+ \DIFadd{The training of the GPROF-NN 3D retrieval is performed over 70 epochs using the
+ Adam optimizer \mbox{%DIFAUXCMD
+\citep{kingma14} }\hskip0pt%DIFAUXCMD
+with an initial learning rate of
+ $5\cdot10^{-4}$ and a cosine annealing learning rate schedule
+ \mbox{%DIFAUXCMD
+\citep{loshchilov16}}\hskip0pt%DIFAUXCMD
+. Warm restarts are performed after 10, 30 and 50 epochs.
+}
+
+\DIFadd{The following pre-processing steps are performed when the training data for the
+GPROF-NN 3D retrieval are loaded. These steps are performed anew for each
+training epoch. A detailed explanation follows.
+}
+
+\begin{enumerate}
+\item \DIFadd{Remapping of observations to viewing geometry of sensor
+}\item \DIFadd{For sensors other than GMI: Application of the brightness temperature correction
+}\item \DIFadd{Input normalization and encoding
+}\item \DIFadd{Replacement of zeros
+}\item \DIFadd{For sensors other than GMI: Addition of thermal noise and simulator error
+}\item \DIFadd{Shuffle training samples
+}\end{enumerate}
+
+\DIFadd{Each training scene is randomly remapped from the GMI swath to the viewing
+geometry of the sensor for which the training is performed (1, see
+Sec.~\ref{sec:remapping}). If the sensor relies on simulations,
+the correction described in Sec.~2.3.4 is applied to
+the brightness temperatures.
+The
+input for each scene is then encoded and normalized (3., see
+Sec.~\ref{sec:input_normalization}). Zero values of non-negative retrieval
+quantities are replaced by very small, random values to avoid degenerate
+quantiles and avoid problems with the application of the log-linear
+transformation Eq.~(3) (4). Thermal noise and a
+simulator error are added to the simulated observations for sensors other than
+GMI (5). The simulator error is modeled to be constant across each scene
+and determined from the MSE of the simulator network on the training data.
+Finally, the samples are shuffled (7).
+}
+
+
+
+\subsubsection{\DIFadd{Viewing geometry remapping}}
+\label{sec:remapping}
+
+\DIFadd{Because the largest part of the GPROF retrieval database is derived from
+collocations of GMI observations with the GPM CMB product, the spatial sampling
+of most training scenes corresponds to that of the GMI L1C-R product regardless
+of the sensor for which the database was generated. The viewing geometry of the
+observations in the database does therefore not match that of the other sensors
+of the GPM constellation. In addition to that, the values of the retrieval
+targets are only known at the center of the GMI swath. The distortions that
+occur towards the sides of the swath of GMI and the other sensors are therefore
+not well represented in the training data.
+}
+
+\DIFadd{A custom data augmentation scheme is applied  to overcome these limitations, which
+consists of a random remapping of the scenes  to the viewing
+geometry of the target sensor. The remapping is implemented as follows.
+}\begin{enumerate}
+\item \DIFadd{A random center location $c_\text{out}$ in the swath of the target sensor is sampled.
+}\item \DIFadd{The approximate positions $\mathbf{p_\text{out}}$ of $h \times w$ pixels
+  in the swath of the target sensor  in a two-dimensional Euclidean coordinate system
+  centered on $c_\text{out}$ are calculated.
+}\item \DIFadd{A random center location $c_\text{in}$ in the GMI swath is sampled.
+}\item \DIFadd{The approximate positions $\mathbf{p_\text{in}}$ of all GMI pixels in the
+  training scene in a two-dimensional Euclidean coordinate system centered on
+  $c_\text{in}$ are calculated.
+}\item \DIFadd{The retrieval in- and outputs are interpolated from the
+  positions $\mathbf{p_\text{in}}$ to the positions $\mathbf{p_\text{out}}$.
+}\item \DIFadd{For cross-track scanning sensors, the simulated brightness temperatures and
+  retrieval outputs are interpolated to the earth-incidence angles corresponding
+  to the positions $\mathbf{p_\text{out}}$ in the output window.
+}\end{enumerate}
+
+\DIFadd{The height $h$ and $w$ of the output window for GMI is 128 in the along-track
+direction and 96 in the across-track direction. Since many sensors have
+considerably wider swaths than GMI, the size of the output window is adapted to
+avoid that too many pixels lie outside the GMI swath. The width of the output
+window in across-track direction for MHS was set to 32 pixels.
+}
+
+\subsubsection{\DIFadd{Input normalization and encoding}}
+\label{sec:input_normalization}
+
+\DIFadd{The brightness temperatures and scalar ancillary data that constitute the input to the
+retrieval are normalized using minimum-maximum
+normalization. For each scalar input  $x$, the minimum $x_\text{min}$ and maximum
+$x_\text{max}$ values in the training data are calculated. The values are then normalized to
+the range $[-1, 1]$ using
+}\begin{align}
+  \DIFadd{x_\text{normalized} }&\DIFadd{= \frac{x - x_\text{min}}{x_\text{max} - x_\text{min}}.
+}\end{align}
+\DIFadd{Missing values in the input are set to the value -1.5. Categorical ancillary data, i. e,
+the surface type and air-lifting index, are encoded using one-hot encoding.
+}
+\end{change}
+
+  \begin{table}
+    \caption{\DIFaddFL{Sizes of neural network models and the training data.}}
+    \label{tab:parameters}
+    \begin{tabular}{|l||cc|}
+      \hline
+      & \DIFaddFL{Model parameters (GMI) }&  \DIFaddFL{Training samples }\\
+      \hline
+      \hline
+      \DIFaddFL{GPROF-NN 1D }& \DIFaddFL{$5\,453\,056$ }&  \DIFaddFL{$2\,136\,604\,660$ pixels }\\
+      \hline
+      \DIFaddFL{GPROF-NN 3D }& \DIFaddFL{$23\,855\,792$ }&  \DIFaddFL{$86\,350$ scenes }\\
+      \hline
+    \end{tabular}
+  \end{table}
+
+\item Section B3 will be added to the appendix, which describes
+  the retrieval processing of the GPROF-NN algorithms.
+
+  \begin{change}[675]
+    \renewcommand{\thesection}{B}
+    \setcounter{subsection}{2}
+    \setcounter{subsubsection}{1}
+
+\subsection{\DIFadd{Retrieval processing}}     %DIF > % Appendix A1, A2, etc.
+\label{sec:gprof_nn_processing}
+
+\DIFadd{The data flow for the application of the GPROF and GPROF-NN retrievals is
+displayed in Fig.~\ref{fig:data_flow_application}. The first step, which is
+common for all three retrievals, is the augmentation of the GPM L1C data with
+ancillary data. This process is performed by the GPROF preprocessor application.
+A detailed description of the ancillary data and its derivation can be found in
+the GPROF ATBD \mbox{%DIFAUXCMD
+\citep{atbd}}\hskip0pt%DIFAUXCMD
+. The GPROF preprocessor produces a binary file
+containing the observations and ancillary data. This file serves as input for
+both GPROF and the GPROF-NN retrievals.
+}
+
+
+\subsubsection{\DIFadd{GPROF-NN 1D}}
+
+\DIFadd{The processing of input observations for the GPROF-NN 1D retrieval involves the
+following steps.
+}
+
+\begin{enumerate}
+  \item \DIFadd{Flattening of retrieval inputs
+  }\item \DIFadd{Input normalization and encoding
+  }\item \DIFadd{Batch-wise evaluation of network and calculation of posterior statistics 
+  }\item \DIFadd{Re-assembly into swath structure
+  }\item \DIFadd{Writing of GPROF binary output file
+}\end{enumerate}
+
+\DIFadd{The observations and corresponding ancillary data are flattened into a list of
+inputs (1). All inputs are normalized and the categorical input variables are
+one-hot encoded using the same statistics as during training (2). The GPROF-NN
+1D network is then used to calculate the posterior distributions of the
+retrieval targets from which the relevant posterior statistics are derived
+(3). Finally, the results for each pixel are re-assembled into the original
+swath structure and written to the GPROF binary output format, which is
+ converted to HDF5 format in a separate step.
+}
+
+
+\subsubsection{\DIFadd{GPROF-NN 3D}}
+
+\DIFadd{The processing of input observations for the GPROF-NN 3D retrieval involves the
+following steps.
+}
+
+\begin{enumerate}
+\item \DIFadd{Input normalization and encoding
+}\item \DIFadd{Input padding
+}\item \DIFadd{Evaluation of network and calculation of the posterior statistics 
+}\item \DIFadd{Removal of padding
+}\end{enumerate}
+
+\DIFadd{The input observations and ancillary data are normalized and encoded using the
+same statistics as during the training. The input observations are then padded
+using symmetric padding so that the dimension of the input data are a multiple
+of 32, which is required to ensure of symmetry requirements of the down- and
+up-sampling transformation in the neural network. The GPROF-NN 3D network
+is then evaluated and the posterior statistics are calculated. Because the
+GPROF-NN 3D network employs a fully-convolutional architecture, the results can
+be calculated for a full orbit of observations at once. However, since this may
+require excessive amounts of memory, the processing allows for optional tiling
+of the processing in along-track direction. After removal of the padding, the
+retrieval results are written to the same binary format that is used by GPROF-NN
+1D and GPROF.
+}
+\end{change}
+
+  \begin{figure}
+    \centering
+    \includegraphics[width=\textwidth]{figs_revised/fig17}
+    \caption{
+      \DIFaddFL{Data flow diagram for the application of the GPROF and GPROF-NN retrievals.
+        The input for all retrieval is a GPROF preprocessor file, which is a binary file that
+        contains the brightness temperatures and corresponding ancillary data. From this input
+        all retrievals produce the retrieval results, which are stored in a common binary
+        format before being converted to HDF5 files.
+    }}
+    \label{fig:data_flow_application}
+  \end{figure}
+
+\end{itemize}
+
+\subsection*{Reviewer comment 7}
+
+Data and method Section: Please clearly explain how many channels are used as
+inputs to the NN models? What type of resampling/rescaling/interpolation methods
+do you use? Different radiometers/imagers/sounders have different bands and
+resolutions, how do you address this problem?
+
+\subsubsection*{Author response:}
+
+The GPROF-NN retrieval use the same channels as GPROF and don't apply any
+interpolation apart what is done anyways by the GPROF preprocessing
+software. We will add a paragraph with this information as well as a table with
+the channels of the GMI and MHS sensors used in the study to the manuscript.
+
+\subsubsection*{Changes in manuscript:}
+
+\begin{itemize}
+  \item Tab.~\ref{tab:channels} will be added to Sec.~2.1 of the manuscript, which shows
+    the channels of the GMI and MHS sensors that are used in this study. In addition to that,
+    the following paragraph will be added to Sec.~2.1 which discusses the handling of different
+    channels in the retrieval database.
+
+    \begin{change}[135]
+
+    \DIFaddbegin \DIFadd{Since the available channels and the viewing geometries vary between the
+      sensors of the GPM constellation, a separate database is generated for each
+      sensor type. A crucial difference between the retrieval databases for GMI and
+      the other sensors of the GPM constellation is that the database for GMI uses
+      real observations, while the databases for the other sensors are constructed
+      using simulations. The varying resolutions and viewing geometries of different
+      sensors are taken into account by resampling and averaging the simulated
+      observations and retrieval results to the observation footprints of the
+      corresponding sensor. The channels of the GMI and MHS sensors that are used in
+      this study are listed in Tab.~\ref{tab:channels}.
+    } \DIFaddend
+    \end{change}
+
+  \item We will rewrite the first paragraph of Sec.~2.3 as follows.
+
+\begin{change}[163]
+    The principal objective guiding the design of the GPROF-NN algorithms was to
+    develop a \DIFdelbegin \DIFdel{neural network retrieval that provides the exact }\DIFdelend \DIFaddbegin \DIFadd{neural-network-based retrieval that operates on the same input data
+      and provides the }\DIFaddend same output as GPROF so that it can \DIFdelbegin \DIFdel{potentially }\DIFdelend replace the current
+    implementation in a future update. \DIFdelbegin \DIFdel{GPROF produces several outputs that are probabilistic }\DIFdelend \DIFaddbegin \DIFadd{Although GPROF's retrieval scheme is defined
+      on independent pixels, the algorithm processes full orbits of observations and
+      corresponding ancillary data. Both GPROF-NN retrievals were therefore designed
+      to process the same input format as GPROF, which corresponds to each sensor's
+      level 1C observations in their native spatial sampling, which, where required,
+      is remapped to a common grid. The output from all retrievals is on the same grid
+      as the input.
+    } \DIFaddend
+\end{change}
+\end{itemize}
+
+
+\begin{table}[hbpt]
+  \caption{Channels of the GMI and MHS sensors used for the retrievals in this study.}
+  \label{tab:channels}
+  \centering
+  \begin{tabular}{lrr}
+    Channel & Freq. [$\unit{GHz}$] & Pol. \\
+    \hline
+    GMI-1  & $10.6$ & V  \\
+    GMI-2  & $10.6$ & H  \\
+    GMI-3  & $18.7$ & V  \\
+    GMI-4  & $18.7$ & H  \\
+    GMI-5  & $23$   & V  \\
+    GMI-6  & $37$   & V  \\
+    GMI-7  & $37$   & H  \\
+    GMI-8  & $89$   & V  \\
+    GMI-9  & $89$   & H  \\
+    GMI-10 & $166$ & V \\
+    GMI-11 & $166$ & H  \\
+    GMI-12 & $183 \pm 3$ \ & V \\
+    GMI-13 & $183 \pm 7$ \ & V \\
+  \end{tabular}%
+  \hspace{1cm}
+  \centering
+  \begin{tabular}{lrr}
+    Sensor & Freq. [$\unit{GHz}$] & Pol. \\
+    \hline
+    MHS-1 &  89 & V \\
+    MHS-2 &  157 & V \\
+    MHS-3 &  $183 \pm 1$ & H \\
+    MHS-4 &  $183 \pm 3$ & H \\
+    MHS-5 &  $190.31$ & V \\
+  \end{tabular}
+\end{table}
+
+\subsection*{Reviewer comment 8}
+
+How do you define 18 surface types? Are they generated by TELSEM classification
+algorithm? Please provide a clear picture of the source of data, pre-processing
+steps, etc. in this section. Background material for GPROF Algorithm is well
+described and cited in previous papers. So please summarize Section 2.2 and
+please explain more about the innovative parts of your investigation and the
+proposed models.
+
+\subsubsection*{Author response:}
+
+The surface type information used by GPROF is described in detail in the ATBD.
+Instead of repeating the content of the ATBS in the manuscript, we will
+ include a reference in the description of the retrieval database.
+
+We will replace Sec.~2.2 with a brief summary and move the detailed description of
+GPROF to the appendix.
+
+\subsubsection{Changes in manuscript}
+
+\begin{itemize}
+  \item We will add the following paragraph to the end of Sec.~2.1
+    \begin{change}[152]
+        A detailed description of the retrieval database and the derivation of the data
+        it contains can be found in the GPROF ATBD \citep{atbd}. The training data for the
+        GPROF-NN retrievals consists of the data from the retrieval database. The
+        training data is stored in an intermediate format to simplify the loading of the
+        data during training of the neural network. The format and the creation process
+        of the training data is described in detail in Sec.~\ref{sec:gprof_nn_training_data}
+        in the appendix.
+    \end{change}
+
+  \item Sec.~2.2 is moved to Sec. A1 in the appendix and replaced with the following summary.
+    \begin{change}[156]
+    The current implementation of GPROF uses a Bayesian scheme to retrieve
+    precipitation and hydrometeor profiles, which works by resampling the profiles
+    in the database based on the similarity of the observations and ancillary data.
+    GPROF uses ancillary data to split the database into separate bins. This reduces
+    the number of profiles for which weights must be computed and helps to constrain
+    the retrieval. Moreover, the profiles in each bin are clustered to limit the
+    number of profiles that need to be processed. A detailed description of the
+    implementation of GPROF is provided in Sec.~A in the appendix.
+
+    \end{change}
+\end{itemize}
+
+\subsection*{Reviewer comment 9}
+
+Please define all acronyms just the first time you use them. Then use the
+acronyms in the rest of the manuscript.
+
+\subsubsection*{Author response:}
+
+We will revise the manuscript to make the use of acronyms more consistent.
+
+
+\subsection*{Reviewer comment 9}
+
+Line 200: How many trainable parameters do the NNs algorithms have? Is one year
+of information enough for training and validating the models?
+
+\subsubsection*{Author response:}
+
+
+The GPROF-NN 1D model has about 5 million, and the GPROF-NN 3D model has about
+25 million parameters. The training data contains about 2 billion pixels with
+precipitation information. The fact that the trained models generalize well to
+unseen test data suggests that it is, in fact, possible to train these models sufficiently
+well with the available data.
+
+The number of pixels used to evaluate the retrievals varies between 50 and 3
+million for different sensors and retrieval types. Although the samples are not
+independent, we expect the number to be large enough to yield reliable
+statistics.
+
+\subsubsection*{Change in manuscript}
+
+\begin{itemize}
+  \item We will add the numbers of parameters and sizes of the training datasets
+    to the appendix. See changes in response to comment 6.
+  \item We will add the table shown in Tab.~\ref{tab:test_data} containing the number
+    of pixels used for the evaluation to the beginning of Sec.~3.1.
+  \item We will add the following paragraph to the beginning of Sec.~3.1:
+
+
+  \begin{change}[288]
+
+  \DIFaddbegin \DIFadd{Tab.~\ref{tab:test_data} lists the number of pixels with
+    precipitation information used for testing the retrievals. The evaluation of
+    the GPROF-NN 3D retrieval uses spatially contiguous scenes of the same size
+    as the ones used during its training. Since these scenes typically do not
+    cover all of the pixels with precipitation information, the test data for
+    the GPROF-NN 3D retrievals contain fewer pixels that can be used for
+    evaluation. The lower number of test pixels for MHS is due to the coarser
+    resolution of the observations, which leads to a smaller number of
+    observations over sea-ice and snow and an additional reduction of the pixels
+    available for evaluation of the GPROF-NN 3D retrieval.}\DIFaddend
+
+  \end{change}
+
+  \end{itemize}
+   
+  \begin{table}[hbpt!]
+    \caption{
+      The number of pixels with precipitation information in the test datasets
+      used to evaluate the retrievals.
+    }
+    \label{tab:test_data}
+    \centering
+    \begin{tabular}{|l||r|r|}
+      \hline
+      Sensor & GPROF \& GPROF-NN 1D & GPROF-NN 3D \\
+      \hline
+      \hline
+      GMI & $50\,435\,584$ & $14\,218\,203$ \\
+      \hline
+      MHS & $24\,975\,877$ & $4\,945\,165$ \\
+      \hline
+    \end{tabular}
+  \end{table}
+
+
+\subsection*{Reviewer comment 11}
+
+Line 220: Please add some information about the training stage of models. For
+example, what are the size of 3D inputs to the CNN model in the training stage?
+how do you pre-process data to come up with input training samples?
+
+\subsubsection*{Author response:}
+
+To provide a fuller picture of the training processes for the GPROF-NN retrievals,
+we will include a dedicated section in the appendix and move all information related
+to the training there.
+
+\subsubsection*{Changes in manuscript:}
+
+\begin{itemize}
+  \item We will add a detailed description of the training processes for the 
+    retrievals to Sec.~B2 in the appendix, which contains the information requested by
+    the reviewer. See changes in response to comment 6.
+ \end{itemize}
+
+
+\subsection*{Reviewer comment 11}
+
+Figure 5. Define regions A and B in the figure. Please explain the augmentation
+process in the training stage of CNN model development.
+
+\subsubsection*{Author response:}
+
+We will add the missing labels for the two regions. A detailed description
+of the augmentation process will be provided in the appendix.
+
+\subsubsection*{Changes in manuscript:}
+
+\begin{itemize}
+  \item We have updated Fig.~5 in the manuscript, which now looks as shown
+    in Fig.~\ref{fig:data_augmentation}
+  \item We will include a detailed description of the augmentation process
+    in Sec.~B2.3 the appendix.
+\end{itemize}
+
+\begin{figure}[hbpt]
+  \centering
+    \includegraphics[width=\textwidth]{figs_revised/fig04}
+    \caption{
+      The updated Fig.~4, which will be included in the revised manuscript.
+    }
+  \label{fig:data_augmentation}
+\end{figure}
+
+\subsection*{Reviewer comment 12}
+
+
+Figures 6 and 7. I do not see a good reason for the color used in these figures,
+and I find it confusing, commonly blue-red colors would reveal more features.
+Please find similar figures as the example in Utsumi et al 2020 paper. Also,
+please report some common statistical indices (related to scatterplots) or
+detection skill metrics to reveal the discrepancies/improvements. It is better
+to judge the performance based on statistical indices along with visual
+assessments. 3 - Utsumi, N., Turk, F.J., Haddad, Z.S., Kirstetter, P.-E., Kim,
+H., 2020. Evaluation of Precipitation Vertical Profiles Estimated by GPM-Era
+Satellite-Based Passive Microwave Retrievals. Journal of Hydrometeorology 22,
+95–112. https://doi.org/10.1175/JHM-D-20-0160.1
+
+
+\subsubsection*{Author response:}
+
+It seems that \citet{utsumi21} use a spectral colormap that is similar  or
+identical to the 'jet' colormap in their scatter plots. We would like to point
+out that the 'jet' colormap visually distorts the displayed data due to its
+non-linear and non-monotonic lightness profile \citep{thyng16}. The colormap
+that is used in the manuscript is perceptually uniform and ordered
+\citep{matplotlib_colormaps}. This should make the color map less confusing
+and less misleading and is in accordance with general guidelines for data visualization
+\citep{borland07}.
+
+Since we are not aware of any objective criteria that would justify the use of
+the 'jet' color map, we will keep the current color map in the revised version
+of the manuscript.
+
+The manuscript already reports a range of common statistical indices
+(Bias, MSE, MAE, SMAPE) to assess the accuracy of the retrieval. To provide an
+additional metric that is related to scatter plots, we will extend the manuscript
+to include the correlation.
+
+We will, however, not include detection metrics here because the detection of
+precipitation is handled by the probability of precipitation and precipitation
+flag outputs of GPROF. These are evaluated separately in Sec.~3.1.2 of the
+manuscript.
+
+\subsubsection*{Changes in manuscript:}
+
+\begin{itemize}
+  \item We will add the correlation to tables 2, 3, A1, A2, A3, A4, A6,
+    A7, A8 as well as Fig.~7 (Fig.~8 in first version) and Fig.~11 (Fig.~12
+    in first version). The updated tables are shown in Tab.~\ref{tab:metrics_gmi}-\ref{tab:metrics_mhs_cwp}.
+    The updated figures are shown in Fig.~\ref{fig:results_surface_types} and
+    Fig.~\ref{fig:results_profiles}, respectively.
+
+\end{itemize}
+
+\begin{figure}[hbpt]
+  \centering
+  \includegraphics[width=\textwidth]{figs_revised/fig11}
+  \caption{
+    The updated Fig.~11 from the revised manuscript.
+  }
+  \label{fig:results_profiles}
+\end{figure}
+
+\begin{table}[hbpt!]
+  \caption{\DIFdelbeginFL \DIFdelFL{Error }\DIFdelendFL \DIFaddbeginFL \DIFaddFL{Mean error }\DIFaddendFL metrics \DIFaddbeginFL \DIFaddFL{and estimated standard deviation }\DIFaddendFL for \DIFdelbeginFL \DIFdelFL{the }\DIFdelendFL surface
+    precipitation retrieved from GMI observations.\DIFdelbeginFL \DIFdelFL{Uncertainty
+  estimates are given as one standard deviation around the mean.}\DIFdelendFL }
+  \label{tab:metrics_gmi}
+  \begin{tabular}{|c||p{3.5cm}|p{3.5cm}|p{3.5cm}|}
+    \hline
+    Metric &
+    \multicolumn{1}{|c}{GPROF} &
+    \multicolumn{1}{|c}{GPROF-NN 1D} &
+    \multicolumn{1}{|c|}{GPROF-NN 3D} \\
+    \hline\hline
+    Bias \hfill [$\unit{mm\ h^{-1}}$] & \hfill \DIFdelbeginFL \DIFdelFL{$ -0.0040 \pm 0.0001$ }\DIFdelendFL \DIFaddbeginFL \DIFaddFL{$ -0.0029 \pm 0.0001$ }\DIFaddendFL &\hfill $ -0.0024 \pm 0.0001$   &\hfill $ -0.0006 \pm 0.0001$ \\
+    MAE \hfill [$\unit{mm\ h^{-1}}$] & \hfill \DIFdelbeginFL \DIFdelFL{$  0.0785 \pm 0.0001$ }\DIFdelendFL \DIFaddbeginFL \DIFaddFL{$  0.0788 \pm 0.0001$ }\DIFaddendFL &\hfill $  0.0585 \pm 0.0001$    &\hfill $  0.0444 \pm 0.0001$ \\
+    MSE \hfill [$\unit{mm\ h^{-1}}$] & \hfill \DIFdelbeginFL \DIFdelFL{$  0.1830 \pm 0.0001$ }\DIFdelendFL \DIFaddbeginFL \DIFaddFL{$  0.1965 \pm 0.0001$ }\DIFaddendFL &\hfill $  0.1379 \pm 0.0001$    &\hfill $  0.0983 \pm 0.0001$ \\
+    SMAPE$_{0.01}$ \hfill [$\unit{\%}$] & \hfill \DIFdelbeginFL \DIFdelFL{$ 76.9023 \pm 0.0138$ }\DIFdelendFL \DIFaddbeginFL \DIFaddFL{$ 76.0598 \pm 0.0139$ }\DIFaddendFL &\hfill $ 69.5382 \pm 0.0127$ &\hfill $ 56.0040 \pm 0.0181$ \\
+    \DIFaddbeginFL \DIFaddFL{Correlation }& \hfill \DIFaddFL{$ 0.7971$ }&\hfill \DIFaddFL{$  0.8470$ }&\hfill \DIFaddFL{$ 0.8966$ }\\
+    \DIFaddendFL \hline
+  \end{tabular}
+
+\end{table}
+
+\begin{table}[hbpt!]
+  \caption{Mean error metrics and estimated standard deviation for surface
+    precipitation retrieved from MHS observations.}
+  \label{tab:metrics_mhs}
+  \begin{tabular}{|c||p{3.5cm}|p{3.5cm}|p{3.5cm}|}
+    \hline
+    Metric &
+    \multicolumn{1}{|c}{GPROF} &
+    \multicolumn{1}{|c}{GPROF-NN 1D} &
+    \multicolumn{1}{|c|}{GPROF-NN 3D} \\
+    \hline\hline
+    Bias \hfill [$\unit{mm\ h^{-1}}$] & \hfill \DIFdelbeginFL \DIFdelFL{$  0.0070 \pm 0.0001$ }\DIFdelendFL \DIFaddbeginFL \DIFaddFL{$ -0.0110 \pm 0.0001$ }\DIFaddendFL &\hfill \DIFdelbeginFL \DIFdelFL{$ -0.0053 \pm 0.0001$ }\DIFdelendFL \DIFaddbeginFL \DIFaddFL{$ -0.0066 \pm 0.0001$ }\DIFaddendFL &\hfill \DIFdelbeginFL \DIFdelFL{$  0.0017 \pm 0.0002$ }\DIFdelendFL \DIFaddbeginFL \DIFaddFL{$ -0.0018 \pm 0.0001$ }\DIFaddendFL \\
+    MAE \hfill [$\unit{mm\ h^{-1}}$] & \hfill \DIFdelbeginFL \DIFdelFL{$  0.0948 \pm 0.0001$ }\DIFdelendFL \DIFaddbeginFL \DIFaddFL{$  0.0846 \pm 0.0001$ }\DIFaddendFL &\hfill \DIFdelbeginFL \DIFdelFL{$  0.0610 \pm 0.0001$ }\DIFdelendFL \DIFaddbeginFL \DIFaddFL{$  0.0609 \pm 0.0001$ }\DIFaddendFL &\hfill \DIFdelbeginFL \DIFdelFL{$  0.0524 \pm 0.0002$ }\DIFdelendFL \DIFaddbeginFL \DIFaddFL{$  0.0487 \pm 0.0001$ }\DIFaddendFL \\
+    MSE \hfill [$\unit{mm\ h^{-1}}$] & \hfill \DIFdelbeginFL \DIFdelFL{$  0.3078 \pm 0.0002$ }\DIFdelendFL \DIFaddbeginFL \DIFaddFL{$  0.2317 \pm 0.0001$ }\DIFaddendFL &\hfill \DIFdelbeginFL \DIFdelFL{$  0.2088 \pm 0.0002$ }\DIFdelendFL \DIFaddbeginFL \DIFaddFL{$  0.1682 \pm 0.0001$ }\DIFaddendFL &\hfill \DIFdelbeginFL \DIFdelFL{$  0.1373 \pm 0.0002$ }\DIFdelendFL \DIFaddbeginFL \DIFaddFL{$  0.1087 \pm 0.0001$ }\DIFaddendFL \\
+    SMAPE$_{0.01}$ \hfill [$\unit{\%}$] & \hfill \DIFdelbeginFL \DIFdelFL{$ 80.9690 \pm 0.0192$ }\DIFdelendFL \DIFaddbeginFL \DIFaddFL{$ 80.8641 \pm 0.0190$ }\DIFaddendFL &\hfill \DIFdelbeginFL \DIFdelFL{$ 70.1140 \pm 0.0189$ }\DIFdelendFL \DIFaddbeginFL \DIFaddFL{$ 68.4961 \pm 0.0185$ }\DIFaddendFL &\hfill \DIFdelbeginFL \DIFdelFL{$ 63.4292 \pm 0.0414$ }\DIFdelendFL \DIFaddbeginFL \DIFaddFL{$ 62.3086 \pm 0.0377$ }\DIFaddendFL \\
+    \DIFaddbeginFL \DIFaddFL{Correlation }& \hfill \DIFaddFL{$  0.7239 \pm 0.0000$ }&\hfill \DIFaddFL{$  0.8040 \pm 0.0000$ }&\hfill \DIFaddFL{$  0.8400 \pm 0.0000$ }\\
+    \DIFaddendFL \hline
+  \end{tabular}
+\end{table}
+
+\begin{table}[hbpt!]
+  \centering
+  \caption{Like Tab.~\ref{tab:metrics_gmi} but for convective precipitation.}
+  \label{tab:metrics_gmi_convective}
+\begin{tabular}{|c||p{3.5cm}|p{3.5cm}|p{3.5cm}|}
+  \hline
+  Metric &
+  \multicolumn{1}{|c}{GPROF} &
+  \multicolumn{1}{|c}{GPROF-NN 1D} &
+  \multicolumn{1}{|c|}{GPROF-NN 3D} \\
+  \hline\hline
+  Bias \hfill [$\unit{mm\ h^{-1}}$]   & \hfill \DIFdelbeginFL \DIFdelFL{$ -0.0010 \pm 0.0001$ }\DIFdelendFL \DIFaddbeginFL \DIFaddFL{$ -0.0007 \pm 0.0001$ }\DIFaddendFL &\hfill $ -0.0015 \pm 0.0001$ &\hfill $ -0.0011 \pm 0.0001$ \\
+  MAE \hfill [$\unit{mm\ h^{-1}}$]    & \hfill \DIFdelbeginFL \DIFdelFL{$  0.0310 \pm 0.0001$ }\DIFdelendFL \DIFaddbeginFL \DIFaddFL{$  0.0322 \pm 0.0001$ }\DIFaddendFL &\hfill $  0.0239 \pm 0.0001$ &\hfill $  0.0204 \pm 0.0001$ \\
+  MSE \hfill [$\unit{mm\ h^{-1}}$]    & \hfill \DIFdelbeginFL \DIFdelFL{$  0.1766 \pm 0.0001$ }\DIFdelendFL \DIFaddbeginFL \DIFaddFL{$  0.1927 \pm 0.0001$ }\DIFaddendFL &\hfill $  0.1298 \pm 0.0001$ &\hfill $  0.0854 \pm 0.0001$ \\
+  MAPE$_{0.01}$ \hfill [$\unit{\%}$]  & \hfill \DIFdelbeginFL \DIFdelFL{$108.7784 \pm 0.0391$ }\DIFdelendFL \DIFaddbeginFL \DIFaddFL{$118.151 \pm 0.0391$ }\DIFaddendFL &\hfill $107.1976 \pm 0.0378$ &\hfill $ 92.8343 \pm 0.0542$ \\
+  \DIFaddbeginFL \DIFaddFL{Correlation }& \hfill \DIFaddFL{$  0.6380 $ }&\hfill \DIFaddFL{$  0.7467 $ }&\hfill \DIFaddFL{$  0.8152 $ }\\
+  \DIFaddendFL \hline
+\end{tabular}
+\end{table}
+
+
+\DIFdelbegin %DIFDELCMD < \clearpage
+%DIFDELCMD < 
+
+%DIFDELCMD < %%%
+\DIFdelend \begin{table}[hbpt!]
+  \centering
+  \caption{Like Tab.~\ref{tab:metrics_gmi} but for RWP.}
+  \label{tab:metrics_gmi_rwp}
+  \begin{tabular}{|c||p{3.5cm}|p{3.5cm}|p{3.5cm}|}
+    \hline
+    Metric &
+    \multicolumn{1}{|c}{GPROF} &
+    \multicolumn{1}{|c}{GPROF-NN 1D} &
+    \multicolumn{1}{|c|}{GPROF-NN 3D} \\
+    \hline\hline
+    Bias \hfill [$\unit{mm\ h^{-1}}$]  & \hfill \DIFdelbeginFL \DIFdelFL{$  0.0017 \pm 0.0000$ }\DIFdelendFL \DIFaddbeginFL \DIFaddFL{$  0.0016 \pm 0.0000$ }\DIFaddendFL &\hfill $ -0.0005 \pm 0.0000$ &\hfill $ -0.0003 \pm 0.0000$ \\
+    MAE \hfill [$\unit{mm\ h^{-1}}$]   & \hfill \DIFdelbeginFL \DIFdelFL{$  0.0183 \pm 0.0000$ }\DIFdelendFL \DIFaddbeginFL \DIFaddFL{$  0.0185 \pm 0.0000$ }\DIFaddendFL &\hfill $  0.0127 \pm 0.0000$ &\hfill $  0.0094 \pm 0.0000$ \\
+    MSE \hfill [$\unit{mm\ h^{-1}}$]   & \hfill \DIFdelbeginFL \DIFdelFL{$  0.0112 \pm 0.0000$ }\DIFdelendFL \DIFaddbeginFL \DIFaddFL{$  0.0120 \pm 0.0000$ }\DIFaddendFL &\hfill $  0.0086 \pm 0.0000$ &\hfill $  0.0047 \pm 0.0000$ \\
+    MAPE$_{0.001}$ \hfill [$\unit{\%}$] & \hfill \DIFdelbeginFL \DIFdelFL{$ 83.8520 \pm 0.0287$ }\DIFdelendFL \DIFaddbeginFL \DIFaddFL{$ 84.072 \pm 0.0287$ }\DIFaddendFL &\hfill $ 69.6918 \pm 0.0284$ &\hfill $ 61.8979 \pm 0.0315$ \\
+    \DIFaddbeginFL \DIFaddFL{Correlation }& \hfill \DIFaddFL{$  0.8308$ }&\hfill \DIFaddFL{$  0.8777$ }&\hfill \DIFaddFL{$ 0.9241$ }\\
+    \DIFaddendFL \hline
+  \end{tabular}
+\end{table}
+
+%% Please add \clearpage between each table and/or figure. Further guidelines on figures and tables can be found below.
+
+\begin{table}[hbpt!]
+  \centering
+\caption{Like Tab.~\ref{tab:metrics_gmi} but for IWP.}
+\label{tab:metrics_gmi_iwp}
+\begin{tabular}{|c||p{3.5cm}|p{3.5cm}|p{3.5cm}|}
+  \hline
+  Metric &
+  \multicolumn{1}{|c}{GPROF} &
+  \multicolumn{1}{|c}{GPROF-NN 1D} &
+  \multicolumn{1}{|c|}{GPROF-NN 3D} \\
+  \hline\hline
+  Bias \hfill [$\unit{mm\ h^{-1}}$]   & \hfill $ -0.0022 \pm 0.0000$ &\hfill $ -0.0006 \pm 0.0000$ &\hfill $ -0.0002 \pm 0.0000$ \\
+  MAE \hfill [$\unit{mm\ h^{-1}}$]    & \hfill \DIFdelbeginFL \DIFdelFL{$  0.0199 \pm 0.0000$ }\DIFdelendFL \DIFaddbeginFL \DIFaddFL{$  0.0204 \pm 0.0000$ }\DIFaddendFL &\hfill $  0.0123 \pm 0.0000$ &\hfill $  0.0085 \pm 0.0000$ \\
+  MSE \hfill [$\unit{mm\ h^{-1}}$]    & \hfill \DIFdelbeginFL \DIFdelFL{$  0.0129 \pm 0.0000$ }\DIFdelendFL \DIFaddbeginFL \DIFaddFL{$  0.0186 \pm 0.0000$ }\DIFaddendFL &\hfill $  0.0123 \pm 0.0000$ &\hfill $  0.0053 \pm 0.0000$ \\
+  MAPE$_{0.001}$ \hfill [$\unit{\%}$] & \hfill \DIFdelbeginFL \DIFdelFL{$ 88.0565 \pm 0.0312$ }\DIFdelendFL \DIFaddbeginFL \DIFaddFL{$ 88.26 \pm 0.0312$ }\DIFaddendFL &\hfill $ 67.3705 \pm 0.0305$ &\hfill $ 58.5831 \pm 0.0334$ \\
+  \DIFaddbeginFL \DIFaddFL{Correlation }& \hfill \DIFaddFL{$0.7897$ }&\hfill \DIFaddFL{$0.8637$ }&\hfill \DIFaddFL{$  0.9350$ }\\
+  \DIFaddendFL \hline
+\end{tabular}
+\end{table}
+
+\DIFdelbegin %DIFDELCMD < \end{table}
+%DIFDELCMD < %%%
+\DIFdelend
+
+\begin{table}[hbpt!]
+  \centering
+  \caption{Like Tab.~\ref{tab:metrics_gmi} but for CWP.}
+  \label{tab:metrics_gmi_cwp}
+  \begin{tabular}{|c||p{3.5cm}|p{3.5cm}|p{3.5cm}|}
+    \hline
+    Metric &
+    \multicolumn{1}{|c}{GPROF} &
+    \multicolumn{1}{|c}{GPROF-NN 1D} &
+    \multicolumn{1}{|c|}{GPROF-NN 3D} \\
+    \hline\hline
+    Bias \hfill [$\unit{mm\ h^{-1}}$]   & \hfill $ -0.0019 \pm 0.0000$ &\hfill $ -0.0005 \pm 0.0000$ &\hfill $ -0.0005 \pm 0.0000$ \\
+    MAE \hfill [$\unit{mm\ h^{-1}}$]    & \hfill $  0.0268 \pm 0.0000$ &\hfill $  0.0157 \pm 0.0000$ &\hfill $  0.0115 \pm 0.0000$ \\
+    MSE \hfill [$\unit{mm\ h^{-1}}$]    & \hfill $  0.0027 \pm 0.0000$ &\hfill $  0.0015 \pm 0.0000$ &\hfill $  0.0009 \pm 0.0000$ \\
+    MAPE$_{0.001}$ \hfill [$\unit{\%}$]  & \hfill $ 62.2267 \pm 0.0100$ &\hfill $ 36.6584 \pm 0.0078$ &\hfill $ 27.9016 \pm 0.0087$ \\
+    \DIFaddbeginFL \DIFaddFL{Correlation }& \hfill \DIFaddFL{$  0.8709$ }&\hfill \DIFaddFL{$  0.9265$ }&\hfill \DIFaddFL{$  0.9531$ }\\
+    \DIFaddendFL \hline
+  \end{tabular}
+\end{table}
+
+\begin{table}[hbpt!]
+  \centering
+  \caption{Like Tab.~\ref{tab:metrics_mhs} but for convective precipitation.}
+  \label{tab:metrics_mhs_convective}
+\begin{tabular}{|c||p{3.5cm}|p{3.5cm}|p{3.5cm}|}
+  \hline
+  Metric &
+  \multicolumn{1}{|c}{GPROF} &
+  \multicolumn{1}{|c}{GPROF-NN 1D} &
+  \multicolumn{1}{|c|}{GPROF-NN 3D} \\
+  \hline\hline
+  Bias \hfill [$\unit{mm\ h^{-1}}$] & \hfill \DIFdelbeginFL \DIFdelFL{$  0.0072 \pm 0.0001$ }\DIFdelendFL \DIFaddbeginFL \DIFaddFL{$ -0.0046 \pm 0.0001$ }\DIFaddendFL &\hfill \DIFdelbeginFL \DIFdelFL{$ -0.0033 \pm 0.0001$ }\DIFdelendFL \DIFaddbeginFL \DIFaddFL{$ -0.0023 \pm 0.0001$ }\DIFaddendFL &\hfill \DIFdelbeginFL \DIFdelFL{$  0.0019 \pm 0.0001$ }\DIFdelendFL \DIFaddbeginFL \DIFaddFL{$ -0.0012 \pm 0.0001$ }\DIFaddendFL \\
+  MAE \hfill [$\unit{mm\ h^{-1}}$] & \hfill \DIFdelbeginFL \DIFdelFL{$  0.0404 \pm 0.0001$ }\DIFdelendFL \DIFaddbeginFL \DIFaddFL{$  0.0330 \pm 0.0001$ }\DIFaddendFL &\hfill \DIFdelbeginFL \DIFdelFL{$  0.0280 \pm 0.0001$ }\DIFdelendFL \DIFaddbeginFL \DIFaddFL{$  0.0281 \pm 0.0001$ }\DIFaddendFL &\hfill \DIFdelbeginFL \DIFdelFL{$  0.0240 \pm 0.0001$ }\DIFdelendFL \DIFaddbeginFL \DIFaddFL{$  0.0210 \pm 0.0001$ }\DIFaddendFL \\
+  MSE \hfill [$\unit{mm\ h^{-1}}$] & \hfill \DIFdelbeginFL \DIFdelFL{$  0.2119 \pm 0.0001$ }\DIFdelendFL \DIFaddbeginFL \DIFaddFL{$  0.1674 \pm 0.0001$ }\DIFaddendFL &\hfill \DIFdelbeginFL \DIFdelFL{$  0.1417 \pm 0.0001$ }\DIFdelendFL \DIFaddbeginFL \DIFaddFL{$  0.1337 \pm 0.0001$ }\DIFaddendFL &\hfill \DIFdelbeginFL \DIFdelFL{$  0.0908 \pm 0.0001$ }\DIFdelendFL \DIFaddbeginFL \DIFaddFL{$  0.0824 \pm 0.0001$ }\DIFaddendFL \\
+  SMAPE$_{0.01}$ \hfill [$\unit{\%}$] & \hfill \DIFdelbeginFL \DIFdelFL{$109.8088 \pm 0.0483$ }\DIFdelendFL \DIFaddbeginFL \DIFaddFL{$108.8755 \pm 0.0480$ }\DIFaddendFL &\hfill \DIFdelbeginFL \DIFdelFL{$110.0042 \pm 0.0506$ }\DIFdelendFL \DIFaddbeginFL \DIFaddFL{$104.2921 \pm 0.0507$ }\DIFaddendFL &\hfill \DIFdelbeginFL \DIFdelFL{$ 95.5691 \pm 0.1124$ }\DIFdelendFL \DIFaddbeginFL \DIFaddFL{$ 94.0801 \pm 0.1057$ }\DIFaddendFL \\
+  \DIFaddbeginFL \DIFaddFL{Correlation }& \hfill \DIFaddFL{$  0.5927 $ }&\hfill \DIFaddFL{$  0.6839$ }&\hfill \DIFaddFL{$  0.7336$ }\\
+  \DIFaddendFL \hline
+\end{tabular}
+
+\end{table}
+
+
+\begin{table}[hbpt!]
+  \centering
+  \caption{Like Tab.~\ref{tab:metrics_mhs} but for RWP.}
+  \label{tab:metrics_mhs_rwp}
+  \begin{tabular}{|c||p{3.5cm}|p{3.5cm}|p{3.5cm}|}
+    \hline
+    Metric &
+    \multicolumn{1}{|c}{GPROF} &
+    \multicolumn{1}{|c}{GPROF-NN 1D} &
+    \multicolumn{1}{|c|}{GPROF-NN 3D} \\
+    \hline\hline
+    Bias \hfill [$\unit{mm\ h^{-1}}$] & \hfill \DIFdelbeginFL \DIFdelFL{$  0.0038 \pm 0.0000$ }\DIFdelendFL \DIFaddbeginFL \DIFaddFL{$ -0.0002 \pm 0.0000$ }\DIFaddendFL &\hfill \DIFdelbeginFL \DIFdelFL{$ -0.0012 \pm 0.0000$ }\DIFdelendFL \DIFaddbeginFL \DIFaddFL{$ -0.0015 \pm 0.0000$ }\DIFaddendFL &\hfill \DIFdelbeginFL \DIFdelFL{$  0.0004 \pm 0.0000$ }\DIFdelendFL \DIFaddbeginFL \DIFaddFL{$ -0.0005 \pm 0.0000$ }\DIFaddendFL \\
+    MAE \hfill [$\unit{mm\ h^{-1}}$] & \hfill \DIFdelbeginFL \DIFdelFL{$  0.0246 \pm 0.0000$ }\DIFdelendFL \DIFaddbeginFL \DIFaddFL{$  0.0210 \pm 0.0000$ }\DIFaddendFL &\hfill \DIFdelbeginFL \DIFdelFL{$  0.0145 \pm 0.0000$ }\DIFdelendFL \DIFaddbeginFL \DIFaddFL{$  0.0144 \pm 0.0000$ }\DIFaddendFL &\hfill \DIFdelbeginFL \DIFdelFL{$  0.0120 \pm 0.0000$ }\DIFdelendFL \DIFaddbeginFL \DIFaddFL{$  0.0116 \pm 0.0000$ }\DIFaddendFL \\
+    MSE \hfill [$\unit{mm\ h^{-1}}$] & \hfill \DIFdelbeginFL \DIFdelFL{$  0.0196 \pm 0.0000$ }\DIFdelendFL \DIFaddbeginFL \DIFaddFL{$  0.0143 \pm 0.0000$ }\DIFaddendFL &\hfill \DIFdelbeginFL \DIFdelFL{$  0.0126 \pm 0.0000$ }\DIFdelendFL \DIFaddbeginFL \DIFaddFL{$  0.0102 \pm 0.0000$ }\DIFaddendFL &\hfill \DIFdelbeginFL \DIFdelFL{$  0.0071 \pm 0.0000$ }\DIFdelendFL \DIFaddbeginFL \DIFaddFL{$  0.0060 \pm 0.0000$ }\DIFaddendFL \\
+    SMAPE$_{0.001}$ \hfill [$\unit{\%}$] & \hfill \DIFdelbeginFL \DIFdelFL{$ 91.8829 \pm 0.0350$ }\DIFdelendFL \DIFaddbeginFL \DIFaddFL{$ 88.1093 \pm 0.0327$ }\DIFaddendFL &\hfill \DIFdelbeginFL \DIFdelFL{$ 76.0732 \pm 0.0349$ }\DIFdelendFL \DIFaddbeginFL \DIFaddFL{$ 75.4804 \pm 0.0335$ }\DIFaddendFL &\hfill \DIFdelbeginFL \DIFdelFL{$ 73.0157 \pm 0.0750$ }\DIFdelendFL \DIFaddbeginFL \DIFaddFL{$ 72.0101 \pm 0.0703$ }\DIFaddendFL \\
+    \DIFaddbeginFL \DIFaddFL{Correlation }& \hfill \DIFaddFL{$  0.7591 $ }&\hfill \DIFaddFL{$  0.8346 $ }&\hfill \DIFaddFL{$  0.8785 $ }\\
+    \DIFaddendFL \hline
+  \end{tabular}
+
+\end{table}
+
+%% Please add \clearpage between each table and/or figure. Further guidelines on figures and tables can be found below.
+
+\begin{table}[hbpt!]
+  \centering
+\caption{Like Tab.~\ref{tab:metrics_mhs} but for IWP.}
+\label{tab:metrics_mhs_iwp}
+\begin{tabular}{|c||p{3.5cm}|p{3.5cm}|p{3.5cm}|}
+  \hline
+  Metric &
+  \multicolumn{1}{|c}{GPROF} &
+  \multicolumn{1}{|c}{GPROF-NN 1D} &
+  \multicolumn{1}{|c|}{GPROF-NN 3D} \\
+  \hline\hline
+  Bias \hfill [$\unit{mm\ h^{-1}}$] & \hfill \DIFdelbeginFL \DIFdelFL{$  0.0051 \pm 0.0000$ }\DIFdelendFL \DIFaddbeginFL \DIFaddFL{$ -0.0035 \pm 0.0000$ }\DIFaddendFL &\hfill \DIFdelbeginFL \DIFdelFL{$ -0.0011 \pm 0.0000$ }\DIFdelendFL \DIFaddbeginFL \DIFaddFL{$ -0.0009 \pm 0.0000$ }\DIFaddendFL &\hfill \DIFdelbeginFL \DIFdelFL{$  0.0015 \pm 0.0001$ }\DIFdelendFL \DIFaddbeginFL \DIFaddFL{$ -0.0008 \pm 0.0000$ }\DIFaddendFL \\
+  MAE \hfill [$\unit{mm\ h^{-1}}$] & \hfill \DIFdelbeginFL \DIFdelFL{$  0.0290 \pm 0.0000$ }\DIFdelendFL \DIFaddbeginFL \DIFaddFL{$  0.0222 \pm 0.0000$ }\DIFaddendFL &\hfill \DIFdelbeginFL \DIFdelFL{$  0.0120 \pm 0.0000$ }\DIFdelendFL \DIFaddbeginFL \DIFaddFL{$  0.0123 \pm 0.0000$ }\DIFaddendFL &\hfill \DIFdelbeginFL \DIFdelFL{$  0.0114 \pm 0.0001$ }\DIFdelendFL \DIFaddbeginFL \DIFaddFL{$  0.0100 \pm 0.0000$ }\DIFaddendFL \\
+  MSE \hfill [$\unit{mm\ h^{-1}}$] & \hfill \DIFdelbeginFL \DIFdelFL{$  0.0270 \pm 0.0001$ }\DIFdelendFL \DIFaddbeginFL \DIFaddFL{$  0.0137 \pm 0.0000$ }\DIFaddendFL &\hfill \DIFdelbeginFL \DIFdelFL{$  0.0119 \pm 0.0001$ }\DIFdelendFL \DIFaddbeginFL \DIFaddFL{$  0.0093 \pm 0.0000$ }\DIFaddendFL &\hfill \DIFdelbeginFL \DIFdelFL{$  0.0078 \pm 0.0001$ }\DIFdelendFL \DIFaddbeginFL \DIFaddFL{$  0.0060 \pm 0.0000$ }\DIFaddendFL \\
+  SMAPE$_{0.001}$ \hfill [$\unit{\%}$] & \hfill \DIFdelbeginFL \DIFdelFL{$ 92.5347 \pm 0.0364$ }\DIFdelendFL \DIFaddbeginFL \DIFaddFL{$ 92.0949 \pm 0.0357$ }\DIFaddendFL &\hfill \DIFdelbeginFL \DIFdelFL{$ 74.4043 \pm 0.0371$ }\DIFdelendFL \DIFaddbeginFL \DIFaddFL{$ 74.1056 \pm 0.0362$ }\DIFaddendFL &\hfill \DIFdelbeginFL \DIFdelFL{$ 68.5830 \pm 0.0760$ }\DIFdelendFL \DIFaddbeginFL \DIFaddFL{$ 69.5782 \pm 0.0762$ }\DIFaddendFL \\
+  \DIFaddbeginFL \DIFaddFL{Correlation }& \hfill \DIFaddFL{$  0.8372 $ }&\hfill \DIFaddFL{$  0.8878 $ }&\hfill \DIFaddFL{$  0.9129 $ }\\
+  \DIFaddendFL \hline
+\end{tabular}
+
+\end{table}
+
+
+\begin{table}[hbpt!]
+  \centering
+  \caption{Like Tab.~\ref{tab:metrics_mhs} but for CWP.}
+  \label{tab:metrics_mhs_cwp}
+  \begin{tabular}{|c||p{3.5cm}|p{3.5cm}|p{3.5cm}|}
+    \hline
+    Metric &
+    \multicolumn{1}{|c}{GPROF} &
+    \multicolumn{1}{|c}{GPROF-NN 1D} &
+    \multicolumn{1}{|c|}{GPROF-NN 3D} \\
+    \hline\hline
+    Bias \hfill [$\unit{mm\ h^{-1}}$] & \hfill \DIFdelbeginFL \DIFdelFL{$  0.0051 \pm 0.0000$ }\DIFdelendFL \DIFaddbeginFL \DIFaddFL{$ -0.0008 \pm 0.0000$ }\DIFaddendFL &\hfill \DIFdelbeginFL \DIFdelFL{$ -0.0003 \pm 0.0000$ }\DIFdelendFL \DIFaddbeginFL \DIFaddFL{$  0.0000 \pm 0.0000$ }\DIFaddendFL &\hfill \DIFdelbeginFL \DIFdelFL{$ -0.0003 \pm 0.0000$ }\DIFdelendFL \DIFaddbeginFL \DIFaddFL{$ -0.0004 \pm 0.0000$ }\DIFaddendFL \\
+    MAE \hfill [$\unit{mm\ h^{-1}}$] & \hfill \DIFdelbeginFL \DIFdelFL{$  0.0299 \pm 0.0000$ }\DIFdelendFL \DIFaddbeginFL \DIFaddFL{$  0.0264 \pm 0.0000$ }\DIFaddendFL &\hfill \DIFdelbeginFL \DIFdelFL{$  0.0193 \pm 0.0000$ }\DIFdelendFL \DIFaddbeginFL \DIFaddFL{$  0.0195 \pm 0.0000$ }\DIFaddendFL &\hfill \DIFdelbeginFL \DIFdelFL{$  0.0156 \pm 0.0000$ }\DIFdelendFL \DIFaddbeginFL \DIFaddFL{$  0.0149 \pm 0.0000$ }\DIFaddendFL \\
+    MSE \hfill [$\unit{mm\ h^{-1}}$] & \hfill \DIFdelbeginFL \DIFdelFL{$  0.0033 \pm 0.0000$ }\DIFdelendFL \DIFaddbeginFL \DIFaddFL{$  0.0027 \pm 0.0000$ }\DIFaddendFL &\hfill $  0.0016 \pm 0.0000$ &\hfill \DIFdelbeginFL \DIFdelFL{$  0.0012 \pm 0.0000$ }\DIFdelendFL \DIFaddbeginFL \DIFaddFL{$  0.0011 \pm 0.0000$ }\DIFaddendFL \\
+    SMAPE$_{0.001}$ \hfill [$\unit{\%}$] & \hfill \DIFdelbeginFL \DIFdelFL{$ 64.4350 \pm 0.0137$ }\DIFdelendFL \DIFaddbeginFL \DIFaddFL{$ 60.3897 \pm 0.0130$ }\DIFaddendFL &\hfill \DIFdelbeginFL \DIFdelFL{$ 46.5956 \pm 0.0112$ }\DIFdelendFL \DIFaddbeginFL \DIFaddFL{$ 47.2591 \pm 0.0114$ }\DIFaddendFL &\hfill \DIFdelbeginFL \DIFdelFL{$ 39.0331 \pm 0.0238$ }\DIFdelendFL \DIFaddbeginFL \DIFaddFL{$ 38.3892 \pm 0.0237$ }\DIFaddendFL \\
+    \DIFaddbeginFL \DIFaddFL{Correlation }& \hfill \DIFaddFL{$  0.8598 $ }&\hfill \DIFaddFL{$  0.9194 $ }&\hfill \DIFaddFL{$  0.9369 $ }\\
+
+    \DIFaddendFL \hline
+  \end{tabular}
+\end{table}
+
+\subsection*{Reviewer comment 13}
+
+Figure 7: What are the vertical white lines in the last panel of the figure?
+(Lowest right scatter plot)?
+
+\subsubsection*{Author response:}
+
+The white lines in the scatter plot were caused by missing test samples at the
+corresponding cloud water path values. Because the input data for the GPROF-NN
+3D retrieval must be assembled into spatially coherent scenes, the test data
+can't be fully identical to that used for GPROF and the GPROF-NN 1D retrievals.
+This is why the missing values only occurred for the results of the GPROF-NN 3D
+retrieval.
+
+For the revised manuscript we will ensure that the bin sizes for the scatter
+plots are chosen in a way to avoid these white lines in the revised version of
+the manuscript.
+
+\subsubsection*{Changes in manuscript:}
+
+\begin{itemize}
+\item Fig.~7 has been updated and now looks like shown in
+  Fig.~\ref{fig:results_scatter_mhs}.
+\end{itemize}
+
+\begin{figure}[hbpt]
+  \centering
+  \includegraphics[width=\textwidth]{figs_revised/fig06}
+  \caption{
+    The updated Fig.~6, which will be included in the revised version
+    of the manuscript.
+  }
+  \label{fig:results_scatter_mhs}
+\end{figure}
+
+\subsection*{Reviewer comment 14}
+
+Figure 8 and the associated discussions in this section: The authors mentioned
+that they have used 18 surfaces classed. Did they regroup the precipitation
+over different surface types in order to report the statistics? Or here they
+just report 4 types out of 18? How do the proposed models perform on arid land
+surface types?
+
+\subsubsection*{Author response:}
+
+We regrouped the land surface classes for Fig.~8 because we considered the plot
+to be too busy with all 18 classes included. We will add an explanation of the
+regrouping in the text.
+
+The GPROF surface classes do not have an explicit class for arid surfaces but
+instead a range of classes of increasingly dense vegetation cover. To accomodate
+the reviewer's suggestion, we will split the 'vegetation' group into densely and
+sparsely vegetated surfaces.
+
+\subsubsection*{Changes in manuscript:}
+
+\begin{itemize}
+  \item We will add the following sentence to the description of Fig.~8.
+
+    \begin{change}[323]
+      The figure displays bias, MSE, MAE\DIFdelbegin \DIFdel{and SMAPEfor the
+        most relevant classes of }\DIFdelend \DIFaddbegin \DIFadd{, SMAPE, and
+        correlation for principal }\DIFaddend surface types. \DIFaddbegin
+      \DIFadd{The original GPROF surface types have been grouped into ocean
+        (surface type 1), dense vegetation (surface types 3 - 5), sparse
+        vegetation (6 - 7), snow (surface types 8-11), and coast (surface types
+        12-15). }\DIFaddend
+      \end{change}
+
+    \item We will update the figure to display the accuracy over densely and sparsely
+      vegetated land. The updated plot is shown in Fig.~\ref{fig:results_surface_types}.
+
+ \end{itemize}
+
+      \begin{figure}[hbpt]
+        \centering
+        \includegraphics[width=\textwidth]{figs_revised/fig07}
+        \caption{
+          The updated Fig.~7 from the original manuscript.
+        }
+        \label{fig:results_surface_types}
+      \end{figure}
+
+
+\subsection*{Reviewer comment 15}
+
+Line 303: Again, how many samples are used to calculate Bias, MSE, etc in each
+pixels/5-degree box?
+
+\subsubsection*{Author response:}
+
+We will add an additional row of panels to the plot that shows the number of samples
+in each bin.
+
+\subsubsection*{Changes in manuscript:}
+
+\begin{itemize}
+  \item Fig.~9 and Fig.~A1 will be updated. The updated figures are shown
+    in Fig.~\ref{fig:results_spatial_gmi} and Fig.~\ref{fig:results_spatial_mhs}, respectively.
+\end{itemize}
+
+\begin{figure}[hbpt]
+  \centering
+  \includegraphics[width=\textwidth]{figs_revised/fig08}
+  \caption{
+    The updated Fig.~8, which will be included in the revised manuscript.
+  }
+  \label{fig:results_spatial_gmi}
+\end{figure}
+
+\begin{figure}[hbpt]
+  \centering
+  \includegraphics[width=\textwidth]{figs_revised/fig18}
+  \caption{
+    The updated Fig.~C1, which will be included in the revised manuscript.
+  }
+  \label{fig:results_spatial_mhs}
+\end{figure}
+
+\subsection*{Reviewer comment 16}
+
+Section 3.2: This section presents a visualization of precipitation rates over one or two orbital
+tracks during Hurricane Harvey. Would you please report some basic statistical indices such as the
+probability of detection, missed ratio, etc.
+
+\subsubsection*{Author response:}
+
+We will add tables with the requested statistics to the evaluation.
+
+\subsubsection*{Changes in manuscript:}
+
+\begin{itemize}
+  \item We will add two tables shown in Tab.~\ref{tab:harvey_gmi} and Tab.~\ref{tab:harvey_mhs}
+    which  the Bias, MSE, MAE, Correlation, Precision and Recall
+    for the GMI and MHS overpasses, respectively 
+  \item The discussion of the results in Sec.~3.2 will be rewritten to include these
+    new results.
+
+    \begin{change}[420]
+      \DIFadd{A quantitative assessment of the retrieval results is provided in
+      Tab.~\ref{tab:harvey_gmi}, which shows bias, MSE, and correlation, as
+      well as the precision and recall of the retrieved precipitation flag. The
+      precision is the fraction of correctly detected raining pixels of all pixels
+      predicted to be raining, and the recall is the fraction of all truly raining
+      that is correctly detected.
+      }
+
+      \DIFadd{All statistics were calculated using the CMB product and the MRMS ground-based
+      measurements as a reference. The reference measurements were averaged to the
+      footprint of the GMI $18.7\ \unit{GHz}$ channel, taking into account the
+      rotation of the pixels across the swath. Only measurements with a radar quality
+      index is at least 0.8 were used for the comparison against MRMS retrievals.
+      }
+
+      \DIFadd{The accuracy of all retrievals is lower when compared to MRMS than when compared
+      to CMB. This is likely because all GPROF retrievals are designed to reproduce
+      the retrieval database, which is to a large extent derived from the CMB product.
+      The GPROF-NN retrievals yield more accurate results than GPROF across all
+      considered metrics except for the recall}\DIFaddend , which is \DIFdelbegin \DIFdel{inline with the analysis of the effective resolution of the retrievals}\DIFdelend \DIFaddbegin \DIFadd{lower for GPROF-NN 1D than
+      for GPROF. Interestingly, GPROF-NN 1D achieves lower MAE, MSE, and bias as well
+      as higher correlation in the comparison against MRMS, while the two perform
+      similarly in the comparison against CMB}\DIFaddend .
+
+  \end{change}
+
+
+    \begin{change}[439]
+
+    in \DIFadd{Accuracy metrics for comparing the MHS retrievals with MRMS are shown in
+      Tab.~\ref{tab:harvey_mhs}. The MRMS measurements were averaged to the
+      MHS observation footprints taking into account the changes in footprint size and
+      shape across the swath. For MHS, GPROF has the lowest Bias, MAE, and MSE and
+      higher recall than GPROF-NN 1D. These results do not show any clear improvements
+      for the GPROF-NN retrievals. However, the GPROF-NN 3D retrievals improve the
+      retrieval in terms of all metrics compared to GPROF-NN 1D, suggesting that the
+      GPROF-NN 3D can make use of the spatial information in the observations despite
+      being trained on simulated observations.
+    }
+
+    \DIFaddend 
+    \end{change}
+
+
+
+ \end{itemize}
+
+\begin{table}[hbpt]
+  \caption{Accuracy metrics for surface precipitation retrieved from GMI PMW
+    observations of hurricane Harvey for the overpass on 2017-08-25 at 11:50:00
+    UTC. Each metric is calculated with respect to the surface precipitation from
+    the CMB product as well as  the surface precipitation
+    from MRMS as reference.}
+  \label{tab:harvey_gmi}
+  \centering
+  \begin{tabular}{|l||rr|rr|rr|rr|rr|}
+    \hline
+    \multicolumn{1}{|c||}{Retrieval} &
+    \multicolumn{2}{c|}{Bias [$\unit{mm\ h^{-1}}$]} &
+    \multicolumn{2}{c|}{MSE [$(\unit{mm\ h^{-1}})^2$]} &
+    \multicolumn{2}{c|}{Correlation} &
+    \multicolumn{2}{c|}{Precision} & \multicolumn{2}{c|}{Recall}\\
+    & CMB & MRMS & CMB & MRMS & CMB & MRMS & CMB & MRMS & CMB & MRMS\\
+    \hline
+    \hline
+    GPROF       & 0.346 & 0.355 & 2.691 & 8.299 & 0.892 & 0.651 & 0.9 & 0.82 & 0.82 & 0.81 \\
+    GPROF-NN 1D & 0.245 & 0.145 & 1.944 & 4.927 & 0.914 & 0.701 & 0.95 & 0.9 & 0.90 & 0.75 \\
+    GPROF-NN 3D & 0.248 & 0.184 & 1.953 & 6.12  & 0.923 & 0.676 & 0.95 & 0.9 & 0.90 & 0.87 \\
+    \hline
+    \end{tabular}
+  \end{table}
+
+\begin{table}[hbpt!]
+  \caption{Accuracy metrics for surface precipitation retrieved from MHS PMW
+    observations of hurricane Harvey for the overpass on 2017-08-25 at 13:58 UTC.
+    The metrics calculated  against the MRMS surface precipitation estimates.}
+  \label{tab:harvey_mhs}
+  \centering
+  \begin{tabular}{|l||r|r|r|r|r|}
+    \hline
+    Retrieval &
+    Bias [$\unit{mm\ h^{-1}}$] &
+    MSE [$(\unit{mm\ h^{-1}})^2$] &
+    Correlation &
+    Precision &
+    Recall \\
+    \hline
+    \hline
+    GPROF       & 0.11   & 2.602  & 0.749  & 0.88 & 0.12 \\
+    GPROF-NN 1D & 0.259  & 4.031  & 0.751  & 0.9057 & 0.094 \\
+    GPROF-NN 3D & 0.152  & 3.168  & 0.759  & 0.948 & 0.052 \\
+    \hline
+  \end{tabular}
+\end{table}
+
+
+\subsection*{Reviewer comment 17}
+
+Figures 13 and 14. Please show CMB and MRMS products in both figures. Please use
+the commonly used blue red colorbar and colormap for presenting precipitation
+rates. Revise the figure in a way that the rain rates less than 1 mm/h are not
+eliminated. I see that the figures are patchy, and the spatial patterns of
+precipitation rates are not obvious. Please remove the colorful background from
+figure 14. and again, it is miss leading when the precipitation rates less than
+1 mm/h in panels c, d, g, h is not shown in the figures.
+
+\subsubsection*{Author response:}
+
+While it is not possible to show the CMB product for the overpass of MHS since
+the GPM overpass occurred at a different time, we will add the MRMS measurements
+to the GPM overpass. Moreover, we will revise the plots to show precipitation
+rates across the full swaths on a logarithmic color scale without omitting the
+precipitation rates less than 1 mm/h.
+
+We will not change the colormap to jet  plots based on the arguments presented
+in the response to comment 12.
+
+
+\subsubsection*{Change in manuscript:}
+
+\begin{itemize}
+  \item We will update Fig.~13 and Fig.~14 according to the reviewers suggestions. The updated
+    figures are shown in Fig.~\ref{fig:harvey_gmi} and Fig.~\ref{fig:harvey_mhs}, respectively.
+\end{itemize}
+
+\begin{figure}[hbpt]
+  \centering
+  \includegraphics[width=\textwidth]{figs_revised/fig12}
+  \caption{
+    The updated Fig.~12, which will be included in the revised manuscript.
+  }
+  \label{fig:harvey_gmi}
+\end{figure}
+
+\begin{figure}[hbpt]
+  \centering
+  \includegraphics[width=\textwidth]{figs_revised/fig13}
+  \caption{
+    The updated Fig.~13, which will be included in the revised manuscript.
+  }
+  \label{fig:harvey_mhs}
+\end{figure}
+
+\subsection*{Reviewer comment 18}
+
+Section 3.3 as mentioned before, I suggest removing this part or please add more information for
+different stages of developing NN 1D and NN 3D models, to avoid confusion for the readers. I
+understand that GPUs, TPUs, etc. can be used to train deep neural networks, and the processing
+time when everything is ready for the model can be fast for pixel-wise NN 1D. Using NN 3D may
+be relatively fast in precipitation estimation (prediction phase), but the data preprocessing takes
+time and is not mentioned here.
+
+\subsubsection*{Author response:}
+
+See response to comment 5.
+
+
+\subsection*{Reviewer comment 19}
+
+Line 413, 461: Please avoid using “simply” replacing or developing. It is not simple!
+
+\subsubsection*{Author response:}
+
+We will rewrite this sentence in the revised version of the manuscript.
+
+\subsubsection*{Changes in manuscript}
+
+\begin{change}[461]
+  The evaluation of the GPROF-NN 1D algorithm against GPROF, showed that retrieval
+  accuracy as well as effective resolution can be improved \DIFdelbegin \DIFdel{simply }\DIFdelend by replacing the
+  current retrieval method with a fully-connected neural network.
+\end{change}
+
+\begin{change}[522]
+
+    \DIFdelbegin \DIFdel{In addition to the benefits of simply }\DIFdelend
+    \DIFaddbegin \DIFadd{Both GPROF-NN retrievals have been designed as a
+      drop-in replacement for GPROF and can be directly used in the operational
+      GPM processing pipeline. The results presented in this study show that,
+      given a perfect retrieval database, considerable improvements in the
+      accuracy of GPROF can be achieved by }\DIFaddend replacing the current
+    \DIFdelbegin \DIFdel{retrieval scheme with an identical neural network
+    }\DIFdelend \DIFaddbegin \DIFadd{Bayesian scheme with a deep neural network
+      that processes pixels independently.}\DIFaddend
+
+\end{change}
+
+
+
+\subsection*{Reviewer comment 20}
+
+Line 440: Again, please review the study by Li et al. 2021 and more recent ones
+that use CNN and PMW data are a PMW data are a part of their input datasets. It
+is worth mentioning previous works at least in the introduction. Also, it is
+already established that using neighboring information (spatial features)
+improves the satellite retrievals both in capturing the amount and the location
+of events.
+
+\begin{itemize}
+\item Li, Z., Wen, Y., Schreier, M., Behrangi, A., Hong, Y. and Lambrigtsen, B., 2021. Advancing satellite
+precipitation retrievals with data-driven approaches: Is black box model explainable?. Earth and Space
+Science, 8(2), p.e2020EA001423.
+\item Afzali Gorooh, V., Akbari Asanjan, A., Nguyen, P., Hsu, K. and Sorooshian, S., 2022. Deep neural network
+high SpatioTEmporal resolution Precipitation estimation (Deep-STEP) using Passive Microwave and
+Infrared Data. Journal of Hydrometeorology.
+\end{itemize}
+and many more,...
+
+\subsubsection{Author response:}
+
+It was, of course, not our intent to claim that we were the first to make
+use of spatial information in a PMW retrieval. We will reformulate this
+paragraph to avoid this misunderstanding.
+
+\subsubsection{Changes in manuscript:}
+
+\begin{change}[509]
+ \DIFdelbegin \DIFdel{The use of structural information for
+precipitation retrievals is common practice in algorithms based on infrared
+observations \mbox{%DIFAUXCMD
+\citep{sorooshian00, hong04} }\hskip0pt%DIFAUXCMD
+and the potential benefits of CNN
+based retrievals have been shown in \mbox{%DIFAUXCMD
+\citet{sadeghi19}}\hskip0pt%DIFAUXCMD
+. While basic structural
+information has been used in earlier PMW precipitation retrieval algorithms, as
+e.g. by \mbox{%DIFAUXCMD
+\citet{kummerow94}}\hskip0pt%DIFAUXCMD
+, we are not aware of any other operational PMW
+algorithms that incorporate structural information using CNNs
+}\DIFdelend \DIFaddbegin \DIFadd{Because precipitation exhibits distinct spatial patterns in
+satellite observations, many algorithms make use of this information to improve
+precipitation retrievals \mbox{%DIFAUXCMD
+\citep{kummerow94, sorooshian00, hong04}}\hskip0pt%DIFAUXCMD
+. Our results
+confirm that CNNs learn to leverage this information directly from the satellite
+imagery and that it can notably improve the retrieval accuracy, which is in
+agreement with the findings from other precipitation retrievals that employ CNNs
+\mbox{%DIFAUXCMD
+\citep{tang18, sadeghi19, gorooh22, sano18}}\hskip0pt%DIFAUXCMD
+}\DIFaddend .
+\end{change}
+
+
+\subsection{Reviewer comment 21}
+
+Line 440-445, 452: No evidence has been reported or shown that the model is
+trained properly. At least please mention the number of samples in the training
+and testing process, how do the authors select the hyperparameters? How many
+parameters do the NN models have compared to GPROF? The Hurricane Harvey event
+was just a visual representation of retrievals. By adding statistic indices such
+as pixel- or window-wise correlation, false alarm, missed ratio, etc., the
+reader can find the improvements and the differences (not only by reporting
+average bias and visual assessments).
+
+\subsubsection{Author response:}
+
+The results presented in Sec.~3 of the manuscript clearly show that the neural
+networks achieve higher retrieval accuracy on the unseen test data than GPROF.
+This would not be possible if the networks weren't trained properly. While the
+assessment of the retrievals over hurricane Harvey can give some indication over
+how well the retrievals work, a quantitative assessment against independent
+measurements has to be interpreted carefully because the reference measurements
+will themselves be affected by uncertainties. In addition to that, the the MHS retrievals
+are affected by simulation errors, which may limit the accuracy of the GPROF-NN
+retrievals.
+
+We will reformulate the discussion of the overpasses to emphasize the above
+points. As mentioned in the response to comment 17, we will extend the
+evaluation of the hurricane Harvey overpasses to include the requested metrics.
+We will also include the sizes of the GPROF-NN neural networks and the training
+data in the new section in the appendix that describes the training data.
+
+\subsubsection{Changes in manuscript}
+
+\begin{itemize}
+  \item We will add tables with the requested statistics to the assessment of the Hurricane overpasses.
+    See response to reviewer comment 16.
+  \item The discussion of the results from the hurricane overpasses will be extended as follows.
+
+    \begin{change}[457]
+\DIFaddbegin \DIFadd{The quantitative assessment of the accuracy of the MHS retrievals of hurricane
+Harvey did not show any clear improvements for the GPROF-NN retrievals compared
+to GPROF. This can be due to multiple reasons. Firstly, the hurricane
+constitutes an extreme event and it is likely that the instantaneous MRMS
+precipitation rates used as reference measurements are themselves affected by
+considerable uncertainties. Secondly, given that the bulk of the precipitation
+in the considered scene is intense and over ocean, GPROF can be expected to work
+quite well. This makes it less likely to find clear improvements in this
+particular scenario. Finally, the accuracy of the neural-network based
+retrievals may be limited by the modeling error of the simulations in the
+retrieval database. In principle, simulation errors could even cause the
+GPROF-NN retrievals to be less accurate than GPROF for real observations. Should
+this really be the case, the demonstrated potential of the GPROF-NN retrievals
+would imply that the quality of the simulations in the GPROF database limits the
+accuracy of the GPM PMW precipitation measurements and that future work to
+should focus on improving the simulations.
+}
+
+    \end{change}
+ \item The number of parameters of the models will be included in the newly added
+   Sec.~B2 in the appendix that described the training of the neural network
+   models. See response to comment 6.
+\end{itemize}
+
+
+\subsection{Reviewer comment 22}
+
+Line 455: Quoting from the manuscript “an additional neural network model was
+required to transform the data from the retrieval database into a form that is
+amenable for training a CNN...”, I invite the authors to clearly explain the
+process in the manuscript. It is not clear!
+
+\subsubsection{Author response:}
+
+We will add an extended description of the generation of the training data in
+the revised version of the manuscript. It will describe the intermediate
+retrieval that is used to generate the training data for sensors other than GMI.
+
+\subsubsection{Changes in manuscript}
+
+\begin{itemize}
+  \item Section B1 will be added to the manuscript, which describes the
+    generation of the training data for all sensors including the retrieval
+    used to extend the simulated brightness temperatures.
+
+
+    \begin{change}[580]
+
+      \renewcommand{\thesection}{B}
+    \DIFaddend \subsection{\DIFaddbegin \DIFadd{Training data}\DIFaddend }     %% Appendix A1, A2, etc.
+    \DIFaddbegin \label{sec:gprof_nn_training_data}
+    \DIFaddend 
+
+    \DIFdelbegin %DIFDELCMD < \noappendix       %%%
+    %DIF < % use this to mark the end of the appendix section. Otherwise the figures might be numbered incorrectly (e.g. 10 instead of 1).
+    \DIFdelend \DIFaddbegin \subsubsection{\DIFadd{Structure}}
+    \DIFaddend 
+
+    %DIF < % Regarding figures and tables in appendices, the following two options are possible depending on your general handling of figures and tables in the manuscript environment:
+    \DIFaddbegin \DIFadd{The training data for the GPROF-NN retrievals is stored
+      in an intermediate format to simplify the loading of the data during the
+      training process. The data is organized into scenes measuring 221
+      contiguous GMI pixels in both along- and across-track directions. Each
+      scene contains the GMI L1C brightness temperatures and the corresponding
+      values of the retrieval quantities at the center of the GMI swath. For
+      sensors other than GMI, each scene also contains the simulated brightness
+      temperatures of the corresponding sensor.
+    }\DIFaddend 
+
+    %DIF < % Option 1: If you sorted all figures and tables into the sections of the text, please also sort the appendix figures and appendix tables into the respective appendix sections.
+    %DIF < % They will be correctly named automatically.
+    \DIFaddbegin \subsubsection{\DIFadd{Generation}}
+    \label{app:training_data}
+    \DIFaddend 
+
+    %DIF < % Option 2: If you put all figures after the reference list, please insert appendix tables and figures after the normal tables and figures.
+    %DIF < % To rename them correctly to A1, A2, etc., please add the following commands in front of them:
+    \DIFaddbegin \DIFadd{An overview of the data flow for the training data generation for the GPROF-NN retrievals is displayed in Fig.~\ref{fig:data_flow}. The training data originates from four primary sources: The GPROF simulator files, which contain surface precipitation, hydrometeor profiles, and simulated brightness temperatures for an orbit of the GPM combined product. Surface precipitation over snow surfaces and sea-ice are derived from MRMS and ERA5 data, respectively. This data is matched with GMI L1C-R brightness temperatures. The data is split into non-overlapping scenes measuring 221 scans and 221 pixels. For sensors other than GMI, the brightness temperature differences between actual and simulated GMI observations are included and added to the simulated observations to provide a first-order correction for the modeling error in the observations. 
+    }\DIFaddend 
+
+    \DIFaddbegin \DIFadd{Simulated brightness temperatures are only available where the hydrometeor profiles and surface precipitation is known, i.e., at the center of the training scenes. Because this is insufficient to train a CNN with 2D convolutions for sensors other than GMI, an intermediate simulator retrieval is trained to retrieve simulated brightness temperatures from GMI observations. This retrieval the applied to the training data to fill in the simulated brightness temperatures across the entire GMI swath. The simulator neural network uses the same architecture as GPROF-NN 3D retrieval.
+    }
+
+    \end{change}
+
+  \begin{figure}
+    \centering
+    \includegraphics[width=\textwidth]{figs_revised/fig16}
+    \caption{
+      \DIFaddFL{Data flow diagram for the generation and organization of the GPROF-NN training data. Grey rectangles represent datasets, and colored rectangles with rounded corners represent algorithms.
+    }}
+    \label{fig:data_flow}
+  \end{figure}
+\end{itemize}
+
+\subsection{Reviewer comment 23}
+
+Line 477: I suggest replacing “warming climate” with something like changing climate.
+
+\subsubsection{Author response:}
+
+While we acknowledge the reviewer's suggestion, we are not aware of any
+objective arguments for such a change and will therefore not implement it in the
+revised version of the manuscript.
