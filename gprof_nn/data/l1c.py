@@ -215,13 +215,6 @@ class L1CFile:
             )
 
     @property
-    def header(self):
-        import h5py
-        with h5py.File(self.path, "r") as data:
-            header = data.attrs["FileHeader"].decode().splitlines()
-        return header
-
-    @property
     def start_time(self):
         import h5py
         with h5py.File(self.path, "r") as input:
