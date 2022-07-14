@@ -39,8 +39,9 @@ def add_parser(subparsers):
 
             The input file may be a preprocessor file or a NetCDF4 file in
             the same format as the training data. This command can also be used
-            to run a simulator model on a training dataset in order to extend
-            the field of view of the simulated observations.
+            to run a GPROF-NN simulator on training files. This
+            will create new training data files with extended simulated TBs
+            and biases.
             """
         ),
     )
@@ -55,7 +56,15 @@ def add_parser(subparsers):
         metavar="input",
         type=str,
         nargs="+",
-        help="Folder or file containing the input data.",
+        help=(
+            """
+        Single input file or a folder containing input files. The input
+        must be a preprocessor file, a L1C file (in this case the
+        preprocessor will be run automatically) or a NetCDF4 training
+        data file. If a folder is given all files with suffixes
+        '.pp', '.HDF5' and '.nc' will be processed.
+        """
+        ),
     )
     parser.add_argument(
         "output",
@@ -63,9 +72,30 @@ def add_parser(subparsers):
         type=str,
         help="Folder or file to which to write the output.",
     )
-    parser.add_argument("--gradients", action="store_true")
-    parser.add_argument("--no_profiles", action="store_true")
-    parser.add_argument("--format", type=str, help="Output file format")
+    parser.add_argument(
+        "--gradients",
+        action="store_true",
+        help=(
+            """
+            If set, the gradients of the surface precipitation with
+            respect to the inputs will be included in the output.
+            """
+        ),
+    )
+    parser.add_argument(
+        "--no_profiles",
+        action="store_true",
+        help="If set, no profiles will be retrieved.",
+    )
+    parser.add_argument(
+        "--format",
+        type=str,
+        help=(
+            """
+            The output file format. Should be 'GPROF_BINARY' or 'NETCDF'.
+            """
+        ),
+    )
     parser.add_argument(
         "--sensor",
         type=str,
@@ -77,8 +107,11 @@ def add_parser(subparsers):
         "--preserve_structure",
         action="store_true",
         help=(
-            "Whether or not to preserve the spatial structure"
-            " of the 1D retrieval on training data."
+            """
+            If set and the input file is a training data file, the retrieval
+            will be performed on a spatially coherent scene such as those
+            used for the training of the GPROF-NN 3D retrieval.
+            """
         ),
     )
     parser.add_argument(
@@ -86,14 +119,25 @@ def add_parser(subparsers):
         metavar="n",
         type=int,
         default=4,
-        help="The number of processes to use for the processing.",
+        help=(
+            """
+            When the retrieval is run on multiple input files, the processing
+            is parallelized across input files. The 'n_processes' argument can
+            be used to customize the number of processes used. Defaults to 4.
+            """
+        ),
     )
     parser.add_argument(
         "--device",
         metavar="name",
         type=str,
         default="cpu",
-        help="Name of the PyTorch device to run the retrieval on.",
+        help=(
+            """
+            Name of the device to run the retrieval on. 'cpu' or 'cuda:0',
+            'cuda:1', ...
+            """
+        ),
     )
     parser.set_defaults(func=run)
 
