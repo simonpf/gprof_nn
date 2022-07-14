@@ -18,7 +18,7 @@ GPM constellation. Most sensors exist in two or three variants:
      instance of the sensor plays a role, e.g. training of
      a retrieval model.
   3. A specific variant named using the naming scheme
-     {sensor}_{platform}_C. This sensor also applies a
+     sensor}_{platform}_C. This sensor also applies a
      quantile-matching correction to the training data.
 """
 from abc import ABC, abstractmethod, abstractproperty
@@ -191,6 +191,7 @@ class Sensor(ABC):
         self.platform = platform
         self.viewing_geometry = viewing_geometry
         self.missing_channels = None
+        self.l1c_version = ""
 
         # Bin file types
         self._bin_file_header = types.get_bin_file_header(n_chans, n_angles, kind)
@@ -999,7 +1000,7 @@ class ConstellationScanner(ConicalScanner):
             st = scene.surface_type.data[mask]
 
             if self.correction is not None:
-                tbs = self.correction(self, st, None, tcwv, tbs, augment=augment)
+                tbs = self.correction(rng, self, tbs, st, None, tcwv, augment=augment)
 
             # Add thermal noise to simulated observations.
             if augment and self.nedt is not None:
@@ -1093,7 +1094,7 @@ class ConstellationScanner(ConicalScanner):
         st = scene.surface_type.data
 
         if self.correction is not None:
-            tbs = self.correction(self, st, None, tcwv, tbs, augment=augment)
+            tbs = self.correction(rng, self, tbs, st, None, tcwv, augment=augment)
 
         if augment:
             if self.nedt is not None:
@@ -1551,7 +1552,7 @@ class CrossTrackScanner(Sensor):
             st = scene.surface_type.data[mask]
 
             if self.correction is not None:
-                tbs = self.correction(self, st, eia, tcwv, tbs, augment=augment)
+                tbs = self.correction(rng, self, tbs, st, eia, tcwv, augment=augment)
 
             if augment and self.nedt is not None:
                 noise = rng.normal(size=tbs.shape)
@@ -1646,7 +1647,7 @@ class CrossTrackScanner(Sensor):
         st = scene.surface_type.data
 
         if self.correction is not None:
-            tbs = self.correction(self, st, eia, tcwv, tbs, augment=augment)
+            tbs = self.correction(rng, self, tbs, st, eia, tcwv, augment=augment)
 
         if augment:
             if self.nedt is not None:
@@ -1887,8 +1888,8 @@ class Platform:
 
 
 TRMM = Platform("TRMM", "/pdata4/archive/GPM/1C_TMI_ITE/", "1C.TRMM.TMI")
-NOAA19 = Platform("NOAA19", "/pdata4/archive/GPM/1C_NOAA19_ITE/", "1C.NOAA19.MHS")
-GPM = Platform("GPM-CO", "/pdata4/archive/GPM/1CR_GMI_ITE/", "1C-R.GPM.GMI")
+NOAA19 = Platform("NOAA19", "/pdata4/archive/GPM/1C_NOAA19/", "1C.NOAA19.MHS")
+GPM = Platform("GPM-CO", "/pdata4/archive/GPM/1CR_GMI_V7/", "1C-R.GPM.GMI")
 F15 = Platform("F15", "/pdata4/archive/GPM/1C_F15_ITE/", "1C.F15.SSMI")
 F17 = Platform("F17", "/pdata4/archive/GPM/1C_F17_ITE/", "1C.F17.SSMIS")
 GCOMW1 = Platform(
@@ -1975,7 +1976,7 @@ MHS_CHANNELS = [
     (190.0, "H"),
 ]
 
-MHS_NEDT = np.array([0.3, 0.5, 3.8, 0.7, 0.3])
+MHS_NEDT = np.array([0.3, 0.5, 0.5, 0.5, 0.5])
 
 MHS_VIEWING_GEOMETRY = CrossTrack(
     altitude=855e3,
@@ -1996,10 +1997,39 @@ MHS = CrossTrackScanner(
     MHS_VIEWING_GEOMETRY,
     "/pdata4/veljko/MHS2MRMS_match2019/monthly_2021/",
     "MHS.dbsatTb.??????{day}.??????.sim",
-    "/qdata1/pbrown/dbaseV7/simV7x",
+    "/qdata1/pbrown/dbaseV7/simV7x_mhs",
     MHS_GMI_CHANNELS,
     correction=DATA_FOLDER / "corrections_mhs.nc",
     modeling_error=[3.0, 2.0, 2.0, 2.0, 2.0]
+)
+MHS.l1c_version = "V07A"
+
+MHS_GPROF = CrossTrackScanner(
+    "MHS",
+    MHS_CHANNELS,
+    MHS_NEDT,
+    MHS_ANGLES,
+    NOAA19,
+    MHS_VIEWING_GEOMETRY,
+    "/pdata4/veljko/MHS2MRMS_match2019/monthly_2021/",
+    "MHS.dbsatTb.??????{day}.??????.sim",
+    "/qdata1/pbrown/dbaseV7/simV7x_mhs",
+    MHS_GMI_CHANNELS,
+    correction=DATA_FOLDER / "corrections_mhs_gprof.nc",
+    modeling_error=[3.0, 2.0, 2.0, 2.0, 2.0]
+)
+
+MHS_NO_CORRECTION = CrossTrackScanner(
+    "MHS",
+    MHS_CHANNELS,
+    MHS_NEDT,
+    MHS_ANGLES,
+    NOAA19,
+    MHS_VIEWING_GEOMETRY,
+    "/pdata4/veljko/MHS2MRMS_match2019/monthly_2021/",
+    "MHS.dbsatTb.??????{day}.??????.sim",
+    "/qdata1/pbrown/dbaseV7/simV7x_mhs",
+    MHS_GMI_CHANNELS,
 )
 
 MHS_NOAA19 = CrossTrackScanner(
@@ -2011,7 +2041,7 @@ MHS_NOAA19 = CrossTrackScanner(
     MHS_VIEWING_GEOMETRY,
     "/pdata4/veljko/MHS2MRMS_match2019/monthly_2021/",
     "MHS.dbsatTb.??????{day}.??????.sim",
-    "/qdata1/pbrown/dbaseV7/simV7x",
+    "/qdata1/pbrown/dbaseV7/simV7x_mhs",
     MHS_GMI_CHANNELS,
     correction=DATA_FOLDER / "corrections_mhs_noaa19.nc",
     modeling_error=[3.0, 2.0, 2.0, 2.0, 2.0]
@@ -2026,7 +2056,7 @@ MHS_NOAA19_FULL = CrossTrackScanner(
     MHS_VIEWING_GEOMETRY,
     "/pdata4/veljko/MHS2MRMS_match2019/monthly_2021/",
     "MHS.dbsatTb.??????{day}.??????.sim",
-    "/qdata1/pbrown/dbaseV7/simV7x",
+    "/qdata1/pbrown/dbaseV7/simV7x_mhs",
     MHS_GMI_CHANNELS,
     correction=DATA_FOLDER / "corrections_mhs_noaa19_full.nc",
     modeling_error=[3.0, 2.0, 2.0, 2.0, 2.0]

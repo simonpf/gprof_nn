@@ -36,6 +36,7 @@ setup(
             "files/mhs_era5_sensitivities.npy",
             "files/preprocessor_template.pp",
             "files/matplotlib_style.rc",
+            "files/normalizer_gmi.pckl"
         ]
     },
     python_requires=">=3.6",

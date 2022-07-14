@@ -503,7 +503,7 @@ class GPROF_NN_1D_QRNN(MRNN):
         self.sensor = sensor
         residuals = residuals.lower()
         if residuals not in RESIDUALS:
-            raise ValueError(f"'residuals' argument should be one of {RESIDUALS}.")
+            raise ValueError(f"{residuals} 'residuals' argument should be one of {RESIDUALS}.")
 
         if targets is None:
             targets = ALL_TARGETS
@@ -714,7 +714,6 @@ def adapt_normalizer(gmi_normalizer, sensor):
         if key < 15:
             if key in sensor.gmi_channels:
                 new_key = sensor.gmi_channels.index(key)
-                print(key, new_key)
                 new_stats[new_key] = gmi_normalizer.stats[key]
         else:
             d = 15 - sensor.n_chans

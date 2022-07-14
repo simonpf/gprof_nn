@@ -13,6 +13,7 @@ from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
 from gprof_nn import sensors
+from gprof_nn.normalizer import get_normalizer
 import gprof_nn.logging
 from gprof_nn.retrieval import RetrievalDriver, RetrievalGradientDriver
 from gprof_nn.definitions import (
@@ -53,7 +54,18 @@ def add_parser(subparsers):
         "train",
         description=(
             """
-            Trains a GPROF-NN 1D or 3D network.
+            Trains a GPROF-NN 1D, 3D, simulator or HR retrieval network.
+
+            By default, the training will proceed as described in the GPROF-NN
+            paper and the network will be trained to retrieve all standard
+            GPROF variables. The options below can be used to modify
+            the training.
+
+            Tensorboard logs are written into the 'runs' directory in the
+            current working directory.
+
+            If the 'model_output' argument points to an exisiting model, the
+            training of this model will be continued.
             """
         ),
     )
@@ -69,28 +81,40 @@ def add_parser(subparsers):
         "sensor",
         metavar="sensor",
         type=str,
-        help="Name of the sensor for which to train the algorithm.",
+        help=(
+            "Name of the sensor for which to train the algorithm. "
+            "The name should correspond to a sensor object defined in"
+            " 'gprof_nn.sensors'."
+        )
     )
     parser.add_argument(
         "configuration",
         metavar="[ERA5/GANAL]",
         type=str,
-        help="The configuration for which the model is trained.",
+        help=(
+            "The type of ancillary data that the model is trained for."
+        ),
     )
     parser.add_argument(
         "training_data",
         metavar="training_data",
         type=str,
-        help="Path to training data.",
+        help="Path containing the training data.",
     )
     parser.add_argument(
         "validation_data",
         metavar="validation_data",
         type=str,
-        help="Path to validation data.",
+        help="Path containing the validation data.",
     )
     parser.add_argument(
-        "output", metavar="output", type=str, nargs=1, help="Where to store the model."
+        "output",
+        metavar="output",
+        type=str,
+        help="""
+        Path or file to which to write the trained model. If 'output'
+        points to an existing model, its training will be continued.
+        """
     )
 
     # Model configuration
@@ -98,8 +122,15 @@ def add_parser(subparsers):
         "--type",
         metavar="network_type",
         type=str,
-        nargs=1,
-        help="The type of network: drnn, qrnn or qrnn_exp",
+        help=(
+        """
+        The type of network: 'DRNN', 'QRNN' or 'QRNN_EXP'. 'DRNN' predicts
+        the posterior PDF of the retrieval over a range of bins. 'QRNN'j
+        predicts quantiles for the posterior, while 'QRNN_EXP' also
+        applies a log-linear transform to all strictly positive retrieval
+        variables. Defaults to 'QRNN_EXP'.
+        """
+        ),
         default="qrnn_exp",
     )
 
@@ -125,52 +156,64 @@ def add_parser(subparsers):
         "--n_layers_head",
         metavar="n",
         type=int,
-        default=2,
-        help="For GPROF-NN 1D: How many layers in the heads of the model.",
+        default=4,
+        help="For GPROF-NN 1D: The number of layers in each head of the model.",
     )
     parser.add_argument(
         "--n_neurons_head",
         metavar="n",
         type=int,
         default=128,
-        help=("For GPROF-NN 1D and 3D: How many neurons in each head of the " "model."),
+        help=(
+            """
+            How many neurons/features in each head of the "network.
+            """
+        ),
     )
     parser.add_argument(
         "--n_blocks",
         metavar="N",
         type=int,
         nargs="+",
-        default=[2],
+        default=[5],
         help=(
-            "For GPROF-NN 3D: The number of Xception  block per "
-            " downsampling stage of the model."
+            """
+            For GPROF-NN 3D, SIM and HR: The number of Xception blocks per
+            downsampling stage of the model.
+            """
         ),
     )
     parser.add_argument(
         "--activation",
         metavar="activation",
         type=str,
-        nargs=1,
-        default="ReLU",
-        help="For GPROF-NN 1D: The activation function.",
+        default="GELU",
+        help="The type of activation function to apply in the model.",
     )
     parser.add_argument(
         "--residuals",
         metavar="residuals",
         type=str,
-        nargs=1,
-        default="simple",
-        help="For GPROF-NN 1D: The type of residual connections to apply.",
+        default="hyper",
+        help=(
+            """
+            For GPROF-NN 1D: The type of residual connections to apply.
+            'none', 'simple' or 'hyper'. Deaults to 'hyper'.
+            """
+        )
     )
     parser.add_argument(
         "--n_epochs",
         metavar="n",
         type=int,
         nargs="*",
-        default=[20, 20, 20],
+        default=[10, 20, 30],
         help=(
-            "For how many epochs to train the network. When multiple values "
-            "are given the network is trained multiple times (warm restart)."
+            """
+            For how many epochs to train the network. When multiple values
+            are given the network is trained multiple times each time
+            performing. a warm restart.
+            """
         ),
     )
     parser.add_argument(
@@ -178,8 +221,12 @@ def add_parser(subparsers):
         metavar="lr",
         type=float,
         nargs="*",
-        default=[0.0005, 0.0005, 0.0001],
-        help="The learning rates to use during training.",
+        default=[0.0005, 0.0005, 0.0005],
+        help=(
+        """
+        The learning rate for each training run.
+        """
+        )
     )
     parser.add_argument(
         "--no_lr_schedule", action="store_true", help="Disable learning rate schedule."
@@ -192,7 +239,12 @@ def add_parser(subparsers):
     parser.add_argument(
         "--no_validation",
         action="store_true",
-        help="Disable performance monitoring a validation set",
+        help="Disable performance monitoring on validation set",
+    )
+    parser.add_argument(
+        "--normalizer",
+        type=str,
+        help="Path to a custom normalizer object to use."
     )
 
     # Other
@@ -200,14 +252,18 @@ def add_parser(subparsers):
         "--device",
         metavar="device",
         type=str,
+        default="cuda",
         help="The name of the device on which to run the training",
     )
     parser.add_argument(
         "--targets",
-        metavar="target_1 target_2",
+        metavar="target",
         type=str,
         nargs="+",
-        help="The target on which to train the network",
+        default=None,
+        help=(
+            "List of the targets to train the model on."
+        )
     )
     parser.add_argument(
         "--batch_size",
@@ -225,7 +281,24 @@ def add_parser(subparsers):
         ),
     )
     parser.set_defaults(func=run)
-
+    parser.add_argument(
+        "--n_processes_train",
+        metavar="n",
+        type=int,
+        default=6,
+        help=(
+            "The number of processes to use to load the training data."
+        ),
+    )
+    parser.add_argument(
+        "--n_processes_val",
+        metavar="n",
+        type=int,
+        default=4,
+        help=(
+            "The number of processes to use to load the validation data."
+        ),
+    )
 
 def run(args):
     """
@@ -294,9 +367,7 @@ def run(args):
             sensor, configuration, training_data, validation_data, output, args
         )
     elif variant.upper() == "HR":
-        run_training_hr(
-            configuration, training_data, validation_data, output, args
-        )
+        run_training_hr(configuration, training_data, validation_data, output, args)
     else:
         raise ValueError("'variant' should be one of '1D', '3D', 'SIM'.")
 
@@ -333,12 +404,15 @@ def run_training_1d(
     n_layers_head = args.n_layers_head
     n_neurons_head = args.n_neurons_head
 
-    activation = args.activation[0]
-    residuals = args.residuals[0]
+    activation = args.activation
+    residuals = args.residuals
 
     device = args.device
     targets = args.targets
-    network_type = args.type[0]
+    if targets is None:
+        targets = ALL_TARGETS
+
+    network_type = args.type
     batch_size = args.batch_size
     permute = args.permute
     ancillary = args.no_ancillary
@@ -352,14 +426,16 @@ def run_training_1d(
     if len(lr) == 1:
         lr = lr * len(n_epochs)
 
+    if args.normalizer is None:
+        normalizer = get_normalizer(sensor)
+    else:
+        normalizer = Normalizer.load(args.normalizer)
+
     #
     # Load training data.
     #
 
     dataset_factory = GPROF_NN_1D_Dataset
-    normalizer_path = GPROF_NN_DATA_PATH / f"normalizer_{sensor.name.lower()}.pckl"
-    normalizer = Normalizer.load(normalizer_path)
-    print(sensor.correction)
     kwargs = {
         "sensor": sensor,
         "batch_size": batch_size,
@@ -369,8 +445,13 @@ def run_training_1d(
         "permute": permute,
     }
 
+    n_workers = args.n_processes_train
     training_data = DataFolder(
-        training_data, dataset_factory, kwargs=kwargs, queue_size=1024, n_workers=8
+        training_data,
+        dataset_factory,
+        kwargs=kwargs,
+        queue_size=1024,
+        n_workers=n_workers
     )
 
     if args.no_validation:
@@ -384,8 +465,13 @@ def run_training_1d(
             "augment": False,
             "permute": permute,
         }
+        n_workers = args.n_processes_val
         validation_data = DataFolder(
-            validation_data, dataset_factory, kwargs=kwargs, queue_size=64, n_workers=2
+            validation_data,
+            dataset_factory,
+            kwargs=kwargs,
+            queue_size=64,
+            n_workers=n_workers
         )
 
     #
@@ -541,13 +627,16 @@ def run_training_3d(
     if len(lr) == 1:
         lr = lr * len(n_epochs)
 
+    if args.normalizer is None:
+        normalizer = get_normalizer(sensor)
+    else:
+        normalizer = Normalizer.load(args.normalizer)
+
     #
     # Load training data.
     #
 
     dataset_factory = GPROF_NN_3D_Dataset
-    normalizer_path = GPROF_NN_DATA_PATH / f"normalizer_{sensor.name.lower()}.pckl"
-    normalizer = Normalizer.load(normalizer_path)
     kwargs = {
         "sensor": sensor,
         "batch_size": batch_size,
@@ -555,8 +644,13 @@ def run_training_3d(
         "targets": targets,
         "augment": True,
     }
+    n_workers = args.n_processes_train
     training_data = DataFolder(
-        training_data, dataset_factory, queue_size=256, kwargs=kwargs, n_workers=6
+        training_data,
+        dataset_factory,
+        queue_size=256,
+        kwargs=kwargs,
+        n_workers=n_workers
     )
 
     if args.no_validation:
@@ -569,8 +663,13 @@ def run_training_3d(
             "targets": targets,
             "augment": False,
         }
+        n_workers = args.n_processes_val
         validation_data = DataFolder(
-            validation_data, dataset_factory, queue_size=256, kwargs=kwargs, n_workers=2
+            validation_data,
+            dataset_factory,
+            queue_size=256,
+            kwargs=kwargs,
+            n_workers=n_workers
         )
 
     ###############################################################################
@@ -724,26 +823,42 @@ def run_training_sim(
     if len(lr) == 1:
         lr = lr * len(n_epochs)
 
+    if args.normalizer is None:
+        normalizer = get_normalizer(sensor)
+    else:
+        normalizer = Normalizer.load(args.normalizer)
+
     #
     # Load training data.
     #
 
     dataset_factory = SimulatorDataset
-    normalizer_path = GPROF_NN_DATA_PATH / f"normalizer_gmi.pckl"
-    normalizer = Normalizer.load(normalizer_path)
     kwargs = {"batch_size": batch_size, "normalizer": normalizer, "augment": True}
 
+    n_workers = args.n_processes_train
     training_data = DataFolder(
-        training_data, dataset_factory, queue_size=256, kwargs=kwargs, n_workers=4
+        training_data,
+        dataset_factory,
+        queue_size=256,
+        kwargs=kwargs,
+        n_workers=n_workers
     )
-
 
     if args.no_validation:
         validation_data = None
     else:
-        kwargs = {"batch_size": 4 * batch_size, "normalizer": normalizer, "augment": False}
+        kwargs = {
+            "batch_size": 4 * batch_size,
+            "normalizer": normalizer,
+            "augment": False,
+        }
+        n_workers = args.n_processes_val
         validation_data = DataFolder(
-            validation_data, dataset_factory, queue_size=256, kwargs=kwargs, n_workers=2
+            validation_data,
+            dataset_factory,
+            queue_size=256,
+            kwargs=kwargs,
+            n_workers=n_workers
         )
 
     ###############################################################################
@@ -813,9 +928,7 @@ def run_training_sim(
         xrnn.save(output)
 
 
-def run_training_hr(
-     configuration, training_data, validation_data, output, args
-):
+def run_training_hr(configuration, training_data, validation_data, output, args):
     """
     Train simulator network for sensors other than GMI.
 
@@ -858,26 +971,43 @@ def run_training_hr(
     if len(lr) == 1:
         lr = lr * len(n_epochs)
 
+    if args.normalizer is None:
+        normalizer = get_normalizer(sensor)
+    else:
+        normalizer = Normalizer.load(args.normalizer)
+
     #
     # Load training data.
     #
 
     dataset_factory = GPROF_NN_HR_Dataset
     normalizer_path = GPROF_NN_DATA_PATH / f"normalizer_gmi.pckl"
-    normalizer = Normalizer.load(normalizer_path)
     kwargs = {"batch_size": batch_size, "normalizer": normalizer, "augment": True}
 
+    n_workers = args.n_processes_train
     training_data = DataFolder(
-        training_data, dataset_factory, queue_size=256, kwargs=kwargs, n_workers=6
+        training_data,
+        dataset_factory,
+        queue_size=256,
+        kwargs=kwargs,
+        n_workers=n_workers
     )
-
 
     if args.no_validation:
         validation_data = None
     else:
-        kwargs = {"batch_size": 4 * batch_size, "normalizer": normalizer, "augment": False}
+        kwargs = {
+            "batch_size": 4 * batch_size,
+            "normalizer": normalizer,
+            "augment": False,
+        }
+        n_workers = args.n_processes_val
         validation_data = DataFolder(
-            validation_data, dataset_factory, queue_size=256, kwargs=kwargs, n_workers=2
+            validation_data,
+            dataset_factory,
+            queue_size=256,
+            kwargs=kwargs,
+            n_workers=n_workers
         )
 
     ###############################################################################
@@ -905,7 +1035,7 @@ def run_training_hr(
             n_neurons_body,
             n_layers_head,
             n_neurons_head,
-            transformation=transformation
+            transformation=transformation,
         )
 
     model = xrnn.model
