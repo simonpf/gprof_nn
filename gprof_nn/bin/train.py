@@ -338,7 +338,7 @@ def run(args):
         return 1
 
     # Check output path and define model name if necessary.
-    output = Path(args.output[0])
+    output = Path(args.output)
     if output.is_dir() and not output.exists():
         LOGGER.error("The output path '%s' doesn't exist.", output)
         return 1
