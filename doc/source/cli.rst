@@ -1,14 +1,32 @@
 Command line interface
 ======================
 
-After successful installation of the ``gprof_nn`` package executing the ``gprof_nn`` command should produce a list sub-commands that are provided by the application. Their usage is described below.
+After successfully installing the gprof_nn package, executing the ``gprof_nn``
+command should produce a list of sub-commands provided by the application.
+Detailed information on the options available for each sub-command can be
+printed by issuing the following command.
+
+.. code-block:: console
+  
+   gprof_nn <command> --help
+
 
 Running the retrieval
 ---------------------
 
-``gprof_nn`` provides the ``1d`` and ``3d`` sub-commands For running the operational GPROF-NN 1D and 3D retrievals.
-These commands will run the operational GPROF-NN neural network models.
-The following command runs the GPROF-NN 1D retrieval in the ``ERA5``  on an input file in the GPROF preprocessor ``input.pp`` format and writes the results to a file ``output.bin`` in GPM binary output format.
+There are two ways of running ``gprof_nn`` retrievals. The first one uses the
+publicly available, released models. The second one runs the retrieval using an
+arbitrary retrieval model.
+
+Operational models
+^^^^^^^^^^^^^^^^^^
+
+``gprof_nn`` provides the ``1d`` and ``3d`` sub-commands for running the
+operational gprof-nn 1d and 3d retrievals. These commands automatically download
+the publicly released retrieval models and run them on a given input file. The
+following command runs the GPROF-NN 1D retrieval in the ``ERA5`` configuration
+on an input file ``input.pp`` in the GPROF preprocessor format. The results
+are written to a file ``output.bin`` in GPM binary output format.
 
 .. code-block:: console
   
@@ -21,11 +39,46 @@ The ``gprof_nn`` command can also be used to write the output directly to NetCDF
 
    gprof_nn 1d ERA5 input.pp -o output.nc
 
-To run the GPROF-NN retrieval using an experimental ``gprof_nn`` neural-network model, the ``gprof_nn retrieve`` command can be used as follow:
+
+Experimental models
+^^^^^^^^^^^^^^^^^^^
+
+To run the GPROF-NN retrieval using an arbitrary ``gprof_nn`` neural-network
+model, the ``gprof_nn retrieve`` command can be used as follow:
 
 .. code-block:: console
 
    gprof_nn retrieve model.pckl input.pp output.nc
+
+This command will process the input file ``input.pp`` using the model
+``model.pckl`` and write the results in NetCDF4 format to the file
+``output.nc``.
+
+Input files
+^^^^^^^^^^^
+
+The retrieval input can be a file in preprocessor format ending in ``.pp``,
+a L1C file ending in ``.HDF5`` or a NetCDF file in the same format as the
+training data. If the input is a L1C file, the preprocessor will be run
+automatically.
+
+If a directory is given as the input, all files with suffixes ``.pp``, ``.HDF5``
+and ``.nc`` are processed. The processing is parallelized and the number
+of processes used can be customized using the ``--n_processes`` flag.
+
+
+Output format
+^^^^^^^^^^^^^
+
+The output format can be set explicitly for all processed files
+by setting  the ``--format`` flag to ``GPROF_BINARY`` or ``NETCDF``.
+Otherwise the output format will be inferred from the name of the
+output file. If the output file ends in ``.bin`` the binary
+GPROF format will be used. Otherwise the outputs will be stored
+in NetCDF4 format. If no explicit output filename is give, the
+output will be in GPROF binary format only if the input file
+is a preprocessor file.
+
 
 Generation of training data
 ---------------------------
