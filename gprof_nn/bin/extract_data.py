@@ -30,6 +30,7 @@ def add_parser(subparsers):
     """
     parser = subparsers.add_parser(
             'extract_data',
+            help="Generate training, validation or test data.",
             description='Extract training data from *.sim files.'
             )
     parser.add_argument(

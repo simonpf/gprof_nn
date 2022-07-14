@@ -42,11 +42,11 @@ def gprof_nn():
     subparsers = parser.add_subparsers(help="Sub-commands")
 
     extract_data.add_parser(subparsers)
-    retrieve.add_parser(subparsers)
-    statistics.add_parser(subparsers)
     train.add_parser(subparsers)
-    legacy.add_parser(subparsers)
+    retrieve.add_parser(subparsers)
     run_preprocessor.add_parser(subparsers)
+    legacy.add_parser(subparsers)
+    statistics.add_parser(subparsers)
     extract_validation_data.add_parser(subparsers)
     combine_validation_data.add_parser(subparsers)
 

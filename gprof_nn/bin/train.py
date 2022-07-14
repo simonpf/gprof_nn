@@ -52,6 +52,7 @@ def add_parser(subparsers):
     """
     parser = subparsers.add_parser(
         "train",
+        help="Train a GPROF-NN model.",
         description=(
             """
             Trains a GPROF-NN 1D, 3D, simulator or HR retrieval network.

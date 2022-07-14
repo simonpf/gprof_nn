@@ -33,6 +33,7 @@ def add_parser(subparsers):
     """
     parser = subparsers.add_parser(
         "retrieve",
+        help="Run a GPROF-NN retrieval.",
         description=(
             """
             Runs the GPROF-NN algorithm on a given input file.
