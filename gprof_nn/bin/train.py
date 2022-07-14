@@ -359,6 +359,7 @@ def run_training_1d(
     dataset_factory = GPROF_NN_1D_Dataset
     normalizer_path = GPROF_NN_DATA_PATH / f"normalizer_{sensor.name.lower()}.pckl"
     normalizer = Normalizer.load(normalizer_path)
+    print(sensor.correction)
     kwargs = {
         "sensor": sensor,
         "batch_size": batch_size,
@@ -369,7 +370,7 @@ def run_training_1d(
     }
 
     training_data = DataFolder(
-        training_data, dataset_factory, kwargs=kwargs, queue_size=64, n_workers=8
+        training_data, dataset_factory, kwargs=kwargs, queue_size=1024, n_workers=8
     )
 
     if args.no_validation:
@@ -555,7 +556,7 @@ def run_training_3d(
         "augment": True,
     }
     training_data = DataFolder(
-        training_data, dataset_factory, queue_size=256, kwargs=kwargs, n_workers=4
+        training_data, dataset_factory, queue_size=256, kwargs=kwargs, n_workers=6
     )
 
     if args.no_validation:
@@ -867,7 +868,7 @@ def run_training_hr(
     kwargs = {"batch_size": batch_size, "normalizer": normalizer, "augment": True}
 
     training_data = DataFolder(
-        training_data, dataset_factory, queue_size=256, kwargs=kwargs, n_workers=4
+        training_data, dataset_factory, queue_size=256, kwargs=kwargs, n_workers=6
     )
 
 
