@@ -1149,8 +1149,8 @@ class SimFileProcessor:
                     except Exception as exc:
                         LOGGER.error(
                             "The following error was encountered while "
-                            "processing file %f results: %s",
-                            filename,
+                            "processing file %s results: %s",
+                            str(filename),
                             exc,
                         )
                         get_console().print_exception()
