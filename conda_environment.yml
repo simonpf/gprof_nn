@@ -1,5 +1,6 @@
 name: gprof_nn
 channels:
+  - pytorch
   - conda-forge
   - defaults
 dependencies:
@@ -7,4 +8,9 @@ dependencies:
   - h5py
   - pyproj
   - pyresample
+  - cudatoolkit=11.3
+  - pytorch
+  - torchaudio
+  - torchvision
+  - tensorboard
 prefix: /home/simon/.conda/envs/gprof_nn
