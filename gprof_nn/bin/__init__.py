@@ -11,7 +11,7 @@ import argparse
 import sys
 import warnings
 
-import gprof_nn.logging
+from gprof_nn import logging
 
 
 def gprof_nn():
@@ -38,9 +38,16 @@ def gprof_nn():
     )
 
     parser = argparse.ArgumentParser(prog="gprof_nn", description=description)
+    parser.add_argument(
+        "--log_file",
+        type=str,
+        help="""
+        File to write logging output to
+        """,
+        default=None
+    )
 
     subparsers = parser.add_subparsers(help="Sub-commands")
-
     extract_data.add_parser(subparsers)
     train.add_parser(subparsers)
     retrieve.add_parser(subparsers)
@@ -59,4 +66,9 @@ def gprof_nn():
         return 1
 
     args = parser.parse_args()
+
+    log_file = args.log_file
+    if log_file is not None:
+        logging.enable_file_logging(log_file)
+
     args.func(args)

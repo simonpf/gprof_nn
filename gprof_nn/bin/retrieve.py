@@ -321,3 +321,4 @@ def run(args):
                 exc,
             )
     pool.shutdown()
+    gprof_nn.logging.log_messages()

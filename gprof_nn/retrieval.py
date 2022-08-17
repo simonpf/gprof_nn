@@ -192,13 +192,14 @@ def combine_input_data_3d(dataset, sensor, v_tbs="brightness_temperatures"):
     return input_data
 
 
-def run_preprocessor_l1c(l1c_file, output_file):
+def run_preprocessor_l1c(l1c_file, configuration, output_file):
     """
     Run preprocessor on L1C file.
 
     Args:
         l1c_file: Path pointing to the L1C file on which to run the
             preprocessor.
+        configuration: The preprocessor configuration to run.
         output_file: The file to which to write the results.
 
     Raises:
@@ -206,8 +207,17 @@ def run_preprocessor_l1c(l1c_file, output_file):
     """
     sensor = L1CFile(l1c_file).sensor
     try:
-        LOGGER.info("Running preprocessor for input file %s.", l1c_file)
-        run_preprocessor(l1c_file, sensor, output_file=output_file, robust=False)
+        LOGGER.info(
+            "Running preprocessor for input file '%s' because the input file"
+            " is in L1C format.",
+            l1c_file
+        )
+        run_preprocessor(
+            l1c_file,
+            sensor,
+            configuration=configuration,
+            output_file=output_file,
+            robust=False)
     except subprocess.CalledProcessError as e:
         LOGGER.error(
             (
@@ -285,16 +295,16 @@ class RetrievalDriver:
             self.output_format = output_format
         else:
             if output_file is None or Path(output_file).is_dir():
-                self.output_format = self.input_format
-            else:
-                if self.input_format in [NETCDF, L1C]:
+                if self.input_format == L1C:
                     self.output_format = NETCDF
                 else:
-                    output_file = Path(output_file)
-                    if output_file.suffix.lower() == ".bin":
-                        self.output_format = GPROF_BINARY
-                    else:
-                        self.output_format = NETCDF
+                    self.output_format = GPROF_BINARY
+            else:
+                output_file = Path(output_file)
+                if output_file.suffix.lower() == ".bin":
+                    self.output_format = GPROF_BINARY
+                else:
+                    self.output_format = NETCDF
 
         output_suffix = ".BIN"
         if self.output_format == NETCDF:
@@ -345,7 +355,10 @@ class RetrievalDriver:
         # Load input data.
         if self.input_format in [GPROF_BINARY, L1C]:
             input_data = self.model.preprocessor_class(
-                self.input_file, self.model.normalizer, tile=self.tile
+                self.input_file,
+                self.model.normalizer,
+                self.model.configuration,
+                tile=self.tile,
             )
         else:
             loader_class = self.model.netcdf_class
@@ -483,7 +496,10 @@ class RetrievalDriver:
                         dims = ("scans", "pixels")
                     results[var] = (dims[:var_data.ndim], var_data)
 
-        LOGGER.info("Writing retrieval results to file '%s'.", self.output_file)
+        LOGGER.info(
+            "Writing retrieval results in '%s' format to file '%s'.",
+            self.output_format, self.output_file
+        )
         results.to_netcdf(self.output_file)
         if self.compress:
             LOGGER.info("Compressing file '%s'.", self.output_file)
@@ -491,6 +507,10 @@ class RetrievalDriver:
             output_file = self.output_file.with_suffix(".nc.gz")
         else:
             output_file = self.output_file
+
+        # Delete input data to ensure that temporary resources
+        # are cleaned up.
+        del input_data
 
         return output_file
 
@@ -882,7 +902,14 @@ class ObservationLoader1D:
     file or a preprocessor file.
     """
 
-    def __init__(self, filename, file_class, normalizer, batch_size=1024 * 8, tile=False):
+    def __init__(
+            self,
+            filename,
+            file_class,
+            normalizer,
+            batch_size=1024 * 8,
+            tile=False
+    ):
         """
         Create observation loader.
 
@@ -1010,7 +1037,14 @@ class PreprocessorLoader1D(ObservationLoader1D):
     to a preprocessor file.
     """
 
-    def __init__(self, filename, normalizer, batch_size=1024 * 16, tile=False):
+    def __init__(
+            self,
+            filename,
+            normalizer,
+            configuration,
+            batch_size=1024 * 16,
+            tile=False,
+    ):
         """
         Create preprocessor loader.
 
@@ -1019,18 +1053,20 @@ class PreprocessorLoader1D(ObservationLoader1D):
                 input data.
             normalizer: The normalizer object to use to normalize the input
                 data.
+            configuration: The preprocessor configuration to use to load
+                the data.
             batch_size: How many pixels should be processed simultaneously
                 in a single batch.
             tile: Has no effect for this loader.
         """
         suffix = filename.suffix
         if suffix.endswith("HDF5"):
-            with TemporaryDirectory() as tmp:
-                output_file = Path(tmp) / "input.pp"
-                run_preprocessor_l1c(filename, output_file)
-                super().__init__(
-                    output_file, PreprocessorFile, normalizer, batch_size=batch_size
-                )
+            self._tmp = TemporaryDirectory()
+            output_file = Path(self._tmp.name) / "input.pp"
+            run_preprocessor_l1c(filename, configuration, output_file)
+            super().__init__(
+                output_file, PreprocessorFile, normalizer, batch_size=batch_size
+            )
         else:
             LOGGER.info("Loading preprocessor input data from %s.", filename)
             super().__init__(
@@ -1048,7 +1084,7 @@ class L1CLoader1D(ObservationLoader1D):
     Interface class to load GPROF-NN 1D retrieval input from L1C files.
     """
 
-    def __init__(self, filename, normalizer, batch_size=1024 * 16):
+    def __init__(self, filename, normalizer, configuration, batch_size=1024 * 16):
         """
         Create L1C loader.
 
@@ -1057,6 +1093,7 @@ class L1CLoader1D(ObservationLoader1D):
                 input data.
             normalizer: The normalizer object to use to normalize the input
                 data.
+            configuration: Not used.
             batch_size: How many pixels should be processed simultaneously
                 in a single batch.
             tile: Has no effect for this loader.
@@ -1202,7 +1239,7 @@ class PreprocessorLoader3D(ObservationLoader3D):
     form preprocessor files.
     """
 
-    def __init__(self, filename, normalizer, tile=False):
+    def __init__(self, filename, normalizer, configuration, tile=False):
         """
         Create preprocessor loader.
 
@@ -1211,14 +1248,16 @@ class PreprocessorLoader3D(ObservationLoader3D):
                 input data.
             normalizer: The normalizer object to use to normalize the input
                 data.
+            configuration: The preprocessor configuration to use to load
+                the data.
             tile: Whether to tile the orbit in along track dimension.
         """
         suffix = filename.suffix
         if suffix.endswith("HDF5"):
-            with TemporaryDirectory() as tmp:
-                output_file = Path(tmp) / "input.pp"
-                run_preprocessor_l1c(filename, output_file)
-                super().__init__(output_file, PreprocessorFile, normalizer, tile=tile)
+            self._tmp = TemporaryDirectory()
+            output_file = Path(self._tmp.name) / "input.pp"
+            run_preprocessor_l1c(filename, configuration, output_file)
+            super().__init__(output_file, PreprocessorFile, normalizer, tile=tile)
         else:
             LOGGER.info("Loading preprocessor input data from %s.", filename)
             super().__init__(filename, PreprocessorFile, normalizer, tile=tile)
@@ -1234,8 +1273,7 @@ class L1CLoader3D(ObservationLoader3D):
     Interface class to load retrieval input for the GPROF-NN 3D retrieval
     form L1C files.
     """
-
-    def __init__(self, filename, normalizer, tile=False):
+    def __init__(self, filename, normalizer, configuration, tile=False):
         """
         Create preprocessor loader.
 
@@ -1244,6 +1282,7 @@ class L1CLoader3D(ObservationLoader3D):
                 input data.
             normalizer: The normalizer object to use to normalize the input
                 data.
+            configuration: Not used.
             tile: Whether to tile the orbit in along track dimension.
         """
         super().__init__(filename, L1CFile, normalizer, tile=tile)

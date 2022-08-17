@@ -36,7 +36,6 @@ from gprof_nn.data import retrieval
 from gprof_nn.data.profiles import ProfileClusters
 from pathlib import Path
 
-LOGGER = logging.getLogger(__name__)
 
 ###############################################################################
 # Struct types
@@ -404,6 +403,7 @@ class PreprocessorFile:
         else:
             filename = path
 
+        LOGGER = logging.getLogger(__name__)
         LOGGER.info("Writing retrieval results to file '%s'.", str(filename))
 
         if ancillary_data is not None:
@@ -574,11 +574,13 @@ class PreprocessorFile:
 
         Args:
             file: Handle to the binary file to write the data to.
-            precip_mean: 1D array containing the mean retrieved precipitation for
-                 each pixel.
-            precip_1st_tertial: 1D array containing the 1st tertial retrieved from the data.
-            precip_2nd_tertial: 1D array containing the 2nd tertial retrieved from the data
-            precip_pop: 1D array containing the probability of precipitation in the scan.
+            scan_index: The index of the scan to write.
+            retrieval_data: The ``xarray.Dataset`` containing the retrieval
+                results.
+            profiles_raining: The mean profiles to use to compress the
+                retrieval results for raining pixels.
+            profiles_non_raining: The mean profiles to use to compress the
+                retrieval results for non-raining pixels.
         """
         data = retrieval_data[{"scans": scan_index}]
         scan_data = self.get_scan(scan_index)
@@ -704,19 +706,21 @@ def has_preprocessor():
 
 # Dictionary mapping sensor IDs to preprocessor executables.
 PREPROCESSOR_EXECUTABLES = {
-    "GMI": "gprof2021pp_GMI_L1C",
+    "GMI": "gprof2020pp_GMI_L1C",
     "MHS": "gprof2021pp_MHS_L1C",
     "TMIPR": "gprof2021pp_TMI_L1C",
     "TMIPO": "gprof2021pp_TMI_L1C",
     "SSMI": "gprof2021pp_SSMI_L1C",
     "SSMIS": "gprof2021pp_SSMIS_L1C",
     "AMSR2": "gprof2021pp_AMSR2_L1C",
+    "AMSRE": "gprof2021pp_AMSRE_L1C",
     ("GMI", "MHS"): "gprof2021pp_GMI_MHS_L1C",
     ("GMI", "TMIPR"): "gprof2021pp_GMI_TMI_L1C",
     ("GMI", "TMIPO"): "gprof2021pp_GMI_TMI_L1C",
     ("GMI", "SSMI"): "gprof2021pp_GMI_SSMI_L1C",
     ("GMI", "SSMIS"): "gprof2021pp_GMI_SSMIS_L1C",
-    ("GMI", "AMSR2"): "gprof2021pp_GMI_AMSR2_L1C"
+    ("GMI", "AMSR2"): "gprof2021pp_GMI_AMSR2_L1C",
+    ("GMI", "AMSRE"): "gprof2021pp_GMI_AMSRE_L1C"
 }
 
 
@@ -779,12 +783,17 @@ def run_preprocessor(
             raise ValueError(
                 f"Could not find preprocessor executable for the key '{key}'."
             )
-        LOGGER.info("Using preprocesor '%s'.", executable)
+        LOGGER = logging.getLogger(__name__)
+        LOGGER.info(
+            "Using preprocesor '%s' with '%s' ancillary data.",
+            executable,
+            configuration
+        )
 
         jobid = str(os.getpid()) + "_pp"
         args = [jobid] + get_preprocessor_settings(configuration)
         args.insert(2, str(l1c_file))
-        args.append(output_file)
+        args.append(str(output_file))
 
         subprocess.run([executable] + args, check=True, capture_output=True)
         if file is not None:

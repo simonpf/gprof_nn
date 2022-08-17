@@ -29,6 +29,23 @@ LOGGER.setLevel(_LOG_LEVEL)
 LOGGER.addHandler(_HANDLER)
 
 
+def enable_file_logging(filename):
+    """
+    Enable logging to a file.
+
+    Args:
+        filename: Filename of the file to which to write the log.
+    """
+    handler = logging.FileHandler(filename)
+    formatter = logging.Formatter(
+        '{levelname} [{name:<30}] :: {message}',
+        style="{"
+    )
+    handler.setLevel("DEBUG")
+    handler.setFormatter(formatter)
+    LOGGER.addHandler(handler)
+
+
 def get_console():
     """
     Return the console to use for live logging.
@@ -86,4 +103,5 @@ def log_messages():
     if _LOG_QUEUE is not None:
         while _LOG_QUEUE.qsize():
             record = _LOG_QUEUE.get()
-            _HANDLER.emit(record)
+            for handler in LOGGER.handlers:
+                handler.emit(record)
