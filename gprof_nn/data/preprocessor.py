@@ -404,7 +404,10 @@ class PreprocessorFile:
             filename = path
 
         LOGGER = logging.getLogger(__name__)
-        LOGGER.info("Writing retrieval results to file '%s'.", str(filename))
+        LOGGER.info(
+            "Writing retrieval results in GPROF binary format "
+            "to file '%s'.", str(filename)
+        )
 
         if ancillary_data is not None:
             profiles_raining = ProfileClusters(ancillary_data, True)
@@ -783,17 +786,21 @@ def run_preprocessor(
             raise ValueError(
                 f"Could not find preprocessor executable for the key '{key}'."
             )
-        LOGGER = logging.getLogger(__name__)
-        LOGGER.info(
-            "Using preprocesor '%s' with '%s' ancillary data.",
-            executable,
-            configuration
-        )
 
         jobid = str(os.getpid()) + "_pp"
         args = [jobid] + get_preprocessor_settings(configuration)
         args.insert(2, str(l1c_file))
         args.append(str(output_file))
+
+        LOGGER = logging.getLogger(__name__)
+        LOGGER.info(
+            "Invoking the preprocesor '%s' with '%s' ancillary data using the "
+            "following command: %s",
+            executable,
+            configuration,
+            " ".join(args)
+
+        )
 
         subprocess.run([executable] + args, check=True, capture_output=True)
         if file is not None:
