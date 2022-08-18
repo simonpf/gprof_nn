@@ -210,14 +210,15 @@ def run_preprocessor_l1c(l1c_file, configuration, output_file):
         LOGGER.info(
             "Running preprocessor for input file '%s' because the input file"
             " is in L1C format.",
-            l1c_file
+            l1c_file,
         )
         run_preprocessor(
             l1c_file,
             sensor,
             configuration=configuration,
             output_file=output_file,
-            robust=False)
+            robust=False,
+        )
     except subprocess.CalledProcessError as e:
         LOGGER.error(
             (
@@ -258,7 +259,7 @@ class RetrievalDriver:
         compress=False,
         preserve_structure=False,
         sensor=None,
-        tile=False
+        tile=False,
     ):
         """
         Create retrieval driver.
@@ -481,7 +482,7 @@ class RetrievalDriver:
                 "two_meter_temperature",
                 "surface_type",
                 "airmass_type",
-                "scan_time"
+                "scan_time",
             ]
             for var in variables:
                 if var in input_data.data.variables:
@@ -494,11 +495,12 @@ class RetrievalDriver:
                             if n_scans > var_data.shape[0]:
                                 var_data = upsample_scans(var_data, axis=0)
                         dims = ("scans", "pixels")
-                    results[var] = (dims[:var_data.ndim], var_data)
+                    results[var] = (dims[: var_data.ndim], var_data)
 
         LOGGER.info(
             "Writing retrieval results in '%s' format to file '%s'.",
-            self.output_format, self.output_file
+            self.output_format,
+            self.output_file,
         )
         results.to_netcdf(self.output_file)
         if self.compress:
@@ -645,7 +647,9 @@ class NetcdfLoader1D(GPROF_NN_1D_Dataset):
     in NetCDF data format.
     """
 
-    def __init__(self, filename, normalizer, batch_size=16 * 1024, sensor=None, tile=False):
+    def __init__(
+        self, filename, normalizer, batch_size=16 * 1024, sensor=None, tile=False
+    ):
         """
         Create loader for input data in NetCDF format that provides input
         data for the GPROF-NN 1D retrieval.
@@ -903,12 +907,7 @@ class ObservationLoader1D:
     """
 
     def __init__(
-            self,
-            filename,
-            file_class,
-            normalizer,
-            batch_size=1024 * 8,
-            tile=False
+        self, filename, file_class, normalizer, batch_size=1024 * 8, tile=False
     ):
         """
         Create observation loader.
@@ -1038,12 +1037,12 @@ class PreprocessorLoader1D(ObservationLoader1D):
     """
 
     def __init__(
-            self,
-            filename,
-            normalizer,
-            configuration,
-            batch_size=1024 * 16,
-            tile=False,
+        self,
+        filename,
+        normalizer,
+        configuration,
+        batch_size=1024 * 16,
+        tile=False,
     ):
         """
         Create preprocessor loader.
@@ -1143,21 +1142,14 @@ class ObservationLoader3D:
         }
 
         if tile:
-            self.tiles, self.cuts = calculate_tiles_and_cuts(
-                self.n_scans,
-                256,
-                0
-            )
+            self.tiles, self.cuts = calculate_tiles_and_cuts(self.n_scans, 256, 0)
         else:
             self.tiles, self.cuts = calculate_tiles_and_cuts(
-                self.n_scans,
-                self.n_scans,
-                0
+                self.n_scans, self.n_scans, 0
             )
         self.batch_size = 4
         tile_0 = input_data[:, :, self.tiles[0]]
         self.padding = calculate_padding_dimensions(tile_0)
-
 
     def __len__(self):
         """
@@ -1167,7 +1159,6 @@ class ObservationLoader3D:
         if len(self.tiles) % self.batch_size:
             n = n + 1
         return n
-
 
     def __getitem__(self, i):
         """
@@ -1181,9 +1172,8 @@ class ObservationLoader3D:
         """
         i_start = i * self.batch_size
         i_end = i_start + self.batch_size
-        tiles = self.tiles[i_start: i_end]
-        xs = [torch.tensor(self.input_data[:, :, tile])
-              for tile in tiles]
+        tiles = self.tiles[i_start:i_end]
+        xs = [torch.tensor(self.input_data[:, :, tile]) for tile in tiles]
         x = torch.cat(xs, 0)
         return nn.functional.pad(x, self.padding, mode="replicate")
 
@@ -1273,6 +1263,7 @@ class L1CLoader3D(ObservationLoader3D):
     Interface class to load retrieval input for the GPROF-NN 3D retrieval
     form L1C files.
     """
+
     def __init__(self, filename, normalizer, configuration, tile=False):
         """
         Create preprocessor loader.
@@ -1294,7 +1285,7 @@ class L1CLoaderHR(ObservationLoader3D):
     form L1C files.
     """
 
-    def __init__(self, filename, normalizer, tile=False):
+    def __init__(self, filename, normalizer, configuration, tile=False):
         """
         Create preprocessor loader.
 
@@ -1303,26 +1294,20 @@ class L1CLoaderHR(ObservationLoader3D):
                 input data.
             normalizer: The normalizer object to use to normalize the input
                 data.
+            configuration: Not used.
             tile: Whether to tile the orbit in along track dimension.
         """
         super().__init__(filename, L1CFile, normalizer, tile=tile)
 
         if tile:
-            self.tiles, self.cuts = calculate_tiles_and_cuts(
-                self.n_scans,
-                256,
-                8
-            )
+            self.tiles, self.cuts = calculate_tiles_and_cuts(self.n_scans, 256, 8)
         else:
             self.tiles, self.cuts = calculate_tiles_and_cuts(
-                self.n_scans,
-                self.n_scans,
-                8
+                self.n_scans, self.n_scans, 8
             )
         self.batch_size = 4
         tile_0 = self.input_data[:, :, self.tiles[0]]
         self.padding = calculate_padding_dimensions(tile_0)
-
 
     def finalize(self, data):
         """
