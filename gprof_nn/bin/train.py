@@ -825,7 +825,7 @@ def run_training_sim(
         lr = lr * len(n_epochs)
 
     if args.normalizer is None:
-        normalizer = get_normalizer(sensor)
+        normalizer = get_normalizer(sensors.GMI)
     else:
         normalizer = Normalizer.load(args.normalizer)
 
@@ -880,6 +880,7 @@ def run_training_sim(
         xrnn = None
 
     if xrnn is None:
+        LOGGER.info(f"Creating new simulator model.")
         xrnn = Simulator(sensor, n_neurons_body, n_layers_head, n_neurons_head)
 
     model = xrnn.model
