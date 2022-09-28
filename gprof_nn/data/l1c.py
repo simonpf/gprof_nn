@@ -55,11 +55,11 @@ class L1CFile:
             month = date.month
             day = date.day
             path = Path(path) / f"{year:02}{month:02}" / f"{year:02}{month:02}{day:02}"
-            files = path.glob(sensor.l1c_file_prefix + f"*.{granule:06}.*.HDF5")
+            files = path.glob(sensor.l1c_file_prefix + f"*.{granule:06}.*{sensor.l1c_version}.HDF5")
         else:
             path = Path(path)
             files = path.glob(
-                "**/" + sensor.l1c_file_prefix + f"*.{granule:06}.*.HDF5"
+                "**/" + sensor.l1c_file_prefix + f"*.{granule:06}.*{sensor.l1c_version}.HDF5"
             )
 
         files = list(files)
@@ -69,7 +69,6 @@ class L1CFile:
                 f"went wrong. Found the following files: {files}"
             )
         try:
-            f = files[0]
             f = next(iter(files))
             return L1CFile(f)
         except StopIteration:
@@ -98,7 +97,7 @@ class L1CFile:
         month = date.month
         day = date.day
         data_path = Path(path) / f"{year:02}{month:02}" / f"{year:02}{month:02}{day:02}"
-        files = list(data_path.glob(sensor.l1c_file_prefix + "*.HDF5"))
+        files = list(data_path.glob(sensor.l1c_file_prefix + "*{sensor.l1c_version}.HDF5"))
 
         # Add files from following day.
         date_f = date + pd.DateOffset(1)
@@ -106,7 +105,7 @@ class L1CFile:
         month = date_f.month
         day = date_f.day
         data_path = Path(path) / f"{year:02}{month:02}" / f"{year:02}{month:02}{day:02}"
-        files += list(data_path.glob(sensor.l1c_file_prefix + "*.HDF5"))
+        files += list(data_path.glob(sensor.l1c_file_prefix + "*{sensor.l1c_version}.HDF5"))
 
         # Add files from previous day.
         date_f = date - pd.DateOffset(1)
@@ -115,9 +114,9 @@ class L1CFile:
         day = date_f.day
         data_path = Path(path) / f"{year:02}{month:02}" / f"{year:02}{month:02}{day:02}"
 
-        files += list(data_path.glob(sensor.l1c_file_prefix + "*.HDF5"))
+        files += list(data_path.glob(sensor.l1c_file_prefix + "*{sensor.l1c_version}.HDF5"))
 
-        files += list(path.glob(sensor.l1c_file_prefix + "*.HDF5"))
+        files += list(path.glob(sensor.l1c_file_prefix + "*{sensor.l1c_version}.HDF5"))
 
         start_times = []
         end_times = []
@@ -171,12 +170,12 @@ class L1CFile:
         data_path = Path(path) / f"{year:02}{month:02}" / f"{year:02}{month:02}{day:02}"
         files = list(
             data_path.glob(
-                sensor.l1c_file_prefix + f"*{date.year:04}{month:02}{day:02}*.HDF5"
+                sensor.l1c_file_prefix + f"*{date.year:04}{month:02}{day:02}*{sensor.l1c_version}.HDF5"
             )
         )
         files += list(
             path.glob(
-                sensor.l1c_file_prefix + f"*{date.year:04}{month:02}{day:02}*.HDF5"
+                sensor.l1c_file_prefix + f"*{date.year:04}{month:02}{day:02}*{sensor.l1c_version}.HDF5"
             )
         )
         for f in files:

@@ -68,6 +68,7 @@ CHANNEL_INDICES = {
     "SSMI": [2, 3, 4, 6, 7, 8, 9],
     "SSMIS": [2, 3, 4, 6, 7, 8, 9, 11, 12, 13, 14],
     "AMSR2": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
+    "AMSRE": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
 }
 
 
@@ -656,13 +657,14 @@ def process_sim_file(sim_filename, sensor, configuration, era5_path, log_queue=N
 
     # If we are dealing with GMI add precip from ERA5.
     if sensor == sensors.GMI:
-        LOGGER.debug("Adding ERA5 precip for file %s.", sim_filename)
-        start_time = data_pp["scan_time"].data[0]
-        end_time = data_pp["scan_time"].data[-1]
-        LOGGER.debug("Loading ERA5 data: %s %s", start_time, end_time)
-        era5_data = _load_era5_data(start_time, end_time, era5_path)
-        _add_era5_precip(data_pp, l1c_data, era5_data)
-        LOGGER.debug("Added era5 precip.")
+        if era5_path is not None:
+            LOGGER.debug("Adding ERA5 precip for file %s.", sim_filename)
+            start_time = data_pp["scan_time"].data[0]
+            end_time = data_pp["scan_time"].data[-1]
+            LOGGER.debug("Loading ERA5 data: %s %s", start_time, end_time)
+            era5_data = _load_era5_data(start_time, end_time, era5_path)
+            _add_era5_precip(data_pp, l1c_data, era5_data)
+            LOGGER.debug("Added era5 precip.")
     # Else set to missing.
     else:
         sea_ice = (surface_type == 2) + (surface_type == 16)
@@ -962,6 +964,65 @@ def add_brightness_temperatures(data, sensor):
 ###############################################################################
 
 
+def get_l1c_files_for_seaice(sensor):
+    """
+    Finds sensors L1C files that should be used to extract
+    ERA5 collocations.
+
+    The function first checks whether there is a specific SEAICE year
+    defined for the given sensor in ``gprof_nn.definitions``. If that
+    is not the case it will look for L1C files for the current database
+    period.
+
+    If the above doesn't produce any L1C files, then GMI collocations
+    with ERA5 are used.
+
+    Args:
+        sensor: Sensor for which the data is to be extracted.
+
+    Return:
+        List of L1C filenames to process.
+    """
+    # Collect L1C files to process.
+    l1c_file_path = self.sensor.l1c_file_path
+    l1c_files = []
+
+    # Get L1C for specific year ...
+    if self.sensor.name in SEAICE_YEARS:
+        year = SEAICE_YEARS[self.sensor.name]
+        for month in range(1, 13):
+            try:
+                date = datetime(year, month, self.day)
+                l1c_files += L1CFile.find_files(
+                    date, l1c_file_path, sensor=self.sensor
+                )
+            except ValueError:
+                pass
+    else:
+        for year, month in DATABASE_MONTHS:
+            try:
+                date = datetime(year, month, self.day)
+                l1c_files += L1CFile.find_files(
+                    date, l1c_file_path, sensor=self.sensor
+                )
+            except ValueError:
+                pass
+
+    # If no L1C files are found use GMI co-locations.
+    if len(l1c_files) < 1:
+        for year, month in DATABASE_MONTHS:
+            try:
+                date = datetime(year, month, self.day)
+                l1c_file_path = sensors.GMI.l1c_file_path
+                l1c_files += L1CFile.find_files(
+                    date, l1c_file_path, sensor=sensors.GMI
+                )
+            except ValueError:
+                pass
+    l1c_files = [f.filename for f in l1c_files]
+    l1c_files = np.random.permutation(l1c_files)
+
+
 class SimFileProcessor:
     """
     Processor class that manages the extraction of GPROF training data. A
@@ -985,7 +1046,7 @@ class SimFileProcessor:
             output_file: The file in which to store the extracted data.
             sensor: Sensor object defining the sensor for which to extract
                 training data.
-            era_5_path: Path to the root of the directory tree containing
+            era5_path: Path to the root of the directory tree containing
                 ERA5 data.
             n_workers: The number of worker processes to use.
             day: Day of the month for which to extract the data.
@@ -995,12 +1056,10 @@ class SimFileProcessor:
         self.sensor = sensor
         self.configuration = configuration
 
-        if era5_path is None:
-            raise ValueError(
-                "The 'era5_path' argument must be provided in order to process"
-                " any sim files."
-            )
-        self.era5_path = Path(era5_path)
+        self.era5_path = era5_path
+        if self.era5_path is not None:
+            self.era5_path = Path(self.era5_path)
+
         self.pool = futures.ProcessPoolExecutor(max_workers=n_workers)
 
         if day is None:
@@ -1016,64 +1075,47 @@ class SimFileProcessor:
         stores the names of the produced result files in the ``processed`` attribute
         of the driver.
         """
+        # Collect simulator files to process.
         sim_file_path = self.sensor.sim_file_path
-        sim_files = SimFile.find_files(sim_file_path, sensor=self.sensor, day=self.day)
-        sim_files = np.random.permutation(sim_files)
-
-        mrms_file_path = self.sensor.mrms_file_path
-        if mrms_file_path is None:
-            mrms_files = MRMSMatchFile.find_files(
-                sensors.GMI.mrms_file_path, sensor=sensors.GMI
+        if self.sensor.sim_file_path is not None:
+            sim_files = SimFile.find_files(
+                sim_file_path,
+                sensor=self.sensor,
+                day=self.day
             )
+            sim_files = np.random.permutation(sim_files)
         else:
-            mrms_files = MRMSMatchFile.find_files(mrms_file_path, sensor=self.sensor)
-        mrms_files = np.random.permutation(mrms_files)
+            sim_files = []
 
+        # Collect MRMS files to process.
+        if self.sensor.mrms_file_path is not None:
+            mrms_file_path = self.sensor.mrms_file_path
+            if mrms_file_path is None:
+                mrms_files = MRMSMatchFile.find_files(
+                    sensors.GMI.mrms_file_path, sensor=sensors.GMI
+                )
+            else:
+                mrms_files = MRMSMatchFile.find_files(
+                    mrms_file_path,
+                    sensor=self.sensor
+                )
+            mrms_files = np.random.permutation(mrms_files)
+        else:
+            mrms_files = []
+
+        # Collect L1C files to process.
         l1c_file_path = self.sensor.l1c_file_path
-        l1c_files = []
-
-        # Get L1C for specific year ...
-        if self.sensor.name in SEAICE_YEARS:
-            year = SEAICE_YEARS[self.sensor.name]
-            for month in range(1, 13):
-                try:
-                    date = datetime(year, month, self.day)
-                    l1c_files += L1CFile.find_files(
-                        date, l1c_file_path, sensor=self.sensor
-                    )
-                except ValueError:
-                    pass
-        # Or database period
+        if self.era5_path is not None:
+            l1c_files = get_l1c_files_for_seaice(sensor)
         else:
-            for year, month in DATABASE_MONTHS:
-                try:
-                    date = datetime(year, month, self.day)
-                    l1c_files += L1CFile.find_files(
-                        date, l1c_file_path, sensor=self.sensor
-                    )
-                except ValueError:
-                    pass
-
-        # If no L1C files are found use GMI co-locations.
-        if len(l1c_files) < 1:
-            for year, month in DATABASE_MONTHS:
-                try:
-                    date = datetime(year, month, self.day)
-                    l1c_file_path = sensors.GMI.l1c_file_path
-                    l1c_files += L1CFile.find_files(
-                        date, l1c_file_path, sensor=sensors.GMI
-                    )
-                except ValueError:
-                    pass
-        l1c_files = [f.filename for f in l1c_files]
-        l1c_files = np.random.permutation(l1c_files)
+            l1c_files = []
 
         n_sim_files = len(sim_files)
-        LOGGER.debug("Found %s SIM files.", n_sim_files)
+        LOGGER.info("Found %s SIM files.", n_sim_files)
         n_mrms_files = len(mrms_files)
-        LOGGER.debug("Found %s MRMS files.", n_mrms_files)
+        LOGGER.info("Found %s MRMS files.", n_mrms_files)
         n_l1c_files = len(l1c_files)
-        LOGGER.debug("Found %s L1C files.", n_l1c_files)
+        LOGGER.info("Found %s L1C files.", n_l1c_files)
         i = 0
 
         # Submit tasks interleaving .sim and MRMS files.
@@ -1097,6 +1139,10 @@ class SimFileProcessor:
             if i < n_mrms_files:
                 mrms_file = mrms_files[i]
                 files.append(mrms_file)
+                if hasattr(self.sensor, "mrms_sensor"):
+                    sensor = self.sensor.mrms_sensor
+                else:
+                    sensor = self.sensor
                 tasks.append(
                     self.pool.submit(
                         process_mrms_file,

@@ -33,7 +33,7 @@ class MRMSMatchFile:
         month: The month from which the observations stem.
     """
 
-    file_pattern = "????_MRMS2{sensor}_*.bin.gz"
+    file_pattern = "*_MRMS2{sensor}_*.bin.gz"
 
     @classmethod
     def find_files(cls, path, sensor=sensors.GMI):
@@ -199,6 +199,15 @@ class MRMSMatchFile:
         matched[indices][dists > 15e3] = np.nan
         matched = matched.reshape((n_scans, n_pixels))
         input_data["convective_precip"] = (("scans", "pixels"), matched)
+
+        if "snow_3" in input_data:
+            for var in ["snow", "snow_3", "snow4"]:
+                matched = np.zeros(n_scans * n_pixels)
+                matched[:] = np.nan
+                matched[indices] = data["convective_rain"]
+                matched[indices][dists > 15e3] = np.nan
+                matched = matched.reshape((n_scans, n_pixels))
+                input_data[var] = (("scans", "pixels"), matched)
 
         return input_data
 

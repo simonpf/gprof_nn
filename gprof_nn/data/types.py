@@ -11,6 +11,22 @@ import numpy as np
 CONICAL = "CONICAL"
 CONICAL_CONST = "CONICAL_CONSTELLATION"
 XTRACK = "XTRACK"
+SNOW = "SNOW"
+KINDS = [CONICAL, CONICAL_CONST, XTRACK, SNOW]
+
+
+def check_kind(kind):
+    """
+    Check that record kind argument is valid.
+
+    Args:
+        kind: The record kind to check.
+
+    Raises:
+        ValueError if the kind is is not valid.
+    """
+    if not kind in KINDS:
+        raise ValueError("Given kind '%s' is not a valid record kind.")
 
 
 def get_preprocessor_orbit_header(n_chans, kind):
@@ -22,6 +38,7 @@ def get_preprocessor_orbit_header(n_chans, kind):
         The numpy datatype corresponding to the orbit header of the
         binary preprocessor file format.
     """
+    check_kind(kind)
     if kind == CONICAL:
         dtype = np.dtype(
             [
@@ -68,6 +85,7 @@ def get_preprocessor_pixel_record(n_chans, kind):
         The numpy datatype corresponding to a pixel record of the
         binary preprocessor file format.
     """
+    check_kind(kind)
     if kind == CONICAL:
         dtype = np.dtype(
             [
@@ -108,6 +126,7 @@ def get_preprocessor_pixel_record(n_chans, kind):
 
 
 def get_bin_file_header(n_chans, n_angles, kind):
+    check_kind(kind)
     if kind == CONICAL:
         n_chans = 15
         dtype = np.dtype(
@@ -146,6 +165,7 @@ def get_bin_file_record(n_chans, n_angles, n_layers, surface_type, kind):
         Numpy dtype that can be used to read entries in a bin file into
         a numpy structured array.
     """
+    check_kind(kind)
     if kind == CONICAL:
         n_chans = 15
         dtype = np.dtype(
@@ -229,6 +249,7 @@ def get_sim_file_header(n_chans, n_angles, kind):
     Return:
         Numpy dtype that can be used to read the header of a *.sim file.
     """
+    check_kind(kind)
     if kind == CONICAL:
         dtype = np.dtype(
             [
@@ -273,6 +294,7 @@ def get_sim_file_record(n_chans, n_angles, n_layers, kind):
         Numpy dtype that can be used to read entries in a *.sim file into
         a numpy structured array.
     """
+    check_kind(kind)
     date_type = np.dtype(
         [
             ("year", "i4"),
@@ -338,29 +360,43 @@ def get_sim_file_record(n_chans, n_angles, n_layers, kind):
 
 
 def get_mrms_file_record(n_chans, n_angles, kind):
+    """
+    Get file record to read in MRMS matchup files.
+
+    Args:
+        n_chans: The number of channels of the sensor.
+        n_angles: The number of viewing angles of the sensor.
+            Only considered for cross track scanners.
+        kind: The record kind.
+    """
+    check_kind(kind)
+
     if kind == CONICAL:
-        dtype = np.dtype([
-            ("latitude", "f4"),
-            ("longitude", "f4"),
-            ("scan_time", f"5i4"),
-            ("quality_flag", f"f4"),
-            ("surface_precip", "f4"),
-            ("surface_rain", "f4"),
-            ("convective_rain", "f4"),
-            ("stratiform_rain", "f4"),
-            ("snow", "f4"),
-            ("quality_index", "f4"),
-            ("gauge_fraction", "f4"),
-            ("standard_deviation", "f4"),
-            ("n_stratiform", "i4"),
-            ("n_convective", "i4"),
-            ("n_rain", "i4"),
-            ("n_snow", "i4"),
-            ("fraction_missing", "f4"),
-            ("brightness_temperatures", f"15f4"),
-        ])
+        dtype = np.dtype(
+            [
+                ("latitude", "f4"),
+                ("longitude", "f4"),
+                ("scan_time", f"5i4"),
+                ("quality_flag", f"f4"),
+                ("surface_precip", "f4"),
+                ("surface_rain", "f4"),
+                ("convective_rain", "f4"),
+                ("stratiform_rain", "f4"),
+                ("snow", "f4"),
+                ("quality_index", "f4"),
+                ("gauge_fraction", "f4"),
+                ("standard_deviation", "f4"),
+                ("n_stratiform", "i4"),
+                ("n_convective", "i4"),
+                ("n_rain", "i4"),
+                ("n_snow", "i4"),
+                ("fraction_missing", "f4"),
+                ("brightness_temperatures", f"15f4"),
+            ]
+        )
     elif kind == CONICAL_CONST:
-        dtype = np.dtype([
+        dtype = np.dtype(
+            [
                 ("datasetnum", "i4"),
                 ("latitude", "f4"),
                 ("longitude", "f4"),
@@ -389,9 +425,49 @@ def get_mrms_file_record(n_chans, n_angles, kind):
                 ("n_snow", "i4"),
                 ("fraction_missing", "f4"),
                 ("brightness_temperatures", f"15f4"),
-            ])
+            ]
+        )
+    elif kind == SNOW:
+        dtype = np.dtype(
+            [
+                ("datasetnum", "i4"),
+                ("latitude", "f4"),
+                ("longitude", "f4"),
+                ("orbitnum", "i4"),
+                ("n_pixels", "i4"),
+                ("n_scans", "i4"),
+                ("scan_time", f"5i4"),
+                ("skin_temperature", f"i4"),
+                ("total_column_water_vapor", f"i4"),
+                ("sun_glint", f"i4"),
+                ("surface_type", f"i4"),
+                ("quality_flag", f"f4"),
+                ("two_meter_temperature", "f4"),
+                ("wet_bulb_temperature", "f4"),
+                ("lapse_rate", "f4"),
+                ("surface_precip", "f4"),
+                ("surface_rain", "f4"),
+                ("convective_rain", "f4"),
+                ("stratiform_rain", "f4"),
+                ("snow", "f4"),
+                ("snow3", "f4"),
+                ("snow4", "f4"),
+                ("quality_index", "f4"),
+                ("gauge_fraction", "f4"),
+                ("standard_deviation", "f4"),
+                ("n_stratiform", "i4"),
+                ("n_convective", "i4"),
+                ("n_rain", "i4"),
+                ("n_snow", "i4"),
+                ("n_snow3", "i4"),
+                ("n_snow4", "i4"),
+                ("fraction_missing", "f4"),
+                ("brightness_temperatures", f"15f4"),
+            ]
+        )
     else:
-        dtype = np.dtype([
+        dtype = np.dtype(
+            [
                 ("datasetnum", "i4"),
                 ("latitude", "f4"),
                 ("longitude", "f4"),
@@ -420,5 +496,6 @@ def get_mrms_file_record(n_chans, n_angles, kind):
                 ("n_snow", "i4"),
                 ("fraction_missing", "f4"),
                 ("brightness_temperatures", f"{n_chans}f4"),
-            ])
+            ]
+        )
     return dtype
