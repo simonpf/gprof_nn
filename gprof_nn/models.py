@@ -812,7 +812,6 @@ class XceptionBlock(nn.Module):
 
             self.block_1 = nn.Sequential(
             SeparableConv3x3(channels_in, channels_out),
-            #nn.GroupNorm(32, channels_out),
             nn.BatchNorm2d(channels_out),
             SymmetricPadding(1),
             nn.MaxPool2d(kernel_size=3, stride=stride),
@@ -820,14 +819,12 @@ class XceptionBlock(nn.Module):
         else:
             self.block_1 = nn.Sequential(
                 SeparableConv3x3(channels_in, channels_out),
-                #nn.GroupNorm(32, channels_out),
                 nn.BatchNorm2d(channels_out),
                 nn.GELU(),
             )
 
         self.block_2 = nn.Sequential(
             SeparableConv3x3(channels_out, channels_out),
-            #nn.GroupNorm(32, channels_out),
             nn.BatchNorm2d(channels_out),
             nn.GELU(),
         )
