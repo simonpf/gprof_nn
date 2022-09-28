@@ -615,7 +615,7 @@ def run_training_3d(
 
     device = args.device
     targets = args.targets
-    network_type = args.type[0]
+    network_type = args.type
     batch_size = args.batch_size
 
     n_epochs = args.n_epochs
@@ -704,7 +704,7 @@ def run_training_3d(
             )
         elif network_type == "qrnn_exp":
             transformation = {}
-            for target in ALL_TARGETS:
+            for target in targets:
                 if target in PROFILE_NAMES:
                     transformation[target] = None
                 else:
