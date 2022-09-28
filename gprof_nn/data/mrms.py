@@ -141,8 +141,6 @@ class MRMSMatchFile:
         Args:
             input_data: xarray dataset containing the input data from
                 the preprocessor.
-            targets: List of retrieval target variables to extract from
-                the sim file.
         Return:
             The input dataset but with the surface_precip field added.
         """
@@ -200,11 +198,11 @@ class MRMSMatchFile:
         matched = matched.reshape((n_scans, n_pixels))
         input_data["convective_precip"] = (("scans", "pixels"), matched)
 
-        if "snow_3" in input_data:
-            for var in ["snow", "snow_3", "snow4"]:
+        if "snow3" in data.dtype.names:
+            for var in ["snow", "snow3", "snow4"]:
                 matched = np.zeros(n_scans * n_pixels)
                 matched[:] = np.nan
-                matched[indices] = data["convective_rain"]
+                matched[indices] = data[var]
                 matched[indices][dists > 15e3] = np.nan
                 matched = matched.reshape((n_scans, n_pixels))
                 input_data[var] = (("scans", "pixels"), matched)

@@ -78,11 +78,7 @@ DATABASE_MONTHS = [
     (2019, 9),
 ]
 
-SEAICE_YEARS = {
-    "SSMI": 2003,
-    "SSMIS": 2015,
-    "AMSRE": 2008
-}
+SEAICE_YEARS = {"SSMI": 2003, "SSMIS": 2015, "AMSRE": 2008}
 
 TEST_DAYS = [1, 2, 3]
 VALIDATION_DAYS = [4, 5]
@@ -110,7 +106,10 @@ LIMITS = {
     "earth_incidence_angle": (-90, 90),
     "latitude": (-90, 90),
     "longitude": (-180, 180),
-    "scan_time": (None, None)
+    "scan_time": (None, None),
+    "snow": (0, 500),
+    "snow3": (0, 500),
+    "snow4": (0, 500),
 }
 
 GPROF_NN_DATA_PATH = Path(__file__).parent.parent / "data"
@@ -130,7 +129,7 @@ TARGET_NAMES = {
     "rain_water_content": "Rain water content",
     "snow_water_content": "Snow water content",
     "cloud_water_content": "Cloud water content",
-    "latent_heat": "Latent heat"
+    "latent_heat": "Latent heat",
 }
 
 UNITS = {
@@ -142,7 +141,7 @@ UNITS = {
     "rain_water_content": "$\si{\gram \per \meter \cubed}$",
     "snow_water_content": "$\si{\gram \per \meter \cubed}$",
     "cloud_water_content": "$\si{\gram \per \meter \cubed}$",
-    "latent_heat": "$\si{\kelvin \per \hour}$"
+    "latent_heat": "$\si{\kelvin \per \hour}$",
 }
 
 

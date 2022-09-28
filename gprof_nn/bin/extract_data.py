@@ -102,6 +102,14 @@ def add_parser(subparsers):
         ),
     )
     parser.add_argument(
+        "--l1c_file_path",
+        type=str,
+        default=None,
+        help=(
+            "Overwrites the sensor's default file path for L1C files."
+        ),
+    )
+    parser.add_argument(
         "--mrms_file_type",
         type=str,
         default=None,
@@ -170,7 +178,7 @@ def run(args):
         if sf_path.lower() == "none":
             sensor.sim_file_path = None
         else:
-            sensor.sim_file_path = args.sim_file_path
+            sensor.sim_file_path = sf_path
 
     # MRMS matchup file path
     if args.mrms_file_path is not None:
@@ -179,6 +187,14 @@ def run(args):
             sensor.mrms_file_path = None
         else:
             sensor.mrms_file_path = sf_path
+
+    # L1C file path
+    if args.l1c_file_path is not None:
+        l1c_path = args.mrms_file_path
+        if l1c_path.lower() == "none":
+            sensor.l1c_file_path = None
+        else:
+            sensor.l1c_file_path = l1c_path
 
     # Optionally overwrite MRMS file type.
     if args.mrms_file_type is not None:

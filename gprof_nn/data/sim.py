@@ -964,7 +964,7 @@ def add_brightness_temperatures(data, sensor):
 ###############################################################################
 
 
-def get_l1c_files_for_seaice(sensor):
+def get_l1c_files_for_seaice(sensor, day):
     """
     Finds sensors L1C files that should be used to extract
     ERA5 collocations.
@@ -984,26 +984,26 @@ def get_l1c_files_for_seaice(sensor):
         List of L1C filenames to process.
     """
     # Collect L1C files to process.
-    l1c_file_path = self.sensor.l1c_file_path
+    l1c_file_path = sensor.l1c_file_path
     l1c_files = []
 
     # Get L1C for specific year ...
-    if self.sensor.name in SEAICE_YEARS:
-        year = SEAICE_YEARS[self.sensor.name]
+    if sensor.name in SEAICE_YEARS:
+        year = SEAICE_YEARS[sensor.name]
         for month in range(1, 13):
             try:
-                date = datetime(year, month, self.day)
+                date = datetime(year, month, day)
                 l1c_files += L1CFile.find_files(
-                    date, l1c_file_path, sensor=self.sensor
+                    date, l1c_file_path, sensor=sensor
                 )
             except ValueError:
                 pass
     else:
         for year, month in DATABASE_MONTHS:
             try:
-                date = datetime(year, month, self.day)
+                date = datetime(year, month, day)
                 l1c_files += L1CFile.find_files(
-                    date, l1c_file_path, sensor=self.sensor
+                    date, l1c_file_path, sensor=sensor
                 )
             except ValueError:
                 pass
@@ -1012,7 +1012,7 @@ def get_l1c_files_for_seaice(sensor):
     if len(l1c_files) < 1:
         for year, month in DATABASE_MONTHS:
             try:
-                date = datetime(year, month, self.day)
+                date = datetime(year, month, day)
                 l1c_file_path = sensors.GMI.l1c_file_path
                 l1c_files += L1CFile.find_files(
                     date, l1c_file_path, sensor=sensors.GMI
@@ -1021,6 +1021,7 @@ def get_l1c_files_for_seaice(sensor):
                 pass
     l1c_files = [f.filename for f in l1c_files]
     l1c_files = np.random.permutation(l1c_files)
+    return l1c_files
 
 
 class SimFileProcessor:
@@ -1106,7 +1107,7 @@ class SimFileProcessor:
         # Collect L1C files to process.
         l1c_file_path = self.sensor.l1c_file_path
         if self.era5_path is not None:
-            l1c_files = get_l1c_files_for_seaice(sensor)
+            l1c_files = get_l1c_files_for_seaice(self.sensor, self.day)[:1]
         else:
             l1c_files = []
 

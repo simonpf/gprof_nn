@@ -167,6 +167,36 @@ def calculate_bias_scaling(angles):
     return scales / _BIAS_SCALES_GMI
 
 
+def drop_inputs_from_sample(x, probability, sensor, rng):
+    """
+    Drop inputs from network input.
+
+    Args:
+        x: The input sample with channels/features along the first axis..
+        probability: The probability with which to drop a channels.
+        sensor: The sensor for which the data is extracted.
+        rng: Random generator object to use.
+    """
+    scalar_inputs = sensor.n_chans + 2
+    if isinstance(sensor, sensors.CrossTrackScanner):
+        scalar_input += 1
+    # Iterate of scalar variable and drop randomly
+    for i_ch in range(scalar_input):
+        r = rng.uniform()
+        if r <= probability:
+            x[i] = np.nan
+
+    # Drop surface type
+    r = rng.uniform()
+    if r <= probability:
+        x[scalar_input : scalar_inputs + 8] = np.nan
+
+    # Drop airmass type
+    r = rng.uniform()
+    if r <= probability:
+        x[scalar_input + 8 : scalar_inputs + 12] = np.nan
+
+
 ###############################################################################
 # Sensor classes
 ###############################################################################
@@ -333,6 +363,13 @@ class Sensor(ABC):
         The default file path on the CSU system.
         """
         return self.platform.l1c_file_path
+
+    @l1c_file_path.setter
+    def l1c_file_path(self, path):
+        """
+        The default file path on the CSU system.
+        """
+        self.platform.l1c_file_path = path
 
     @abstractproperty
     def mrms_file_path(self):
@@ -614,9 +651,12 @@ class ConicalScanner(Sensor):
             y_t = self.load_target(scene, t, valid)
             y_t = np.nan_to_num(y_t, nan=MASKED_OUTPUT)
             y[t] = y_t
+
         return x, y
 
-    def load_training_data_1d(self, dataset, targets, augment, rng, n_workers=1):
+    def load_training_data_1d(
+        self, dataset, targets, augment, rng, n_workers=1, drop_inputs=None
+    ):
         """
         Load training data for GPROF-NN 1D retrieval. This function will
         only load pixels that with a finite surface precip value in order
@@ -632,6 +672,10 @@ class ConicalScanner(Sensor):
             targets: List of the targets to load.
             augment: Whether or not to augment the training data.
             rng: Numpy random number generator to use for augmentation.
+            n_workers: If larger than 1, multiple processes will be load
+                the training data.
+            drop_inputs: A probability with which to set all inputs randomly
+                to a missing value.
 
         Return:
             Tuple ``(x, y)`` containing the un-batched, un-shuffled training
@@ -688,9 +732,14 @@ class ConicalScanner(Sensor):
         if loaded:
             dataset.close()
 
+        if drop_inputs is not None:
+            drop_inputs_from_sample(x, drop_inputs, self, rng)
+
         return x, y
 
-    def _load_scene_3d(self, scene, targets, augment, variables, rng, width, height):
+    def _load_scene_3d(
+        self, scene, targets, augment, variables, rng, width, height, drop_inputs=None
+    ):
         """
         Helper function for parallelized loading of training samples.
         """
@@ -768,10 +817,22 @@ class ConicalScanner(Sensor):
                 x = np.flip(x, -1)
                 for k in targets:
                     y[k] = np.flip(y[k], -1)
+
+        if drop_inputs is not None:
+            drop_inputs_from_sample(x, drop_inputs, self, rng)
+
         return x, y
 
     def load_training_data_3d(
-        self, dataset, targets, augment, rng, width=96, height=128, n_workers=1
+        self,
+        dataset,
+        targets,
+        augment,
+        rng,
+        width=96,
+        height=128,
+        n_workers=1,
+        drop_inputs=None,
     ):
         """
         Load training data for GPROF-NN 3D retrieval. This function extracts
@@ -788,6 +849,8 @@ class ConicalScanner(Sensor):
             height: The height of each input image.
             n_workers: If larger than 1, a process pool with that many workers
                  will be used to load the data in parallel.
+            drop_inputs: A probability with which to set all inputs randomly
+                to a missing value.
 
         Return:
             Tuple ``(x, y)`` containing the un-batched, un-shuffled training
@@ -823,6 +886,7 @@ class ConicalScanner(Sensor):
                         rng,
                         width,
                         height,
+                        drop_inputs=drop_inputs,
                     )
                 )
 
@@ -842,7 +906,14 @@ class ConicalScanner(Sensor):
                     n = 2
                 for j in range(n):
                     x_i, y_i = self._load_scene_3d(
-                        scene, targets, augment, vs, rng, width, height
+                        scene,
+                        targets,
+                        augment,
+                        vs,
+                        rng,
+                        width,
+                        height,
+                        drop_inputs=drop_inputs,
                     )
                     x.append(x_i)
                     for target in targets:
@@ -854,6 +925,9 @@ class ConicalScanner(Sensor):
 
         if loaded:
             dataset.close()
+
+        if drop_inputs is not None:
+            drop_inputs_from_sample(x, drop_inputs, self, rng)
 
         return x, y
 
@@ -944,7 +1018,9 @@ class ConstellationScanner(ConicalScanner):
             tbs = load_variable(data, "brightness_temperatures", mask=mask)
         return tbs
 
-    def load_training_data_1d(self, dataset, targets, augment, rng, indices=None):
+    def load_training_data_1d(
+        self, dataset, targets, augment, rng, indices=None, drop_inputs=None
+    ):
         """
         Load training data for GPROF-NN 1D retrieval. This function will
         only load pixels that with a finite surface precip value in order
@@ -961,6 +1037,8 @@ class ConstellationScanner(ConicalScanner):
             rng: Numpy random number generator to use for augmentation.
             indices: List of scene indices from which to load the data. This
                 can be used to resample training scenes.
+            drop_inputs: A probability with which to set all inputs randomly
+                to a missing value.
 
         Return:
             Tuple ``(x, y)`` containing the un-batched, un-shuffled training
@@ -1053,10 +1131,13 @@ class ConstellationScanner(ConicalScanner):
         if loaded:
             dataset.close()
 
+        if drop_inputs is not None:
+            drop_inputs_from_sample(x, drop_inputs, self, rng)
+
         return x, y
 
     def _load_training_data_3d_sim(
-        self, scene, targets, augment, rng, width=32, height=128
+        self, scene, targets, augment, rng, width=32, height=128, drop_inputs=None
     ):
         """
         Load training data for scene extracted from a sim file. Since
@@ -1071,6 +1152,8 @@ class ConstellationScanner(ConicalScanner):
             rng: 'numpy.random.Generator' to use to generate random numbers.
             width: The width of each input image.
             height: The height of each input image.
+            drop_inputs: A probability with which to set all inputs randomly
+                to a missing value.
 
         Returns:
             Tuple ``x, y`` containing one sample of training data for the
@@ -1184,10 +1267,14 @@ class ConstellationScanner(ConicalScanner):
                 x = np.flip(x, -1)
                 for k in targets:
                     y[k] = np.flip(y[k], -1)
+
+        if drop_inputs is not None:
+            drop_inputs_from_sample(x, drop_inputs, self, rng)
+
         return x, y
 
     def _load_training_data_3d_other(
-        self, scene, targets, augment, rng, width=32, height=128
+        self, scene, targets, augment, rng, width=32, height=128, drop_inputs=None
     ):
         """
         Load training data for sea ice or snow surfaces. These observations
@@ -1202,6 +1289,8 @@ class ConstellationScanner(ConicalScanner):
             rng: 'numpy.random.Generator' to use to generate random numbers.
             width: The width of each input image.
             height: The height of each input image.
+            drop_inputs: A probability with which to set all inputs randomly
+                to a missing value.
 
         Returns:
             Tuple ``x, y`` containing one sample of training data for the
@@ -1285,10 +1374,21 @@ class ConstellationScanner(ConicalScanner):
                 for k in targets:
                     y[k] = np.flip(y[k], -1)
 
+        if drop_inputs is not None:
+            drop_inputs_from_sample(x, drop_inputs, self, rng)
+
         return x, y
 
     def load_training_data_3d(
-        self, dataset, targets, augment, rng, width=32, height=128, indices=None
+        self,
+        dataset,
+        targets,
+        augment,
+        rng,
+        width=32,
+        height=128,
+        indices=None,
+        drop_inputs=None,
     ):
         if isinstance(dataset, (str, Path)):
             dataset = xr.open_dataset(dataset)
@@ -1316,17 +1416,20 @@ class ConstellationScanner(ConicalScanner):
             source = scene.source
             if source == 0:
                 x_i, y_i = self._load_training_data_3d_sim(
-                    scene, targets, augment, rng, width=width, height=height
+                    scene, targets, augment, rng, width=width, height=height, drop_inputs=drop_inputs
                 )
             else:
                 x_i, y_i = self._load_training_data_3d_other(
-                    scene, targets, augment, rng, width=width, height=height
+                    scene, targets, augment, rng, width=width, height=height, drop_inputs=drop_inputs
                 )
             x.append(x_i)
             y.append(y_i)
 
         x = np.stack(x)
         y = {k: np.stack([y_i[k] for y_i in y]) for k in y[0]}
+
+        if drop_inputs is not None:
+            drop_inputs_from_sample(x, drop_inputs, self, rng)
 
         return x, y
 
@@ -1401,6 +1504,10 @@ class CrossTrackScanner(Sensor):
     def mrms_file_path(self):
         return self._mrms_file_path
 
+    @mrms_file_path.setter
+    def mrms_file_path(self, path):
+        self._mrms_file_path = path
+
     @property
     def sim_file_pattern(self):
         return self._sim_file_pattern
@@ -1408,6 +1515,10 @@ class CrossTrackScanner(Sensor):
     @property
     def sim_file_path(self):
         return self._sim_file_path
+
+    @sim_file_path.setter
+    def sim_file_path(self, path):
+        self._sim_file_path = path
 
     @property
     def preprocessor_orbit_header(self):
@@ -1468,7 +1579,9 @@ class CrossTrackScanner(Sensor):
                 v = v[..., 0]
         return v
 
-    def load_training_data_1d(self, dataset, targets, augment, rng, indices=None):
+    def load_training_data_1d(
+        self, dataset, targets, augment, rng, indices=None, drop_inputs=None
+    ):
         """
         Load training data for GPROF-NN 1D retrieval. This function will
         only load pixels that with a finite surface precip value in order
@@ -1489,6 +1602,9 @@ class CrossTrackScanner(Sensor):
             targets: List of the targets to load.
             augment: Whether or not to augment the training data.
             rng: Numpy random number generator to use for augmentation.
+            indices: A list of scene indices to use to restrict the
+                training data to.
+            drop_inputs: A probability with which to drop inputs.
 
         Return:
             Tuple ``(x, y)`` containing the un-batched, un-shuffled training
@@ -1588,6 +1704,9 @@ class CrossTrackScanner(Sensor):
                 y_t = np.nan_to_num(y_t, nan=MASKED_OUTPUT)
                 y.setdefault(t, []).append(y_t)
 
+            if drop_inputs is not None:
+                drop_inputs_from_sample(x, drop_inputs, self, rng)
+
         x = np.concatenate(x, axis=0)
         y = {t: np.concatenate(y[t], axis=0) for t in y}
 
@@ -1597,7 +1716,14 @@ class CrossTrackScanner(Sensor):
         return x, y
 
     def _load_training_data_3d_sim(
-        self, scene, targets, augment, rng, width=32, height=128
+        self,
+        scene,
+        targets,
+        augment,
+        rng,
+        width=32,
+        height=128,
+        drop_inputs=None,
     ):
         """
         Load training data for scene extracted from a sim file. Since
@@ -1725,10 +1851,21 @@ class CrossTrackScanner(Sensor):
                 x = np.flip(x, -1)
                 for k in targets:
                     y[k] = np.flip(y[k], -1)
+
+        if drop_inputs is not None:
+            drop_inputs_from_sample(x, drop_inputs, self, rng)
+
         return x, y
 
     def _load_training_data_3d_other(
-        self, scene, targets, augment, rng, width=32, height=128
+        self,
+        scene,
+        targets,
+        augment,
+        rng,
+        width=32,
+        height=128,
+        drop_inputs=None,
     ):
         """
         Load training data for sea ice or snow surfaces. These observations
@@ -1825,10 +1962,13 @@ class CrossTrackScanner(Sensor):
                 for k in targets:
                     y[k] = np.flip(y[k], -1)
 
+        if drop_inputs is not None:
+            drop_inputs(x, drop_self, self, rng)
+
         return x, y
 
     def load_training_data_3d(
-        self, dataset, targets, augment, rng, width=32, height=128
+        self, dataset, targets, augment, rng, width=32, height=128, drop_inputs=None
     ):
         if isinstance(dataset, (str, Path)):
             dataset = xr.open_dataset(dataset)
@@ -1855,11 +1995,23 @@ class CrossTrackScanner(Sensor):
             source = scene.source
             if source == 0:
                 x_i, y_i = self._load_training_data_3d_sim(
-                    scene, targets, augment, rng, width=width, height=height
+                    scene,
+                    targets,
+                    augment,
+                    rng,
+                    width=width,
+                    height=height,
+                    drop_inputs=drop_inputs,
                 )
             else:
                 x_i, y_i = self._load_training_data_3d_other(
-                    scene, targets, augment, rng, width=width, height=height
+                    scene,
+                    targets,
+                    augment,
+                    rng,
+                    width=width,
+                    height=height,
+                    drop_inputs=drop_inputs,
                 )
             x.append(x_i)
             y.append(y_i)

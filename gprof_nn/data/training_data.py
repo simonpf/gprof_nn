@@ -51,6 +51,9 @@ _THRESHOLDS = {
     "cloud_water_content": 1e-5,
     "snow_water_content": 1e-5,
     "latent_heat": -99999,
+    "snow": 1e-4,
+    "snow3": 1e-4,
+    "snow4": 1e-4
 }
 
 _INPUT_DIMENSIONS = {
@@ -60,7 +63,7 @@ _INPUT_DIMENSIONS = {
     "SSMI": (96, 128),
     "SSMIS": (32, 128),
     "AMSR2": (32, 128),
-    "MHS": (24, 128),
+    "MHS": (32, 128),
 }
 
 
@@ -92,7 +95,6 @@ def calculate_resampling_indices(latitudes, time, sensor):
     else:
         weights = latitude_ratios[lat_indices, time_indices]
     weights = np.nan_to_num(weights, 0.0)
-    print(weights.sum())
     indices = np.arange(latitudes.size)
     probs = weights / weights.sum()
     return np.random.choice(indices, size=latitudes.size, p=probs)
@@ -109,6 +111,7 @@ def decompress_and_load(filename):
     Return:
         An 'xarray.Dataset' containing the loaded data.
     """
+    LOGGER.debug("Decompressing %s.", filename)
     filename = Path(filename)
     if not filename.exists():
         if Path(filename).suffix == ".gz":
@@ -558,21 +561,20 @@ class GPROF_NN_1D_Dataset(Dataset1DBase):
             else:
                 self.sensor = sensor
 
-        latitudes = self.dataset.latitude.mean(("scans", "pixels")).data
-        longitudes = self.dataset.longitude.mean(("scans", "pixels")).data
-        if "pixels" in self.dataset.scan_time.dims:
-            scan_time = self.dataset.scan_time.mean(("scans", "pixels"))
-        else:
-            scan_time = self.dataset.scan_time.mean(("scans",))
-        local_time = (
-            scan_time + (longitudes / 360 * 24 * 60 * 60).astype("timedelta64[s]")
-        )
-        minutes = local_time.dt.hour.data * 60 + local_time.dt.minute.data
-        indices = calculate_resampling_indices(latitudes, minutes, self.sensor)
-        if indices is None:
-            kwargs = {}
-        else:
-            kwargs = {"indices": indices}
+        kwargs = {}
+        if self.sensor.latitude_ratios is not None:
+            latitudes = self.dataset.latitude.mean(("scans", "pixels")).data
+            longitudes = self.dataset.longitude.mean(("scans", "pixels")).data
+            if "pixels" in self.dataset.scan_time.dims:
+                scan_time = self.dataset.scan_time.mean(("scans", "pixels"))
+            else:
+                scan_time = self.dataset.scan_time.mean(("scans",))
+            local_time = (
+                scan_time + (longitudes / 360 * 24 * 60 * 60).astype("timedelta64[s]")
+            )
+            minutes = local_time.dt.hour.data * 60 + local_time.dt.minute.data
+            indices = calculate_resampling_indices(latitudes, minutes, self.sensor)
+            kwargs["indices"] = indices
 
         x, y = self.sensor.load_training_data_1d(
             self.dataset, self.targets, self.augment, self._rng, **kwargs
