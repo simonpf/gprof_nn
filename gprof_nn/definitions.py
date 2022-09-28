@@ -81,6 +81,7 @@ DATABASE_MONTHS = [
 SEAICE_YEARS = {
     "SSMI": 2003,
     "SSMIS": 2015,
+    "AMSRE": 2008
 }
 
 TEST_DAYS = [1, 2, 3]
