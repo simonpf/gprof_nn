@@ -312,8 +312,8 @@ class CdfCorrection:
     def _apply_correction_conical(
         self,
         rng,
-        brightness_temperatures,
         sensor,
+        brightness_temperatures,
         surface_type,
         total_column_water_vapor,
         augment=False,
