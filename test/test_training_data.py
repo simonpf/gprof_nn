@@ -839,7 +839,8 @@ def test_gprof_3d_dataset_input_mhs():
     """
     input_file = DATA_PATH / "mhs" / "gprof_nn_mhs_era5.nc.gz"
     dataset = GPROF_NN_3D_Dataset(
-        input_file, batch_size=1, normalize=False, targets=["surface_precip"]
+        input_file, batch_size=1, normalize=False, targets=["surface_precip"],
+        sensor=sensors.MHS
     )
     x, _ = dataset[0]
     x = x.numpy()
@@ -1049,3 +1050,32 @@ def test_gprof_3d_dataset_pretraining_tmi():
     x = x.numpy()
 
     assert x.shape[1] == 9 + 2 + 18 + 4
+
+
+def test_drop_inputs():
+    """
+    Enusre that dropp
+    """
+    input_file = DATA_PATH / "gmi" / "gprof_nn_gmi_era5.nc.gz"
+    dataset = GPROF_NN_1D_Dataset(
+        input_file, batch_size=1, augment=False, targets=["surface_precip"]
+    )
+
+    xs = []
+    ys = []
+
+    x_mean_ref = dataset.x.sum(axis=0)
+    y_mean_ref = dataset.y["surface_precip"].sum(axis=0)
+
+    for x, y in dataset:
+        xs.append(x)
+        ys.append(y["surface_precip"])
+
+    xs = torch.cat(xs, dim=0)
+    ys = torch.cat(ys, dim=0)
+
+    x_mean = xs.sum(dim=0).detach().numpy()
+    y_mean = ys.sum(dim=0).detach().numpy()
+
+    assert np.all(np.isclose(x_mean, x_mean_ref, rtol=1e-3))
+    assert np.all(np.isclose(y_mean, y_mean_ref, rtol=1e-3))
