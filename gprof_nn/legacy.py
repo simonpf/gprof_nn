@@ -32,15 +32,16 @@ from gprof_nn.sensors import CrossTrackScanner, ConicalScanner
 LOGGER = logging.getLogger(__name__)
 
 
-EXECUTABLES = {"STANDARD": "GPROF_2021_V1",
+EXECUTABLES = {
+    "STANDARD": "GPROF_2021_V1",
     "SENSITIVITY": "GPROF_2020_V1_grads",
-    "PROFILES": "GPROF_2021_V1_profs",
+    "PROFILES": "GPROF_2021_V1_prf",
 }
 
 
 EXECUTABLES_X = {
     "STANDARD": "GPROF_2021_V1x",
-    "PROFILES": "GPROF_2020_V1x_profiles"
+    "PROFILES": "GPROF_2021_V1x_prf"
 }
 
 
@@ -141,6 +142,8 @@ def execute_gprof(
     Return:
         'xarray.Dataset' containing the retrieval results.
     """
+    input_file = Path(input_file)
+
     # Determine the right executable.
     if isinstance(sensor, ConicalScanner):
         executables = EXECUTABLES
