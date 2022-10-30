@@ -109,6 +109,7 @@ def decompress_scene(scene, targets):
         "airmass_type",
         "source",
     ] + targets
+    variables = [var for var in variables if var in scene]
 
     data = {}
     for v in variables:
