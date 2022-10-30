@@ -19,6 +19,8 @@ import logging
 from pathlib import Path
 import re
 
+import matplotlib.pyplot as plt
+from matplotlib.gridspec import GridSpec
 import numpy as np
 import xarray as xr
 from rich.progress import track
@@ -54,6 +56,8 @@ def open_file(filename):
     Return:
         ``xarray.Dataset`` providing access to the data in the file.
     """
+    if isinstance(filename, xr.Dataset):
+        return filename
     filename = Path(filename)
     suffix = filename.suffix
     if re.match(r".*\.nc(\.gz)?", filename.name.lower()):
@@ -1497,8 +1501,7 @@ class BinFileStatistics(Statistic):
             filename: The path of the data to process.
         """
         self.sensor = sensor
-        dataset = self.open_file(filename)
-        dataset = BinFile(filename).to_xarray_dataset()
+        dataset = open_file(filename)
         if not hasattr(self, "tb_bins"):
             self._initialize_data(sensor, dataset)
 
@@ -2175,10 +2178,10 @@ def process_files(sensor, files, statistics, log_queue):
     """
     gprof_nn.logging.configure_queue_logging(log_queue)
     for file in files:
+
         for stat in statistics:
             try:
                 stat.process_file(sensor, file)
-                pass
             except Exception as exc:
                 LOGGER.error("Error during processing of %s: %s", file, exc)
 
@@ -2267,3 +2270,99 @@ class StatisticsProcessor:
             s.save(output_path)
 
         pool.shutdown()
+
+
+def plot_brightness_temperatures_xtrack(
+        statistics,
+        surface_types=None,
+        log_scale=False
+):
+    """
+    Plot brightness temperature statistics.
+
+    This function generates a plot of brightness temperature statistics for
+    observations from cross-track scanners. The plot displays a row of panels
+    for each channels and a selection of simulated earth-incidence angles in
+    the columns.
+
+    Args:
+        statistics: A dictionary that maps dataset names to ``xarray.Datasets``
+            containing the corresponding statistics.
+        surface_types: A list of surface types for which to plot the
+            statistics. If not given the statistics for all surface types are
+            plotted.
+        log_scale: Whether or not to use log-scale for the y-axis.
+    """
+    if surface_types is None:
+        surface_types = np.arange(18)
+    else:
+        surface_types = np.array([st - 1 for st in surface_types])
+
+    ANGLES = [1, 3, 7, 9]
+    N_ANGLES = len(ANGLES)
+
+    data = next(iter(statistics.values()))
+    if isinstance(data, tuple):
+        data, _ = data
+    N_CHANS = data.channels.size
+
+    f = plt.figure(figsize=(N_ANGLES * 6, N_CHANS * 6))
+    gs = GridSpec(N_CHANS + 1, N_ANGLES, height_ratios=[1.0] * N_CHANS + [0.2], hspace=0.3)
+    axs = np.array([
+        [f.add_subplot(gs[i, j]) for j in range(N_ANGLES)]
+        for i in range(N_CHANS)
+    ])
+
+    for i in range(N_CHANS):
+        for j in range(N_ANGLES):
+
+            ax = axs[i, j]
+
+            i_chan = i
+            i_ang = ANGLES[j]
+
+            handles = []
+
+            for name, data in statistics.items():
+                if isinstance(data, tuple):
+                    data, style = data
+                else:
+                    style = {}
+                data = data[{
+                    "surface_type_bins": surface_types,
+                    "channels": i_chan,
+                    "angles": i_ang
+                }]
+                if "brightness_temperatures_tcwv" in data:
+                    hist = data.brightness_temperatures_tcwv.sum(
+                        ("surface_type_bins", "total_column_water_vapor_bins")
+                    ).data
+                else:
+                    hist = data.brightness_temperatures.sum(
+                        ("surface_type_bins")
+                    ).data
+                norm = np.trapz(hist)
+                tbs = data.brightness_temperature_bins.data
+                handles += ax.plot(tbs, hist / norm, label=name, **style)
+
+                if np.any(hist / norm > 1e-7):
+                    if log_scale:
+                        x_min, x_max = np.where(hist / norm > 1e-7)[0][[0, -1]]
+                    else:
+                        x_min, x_max = np.where(hist / norm > 1e-3)[0][[0, -1]]
+
+                    ax.set_xlim([x_min, x_max])
+                    ax.set_title(f"Channel {i_chan + 1}, angle {i_ang + 1}")
+
+                if j == 0:
+                    ax.set_ylabel("Normalized frequency")
+
+                if i == N_CHANS - 1:
+                    ax.set_xlabel("Brightness temperture [k]")
+
+                if log_scale:
+                    ax.set_yscale("log")
+
+    ax = f.add_subplot(gs[-1, :])
+    ax.set_axis_off()
+    ax.legend(handles=handles, loc="center", ncol=5)
