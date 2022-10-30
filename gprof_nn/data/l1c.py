@@ -97,7 +97,7 @@ class L1CFile:
         month = date.month
         day = date.day
         data_path = Path(path) / f"{year:02}{month:02}" / f"{year:02}{month:02}{day:02}"
-        files = list(data_path.glob(sensor.l1c_file_prefix + "*{sensor.l1c_version}.HDF5"))
+        files = list(data_path.glob(sensor.l1c_file_prefix + f"*{sensor.l1c_version}.HDF5"))
 
         # Add files from following day.
         date_f = date + pd.DateOffset(1)
@@ -105,7 +105,7 @@ class L1CFile:
         month = date_f.month
         day = date_f.day
         data_path = Path(path) / f"{year:02}{month:02}" / f"{year:02}{month:02}{day:02}"
-        files += list(data_path.glob(sensor.l1c_file_prefix + "*{sensor.l1c_version}.HDF5"))
+        files += list(data_path.glob(sensor.l1c_file_prefix + f"*{sensor.l1c_version}.HDF5"))
 
         # Add files from previous day.
         date_f = date - pd.DateOffset(1)
@@ -114,9 +114,9 @@ class L1CFile:
         day = date_f.day
         data_path = Path(path) / f"{year:02}{month:02}" / f"{year:02}{month:02}{day:02}"
 
-        files += list(data_path.glob(sensor.l1c_file_prefix + "*{sensor.l1c_version}.HDF5"))
+        files += list(data_path.glob(sensor.l1c_file_prefix + f"*{sensor.l1c_version}.HDF5"))
 
-        files += list(path.glob(sensor.l1c_file_prefix + "*{sensor.l1c_version}.HDF5"))
+        files += list(path.glob(sensor.l1c_file_prefix + f"*{sensor.l1c_version}.HDF5"))
 
         start_times = []
         end_times = []
@@ -132,6 +132,7 @@ class L1CFile:
         start_times = np.array(start_times)
         end_times = np.array(end_times)
         date = date.to_datetime64()
+
 
         if len(start_times) == 0 or len(end_times) == 0:
             raise ValueError("No file found for the requested date.")
@@ -365,12 +366,9 @@ class L1CFile:
                         scan_start * scaling,
                         scan_end * scaling
                     )
-                    print(scaling, scan_range)
-
                     g = output.create_group(group_name)
                     for name, item in input[group_name].items():
                         if isinstance(item, h5py.Dataset):
-                            print(name, item.shape,)
                             shape = item.shape
                             g.create_dataset(
                                 name,
