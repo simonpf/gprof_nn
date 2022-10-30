@@ -1438,7 +1438,6 @@ class CrossTrackScanner(Sensor):
     """
     Base class for cross-track-scanning sensors.
     """
-
     def __init__(
         self,
         name,
@@ -1455,7 +1454,7 @@ class CrossTrackScanner(Sensor):
         modeling_error=None,
     ):
         super().__init__(
-            types.XTRACK, "MHS", channels, angles, platform, viewing_geometry
+            types.XTRACK, name, channels, angles, platform, viewing_geometry
         )
         self.nedt = nedt
         n_chans = len(channels)
@@ -2047,7 +2046,8 @@ class Platform:
 
 
 TRMM = Platform("TRMM", "/pdata4/archive/GPM/1C_TMI_ITE/", "1C.TRMM.TMI")
-NOAA19 = Platform("NOAA19", "/pdata4/archive/GPM/1C_NOAA19/", "1C.NOAA19.MHS")
+NOAA19 = Platform("NOAA19", "/pdata4/archive/GPM/1C_NOAA19_ITE/", "1C.NOAA19.MHS")
+NPP = Platform("NPP", "/pdata4/archive/GPM/1C_ATMS_ITE/", "1C.NPP.ATMS")
 GPM = Platform("GPM-CO", "/pdata4/archive/GPM/1CR_GMI_V7/", "1C-R.GPM.GMI")
 F15 = Platform("F15", "/pdata4/archive/GPM/1C_F15_ITE/", "1C.F15.SSMI")
 F17 = Platform("F17", "/pdata4/archive/GPM/1C_F17_ITE/", "1C.F17.SSMIS")
@@ -2122,7 +2122,7 @@ GMI = ConicalScanner(
 ###############################################################################
 
 MHS_ANGLES = np.array(
-    [59.798, 53.311, 46.095, 39.222, 32.562, 26.043, 19.619, 13.257, 6.934, 0.0]
+    [59.498, 53.311, 46.095, 39.222, 32.562, 26.043, 19.619, 13.257, 6.934, 0.0]
 )
 
 MHS_CHANNELS = [
@@ -2159,7 +2159,6 @@ MHS = CrossTrackScanner(
     correction=DATA_FOLDER / "corrections_mhs.nc",
     modeling_error=[3.0, 2.0, 2.0, 2.0, 2.0],
 )
-MHS.l1c_version = "V07A"
 
 MHS_GPROF = CrossTrackScanner(
     "MHS",
@@ -2687,8 +2686,52 @@ AMSRE = ConstellationScanner(
     "/qdata1/pbrown/dbaseV7/simV7_amsre",
     AMSRE_GMI_CHANNELS,
     modeling_error=AMSRE_MODELING_ERROR,
-    correction=None,  # DATA_FOLDER / "corrections_amsre.nc",
+    correction=DATA_FOLDER / "corrections_amsre.nc",
 )
 
 
 AMSRE.mrms_sensor = AMSR2
+
+###############################################################################
+# ATMS
+###############################################################################
+
+ATMS_ANGLES = np.array(
+    [59.498, 53.311, 46.095, 39.222, 32.562, 26.043, 19.619, 13.257, 6.934, 0.0]
+)
+
+ATMS_CHANNELS = [
+    (88.2, "V"),
+    (165.5, "H"),
+    (184.0, "V"),
+    (186.0, "V"),
+    (190.0, "H"),
+]
+
+ATMS_NEDT = np.array([0.3, 0.5, 0.5, 0.5, 0.5])
+
+ATMS_VIEWING_GEOMETRY = CrossTrack(
+    altitude=855e3,
+    scan_range=2.0 * 52.725,
+    pixels_per_scan=96,
+    scan_offset=16e3,
+    beam_width=1.5,
+)
+
+ATMS_GMI_CHANNELS = [8, 11, 13, 13, 14]
+
+ATMS = CrossTrackScanner(
+    "ATMS",
+    ATMS_CHANNELS,
+    ATMS_NEDT,
+    ATMS_ANGLES,
+    NPP,
+    ATMS_VIEWING_GEOMETRY,
+    "/pdata4/veljko/MHS2MRMS_match2019/monthly_2021/",
+    "ATMS.dbsatTb.??????{day}.??????.sim",
+    "/qdata1/pbrown/dbaseV7/simV7x_mhs",
+    ATMS_GMI_CHANNELS,
+    correction=DATA_FOLDER / "corrections_mhs.nc",
+    modeling_error=[3.0, 2.0, 2.0, 2.0, 2.0],
+)
+ATMS.mrms_sensor = MHS

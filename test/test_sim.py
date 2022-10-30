@@ -161,10 +161,32 @@ def test_open_sim_file_ssmis():
 
 def test_open_sim_file_amsr2():
     """
-    Tests reading simulator output file for MHS.
+    Tests reading simulator output file for AMSRE.
     """
     DATA_PATH = Path(__file__).parent / "data"
     input_file = DATA_PATH / "amsr2" / "sim" / "AMSR2.dbsatTb.20190101.027510.sim"
+    sim_file = SimFile(input_file)
+    data = sim_file.to_xarray_dataset()
+
+    assert "surface_precip" in data.variables.keys()
+    assert "latent_heat" in data.variables.keys()
+    assert "snow_water_content" in data.variables.keys()
+    assert "rain_water_content" in data.variables.keys()
+
+    valid = data.surface_precip.data > -9999
+    assert np.all(data.surface_precip[valid] >= 0.0)
+    assert np.all(data.surface_precip[valid] <= 1000.0)
+    assert np.all(data.latitude >= -90.0)
+    assert np.all(data.latitude <= 90.0)
+    assert np.all(data.longitude >= -180.0)
+    assert np.all(data.longitude <= 180.0)
+
+def test_open_sim_file_amsre():
+    """
+    Tests reading simulator output file for AMSRE.
+    """
+    DATA_PATH = Path(__file__).parent / "data"
+    input_file = DATA_PATH / "amsre" / "sim" / "AMSRE.dbsatTb.20181001.026079.sim"
     sim_file = SimFile(input_file)
     data = sim_file.to_xarray_dataset()
 
@@ -426,6 +448,56 @@ def test_match_l1c_amsr2():
     valid = np.isfinite(lh)
     assert np.all(lh[valid] < 1000)
 
+
+def test_match_l1c_amsre():
+    """
+    Tests reading a GMI L1C file and matching it to data in
+    a AMSRE .sim file.
+    """
+    l1c_path = DATA_PATH / "gmi" / "l1c"
+    l1c_file = L1CFile.open_granule(27510, l1c_path, sensors.GMI)
+    l1c_data = l1c_file.to_xarray_dataset()
+    l1c_data = l1c_data.rename({
+        "channels": "channels_gmi",
+        "brightness_temperatures": "brightness_temperatures_gmi"}
+    )
+
+    sim_path = Path(".").parent / "data" / "amsre" / "sim"
+    sim_file = SimFile(sim_path / "AMSRE.dbsatTb.20181001.026079.sim")
+
+    targets = ["surface_precip",
+               "latent_heat",
+               "rain_water_content",
+               "ice_water_path"]
+
+    sim_file.match_targets(l1c_data, targets=targets)
+
+    assert "latent_heat" in l1c_data.variables.keys()
+    assert "ice_water_path" in l1c_data.variables.keys()
+    assert "snow_water_content" in l1c_data.variables.keys()
+    assert "rain_water_content" in l1c_data.variables.keys()
+
+    assert "brightness_temperature_biases" in l1c_data.variables.keys()
+    assert "simulated_brightness_temperatures" in l1c_data.variables.keys()
+
+    tbs = l1c_data.brightness_temperatures_gmi.data
+    valid = tbs > 0
+    assert np.all((tbs[valid] > 20) * (tbs[valid] < 400))
+
+    lats = l1c_data.latitude.data
+    assert np.all((lats >= -90) * (lats <= 90))
+    lons = l1c_data.longitude.data
+    assert np.all((lons >= -180) * (lons <= 180))
+
+    sp = l1c_data.surface_precip.data
+    valid = np.isfinite(sp)
+    assert np.all((sp[valid] >= 0.0) * (sp[valid] < 300))
+
+    lh = l1c_data.latent_heat.data
+    valid = np.isfinite(lh)
+    assert np.all(lh[valid] < 1000)
+
+
 def test_find_files():
     """
     Assert that find_file functions successfully finds file in test data folder
@@ -592,7 +664,7 @@ def test_process_mrms_file_mhs():
     """
     Test processing of MRMS-MHS (NOAA-19) matches for a given day.
     """
-    mrms_file = DATA_PATH / "mhs" / "mrms" / "1801_MRMS2MHS_DB1_01.bin.gz"
+    mrms_file = DATA_PATH / "mhs" / "mrms" / "1810_MRMS2MHS_DB1_01.bin.gz"
     era5_path = "/qdata2/archive/ERA5/"
     data = process_mrms_file(sensors.MHS, mrms_file, "ERA5", 23)
     assert data is not None
@@ -846,7 +918,7 @@ def test_process_sim_file_amsr2_era5():
     sim_file = DATA_PATH / "amsr2" / "sim" / "AMSR2.dbsatTb.20190101.027510.sim"
     era5_path = "/qdata2/archive/ERA5/"
     data = process_sim_file(sim_file,
-                            sensors.SSMIS,
+                            sensors.AMSR2,
                             "ERA5",
                             era5_path)
 
@@ -882,6 +954,132 @@ def test_process_l1c_file_amsr2():
     )
     era5_path = "/qdata2/archive/ERA5/"
     data = process_l1c_file(l1c_file, sensors.AMSR2, "ERA5", era5_path)
+
+    assert np.all(data["source"].data == 2)
+
+    sp = data["surface_precip"].data
+    st = data["surface_type"].data
+    si = (st == 2) + (st == 16)
+    assert np.all(np.isfinite(sp[si]))
+    assert np.all(np.isnan(sp[~si]))
+
+    # Ensure surface precip has valid values.
+    sp = data.surface_precip.data
+    valid = sp >= 0
+    assert np.all(sp[valid] < 500)
+
+    # Check that TBs are valid
+    tbs = data["brightness_temperatures"].data
+    valid = tbs >= 0
+    assert np.all(tbs[valid] > 50)
+    assert np.all(tbs[valid] < 500)
+
+
+@pytest.mark.skipif(not HAS_ARCHIVES, reason="Data archives not available.")
+def test_process_sim_file_amsre_era5():
+    DATA_PATH = Path(__file__).parent / "data"
+    sim_file = DATA_PATH / "amsre" / "sim" / "AMSRE.dbsatTb.20181001.026079.sim"
+    era5_path = "/qdata2/archive/ERA5/"
+    data = process_sim_file(sim_file,
+                            AMSRE.mrms_sensor,
+                            "ERA5",
+                            era5_path)
+
+    assert np.all(data["source"].data == 0)
+    sp = data["surface_precip"].data
+    st = data["surface_type"].data
+    snow = (st >= 8) * (st <= 11)
+    assert np.all(np.isnan(sp[snow]))
+
+
+@pytest.mark.skipif(not HAS_ARCHIVES, reason="Data archives not available.")
+def test_process_mrms_file_amsre():
+    """
+    Test processing of MRMS-SSMIS matches for a given day.
+    """
+    DATA_PATH = Path(__file__).parent / "data"
+    mrms_file = DATA_PATH / "amsr2" / "mrms" / "1901_MRMS2AMSR2_01.bin.gz"
+    era5_path = "/qdata2/archive/ERA5/"
+    data = process_mrms_file(sensors.AMSR2, mrms_file, "ERA5", 1)
+    assert data is not None
+    assert data.pixels.size == 221
+    assert np.all(data["source"].data == 1)
+
+
+@pytest.mark.skipif(not HAS_ARCHIVES, reason="Data archives not available.")
+def test_process_l1c_file_amsre():
+    l1c_file = (
+        Path(__file__).parent /
+        "data" /
+        "amsre" /
+        "l1c" /
+        "1C.AQUA.AMSRE.XCAL2017-V.20090301-S004323-E022215.036302.V05A.HDF5"
+    )
+    era5_path = "/qdata2/archive/ERA5/"
+    data = process_l1c_file(l1c_file, sensors.AMSR2, "ERA5", era5_path)
+
+    assert np.all(data["source"].data == 2)
+
+    sp = data["surface_precip"].data
+    st = data["surface_type"].data
+    si = (st == 2) + (st == 16)
+    assert np.all(np.isfinite(sp[si]))
+    assert np.all(np.isnan(sp[~si]))
+
+    # Ensure surface precip has valid values.
+    sp = data.surface_precip.data
+    valid = sp >= 0
+    assert np.all(sp[valid] < 500)
+
+    # Check that TBs are valid
+    tbs = data["brightness_temperatures"].data
+    valid = tbs >= 0
+    assert np.all(tbs[valid] > 50)
+    assert np.all(tbs[valid] < 500)
+
+
+@pytest.mark.skipif(not HAS_ARCHIVES, reason="Data archives not available.")
+def test_process_sim_file_atms_era5():
+    DATA_PATH = Path(__file__).parent / "data"
+    sim_file = DATA_PATH / "atms" / "sim" / "ATMS.dbsatTb.20181001.026079.sim"
+    era5_path = "/qdata2/archive/ERA5/"
+    data = process_sim_file(sim_file,
+                            sensors.ATMS,
+                            "ERA5",
+                            era5_path)
+
+    assert np.all(data["source"].data == 0)
+    sp = data["surface_precip"].data
+    st = data["surface_type"].data
+    snow = (st >= 8) * (st <= 11)
+    assert np.all(np.isnan(sp[snow]))
+
+
+@pytest.mark.skipif(not HAS_ARCHIVES, reason="Data archives not available.")
+def test_process_mrms_file_atms():
+    """
+    Test processing of MRMS-SSMIS matches for a given day.
+    """
+    DATA_PATH = Path(__file__).parent / "data"
+    mrms_file = DATA_PATH / "mhs" / "mrms" / "1810_MRMS2MHS_DB1_01.bin.gz"
+    era5_path = "/qdata2/archive/ERA5/"
+    data = process_mrms_file(sensors.MHS, mrms_file, "ERA5", 1)
+    assert data is not None
+    assert data.pixels.size == 221
+    assert np.all(data["source"].data == 1)
+
+
+@pytest.mark.skipif(not HAS_ARCHIVES, reason="Data archives not available.")
+def test_process_l1c_file_atms():
+    l1c_file = (
+        Path(__file__).parent /
+        "data" /
+        "atms" /
+        "l1c" /
+        "1C.NPP.ATMS.XCAL2019-V.20181001-S004905-E023034.035889.ITE753.HDF5"
+    )
+    era5_path = "/qdata2/archive/ERA5/"
+    data = process_l1c_file(l1c_file, sensors.ATMS, "ERA5", era5_path)
 
     assert np.all(data["source"].data == 2)
 

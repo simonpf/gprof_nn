@@ -93,6 +93,27 @@ def test_open_granule_ssmis():
     assert np.all((tbs > 20) * (tbs <= 350))
 
 
+def test_open_granule_atms():
+    """
+    Test finding of specific ATMS L1C file and reading data into
+    xarray.Dataset.
+    """
+    DATA_PATH = Path(__file__).parent / "data"
+    l1c_path = DATA_PATH / "atms" / "l1c"
+
+    l1c_file = L1CFile.open_granule(35889, l1c_path, sensors.ATMS)
+    l1c_data = l1c_file.to_xarray_dataset()
+
+    assert l1c_data.pixels.size == 96
+    assert l1c_file.sensor == sensors.ATMS
+
+    tbs = l1c_data.brightness_temperatures.data
+    valid = np.all(tbs > 0, axis=-1)
+    tbs = tbs[valid]
+    assert np.all((tbs > 20) * (tbs <= 350))
+
+
+
 def test_find_file_gmi():
     """
     Tests finding a GMI L1C file for a given date.
@@ -148,6 +169,7 @@ def test_find_file_ssmis():
     assert date > l1c_data.scan_time[0]
     assert date < l1c_data.scan_time[-1]
     assert l1c_file.sensor == sensors.SSMIS
+
 
 
 def test_find_files():
