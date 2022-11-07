@@ -11,6 +11,7 @@ Additionally, it defines functions to run the preprocessor on the CSU
 """
 from datetime import datetime
 import logging
+from math import ceil
 import os
 import pickle
 import shutil
@@ -97,6 +98,8 @@ ORBIT_HEADER = np.dtype(
         ("number_of_scans", "i"),
         ("number_of_pixels", "i"),
         ("n_channels", "i"),
+        ("chan_freq", "f4", 15),
+        ("comment", "a40"),
     ]
 )
 
@@ -299,7 +302,8 @@ class PreprocessorFile:
 
         offset = self.sensor.preprocessor_orbit_header.itemsize
         record_type = self.sensor.preprocessor_pixel_record
-        offset += i * (SCAN_HEADER_TYPE.itemsize + self.n_pixels * record_type.itemsize)
+        record_size = record_type.itemsize
+        offset += i * (SCAN_HEADER_TYPE.itemsize + self.n_pixels * record_size)
         offset += SCAN_HEADER_TYPE.itemsize
         return np.frombuffer(self.data, record_type, count=self.n_pixels, offset=offset)
 
@@ -317,7 +321,8 @@ class PreprocessorFile:
 
         offset = self.sensor.preprocessor_orbit_header.itemsize
         record_type = self.sensor.preprocessor_pixel_record
-        offset += i * (SCAN_HEADER_TYPE.itemsize + self.n_pixels * record_type.itemsize)
+        record_size = record_type.itemsize
+        offset += i * (SCAN_HEADER_TYPE.itemsize + self.n_pixels * record_size)
         return np.frombuffer(self.data, SCAN_HEADER_TYPE, count=1, offset=offset)
 
     @property
@@ -348,7 +353,8 @@ class PreprocessorFile:
         }
         for i, s in enumerate(self.scans):
             for k, d in data.items():
-                d[i] = s[k]
+                if k != "__padding__":
+                    d[i] = s[k]
 
         if self.sensor.sensor_name in CHANNEL_INDICES:
             ch_inds = CHANNEL_INDICES[self.sensor.sensor_name]
@@ -710,7 +716,7 @@ def has_preprocessor():
 
 # Dictionary mapping sensor IDs to preprocessor executables.
 PREPROCESSOR_EXECUTABLES = {
-    "GMI": "gprof2020pp_GMI_L1C",
+    "GMI": "gprof2023pp_GMI_L1C",
     "MHS": "gprof2021pp_MHS_L1C",
     "TMIPR": "gprof2021pp_TMI_L1C",
     "TMIPO": "gprof2021pp_TMI_L1C",

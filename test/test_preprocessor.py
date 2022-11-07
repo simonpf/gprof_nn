@@ -32,7 +32,10 @@ def test_read_preprocessor_gmi():
     """
     Tests reading a GMI preprocessor file.
     """
-    input_file = PreprocessorFile(DATA_PATH / "gmi" / "GMIERA5_190101_027510.pp")
+    data_path = Path(__file__).parent / "data"
+    input_file = PreprocessorFile(
+        data_path / "gmi" / "pp" / "GMIERA5_190901_031303.pp"
+    )
     input_data = input_file.to_xarray_dataset()
 
     assert input_file.n_pixels == 221
@@ -46,10 +49,6 @@ def test_read_preprocessor_gmi():
     st = input_data.surface_type.data
     assert np.all((st >= 0) * (st <= 18))
 
-    am = input_data.airmass_type.data
-    am = am[am >= 0]
-    assert np.all((am >= 0) * (am <= 18))
-
     lat = input_data.latitude
     assert np.all((lat >= -90) * (lat <= 90))
     lon = input_data.longitude
@@ -62,6 +61,13 @@ def test_read_preprocessor_gmi():
 
     date = input_file.first_scan_time
     assert date == input_data.scan_time[0].data
+
+    ocean_frac = input_data.ocean_fraction.data
+    assert np.all((ocean_frac >= 0) * (ocean_frac <= 100))
+    land_frac = input_data.land_fraction.data
+    assert np.all((land_frac >= 0) * (land_frac <= 100))
+    ice_frac = input_data.ice_fraction.data
+    assert np.all((ice_frac >= 0) * (ice_frac <= 100))
 
 
 def test_read_preprocessor_mhs():
@@ -358,10 +364,6 @@ def test_run_preprocessor_gmi_era5():
 
     st = data.surface_type.data
     assert np.all((st >= 0) * (st <= 18))
-
-    am = data.airmass_type.data
-    am = am[am >= 0]
-    assert np.all((am >= 0) * (am <= 18))
 
     lat = data.latitude
     assert np.all((lat >= -90) * (lat <= 90))
