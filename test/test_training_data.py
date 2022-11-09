@@ -176,7 +176,8 @@ def test_gprof_1d_dataset_input_gmi():
     """
     Ensure that input variables have realistic values.
     """
-    input_file = DATA_PATH / "gmi" / "gprof_nn_gmi_era5.nc.gz"
+    data_path = Path(__file__).parent / "data"
+    input_file = data_path / "gmi" / "gprof_nn_gmi_era5.nc"
     dataset = GPROF_NN_1D_Dataset(
         input_file, batch_size=1, normalize=False, targets=["surface_precip"]
     )
@@ -199,7 +200,8 @@ def test_gprof_1d_dataset_gmi():
     Ensure that iterating over single-pixel dataset conserves
     statistics.
     """
-    input_file = DATA_PATH / "gmi" / "gprof_nn_gmi_era5.nc.gz"
+    data_path = Path(__file__).parent / "data"
+    input_file = data_path / "gmi" / "gprof_nn_gmi_era5.nc"
     dataset = GPROF_NN_1D_Dataset(
         input_file, batch_size=1, augment=False, targets=["surface_precip"]
     )
@@ -229,8 +231,8 @@ def test_gprof_1d_dataset_multi_target_gmi():
     Ensure that iterating over single-pixel dataset conserves
     statistics.
     """
-    path = Path(__file__).parent
-    input_file = DATA_PATH / "gmi" / "gprof_nn_gmi_era5.nc.gz"
+    data_path = Path(__file__).parent / "data"
+    input_file = data_path / "gmi" / "gprof_nn_gmi_era5.nc"
     dataset = GPROF_NN_1D_Dataset(
         input_file,
         targets=["surface_precip",
@@ -258,7 +260,7 @@ def test_gprof_1d_dataset_multi_target_gmi():
     x_mean = np.sum(xs.detach().numpy(), axis=0)
     y_mean = {k: np.sum(ys[k].detach().numpy(), axis=0) for k in ys}
 
-    assert np.all(np.isclose(x_mean, x_mean_ref, atol=1e-3))
+    assert np.all(np.isclose(x_mean, x_mean_ref, rtol=1e-3))
     for k in y_mean_ref:
         assert np.all(np.isclose(y_mean[k], y_mean_ref[k], rtol=1e-3))
 
@@ -714,7 +716,8 @@ def test_gprof_3d_dataset_gmi():
     Ensure that iterating over 3D dataset conserves
     statistics.
     """
-    input_file = DATA_PATH / "gmi" / "gprof_nn_gmi_era5.nc.gz"
+    data_path = Path(__file__).parent / "data"
+    input_file = data_path / "gmi" / "gprof_nn_gmi_era5.nc"
     dataset = GPROF_NN_3D_Dataset(
         input_file, batch_size=1, augment=False, transform_zeros=True
     )

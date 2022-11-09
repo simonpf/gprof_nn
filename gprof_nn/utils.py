@@ -91,7 +91,7 @@ def apply_limits(v, v_min, v_max):
     """
     if v_min is None and v_max is None:
         return v
-    v = v.copy()
+    v = v.copy().astype(np.float32)
     if v_min is not None:
         mask = v < v_min
         v[mask] = np.nan

@@ -114,6 +114,12 @@ LIMITS = {
     "snow": (0, 500),
     "snow3": (0, 500),
     "snow4": (0, 500),
+    "ocean_fraction": (0, 100),
+    "land_fraction": (0, 100),
+    "ice_fraction": (0, 100),
+    "leaf_area_index": (0, 1),
+    "orographic_wind": (0, 1000),
+    "moisture_convergence": (-100, 100)
 }
 
 GPROF_NN_DATA_PATH = Path(__file__).parent.parent / "data"

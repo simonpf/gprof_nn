@@ -105,8 +105,13 @@ def decompress_scene(scene, targets):
         "brightness_temperatures",
         "two_meter_temperature",
         "total_column_water_vapor",
-        "surface_type",
-        "airmass_type",
+        "ocean_fraction",
+        "land_fraction",
+        "ice_fraction",
+        "snow_depth",
+        "leaf_area_index",
+        "orographic_wind",
+        "moisture_convergence",
         "source",
     ] + targets
     variables = [var for var in variables if var in scene]
@@ -141,8 +146,13 @@ def remap_scene(scene, coords, targets):
         "brightness_temperatures",
         "two_meter_temperature",
         "total_column_water_vapor",
-        "surface_type",
-        "airmass_type",
+        "ocean_fraction",
+        "land_fraction",
+        "ice_fraction",
+        "snow_depth",
+        "leaf_area_index",
+        "orographic_wind",
+        "moisture_convergence",
         "source",
     ] + targets
 

@@ -598,11 +598,10 @@ class GPROF_NN_1D_Dataset(Dataset1DBase):
         self.y = y
         LOGGER.info("Loaded %s samples from %s", self.x.shape[0], self.filename.name)
 
-        indices_1h = list(range(self.sensor.n_inputs - 22, self.sensor.n_inputs))
         if normalizer is None:
-            self.normalizer = MinMaxNormalizer(self.x, exclude_indices=indices_1h)
+            self.normalizer = MinMaxNormalizer(self.x)
         elif isinstance(normalizer, type):
-            self.normalizer = normalizer(self.x, exclude_indices=indices_1h)
+            self.normalizer = normalizer(self.x)
         else:
             self.normalizer = normalizer
 
@@ -879,11 +878,10 @@ class GPROF_NN_3D_Dataset:
         self.y = y
         LOGGER.info("Loaded %s samples from %s", self.x.shape[0], self.filename.name)
 
-        indices_1h = list(range(17, 39))
         if normalizer is None:
-            self.normalizer = MinMaxNormalizer(x, exclude_indices=indices_1h)
+            self.normalizer = MinMaxNormalizer(x)
         elif isinstance(normalizer, type):
-            self.normalizer = normalizer(x, exclude_indices=indices_1h)
+            self.normalizer = normalizer(x)
         else:
             self.normalizer = normalizer
 
