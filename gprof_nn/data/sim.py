@@ -993,18 +993,18 @@ def get_l1c_files_for_seaice(sensor, day):
         for month in range(1, 13):
             try:
                 date = datetime(year, month, day)
-                l1c_files += L1CFile.find_files(
+                l1c_files += list(L1CFile.find_files(
                     date, l1c_file_path, sensor=sensor
-                )
+                ))
             except ValueError:
                 pass
     else:
         for year, month in DATABASE_MONTHS:
             try:
                 date = datetime(year, month, day)
-                l1c_files += L1CFile.find_files(
+                l1c_files += list(L1CFile.find_files(
                     date, l1c_file_path, sensor=sensor
-                )
+                ))
             except ValueError:
                 pass
 
@@ -1014,9 +1014,9 @@ def get_l1c_files_for_seaice(sensor, day):
             try:
                 date = datetime(year, month, day)
                 l1c_file_path = sensors.GMI.l1c_file_path
-                l1c_files += L1CFile.find_files(
+                l1c_files += list(L1CFile.find_files(
                     date, l1c_file_path, sensor=sensors.GMI
-                )
+                ))
             except ValueError:
                 pass
     l1c_files = [f.filename for f in l1c_files]
@@ -1096,9 +1096,13 @@ class SimFileProcessor:
                     sensors.GMI.mrms_file_path, sensor=sensors.GMI
                 )
             else:
+                if hasattr(self.sensor, "mrms_sensor"):
+                    mrms_sensor = self.sensor.mrms_sensor
+                else:
+                    mrms_sensor = self.sensor
                 mrms_files = MRMSMatchFile.find_files(
                     mrms_file_path,
-                    sensor=self.sensor
+                    sensor=mrms_sensor
                 )
             mrms_files = np.random.permutation(mrms_files)
         else:
@@ -1107,7 +1111,7 @@ class SimFileProcessor:
         # Collect L1C files to process.
         l1c_file_path = self.sensor.l1c_file_path
         if self.era5_path is not None:
-            l1c_files = get_l1c_files_for_seaice(self.sensor, self.day)[:1]
+            l1c_files = get_l1c_files_for_seaice(self.sensor, self.day)[:100]
         else:
             l1c_files = []
 
@@ -1147,7 +1151,7 @@ class SimFileProcessor:
                 tasks.append(
                     self.pool.submit(
                         process_mrms_file,
-                        self.sensor,
+                        sensor,
                         mrms_file,
                         self.configuration,
                         self.day,
@@ -1217,14 +1221,15 @@ class SimFileProcessor:
                         datasets = []
                         chunk += 1
 
-        # Store dataset with sensor name as attribute.
-        dataset = xr.concat(datasets, "samples")
-        filename = output_path / (output_file + f"_{chunk:02}.nc")
-        dataset.attrs["sensor"] = self.sensor.name
-        dataset.attrs["configuration"] = self.configuration
-        LOGGER.info("Writing file: %s", filename)
-        dataset.to_netcdf(filename)
-        # subprocess.run(["lz4", "-f", "--rm", filename], check=True)
+        if len(datasets) > 0:
+            # Store dataset with sensor name as attribute.
+            dataset = xr.concat(datasets, "samples")
+            filename = output_path / (output_file + f"_{chunk:02}.nc")
+            dataset.attrs["sensor"] = self.sensor.name
+            dataset.attrs["configuration"] = self.configuration
+            LOGGER.info("Writing file: %s", filename)
+            dataset.to_netcdf(filename)
+            # subprocess.run(["lz4", "-f", "--rm", filename], check=True)
 
         # Explicit clean up to avoid memory leak.
         del datasets
