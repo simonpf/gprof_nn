@@ -419,7 +419,10 @@ class RetrievalDriver:
         data = {}
         for k in means:
             y = np.concatenate([t.numpy() for t in means[k]])
-            data[k] = (input_data.dimensions[k], y)
+            if k in input_data.dimensions:
+                data[k] = (input_data.dimensions[k], y)
+            else:
+                data[k] = (input_data.scalar_dimensions, y)
 
         if len(precip_1st_tercile) > 0:
             dims = input_data.dimensions["surface_precip"]
@@ -703,7 +706,8 @@ class NetcdfLoader1D(GPROF_NN_1D_Dataset):
         """
         invalid = np.all(self.x[:, : self.sensor.n_chans] <= -1.5, axis=-1)
         for v in ALL_TARGETS:
-            data[v].data[invalid] = np.nan
+            if v in data:
+                data[v].data[invalid] = np.nan
 
         variables = [target for target in ALL_TARGETS if target in data.variables]
         for var in variables:
