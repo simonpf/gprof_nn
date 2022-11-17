@@ -421,7 +421,7 @@ class CrossTrack(ViewingGeometry):
         weights[indices == 0] = 0.0
         weights[indices == 0, 0] = 1.0
         weights[indices == angles.size] = 0.0
-        weights[indices == angles.size, 0] = -1.0
+        weights[indices == angles.size, -1] = 1.0
 
         # Undo reversal
         return weights[:, ::-1]
