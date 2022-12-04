@@ -2052,6 +2052,7 @@ GPM = Platform("GPM-CO", "/pdata4/archive/GPM/1CR_GMI_V7/", "1C-R.GPM.GMI")
 F15 = Platform("F15", "/pdata4/archive/GPM/1C_F15_ITE/", "1C.F15.SSMI")
 F17 = Platform("F17", "/pdata4/archive/GPM/1C_F17_ITE/", "1C.F17.SSMIS")
 GCOMW1 = Platform("GCOM-W1", "/pdata4/archive/GPM/1C_AMSR2_ITE/", "1C.GCOMW1.AMSR2")
+AQUA = Platform("AQUA", "/pdata4/archive/GPM/1C_AMSRE/", "1C.AQUA.AMSRE")
 
 ###############################################################################
 # GMI
@@ -2593,7 +2594,7 @@ AMSR2 = ConstellationScanner(
     AMSR2_ANGLES,
     GCOMW1,
     AMSR2_VIEWING_GEOMETRY,
-    "/pdata4/veljko/AMSRE2MRMS_match2019/monthly_2021/",
+    "/pdata4/veljko/AMSR22MRMS_match2019/monthly_2021/",
     "AMSR2.dbsatTb.??????{day}.??????.sim",
     "/qdata1/pbrown/dbaseV7/simV7_amsr2",
     AMSR2_GMI_CHANNELS,
@@ -2679,9 +2680,9 @@ AMSRE = ConstellationScanner(
     AMSRE_CHANNELS,
     AMSRE_NEDT,
     AMSRE_ANGLES,
-    GCOMW1,
+    AQUA,
     AMSRE_VIEWING_GEOMETRY,
-    "/pdata4/veljko/AMSRE2MRMS_match2019/monthly_2021/",
+    "/pdata4/veljko/AMSR22MRMS_match2019/monthly_2021/",
     "AMSRE.dbsatTb.??????{day}.??????.sim",
     "/qdata1/pbrown/dbaseV7/simV7_amsre",
     AMSRE_GMI_CHANNELS,
@@ -2729,9 +2730,9 @@ ATMS = CrossTrackScanner(
     ATMS_VIEWING_GEOMETRY,
     "/pdata4/veljko/MHS2MRMS_match2019/monthly_2021/",
     "ATMS.dbsatTb.??????{day}.??????.sim",
-    "/qdata1/pbrown/dbaseV7/simV7x_mhs",
+    "/qdata1/pbrown/dbaseV7/simV7x_atms",
     ATMS_GMI_CHANNELS,
-    correction=DATA_FOLDER / "corrections_mhs.nc",
+    correction=DATA_FOLDER / "corrections_atms.nc",
     modeling_error=[3.0, 2.0, 2.0, 2.0, 2.0],
 )
 ATMS.mrms_sensor = MHS
