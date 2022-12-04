@@ -179,16 +179,16 @@ class L1CFile:
                 sensor.l1c_file_prefix + f"*{date.year:04}{month:02}{day:02}*{sensor.l1c_version}.HDF5"
             )
         )
-        for f in files:
+        for l1c_file in files:
             try:
-                f = L1CFile(f)
+                l1c_file = L1CFile(l1c_file)
             except Exception:
                 continue
             if roi is not None:
-                if f.covers_roi(roi):
-                    yield f
+                if l1c_file.covers_roi(roi):
+                    yield l1c_file
             else:
-                yield f
+                yield l1c_file
 
     def __init__(self, path):
         """
