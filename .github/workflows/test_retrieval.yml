@@ -14,3 +14,5 @@ jobs:
       - run: cd test; ./test_retrieval_tmi.sh
       - run: cd test; ./test_retrieval_f15.sh
       - run: cd test; ./test_retrieval_f17.sh
+      - run: cd test; ./test_retrieval_amsre.sh
+      - run: cd test; ./test_retrieval_amsr2.sh
