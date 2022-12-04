@@ -41,13 +41,15 @@ PATHS = {
     "TMIPO": "TRMM/",
     "SSMIS": "F17/",
     "AMSR2": "GCOMW1/",
-    "MHS": "NOAA19/"
+    "MHS": "NOAA19/",
+    "ATMS": "NPP/",
 }
 
 GRID_WIDTH = {
-        "GMI": 100,
-        "MHS": 200,
-        "AMSR2": 200
+    "GMI": 100,
+    "MHS": 200,
+    "AMSR2": 200,
+    "ATMS": 200,
 }
 
 LINK_REGEX = re.compile(r"<a href=\"([\w\.]*)\">")
