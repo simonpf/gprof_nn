@@ -314,11 +314,10 @@ def run(args):
         try:
             task.result()
         except Exception as exc:
-            LOGGER.error(
+            LOGGER.exception(
                 "The following error was encountered during the processing "
-                "of file %s:\n %s",
+                "of file %s.",
                 filename,
-                exc,
             )
     pool.shutdown()
     gprof_nn.logging.log_messages()
