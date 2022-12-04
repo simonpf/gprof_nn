@@ -64,6 +64,7 @@ _INPUT_DIMENSIONS = {
     "SSMIS": (32, 128),
     "AMSR2": (32, 128),
     "MHS": (32, 128),
+    "ATMS": (32, 128),
 }
 
 
