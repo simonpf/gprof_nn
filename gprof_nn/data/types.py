@@ -108,7 +108,7 @@ def get_preprocessor_pixel_record(n_chans, kind):
                 ("quality_flag", "i4"),
                 ("sunglint_angle", "i1"),
                 ("surface_type", "i1"),
-                ("__padding__", "i2"),
+                ("airmass_type", "i2"),
             ]
         )
     else:
