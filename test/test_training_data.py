@@ -37,7 +37,8 @@ def test_to_xarray_dataset_1d_gmi():
     Tbs as the ones found in the first batch of the training data when
     data is not shuffled.
     """
-    input_file = DATA_PATH / "gmi" / "gprof_nn_gmi_era5.nc.gz"
+    data_path = Path(__file__).parent / "data"
+    input_file = data_path / "gmi" / "gprof_nn_gmi_era5.nc"
     dataset = GPROF_NN_1D_Dataset(
         input_file,
         batch_size=64,
@@ -67,13 +68,9 @@ def test_to_xarray_dataset_1d_gmi():
     tcwv_ref = x[:, 16]
     assert np.all(np.isclose(tcwv, tcwv_ref))
 
-    st = data.surface_type.data[:x.shape[0]]
-    inds, st_ref = np.where(x[:, -22:-4])
-    assert np.all(np.isclose(st[inds], st_ref + 1))
-
-    at = data.airmass_type.data[:x.shape[0]]
-    inds, at_ref = np.where(x[:, -4:])
-    assert np.all(np.isclose(at[inds], at_ref))
+    of = data.ocean_fraction.data[:x.shape[0]]
+    of_ref = x[:, 17]
+    assert np.all(np.isclose(of, of_ref))
 
     #
     # Conversion using only first batch
@@ -96,13 +93,9 @@ def test_to_xarray_dataset_1d_gmi():
     tcwv_ref = x[:, 16]
     assert np.all(np.isclose(tcwv, tcwv_ref))
 
-    st = data.surface_type.data
-    inds, st_ref = np.where(x[:, -22:-4])
-    assert np.all(np.isclose(st[inds], st_ref + 1))
-
-    at = data.airmass_type.data
-    inds, at_ref = np.where(x[:, -4:])
-    assert np.all(np.isclose(at[inds], at_ref))
+    of = data.ocean_fraction.data[:x.shape[0]]
+    of_ref = x[:, 17]
+    assert np.all(np.isclose(of, of_ref))
 
 
 def test_permutation_gmi():
@@ -795,7 +788,8 @@ def test_to_xarray_dataset_3d():
     Tbs as the ones found in the first batch of the training data when
     data is not shuffled.
     """
-    input_file = DATA_PATH / "gmi" / "gprof_nn_gmi_era5.nc.gz"
+    data_path = Path(__file__).parent / "data"
+    input_file = data_path / "gmi" / "gprof_nn_gmi_era5.nc"
     dataset = GPROF_NN_3D_Dataset(
         input_file,
         batch_size=32,
@@ -820,20 +814,6 @@ def test_to_xarray_dataset_3d():
     tcwv = data.total_column_water_vapor.data
     tcwv_ref = x[:, 16]
     assert np.all(np.isclose(tcwv, tcwv_ref))
-
-    st = data.surface_type.data
-    st_ref = np.zeros(t2m.shape, dtype=np.int32)
-    for i in range(18):
-        mask = x[:, -22 + i] == 1
-        st_ref[mask] = i + 1
-    assert np.all(np.isclose(st, st_ref))
-
-    at = data.airmass_type.data
-    at_ref = np.zeros(t2m.shape, dtype=np.int32)
-    for i in range(4):
-        mask = x[:, -4 + i] == 1
-        at_ref[mask] = i
-    assert np.all(np.isclose(at, at_ref))
 
 
 def test_gprof_3d_dataset_input_mhs():
