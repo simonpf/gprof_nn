@@ -696,25 +696,30 @@ class GPROF_NN_1D_Dataset(Dataset1DBase):
         tbs = x[:, : sensor.n_chans]
         if sensor.n_angles > 1:
             eia = x[:, sensor.n_chans]
+            anc_start = sensor.n_chans + 1
         else:
             eia = None
-        t2m = x[:, -24]
-        tcwv = x[:, -23]
-        st = np.zeros(n_samples, dtype=np.int32)
-        i, j = np.where(x[:, -22:-4])
-        st[i] = j + 1
-        at = np.zeros(n_samples, dtype=np.int32) + 1
-        i, j = np.where(x[:, -4:])
-        at[i] = j
+            anc_start = sensor.n_chans
 
         dims = ("samples", "channels")
         new_dataset = {
             "brightness_temperatures": (dims, tbs),
-            "two_meter_temperature": (dims[:-1], t2m),
-            "total_column_water_vapor": (dims[:-1], tcwv),
-            "surface_type": (dims[:-1], st),
-            "airmass_type": (dims[:-1], at),
         }
+
+        vars = [
+            "two_meter_temperature",
+            "total_column_water_vapor",
+            "ocean_fraction",
+            "land_fraction",
+            "ice_fraction",
+            "snow_depth",
+            "leaf_area_index",
+            "orographic_wind",
+            "moisture_convergence"
+        ]
+        for offset, name in enumerate(vars):
+            new_dataset[name] = (dims[:-1], x[..., anc_start + offset])
+
         if eia is not None:
             new_dataset["earth_incidence_angle"] = (dims[:1], eia)
 
@@ -1017,29 +1022,29 @@ class GPROF_NN_3D_Dataset:
         tbs = np.transpose(x[:, : sensor.n_chans], (0, 2, 3, 1))
         if sensor.n_angles > 1:
             eia = x[:, sensor.n_chans]
+            anc_start = sensor.n_chans + 1
         else:
             eia = None
-        t2m = x[:, -24]
-        tcwv = x[:, -23]
-
-        st = np.zeros(t2m.shape, dtype=np.int32)
-        for i in range(18):
-            mask = x[:, -22 + i] == 1
-            st[mask] = i + 1
-
-        at = np.zeros(t2m.shape, dtype=np.int32)
-        for i in range(4):
-            mask = x[:, -4 + i] == 1
-            at[mask] = i
+            anc_start = sensor.n_chans
 
         dims = ("samples", "scans", "pixels", "channels")
         new_dataset = {
             "brightness_temperatures": (dims, tbs),
-            "two_meter_temperature": (dims[:-1], t2m),
-            "total_column_water_vapor": (dims[:-1], tcwv),
-            "surface_type": (dims[:-1], st),
-            "airmass_type": (dims[:-1], at),
         }
+        vars = [
+            "two_meter_temperature",
+            "total_column_water_vapor",
+            "ocean_fraction",
+            "land_fraction",
+            "ice_fraction",
+            "snow_depth",
+            "leaf_area_index",
+            "orographic_wind",
+            "moisture_convergence"
+        ]
+        for offset, name in enumerate(vars):
+            new_dataset[name] = (dims[:-1], x[:, anc_start + offset])
+
         if eia is not None:
             new_dataset["earth_incidence_angle"] = (dims[:-1], eia)
 
