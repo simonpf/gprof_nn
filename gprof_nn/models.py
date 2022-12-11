@@ -371,6 +371,7 @@ class MultiHeadMLP(nn.Module):
         targets=None,
         activation="ReLU",
         ancillary=True,
+        drop_inputs=None
     ):
         if targets is None:
             self.targets = ["surface_precip"]
@@ -381,6 +382,7 @@ class MultiHeadMLP(nn.Module):
         self.n_neurons_body = n_neurons_body
         self.n_layers_head = n_layers_head
         self.n_neurons_head = n_neurons_head
+        self.drop_inputs = drop_inputs
 
         residuals = residuals.lower()
         if residuals not in RESIDUALS:
@@ -392,13 +394,17 @@ class MultiHeadMLP(nn.Module):
         else:
             module_class = ResidualMLP
 
+        n_dropped = 0
+        if drop_inputs is not None:
+            n_dropped = len(drop_inputs)
+
         self.ancillary = ancillary
         if not ancillary:
             n_inputs = n_inputs - 24
 
         super().__init__()
         self.body = module_class(
-            n_inputs,
+            n_inputs - n_dropped,
             n_neurons_body,
             n_neurons_body,
             n_layers_body,
@@ -411,7 +417,7 @@ class MultiHeadMLP(nn.Module):
         if n_layers_body > 0:
             n_in = n_neurons_body
         else:
-            n_in = n_inputs
+            n_in = n_inputs - n_dropped
 
         self.heads = nn.ModuleDict()
         for t in targets:
@@ -451,7 +457,11 @@ class MultiHeadMLP(nn.Module):
             the case of a multi-target network a dictionary of tensors.
         """
         targets = self.targets
-        if not self.ancillary:
+        if hasattr(self, "drop_inputs") and self.drop_inputs is not None:
+            inds = np.arange(self.n_inputs_body)
+            inds_left = [ind for ind in inds if ind not in self.drop_inputs]
+            x = x[..., inds_left]
+        elif not self.ancillary:
             x = x[..., : self.n_inputs_body]
 
         y, acc = self.body(x, None)
@@ -499,6 +509,7 @@ class GPROF_NN_1D_QRNN(MRNN):
         targets=None,
         transformation=None,
         ancillary=True,
+        drop_inputs=None
     ):
         self.sensor = sensor
         residuals = residuals.lower()
@@ -528,6 +539,7 @@ class GPROF_NN_1D_QRNN(MRNN):
             residuals=residuals,
             activation=activation,
             ancillary=ancillary,
+            drop_inputs=drop_inputs
         )
 
         losses = {}
@@ -618,6 +630,7 @@ class GPROF_NN_1D_DRNN(MRNN):
         residuals="simple",
         targets=None,
         ancillary=True,
+        drop_inputs=None
     ):
         self.sensor = sensor
         residuals = residuals.lower()
@@ -639,6 +652,7 @@ class GPROF_NN_1D_DRNN(MRNN):
             residuals=residuals,
             activation=activation,
             ancillary=ancillary,
+            drop_inputs=drop_inputs
         )
 
         losses = {}
@@ -659,6 +673,7 @@ class GPROF_NN_1D_DRNN(MRNN):
         # Initialize attributes that will be set during training.
         self.normalizer = None
         self.configuration = None
+        self.drop_inputs = drop_inputs
 
     @property
     def suffix(self):
@@ -1066,6 +1081,7 @@ class XceptionFPN(nn.Module):
         n_features_head,
         ancillary=True,
         targets=None,
+        drop_inputs=None
     ):
         """
         Args:
@@ -1096,11 +1112,15 @@ class XceptionFPN(nn.Module):
         else:
             self.targets = targets
         self.n_outputs = n_outputs
+        self.drop_inputs = drop_inputs
+        n_dropped = 0
+        if drop_inputs is not None:
+            n_dropped = len(drop_inputs)
 
         if isinstance(n_blocks, int):
             n_blocks = [n_blocks] * 5
 
-        self.in_block = nn.Conv2d(n_channels, n_features_body, 1)
+        self.in_block = nn.Conv2d(n_channels - n_dropped, n_features_body, 1)
 
         width = _INPUT_DIMENSIONS[sensor.sensor_id][0]
 
@@ -1156,8 +1176,11 @@ class XceptionFPN(nn.Module):
             across_track=width>4)
 
         n_inputs = 2 * n_features_body
+
         if self.ancillary:
             n_inputs += n_anc
+        if drop_inputs is not None:
+            n_inputs -= len([index for index in drop_inputs if index > n_channels])
 
         targets = self.targets
 
@@ -1182,8 +1205,12 @@ class XceptionFPN(nn.Module):
         Propagate input through block.
         """
         n_chans = self.sensor.n_chans
-        x_in = self.in_block(x[:, :n_chans])
-        x_in[:, :n_chans] += x[:, :n_chans]
+        n_inputs = x.shape[1]
+        inds = np.arange(n_chans)
+        if hasattr(self, "drop_inputs") and self.drop_inputs is not None:
+            inds = [ind for ind in inds if ind not in self.drop_inputs]
+        x_in = self.in_block(x[:, inds])
+        x_in[:, :len(inds)] += x[:, inds]
 
         x_2 = self.down_block_2(x_in)
         x_4 = self.down_block_4(x_2)
@@ -1198,7 +1225,10 @@ class XceptionFPN(nn.Module):
         x_u = self.up_block(x_2_u, x_in)
 
         if self.ancillary:
-            x = torch.cat([x_in, x_u, x[:, n_chans:]], 1)
+            inds = np.arange(n_chans, n_inputs)
+            if hasattr(self, "drop_inputs") and self.drop_inputs is not None:
+                inds = [ind for ind in inds if ind not in self.drop_inputs]
+            x = torch.cat([x_in, x_u, x[:, inds]], 1)
         else:
             x = torch.cat([x_in, x_u], 1)
 
@@ -1401,6 +1431,7 @@ class GPROF_NN_3D_QRNN(MRNN):
         targets=None,
         transformation=None,
         ancillary=True,
+        drop_inputs=None
     ):
         """
         Args:
@@ -1436,6 +1467,7 @@ class GPROF_NN_3D_QRNN(MRNN):
             n_features_head,
             targets=targets,
             ancillary=ancillary,
+            drop_inputs=drop_inputs
         )
 
         losses = {}

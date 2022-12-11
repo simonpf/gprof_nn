@@ -21,6 +21,7 @@ from gprof_nn.definitions import (
     PROFILE_NAMES,
     CONFIGURATIONS,
     GPROF_NN_DATA_PATH,
+    ANCILLARY_DATA
 )
 from gprof_nn.data.training_data import (
     GPROF_NN_1D_Dataset,
@@ -300,6 +301,13 @@ def add_parser(subparsers):
             "The number of processes to use to load the validation data."
         ),
     )
+    parser.add_argument(
+        "--drop_inputs",
+        metavar="index",
+        type=int,
+        nargs="*",
+        default=None
+    )
 
 def run(args):
     """
@@ -490,6 +498,16 @@ def run_training_1d(
 
     if xrnn is None:
         LOGGER.info(f"Creating new model of type {network_type}.")
+
+        if args.drop_inputs is not None:
+            input_names = {
+                ind: f"channel {ind}" for ind in range(sensor.n_chans)
+            }
+            for ind, name in enumerate(ANCILLARY_DATA):
+                input_names[sensor.n_chans + ind] = name
+            input_names = [input_names[index] for index in args.drop_inputs]
+            LOGGER.info(f"Dropped inputs: {input_names}.")
+
         if network_type == "drnn":
             xrnn = GPROF_NN_1D_DRNN(
                 sensor,
@@ -501,6 +519,7 @@ def run_training_1d(
                 residuals=residuals,
                 targets=targets,
                 ancillary=ancillary,
+                drop_inputs=args.drop_inputs,
             )
         elif network_type == "qrnn_exp":
             transformation = {t: LogLinear() for t in targets}
@@ -516,6 +535,7 @@ def run_training_1d(
                 transformation=transformation,
                 targets=targets,
                 ancillary=ancillary,
+                drop_inputs=args.drop_inputs,
             )
         else:
             xrnn = GPROF_NN_1D_QRNN(
@@ -528,6 +548,7 @@ def run_training_1d(
                 residuals=residuals,
                 targets=targets,
                 ancillary=ancillary,
+                drop_inputs=args.drop_inputs,
             )
     model = xrnn.model
     xrnn.normalizer = normalizer
@@ -692,6 +713,16 @@ def run_training_3d(
 
     if xrnn is None:
         LOGGER.info(f"Creating new model of type {network_type}.")
+
+        if args.drop_inputs is not None:
+            input_names = {
+                ind: f"channel {ind}" for ind in range(sensor.n_chans)
+            }
+            for ind, name in enumerate(ANCILLARY_DATA):
+                input_names[sensor.n_chans + ind] = name
+            input_names = [input_names[index] for index in args.drop_inputs]
+            LOGGER.info(f"Dropped inputs: ", input_names)
+
         if network_type == "drnn":
             xrnn = GPROF_NN_3D_DRNN(
                 sensor,
@@ -701,6 +732,7 @@ def run_training_3d(
                 n_neurons_head,
                 targets=targets,
                 ancillary=ancillary,
+                drop_inputs=args.drop_inputs,
             )
         elif network_type == "qrnn_exp":
             transformation = {}
@@ -718,6 +750,7 @@ def run_training_3d(
                 transformation=transformation,
                 targets=targets,
                 ancillary=ancillary,
+                drop_inputs=args.drop_inputs,
             )
         else:
             xrnn = GPROF_NN_3D_QRNN(
@@ -728,6 +761,7 @@ def run_training_3d(
                 n_neurons_head,
                 targets=targets,
                 ancillary=ancillary,
+                drop_inputs=args.drop_inputs,
             )
     model = xrnn.model
     xrnn.normalizer = normalizer

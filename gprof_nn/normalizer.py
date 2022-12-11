@@ -15,7 +15,7 @@ from gprof_nn import sensors
 NORMALIZER = Normalizer.load(Path(__file__).parent / "files" / "normalizer_gmi.pckl")
 
 
-def get_normalizer(sensor):
+def get_normalizer(sensor, drop_inputs=None):
     """
     Return default normalizer for a given sensor.
 
@@ -31,6 +31,18 @@ def get_normalizer(sensor):
         A new normalizer object for the given sensor.
     """
     if sensor == sensors.GMI:
+        if drop_inputs is not None:
+            normalizer = deepcopy(NORMALIZER)
+            new_stats = {}
+            ch_ind = 0
+            for index in NORMALIZER.stats:
+                if index not in drop_inputs:
+                    new_stats[ch_ind] = NORMALIZER.stats[index]
+                    ch_ind += 1
+            # Must ensure that normalizer indices are continuous.
+            assert index == len(NORMALIZER.stats) - 1
+            normalizer.stats = new_stats
+            return normalizer
         return NORMALIZER
 
     new_stats = {}
@@ -48,7 +60,16 @@ def get_normalizer(sensor):
     for i in range(2):
         new_stats[index + i] = NORMALIZER.stats[15 + i]
 
+    if drop_inputs is None:
+        drop_inputs = []
+    stats_dropped = {}
+    ch_ind = 0
+    for index in new_stats:
+        if index not in drop_inputs:
+            stats_dropped[ch_ind] = new_stats[index]
+            ch_ind += 1
+
     normalizer = deepcopy(NORMALIZER)
-    normalizer.stats = new_stats
+    normalizer.stats = stats_dropped
 
     return normalizer

@@ -25,7 +25,7 @@ from gprof_nn.models import (
 )
 
 
-DATA_PATH = get_test_data_path()
+DATA_PATH = Path(__file__).parent / "data"
 
 
 def test_mlp():
@@ -87,7 +87,7 @@ def test_gprof_nn_1d():
                                3, 128, 2, 64,
                                activation="GELU",
                                transformation=LogLinear)
-    x = torch.ones(1, 39)
+    x = torch.ones(1, 24)
     y = network.predict(x)
     assert all([t in y for t in ALL_TARGETS])
     network = GPROF_NN_1D_QRNN(sensors.GMI,
@@ -95,7 +95,7 @@ def test_gprof_nn_1d():
                                activation="GELU",
                                residuals="hyper",
                                transformation=LogLinear)
-    x = torch.ones(1, 39)
+    x = torch.ones(1, 24)
     y = network.predict(x)
     assert all([t in y for t in ALL_TARGETS])
 
@@ -103,9 +103,25 @@ def test_gprof_nn_1d():
                                3, 128, 2, 64,
                                residuals="hyper",
                                activation="GELU")
-    x = torch.ones(1, 39)
+    x = torch.ones(1, 24)
     y = network.predict(x)
     assert all([t in y for t in ALL_TARGETS])
+
+    #
+    # Test dropping of inputs.
+    #
+
+    network = GPROF_NN_1D_DRNN(sensors.GMI,
+                               3, 128, 2, 64,
+                               residuals="hyper",
+                               activation="GELU",
+                               drop_inputs=[0, 14]
+    )
+    x = torch.ones(1, 24)
+    x[:, 0] = np.nan
+    x[:, 14] = np.nan
+    y = network.predict(x)
+    assert all([np.all(np.isfinite(value.numpy())) for value in y.values()])
 
 
 def test_gprof_nn_3d_gmi():
@@ -119,6 +135,13 @@ def test_gprof_nn_3d_gmi():
     x, y = dataset[0]
     y_pred = network.predict(x)
     assert all([t in y_pred for t in y])
+
+    network = GPROF_NN_3D_QRNN(sensors.GMI, 2, 128, 2, 64, drop_inputs=[0, 14])
+    x, y = dataset[0]
+    x[:, 0] = np.nan
+    x[:, 14] = np.nan
+    y_pred = network.predict(x)
+    assert all([np.all(np.isfinite(value.numpy())) for value in y_pred.values()])
 
 
 def test_gprof_nn_3d_mhs():
