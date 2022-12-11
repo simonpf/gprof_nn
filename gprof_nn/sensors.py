@@ -323,7 +323,7 @@ class Sensor(ABC):
         """
         The number of frequencies or channels of the sensor.
         """
-        n_inputs = self.n_freqs + 24
+        n_inputs = self.n_freqs + 9
         if self.kind == types.XTRACK:
             n_inputs += 1
         return n_inputs
@@ -508,38 +508,49 @@ class Sensor(ABC):
         """
         Load viewing angle from the given dataset and replace invalid values.
         """
-        return load_variable(data, "load_viewing_angle", mask=mask)
+        return load_variable(data, "viewing_angle", mask=mask)
 
-    def load_surface_type(self, data, mask=None):
+    def load_ocean_fraction(self, data, mask=None):
         """
-        Load surface type from dataset and convert to 1-hot encoding.
+        Load ocean fraction from dataset and convert to 1-hot encoding.
         """
-        st = data["surface_type"].data
-        if mask is not None:
-            st = st[mask]
-        n_types = 18
-        shape = st.shape + (n_types,)
-        st_1h = np.zeros(shape, dtype=np.float32)
-        for i in range(n_types):
-            mask = st == i + 1
-            st_1h[mask, i] = 1.0
-        return st_1h
+        return load_variable(data, "ocean_fraction", mask=mask)
 
-    def load_airmass_type(self, data, mask=None):
+    def load_land_fraction(self, data, mask=None):
         """
-        Load airmass type from dataset and convert to 1-hot encoding.
+        Load land fraction from dataset.
         """
-        am = data["airmass_type"].data
-        if mask is not None:
-            am = am[mask]
-        am = np.maximum(am, 0)
-        n_types = 4
-        shape = am.shape + (n_types,)
-        am_1h = np.zeros(shape, dtype=np.float32)
-        for i in range(n_types):
-            mask = am == i
-            am_1h[mask, i] = 1.0
-        return am_1h
+        return load_variable(data, "land_fraction", mask=mask)
+
+    def load_ice_fraction(self, data, mask=None):
+        """
+        Load ice fraction from dataset
+        """
+        return load_variable(data, "ice_fraction", mask=mask)
+
+    def load_snow_depth(self, data, mask=None):
+        """
+        Load ice fraction from dataset
+        """
+        return load_variable(data, "snow_depth", mask=mask)
+
+    def load_leaf_area_index(self, data, mask=None):
+        """
+        Load ice fraction from dataset
+        """
+        return load_variable(data, "leaf_area_index", mask=mask)
+
+    def load_orographic_wind(self, data, mask=None):
+        """
+        Load orographic uplift.
+        """
+        return load_variable(data, "orographic_wind", mask=mask)
+
+    def load_moisture_convergence(self, data, mask=None):
+        """
+        Load moisutre convergence
+        """
+        return load_variable(data, "moisture_convergence", mask=mask)
 
     def load_target(self, data, name, mask=None):
         """
@@ -587,7 +598,7 @@ class ConicalScanner(Sensor):
         """
         The number of input features for the GPORF-NN retrieval.
         """
-        return self.n_chans + 2 + 18 + 4
+        return self.n_chans + 9
 
     @property
     def mrms_file_path(self):
@@ -638,9 +649,26 @@ class ConicalScanner(Sensor):
         t2m = self.load_two_meter_temperature(scene, valid)[..., np.newaxis]
         tcwv = self.load_total_column_water_vapor(scene, valid)
         tcwv = tcwv[..., np.newaxis]
-        st = self.load_surface_type(scene, valid)
-        am = self.load_airmass_type(scene, valid)
-        x = np.concatenate([tbs, t2m, tcwv, st, am], axis=1)
+        ocean_frac = self.load_ocean_fraction(scene, valid)[..., None]
+        land_frac = self.load_land_fraction(scene, valid)[..., None]
+        ice_frac = self.load_ice_fraction(scene, valid)[..., None]
+        snow_depth = self.load_snow_depth(scene, valid)[..., None]
+        leaf_area_index = self.load_leaf_area_index(scene, valid)[..., None]
+        orographic_wind = self.load_orographic_wind(scene, valid)[..., None]
+        moisture_conv = self.load_moisture_convergence(scene, valid)[..., None]
+
+        x = np.concatenate([
+            tbs,
+            t2m,
+            tcwv,
+            ocean_frac,
+            land_frac,
+            ice_frac,
+            snow_depth,
+            leaf_area_index,
+            orographic_wind,
+            moisture_conv
+        ], axis=1)
 
         #
         # Output data
@@ -781,14 +809,29 @@ class ConicalScanner(Sensor):
             n_p = rng.integers(10, 30)
             if r > 0.80:
                 tbs[10:15, :, :n_p] = np.nan
+
         t2m = self.load_two_meter_temperature(scene)[np.newaxis]
         tcwv = self.load_total_column_water_vapor(scene)[np.newaxis]
-        st = self.load_surface_type(scene)
-        st = np.transpose(st, (2, 0, 1))
-        am = self.load_airmass_type(scene)
-        am = np.transpose(am, (2, 0, 1))
+        ocean_frac = self.load_ocean_fraction(scene)[None]
+        land_frac = self.load_land_fraction(scene)[None]
+        ice_frac = self.load_ice_fraction(scene)[None]
+        snow_depth = self.load_snow_depth(scene)[None]
+        leaf_area_index = self.load_leaf_area_index(scene)[ None]
+        orographic_wind = self.load_orographic_wind(scene)[ None]
+        moisture_conv = self.load_moisture_convergence(scene)[None]
 
-        x = np.concatenate([tbs, t2m, tcwv, st, am], axis=0)
+        x = np.concatenate([
+            tbs,
+            t2m,
+            tcwv,
+            ocean_frac,
+            land_frac,
+            ice_frac,
+            snow_depth,
+            leaf_area_index,
+            orographic_wind,
+            moisture_conv
+        ], axis=0)
 
         #
         # Output data
