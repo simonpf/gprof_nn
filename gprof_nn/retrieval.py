@@ -94,7 +94,6 @@ def combine_input_data_1d(dataset, sensor):
     tbs = tbs.reshape(-1, n_chans)
     invalid = (tbs > 500.0) + (tbs < 0.0)
     tbs[invalid] = np.nan
-    features = [tbs]
 
     if "two_meter_temperature" in dataset.variables:
         t2m = load_variable(dataset, "two_meter_temperature")
@@ -102,24 +101,38 @@ def combine_input_data_1d(dataset, sensor):
         tcwv = load_variable(dataset, "total_column_water_vapor")
         tcwv = tcwv.reshape(-1, 1)
 
-        st = dataset["surface_type"].data.ravel()
-        n_types = 18
-        st_1h = np.zeros((st.shape[0], n_types), dtype=np.float32)
-        for j in range(18):
-            st_1h[:, j][st == j + 1] = 1.0
+        t2m = load_variable(dataset, "two_meter_temperature")
+        tcwv = load_variable(dataset, "total_column_water_vapor")
+        ocean_frac = load_variable(dataset, "ocean_fraction")
+        land_frac = load_variable(dataset, "land_fraction")
+        ice_frac = load_variable(dataset, "ice_fraction")
+        snow_depth = load_variable(dataset, "snow_depth")
+        lai = load_variable(dataset, "leaf_area_index")
+        orographic_wind = load_variable(dataset, "orographic_wind")
+        moisture_conv = load_variable(dataset, "moisture_convergence")
 
-        at = np.maximum(dataset["airmass_type"].data, 0.0)
-        at = at.ravel()
-        n_types = 4
-        at_1h = np.zeros((st.shape[0], n_types), dtype=np.float32)
-        for j in range(4):
-            at_1h[:, j][at == j] = 1.0
-
-        features += [t2m, tcwv, st_1h, at_1h]
+        features = [
+            t2m,
+            tcwv,
+            ocean_frac,
+            land_frac,
+            ice_frac,
+            snow_depth,
+            lai,
+            orographic_wind,
+            moisture_conv
+        ]
+        features = [
+            feat.reshape(-1, 1) for feat in features
+        ]
+        features.insert(0, tbs)
+    else:
+        features = [tbs]
 
     if isinstance(sensor, sensors.CrossTrackScanner):
         va = dataset["earth_incidence_angle"].data
         features.insert(1, va.reshape(-1, 1))
+
 
     x = np.concatenate(features, axis=1)
     x[:, :n_chans][x[:, :n_chans] < 0] = np.nan
@@ -483,9 +496,15 @@ class RetrievalDriver:
                 "longitude",
                 "total_column_water_vapor",
                 "two_meter_temperature",
-                "surface_type",
-                "airmass_type",
+                "ocean_fraction",
+                "land_fraction",
+                "ice_fraction",
+                "snow_depth",
+                "leaf_area_index",
+                "orographic_wind",
+                "moisture_convergence",
                 "scan_time",
+                "surface_type"
             ]
             for var in variables:
                 if var in input_data.data.variables:
@@ -664,7 +683,7 @@ class NetcdfLoader1D(GPROF_NN_1D_Dataset):
             batch_size: How many observations to combine into a single
                 input batch.
         """
-        targets = ALL_TARGETS + ["latitude", "longitude"]
+        targets = ALL_TARGETS + ["latitude", "longitude", "surface_type"]
         GPROF_NN_1D_Dataset.__init__(
             self,
             filename,
@@ -714,6 +733,7 @@ class NetcdfLoader1D(GPROF_NN_1D_Dataset):
             data[var + "_true"] = self.data[var]
         data["latitude"] = self.data["latitude"]
         data["longitude"] = self.data["longitude"]
+        data["surface_type"] = self.data["surface_type"]
         if "earth_incidence_angle" in self.data.variables:
             data["earth_incidence_angle"] = self.data["earth_incidence_angle"]
 
@@ -746,7 +766,7 @@ class NetcdfLoader3D(GPROF_NN_3D_Dataset):
                 apply a specific correction to the input data.
             tile: Has no effect for this loader.
         """
-        targets = ALL_TARGETS + ["latitude", "longitude"]
+        targets = ALL_TARGETS + ["latitude", "longitude", "surface_type"]
         super().__init__(
             filename,
             targets=targets,
@@ -808,6 +828,7 @@ class NetcdfLoader3D(GPROF_NN_3D_Dataset):
             data[var + "_true"] = self.data[var]
         data["latitude"] = self.data["latitude"]
         data["longitude"] = self.data["longitude"]
+        data["surface_type"] = self.data["surface_type"]
         if "earth_incidence_angle" in self.data.variables:
             data["earth_incidence_angle"] = self.data["earth_incidence_angle"]
 
