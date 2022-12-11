@@ -158,3 +158,15 @@ UNITS = {
 # Bins for calculating observation and training statistics
 LAT_BINS = np.linspace(-90, 90, 181)
 TIME_BINS = 60 * (np.linspace(0, 24, 25) - 0.5)
+
+ANCILLARY_DATA = [
+    "two-meter temperature",
+    "total-column water vapor",
+    "ocean fraction",
+    "land fraction",
+    "ice fraction",
+    "snow depth",
+    "leaf area index",
+    "orographic wind",
+    "moisture convergence"
+]
