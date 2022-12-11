@@ -8,7 +8,11 @@ from gprof_nn.normalizer import get_normalizer
 def test_get_normalizer():
 
     normalizer_gmi = get_normalizer(sensors.GMI)
-    assert len(normalizer_gmi.stats) == 17
+    assert len(normalizer_gmi.stats) == 15 + 9
+
+    normalizer_gmi_2 = get_normalizer(sensors.GMI, [0, 3])
+    assert len(normalizer_gmi_2.stats) == 15 + 7
+    assert normalizer_gmi.stats[1] == normalizer_gmi_2.stats[0]
 
     # For cross-track scanners stats should an entry for each
     # channel, earth incidence angle, tcwv and t2m.
