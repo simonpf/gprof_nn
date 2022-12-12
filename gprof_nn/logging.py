@@ -26,7 +26,6 @@ _HANDLER = RichHandler(console=_CONSOLE)
 # The parent logger for the module.
 LOGGER = logging.getLogger("gprof_nn")
 LOGGER.setLevel(_LOG_LEVEL)
-LOGGER.addHandler(_HANDLER)
 
 
 def enable_file_logging(filename):
