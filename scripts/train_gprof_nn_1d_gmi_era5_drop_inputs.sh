@@ -7,4 +7,4 @@ TARGETS="surface_precip convective_precip rain_water_path ice_water_path cloud_w
 export QUANTNN_LOG_LEVEL=INFO
 export OMP_NUM_THREADS=2
  
-gprof_nn train 1D GMI ERA5 ${TRAINING_DATA} ${VALIDATION_DATA} ${MODEL_PATH} --n_neurons_body 512 --n_layers_body 8 --n_neurons_head 256 --n_layers_head 2 --activation GELU --residuals hyper --device cuda:0 --targets ${TARGETS} --type qrnn_exp --batch_size 2048 --n_epochs 20 20 20 --learning_rate 0.0005 0.0005 0.0001 --no_validation --drop_inputs 15
+gprof_nn train 1D GMI ERA5 ${TRAINING_DATA} ${VALIDATION_DATA} ${MODEL_PATH} --n_neurons_body 512 --n_layers_body 8 --n_neurons_head 256 --n_layers_head 2 --activation GELU --residuals hyper --device cuda:0 --targets ${TARGETS} --type qrnn_exp --batch_size 2048 --n_epochs 20 20 --learning_rate 0.0005 0.0005 --no_validation --drop_inputs 15
