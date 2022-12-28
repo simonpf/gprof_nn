@@ -701,6 +701,8 @@ class NetcdfLoader1D(GPROF_NN_1D_Dataset):
             t: ("samples", "layers") if t in PROFILE_NAMES else ("samples")
             for t in ALL_TARGETS
         }
+        self.dimensions["latitude"] = (("samples",))
+        self.dimensions["longitude"] = (("samples",))
         self.data = self.to_xarray_dataset()
 
     def __getitem__(self, i):
@@ -787,6 +789,9 @@ class NetcdfLoader3D(GPROF_NN_3D_Dataset):
             else:
                 dimensions[t] = ("samples", "scans", "pixels")
         self.dimensions = dimensions
+        self.dimensions["latitude"] = (("samples", "scans", "pixels"))
+        self.dimensions["longitude"] = (("samples", "scans", "pixels"))
+
         self.data = self.to_xarray_dataset()
         self.padding = calculate_padding_dimensions(self.x[0])
 
@@ -1165,6 +1170,8 @@ class ObservationLoader3D:
             else ("samples", "scans", "pixels")
             for t in ALL_TARGETS
         }
+        self.dimensions["latitude"] = (("samples", "scans", "pixels"))
+        self.dimensions["longitude"] = (("samples", "scans", "pixels"))
 
         if tile:
             self.tiles, self.cuts = calculate_tiles_and_cuts(self.n_scans, 256, 0)
