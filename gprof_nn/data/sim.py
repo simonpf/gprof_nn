@@ -715,7 +715,7 @@ def process_mrms_file(sensor, mrms_filename, configuration, day, log_queue=None)
         # Extract scans over CONUS ans run preprocessor.
         _, f_roi = tempfile.mkstemp()
         try:
-            file.extract_scans(CONUS, f_roi, min_scans=221)
+            file.extract_scans(CONUS, f_roi, min_scans=663)
             data_pp = run_preprocessor(
                 f_roi, configuration=configuration, sensor=sensor, robust=False
             )
