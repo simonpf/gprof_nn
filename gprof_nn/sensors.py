@@ -752,7 +752,7 @@ class ConicalScanner(Sensor):
         else:
             p_x_o = 0.5
             p_x_i = 0.5
-            p_y = 0.5
+            p_y = rng.random()
 
         lats = scene.latitude.data
         lons = scene.longitude.data
@@ -900,7 +900,7 @@ class ConicalScanner(Sensor):
         else:
             for i in range(n_scenes):
                 scene = dataset[{"samples": i}]
-                if scene.source == 0:
+                if not augment or scene.source == 0:
                     n = 1
                 else:
                     n = 2
@@ -1165,8 +1165,8 @@ class ConstellationScanner(ConicalScanner):
             p_x_o = rng.random()
         else:
             p_x_i = 0.5
-            p_y = 0.5
             p_x_o = 0.5
+            p_y = rng.random()
 
         lats = scene.latitude.data
         lons = scene.longitude.data
@@ -1278,8 +1278,8 @@ class ConstellationScanner(ConicalScanner):
     ):
         """
         Load training data for sea ice or snow surfaces. These observations
-        were extracted directly from L1C files and are on the original MHS
-        grid.
+        were extracted directly from L1C files and  correspond to the original
+        viewing geometry.
 
         Args:
             scene: 'xarray.Dataset' containing the training data sample
@@ -1296,12 +1296,8 @@ class ConstellationScanner(ConicalScanner):
             Tuple ``x, y`` containing one sample of training data for the
             GPROF-NN 3D retrieval.
         """
-        if augment:
-            p_x = rng.random()
-            p_y = rng.random()
-        else:
-            p_x = 0.5
-            p_y = 0.5
+        p_x = rng.random()
+        p_y = rng.random()
 
         n_scans = SCANS_PER_SAMPLE
         n_pixels = self.viewing_geometry.pixels_per_scan
@@ -1747,7 +1743,7 @@ class CrossTrackScanner(Sensor):
             p_y = rng.random()
         else:
             p_x_i = 0.5
-            p_y = 0.5
+            p_y = rng.random()
 
         p_x_o = rng.random()
 
@@ -1868,8 +1864,8 @@ class CrossTrackScanner(Sensor):
     ):
         """
         Load training data for sea ice or snow surfaces. These observations
-        were extracted directly from L1C files and are on the original MHS
-        grid.
+        were extracted directly from L1C files and correspond to the original
+        viewing geometry.
 
         Args:
             scene: 'xarray.Dataset' containing the training data sample
@@ -1884,12 +1880,8 @@ class CrossTrackScanner(Sensor):
             Tuple ``x, y`` containing one sample of training data for the
             GPROF-NN 3D retrieval.
         """
-        if augment:
-            p_x = rng.random()
-            p_y = rng.random()
-        else:
-            p_x = 0.5
-            p_y = 0.5
+        p_x = rng.random()
+        p_y = rng.random()
 
         n_scans = SCANS_PER_SAMPLE
         n_pixels = self.viewing_geometry.pixels_per_scan

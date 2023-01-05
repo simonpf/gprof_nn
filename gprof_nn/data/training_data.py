@@ -804,7 +804,10 @@ class GPROF_NN_3D_Dataset:
         self.shuffle = shuffle
         self.augment = augment
 
-        seed = int.from_bytes(os.urandom(4), "big") + os.getpid()
+        if augment:
+            seed = int.from_bytes(os.urandom(4), "big") + os.getpid()
+        else:
+            seed = 111
         self._rng = np.random.default_rng(seed)
 
         if sensor is None:
@@ -1103,7 +1106,10 @@ class SimulatorDataset(GPROF_NN_3D_Dataset):
         self.shuffle = shuffle
         self.augment = augment
 
-        seed = int.from_bytes(os.urandom(4), "big") + os.getpid()
+        if augment:
+            seed = int.from_bytes(os.urandom(4), "big") + os.getpid()
+        else:
+            seed = 111
         self._rng = np.random.default_rng(seed)
 
         x, y = self.load_training_data_3d(self.dataset, targets, augment, self._rng)
@@ -1350,7 +1356,10 @@ class GPROF_NN_HR_Dataset(GPROF_NN_3D_Dataset):
         self.shuffle = shuffle
         self.augment = augment
 
-        seed = int.from_bytes(os.urandom(4), "big") + os.getpid()
+        if augment:
+            seed = int.from_bytes(os.urandom(4), "big") + os.getpid()
+        else:
+            seed = 111
         self._rng = np.random.default_rng(seed)
 
         x, y = self.load_training_data_3d(self.dataset, targets, augment, self._rng)
