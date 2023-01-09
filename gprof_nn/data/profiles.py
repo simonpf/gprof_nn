@@ -138,7 +138,7 @@ class ProfileClusters:
             indices that identify the corresponding profile clusters.
         """
         if isinstance(t2m, np.ndarray):
-            t2m_indices = np.clip(np.round((t2m - 268.0) / 3).astype(np.int), 1, 12) - 1
+            t2m_indices = np.clip(np.round((t2m - 268.0) / 3).astype(np.int32), 1, 12) - 1
         else:
             t2m_indices = np.clip(int((t2m - 268.0) / 3), 1, 12) - 1
         return t2m_indices
