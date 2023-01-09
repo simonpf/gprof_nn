@@ -250,6 +250,7 @@ def run(args):
                     "If the input file is a directory, the 'output_file' argument "
                     "must point to a directory as well."
                 )
+                return 1
 
             files = list(inp.glob("**/*.nc"))
             files += list(inp.glob("**/*.nc.gz"))
