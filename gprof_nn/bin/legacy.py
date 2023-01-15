@@ -70,6 +70,12 @@ def add_parser(subparsers):
                         type=int,
                         default=4,
                         help='The number of processes to use for the processing.')
+    parser.add_argument('--ancillary_path',
+                        metavar="path",
+                        type=str,
+                        default=None,
+                        help=("Ancillary data path that GPROF will be invoked "
+                              "with."))
     parser.set_defaults(func=run)
 
 
@@ -81,7 +87,8 @@ def process_file(sensor,
                  log_queue,
                  mode="STANDARD",
                  nedts=None,
-                 preserve_structure=False):
+                 preserve_structure=False,
+                 ancillary_path=None):
     """
     Helper function for distributed processing.
 
@@ -97,7 +104,7 @@ def process_file(sensor,
             well be preserved.
     """
     gprof_nn.logging.configure_queue_logging(log_queue)
-
+    LOGGER = logging.getLogger(__name__)
     LOGGER.info("Processing file %s. %s", input_file, output_file)
 
     if input_file.suffix in [".gz", ".nc"]:
@@ -108,15 +115,19 @@ def process_file(sensor,
             mode,
             profiles,
             nedts=nedts,
-            preserve_structure=preserve_structure
+            preserve_structure=preserve_structure,
+            ancillary_path=ancillary_path
         )
     else:
-        results = run_gprof_standard(sensor,
-                                     configuration,
-                                     input_file,
-                                     mode,
-                                     profiles,
-                                     nedts=nedts)
+        results = run_gprof_standard(
+            sensor,
+            configuration,
+            input_file,
+            mode,
+            profiles,
+            nedts=nedts,
+            ancillary_path=ancillary_path
+        )
 
     if results is not None:
         if not output_file.parent.exists():
@@ -162,6 +173,7 @@ def run(args):
 
     if not input.exists():
         LOGGER.error("Input must be an existing file or folder.")
+        return 1
 
     if input.is_dir() and not output.exists():
         output.mkdir(parents=True, exist_ok=True)
@@ -173,6 +185,7 @@ def run(args):
                 "Only one of the 'gradients' and 'full_profiles' flags may be"
                 " set at a time."
             )
+            return 1
     elif args.full_profiles:
         mode = "PROFILES"
     else:
@@ -185,6 +198,17 @@ def run(args):
 
     nedts = None
 
+    ancillary_path = args.ancillary_path
+    if ancillary_path is not None:
+        ancillary_path = Path(ancillary_path)
+        if not ancillary_path.exists():
+            LOGGER.error(
+                "If ancillary path is provided it must point to an existing "
+                "directory."
+            )
+            return 1
+        ancillary_path = str(ancillary_path) + "/"
+
     # Find files and determine output names.
     if input.is_dir():
         if output is None or not output.is_dir():
@@ -192,6 +216,7 @@ def run(args):
                 "If the input file is a directory, the 'output_file' argument "
                 "must point to a directory as well."
             )
+            return 1
 
         input_files = list(input.glob("**/*.nc"))
         input_files += list(input.glob("**/*.nc.gz"))
@@ -228,10 +253,11 @@ def run(args):
             process_file,
             sensor, configuration, input_file, output_file, profiles, log_queue,
             mode=mode, nedts=None, preserve_structure=preserve_structure,
+            ancillary_path=ancillary_path
         )]
 
     for t in track(tasks, description="Processing files:"):
         gprof_nn.logging.log_messages()
         t.result()
-
     pool.shutdown()
+    gprof_nn.logging.log_messages()

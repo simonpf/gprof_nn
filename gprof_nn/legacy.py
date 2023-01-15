@@ -45,7 +45,7 @@ EXECUTABLES_X = {
 }
 
 
-ANCILLARY_DATA = "/qdata1/pbrown/gpm/ancillary/"
+ANCILLARY_PATH = "/qdata1/pbrown/gpm/ancillary/"
 
 
 SENSITIVITY_HEADER = """
@@ -123,6 +123,7 @@ def execute_gprof(
     profiles=False,
     nedts=None,
     robust=False,
+    ancillary_path=None
 ):
     """
     Execute legacy GPROF algorithm.
@@ -138,11 +139,17 @@ def execute_gprof(
         profiles: Whether profiles should be retrieved.
         nedts: Array containing sensitivities for all channels.
         robust: Whether to raise errors encountered during execution.
+        ancillary_path: Path to ancillary data. If not provided, Paula's
+             default will be used.
 
     Return:
         'xarray.Dataset' containing the retrieval results.
     """
+    logger = logging.getLogger(__name__)
     input_file = Path(input_file)
+
+    if ancillary_path is None:
+        ancillary_path = ANCILLARY_PATH
 
     # Determine the right executable.
     if isinstance(sensor, ConicalScanner):
@@ -182,7 +189,7 @@ def execute_gprof(
         str(input_file.absolute()),
         str(output_file),
         str(log_file),
-        ANCILLARY_DATA,
+        ancillary_path,
         profiles,
     ]
     try:
@@ -191,7 +198,7 @@ def execute_gprof(
         if robust:
             with open(log_file, "r") as log:
                 log = log.read()
-            LOGGER.error(
+            logger.error(
                 "Running GPROF failed with the following log: %s\n%s\n%s",
                 log,
                 error.stdout,
@@ -213,6 +220,7 @@ def run_gprof_training_data(
     profiles,
     nedts=None,
     preserve_structure=False,
+    ancillary_path=None
 ):
     """
     Runs GPROF algorithm on training data in GPROF-NN format and includes
@@ -228,7 +236,10 @@ def run_gprof_training_data(
             or 'PROFILES')
         profiles: Whether to retrieve profiles.
         nedts: If provided should be an array containing the channel
-            sensitivities to use for the retrieval.
+        ancillary_path: Path to ancillary data. If not provided, Paula's
+             default will be used.
+
+   sensitivities to use for the retrieval.
 
     Return:
         'xarray.Dataset' containing the retrieval results.
@@ -284,6 +295,7 @@ def run_gprof_training_data(
                 profiles=profiles,
                 nedts=nedts,
                 robust=True,
+                ancillary_path=ancillary_path
             )
 
             if output_data is None:
@@ -324,7 +336,16 @@ def run_gprof_training_data(
     return results
 
 
-def run_gprof_standard(sensor, configuration, input_file, mode, profiles, nedts=None):
+def run_gprof_standard(
+        sensor,
+        configuration,
+        input_file,
+        mode,
+        profiles,
+        nedts=None,
+        ancillary_path=None
+
+):
     """
     Runs GPROF algorithm on input from preprocessor.
 
@@ -339,6 +360,8 @@ def run_gprof_standard(sensor, configuration, input_file, mode, profiles, nedts=
         profiles: Whether to retrieve profiles.
         nedts: If provided should be an array containing the channel
             sensitivities to use for the retrieval.
+        ancillary_path: Path to ancillary data. If not provided, Paula's
+             default will be used.
 
     Return:
         'xarray.Dataset' containing the retrieval results.
@@ -347,11 +370,17 @@ def run_gprof_standard(sensor, configuration, input_file, mode, profiles, nedts=
 
         if Path(input_file).suffix == ".HDF5":
             output_file = Path(tmp) / "input.pp"
-            run_preprocessor(input_file, sensor, output_file=output_file, robust=False)
+            run_preprocessor(
+                input_file,
+                sensor,
+                configuration=configuration,
+                output_file=output_file,
+                robust=False)
             input_file = output_file
 
         results = execute_gprof(
             tmp, sensor, configuration, input_file,
-            mode=mode, profiles=profiles, nedts=nedts, robust=True
+            mode=mode, profiles=profiles, nedts=nedts, robust=True,
+            ancillary_path=ancillary_path
         )
     return results
