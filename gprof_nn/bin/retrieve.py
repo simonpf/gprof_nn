@@ -315,6 +315,7 @@ def run(args):
         try:
             task.result()
         except Exception as exc:
+            gprof_nn.logging.log_messages()
             LOGGER.exception(
                 "The following error was encountered during the processing "
                 "of file %s.",
