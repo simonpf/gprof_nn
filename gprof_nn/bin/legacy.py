@@ -245,6 +245,7 @@ def run(args):
     # Run retrieval.
     #
 
+    gprof_nn.logging.LOGGER.addHandler(gprof_nn.logging._HANDLER)
     pool = ProcessPoolExecutor(max_workers=n_procs)
     log_queue = gprof_nn.logging.get_log_queue()
     tasks = []
