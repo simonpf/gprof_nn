@@ -372,7 +372,6 @@ class RadarFile:
         times = np.array(list(self.times.keys()))
         times.sort()
         names = list(self.times.values())
-        print(start, end)
 
         delta = (times - start)
         indices = np.where(delta > np.timedelta64(0))[0]
@@ -386,13 +385,11 @@ class RadarFile:
             end = None
         else:
             end = indices[0] + 1
-        print(start, end)
 
         times = times[slice(start, end)]
         data = []
         for time in times:
             data_t = self.open_file(self.times[time])
-            print(start, end, time)
             data_t["time"] = data_t.time.mean()
             data.append(data_t)
 
@@ -469,7 +466,7 @@ class FileExtractor:
         angles = calculate_angles(l1c_data)
 
         # Calculate 5km x 5km grid.
-        lats_5, lons_5 = unify_grid(lats, lons)
+        lats_5, lons_5 = unify_grid(lats, lons, self.sensor)
         lats_5 = xr.DataArray(data=lats_5, dims=["along_track", "across_track"])
         lons_5 = xr.DataArray(data=lons_5, dims=["along_track", "across_track"])
 
@@ -538,7 +535,6 @@ class FileExtractor:
                 )
                 if variable == "ZZ":
                     resampled = 10 * np.log10(resampled)
-                    print(np.isfinite(resampled).sum())
                 data_r[name] = (("along_track", "across_track"), resampled)
 
             data_r = xr.Dataset(data_r)
