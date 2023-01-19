@@ -6,7 +6,7 @@ gprof_nn.data.validation
 This module provides functionality to download and process GPM ground
 validation data.
 """
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from datetime import datetime
 import logging
 from pathlib import Path
@@ -50,6 +50,7 @@ GRID_WIDTH = {
     "MHS": 200,
     "AMSR2": 200,
     "ATMS": 200,
+    "SSMIS": 200
 }
 
 LINK_REGEX = re.compile(r"<a href=\"([\w\.]*)\">")
