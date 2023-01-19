@@ -322,10 +322,10 @@ def smooth_field(field, kernel):
 
     field_m = np.nan_to_num(field, nan=0.0)
     field_m[field < -1000] = 0.0
-    field_s = convolve(field_m, kernel, mode="same")
+    field_s = convolve(field_m, kernel, mode="same", method="direct")
 
     mask = (field > -1000).astype(np.float)
-    weights = convolve(mask, kernel, mode="same")
+    weights = convolve(mask, kernel, mode="same", method="direct")
     field_s /= weights
     field_s[weights < 1e-6] = np.nan
     return field_s
@@ -428,10 +428,11 @@ class GPMCMBFile:
         from h5py import File
         with File(str(self.filename), "r") as data:
 
-            if self.format.startswith("ITE"):
+            # Handle V7 and pre-V7 variable names.
+            try:
                 data = data["KuKaGMI"]
                 sp_var = "estimSurfPrecipTotRate"
-            else:
+            except Exception:
                 data = data["NS"]
                 sp_var = "surfPrecipTotRate"
 
@@ -467,7 +468,7 @@ class GPMCMBFile:
 
             surface_precip = data[sp_var][i_start:i_end]
             if smooth:
-                k = calculate_smoothing_kernels(18e3, 11e3)
+                k = calculate_smoothing_kernels(18.1e3, 10.9e3)
                 surface_precip = smooth_field(surface_precip, k)
 
             dataset = {
