@@ -273,7 +273,7 @@ class RetrievalDriver:
         compress=False,
         preserve_structure=False,
         sensor=None,
-        tile=False,
+        tiling=None,
     ):
         """
         Create retrieval driver.
@@ -310,7 +310,7 @@ class RetrievalDriver:
             self.output_format = output_format
         else:
             if output_file is None or Path(output_file).is_dir():
-                if self.input_format == L1C:
+                if self.input_format in [L1C, NETCDF]:
                     self.output_format = NETCDF
                 else:
                     self.output_format = GPROF_BINARY
@@ -357,7 +357,7 @@ class RetrievalDriver:
         self.device = device
         self.preserve_structure = preserve_structure
         self.sensor = sensor
-        self.tile = tile
+        self.tiling = tiling
 
     def _load_input_data(self):
         """
@@ -373,7 +373,7 @@ class RetrievalDriver:
                 self.input_file,
                 self.model.normalizer,
                 self.model.configuration,
-                tile=self.tile,
+                tiling=self.tiling,
             )
         else:
             loader_class = self.model.netcdf_class
@@ -671,7 +671,12 @@ class NetcdfLoader1D(GPROF_NN_1D_Dataset):
     """
 
     def __init__(
-        self, filename, normalizer, batch_size=16 * 1024, sensor=None, tile=False
+            self,
+            filename,
+            normalizer,
+            batch_size=16 * 1024,
+            sensor=None,
+            tiling=None
     ):
         """
         Create loader for input data in NetCDF format that provides input
@@ -754,7 +759,14 @@ class NetcdfLoader3D(GPROF_NN_3D_Dataset):
     in NetCDF data format.
     """
 
-    def __init__(self, filename, normalizer, batch_size=32, sensor=None, tile=False):
+    def __init__(
+            self,
+            filename,
+            normalizer,
+            batch_size=32,
+            sensor=None,
+            tiling=None
+    ):
         """
         Create loader for input data in NetCDF format that provides input
         data for the GPROF-NN 3D retrieval.
@@ -767,7 +779,7 @@ class NetcdfLoader3D(GPROF_NN_3D_Dataset):
                 input batch.
             sensor: Sensor object to use to load the data. This can be used to
                 apply a specific correction to the input data.
-            tile: Has no effect for this loader.
+            tiling: Has no effect for this loader.
         """
         targets = ALL_TARGETS + ["latitude", "longitude", "surface_type"]
         super().__init__(
@@ -856,7 +868,7 @@ class NetcdfLoader1DFull(NetcdfLoader3D):
     structure of the data.
     """
 
-    def __init__(self, filename, normalizer, batch_size=32, sensor=None, tile=False):
+    def __init__(self, filename, normalizer, batch_size=32, sensor=None, tiling=None):
         """
         Create loader for input data in NetCDF format that provides input
         data for the GPROF-NN 3D retrieval.
@@ -867,7 +879,7 @@ class NetcdfLoader1DFull(NetcdfLoader3D):
                 data.
             batch_size: How many observations to combine into a single
                 input batch.
-            tile: Has no effect for this loader.
+            tiling: No effect for this loader.
         """
         super().__init__(filename, normalizer, batch_size=batch_size, sensor=sensor)
         self.scalar_dimensions = ("samples",)
@@ -938,7 +950,7 @@ class ObservationLoader1D:
     """
 
     def __init__(
-        self, filename, file_class, normalizer, batch_size=1024 * 8, tile=False
+        self, filename, file_class, normalizer, batch_size=1024 * 8, tiling=False
     ):
         """
         Create observation loader.
@@ -951,7 +963,7 @@ class ObservationLoader1D:
                 data.
             scans_per_batch: How scans should be combined into a single
                 batch.
-            tile: Has no effect for this loader.
+            tiling: Has no effect for this loader.
         """
         filename = Path(filename)
         self.filename = filename
@@ -1073,7 +1085,7 @@ class PreprocessorLoader1D(ObservationLoader1D):
         normalizer,
         configuration,
         batch_size=1024 * 16,
-        tile=False,
+        tiling=False,
     ):
         """
         Create preprocessor loader.
@@ -1087,7 +1099,7 @@ class PreprocessorLoader1D(ObservationLoader1D):
                 the data.
             batch_size: How many pixels should be processed simultaneously
                 in a single batch.
-            tile: Has no effect for this loader.
+            tiling: Has no effect for this loader.
         """
         suffix = filename.suffix
         if suffix.endswith("HDF5"):
@@ -1126,7 +1138,7 @@ class L1CLoader1D(ObservationLoader1D):
             configuration: Not used.
             batch_size: How many pixels should be processed simultaneously
                 in a single batch.
-            tile: Has no effect for this loader.
+            tiling: Has no effect for this loader.
         """
         super().__init__(filename, L1CFile, normalizer, batch_size=batch_size)
 
@@ -1140,7 +1152,7 @@ class ObservationLoader3D:
     the GPROF-NN 3D retrieval from preprocessor or L1C files.
     """
 
-    def __init__(self, filename, file_class, normalizer, tile=False):
+    def __init__(self, filename, file_class, normalizer, tiling=None):
         """
         Create observation loader.
 
@@ -1150,7 +1162,7 @@ class ObservationLoader3D:
             file_class: The file class to use to load the input data.
             normalizer: The normalizer object to use to normalize the input
                 data.
-            tile: Whether to tile the orbit in along track dimension.
+            tiling: Tile dimensions or 'None' if not tiling should be applied.
         """
         self.filename = filename
         self.normalizer = normalizer
@@ -1174,23 +1186,17 @@ class ObservationLoader3D:
         self.dimensions["latitude"] = (("samples", "scans", "pixels"))
         self.dimensions["longitude"] = (("samples", "scans", "pixels"))
 
-        if tile:
-            n_scans = 256
-            n_pixels = 128
+        if tiling is not None:
+            n_scans, n_pixels = tiling
             tile_size = (n_scans, n_pixels)
-            overlap = (n_scans // 4, n_pixels // 4)
-            self.tiler = Tiler(self.input_data, tile_size=tile_size)
+            overlap = (n_scans // 8, n_pixels // 8)
+            self.tiler = Tiler(self.input_data, tile_size=tile_size, overlap=overlap)
         else:
-            n_scans = self.input_data.scans.size
-            n_pixels = self.input_data.pixels.size
-            n_pixels = 128
+            n_scans = self.input_data.shape[-2]
+            n_pixels = self.input_data.shape[-1]
             tile_size = (n_scans, n_pixels)
-            overlap = (n_scans // 4, n_pixels // 4)
-            tile_size = (n_scans, n_pixels)
-            overlap = (n_scans // 4, n_pixels // 4)
-            self.tiles, self.cuts = calculate_tiles_and_cuts(
-                self.n_scans, self.n_scans, 0
-            )
+            overlap = (0, 0)
+            self.tiler = Tiler(self.input_data, tile_size=tile_size, overlap=overlap)
         self.batch_size = 4
         tile_0 = self.tiler.get_tile(0, 0)
         self.padding = calculate_padding_dimensions(tile_0)
@@ -1199,9 +1205,9 @@ class ObservationLoader3D:
         """
         The number of batches in the input file.
         """
-        n_inputs = self.tiler.M * self.tiler.N
-        n_batches = n_inputs // self.batch_size
-        if n_inputs % self.batch_size:
+        n_samples = self.tiler.M * self.tiler.N
+        n_batches = n_samples // self.batch_size
+        if n_samples % self.batch_size:
             n_batches += 1
         return n_batches
 
@@ -1215,15 +1221,16 @@ class ObservationLoader3D:
         Return:
             PyTorch Tensor ``x`` containing the normalized inputs.
         """
+        n_samples = self.tiler.M * self.tiler.N
         i_start = i * self.batch_size
-        i_end = i_start + self.batch_size
+        i_end = min(i_start + self.batch_size, n_samples)
 
         samples = []
         for index in range(i_start, i_end):
             row_index = index // self.tiler.N
-            col_index = index // self.tiler.N
+            col_index = index % self.tiler.N
             samples.append(
-                self.tiler.get_tile(row_index, col_index)
+                torch.tensor(self.tiler.get_tile(row_index, col_index))
             )
         x = torch.cat(samples, 0)
         return nn.functional.pad(x, self.padding, mode="replicate")
@@ -1243,7 +1250,7 @@ class ObservationLoader3D:
             }
         ]
 
-        dims = ("layers", "pixels", "scans")
+        dims = ("layers", "scans", "pixels")
         data_assembled = xr.Dataset()
         for var in data.variables:
             tiles = []
@@ -1253,7 +1260,11 @@ class ObservationLoader3D:
                     sample_index = i * self.tiler.N + j
                     tiles[-1].append(data[var][{"samples": sample_index}])
 
-            var_assembled = self.tiler.assemble(tiles)
+            if data[var].dtype == np.bool:
+                tiles = [[tile.astype(np.float32) for tile in row] for row in tiles]
+                var_assembled = self.tiler.assemble(tiles).astype(np.bool)
+            else:
+                var_assembled = self.tiler.assemble(tiles)
             ndims = var_assembled.ndim
             data_assembled[var] = ((dims[-ndims:]), var_assembled)
             data_assembled[var].attrs = data[var].attrs
@@ -1290,7 +1301,7 @@ class PreprocessorLoader3D(ObservationLoader3D):
     form preprocessor files.
     """
 
-    def __init__(self, filename, normalizer, configuration, tile=False):
+    def __init__(self, filename, normalizer, configuration, tiling=None):
         """
         Create preprocessor loader.
 
@@ -1301,17 +1312,17 @@ class PreprocessorLoader3D(ObservationLoader3D):
                 data.
             configuration: The preprocessor configuration to use to load
                 the data.
-            tile: Whether to tile the orbit in along track dimension.
+            tiling: Tile dimensions or 'None' if not tiling should be applied.
         """
         suffix = filename.suffix
         if suffix.endswith("HDF5"):
             self._tmp = TemporaryDirectory()
             output_file = Path(self._tmp.name) / "input.pp"
             run_preprocessor_l1c(filename, configuration, output_file)
-            super().__init__(output_file, PreprocessorFile, normalizer, tile=tile)
+            super().__init__(output_file, PreprocessorFile, normalizer, tiling=tiling)
         else:
             LOGGER.info("Loading preprocessor input data from %s.", filename)
-            super().__init__(filename, PreprocessorFile, normalizer, tile=tile)
+            super().__init__(filename, PreprocessorFile, normalizer, tiling=tiling)
 
 
 # Kept for backwards compatibility.
@@ -1325,7 +1336,7 @@ class L1CLoader3D(ObservationLoader3D):
     form L1C files.
     """
 
-    def __init__(self, filename, normalizer, configuration, tile=False):
+    def __init__(self, filename, normalizer, configuration, tiling=None):
         """
         Create preprocessor loader.
 
@@ -1335,9 +1346,9 @@ class L1CLoader3D(ObservationLoader3D):
             normalizer: The normalizer object to use to normalize the input
                 data.
             configuration: Not used.
-            tile: Whether to tile the orbit in along track dimension.
+            tiling: Tile dimensions or 'None' if no tiling should be applied.
         """
-        super().__init__(filename, L1CFile, normalizer, tile=tile)
+        super().__init__(filename, L1CFile, normalizer, tiling=tiling)
 
 
 class L1CLoaderHR(ObservationLoader3D):
@@ -1346,7 +1357,7 @@ class L1CLoaderHR(ObservationLoader3D):
     form L1C files.
     """
 
-    def __init__(self, filename, normalizer, configuration, tile=False):
+    def __init__(self, filename, normalizer, configuration, tiling=False):
         """
         Create preprocessor loader.
 
@@ -1356,18 +1367,24 @@ class L1CLoaderHR(ObservationLoader3D):
             normalizer: The normalizer object to use to normalize the input
                 data.
             configuration: Not used.
-            tile: Whether to tile the orbit in along track dimension.
+            tiling: Tile dimensions or 'None' if no tiling should be applied.
         """
-        super().__init__(filename, L1CFile, normalizer, tile=tile)
+        super().__init__(filename, L1CFile, normalizer, tiling=tiling)
 
-        if tile:
-            self.tiles, self.cuts = calculate_tiles_and_cuts(self.n_scans, 256, 8)
+        if tiling is not None:
+            n_scans, n_pixels = tiling
+            tile_size = (n_scans, n_pixels)
+            overlap = (n_scans // 4, n_pixels // 4)
+            self.tiler = Tiler(self.input_data, tile_size=tile_size, overlap=overlap)
         else:
-            self.tiles, self.cuts = calculate_tiles_and_cuts(
-                self.n_scans, self.n_scans, 8
-            )
+            n_scans = self.input_data.shape[-2]
+            n_pixels = self.input_data.shape[-1]
+            tile_size = (n_scans, n_pixels)
+            overlap = (0, 0)
+            self.tiler = Tiler(self.input_data, tile_size=tile_size, overlap=overlap)
+
         self.batch_size = 4
-        tile_0 = self.input_data[:, :, self.tiles[0]]
+        tile_0 = self.tiler.get_tile(0, 0)
         self.padding = calculate_padding_dimensions(tile_0)
 
     def finalize(self, data):
@@ -1385,25 +1402,40 @@ class L1CLoaderHR(ObservationLoader3D):
             }
         ]
 
-        for i_s, cut in enumerate(self.cuts):
-            tile_size = (data.scans.size + 2) // 3
-            left = cut.start
-            if cut.stop is not None:
-                right = tile_size - cut.stop
+        # A new tiler is required because of the along-track upsampling.
+        tile_size = self.tiler.tile_size
+        output_tile_size = (tile_size[0] * 3 - 2, tile_size[1])
+        output_overlap = (self.tiler.overlap[0] * 3 - 2, self.tiler.overlap[1])
+        *shape, m, n = self.input_data.shape
+        output_tiler = Tiler(
+            np.zeros(tuple(shape) + (3 * m - 2, n), dtype=np.float32),
+            tile_size=output_tile_size,
+            overlap=output_overlap
+        )
+
+        dims = ("layers", "scans", "pixels")
+        data_assembled = xr.Dataset()
+        for var in data.variables:
+            tiles = []
+            for i in range(self.tiler.M):
+                tiles.append([])
+                for j in range(self.tiler.N):
+                    sample_index = i * self.tiler.N + j
+                    tiles[-1].append(data[var][{"samples": sample_index}])
+
+            if data[var].dtype == np.bool:
+                tiles = [[tile.astype(np.float32) for tile in row] for row in tiles]
+                var_assembled = output_tiler.assemble(tiles).astype(np.bool)
             else:
-                right = 0
-            if right > 0:
-                cut = slice(3 * left, 3 * (tile_size - right))
-            else:
-                cut = slice(3 * left, None)
-            tile = data[{"samples": i_s, "scans": cut}]
-            tiles.append(tile)
-        data = xr.concat(tiles, "scans")
+                var_assembled = output_tiler.assemble(tiles)
+            ndims = var_assembled.ndim
+            data_assembled[var] = ((dims[-ndims:]), var_assembled)
+            data_assembled[var].attrs = data[var].attrs
 
         if "layers" in data.dims:
             dims = ["scans", "pixels", "layers"]
-            data = data.transpose(*dims)
-        return data
+            data = data_assembled.transpose(*dims)
+        return data_assembled
 
 
 # Kept for backwards compatibility.
