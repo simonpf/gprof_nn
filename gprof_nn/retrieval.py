@@ -1232,9 +1232,9 @@ class ObservationLoader3D:
                     sample_index = i * self.tiler.N + j
                     tiles[-1].append(data[var][{"samples": sample_index}])
 
-            if data[var].dtype == np.bool:
+            if data[var].dtype == bool:
                 tiles = [[tile.astype(np.float32) for tile in row] for row in tiles]
-                var_assembled = self.tiler.assemble(tiles).astype(np.bool)
+                var_assembled = self.tiler.assemble(tiles).astype(bool)
             else:
                 var_assembled = self.tiler.assemble(tiles)
             ndims = var_assembled.ndim
@@ -1399,9 +1399,9 @@ class L1CLoaderHR(ObservationLoader3D):
                     sample_index = i * self.tiler.N + j
                     tiles[-1].append(data[var][{"samples": sample_index}])
 
-            if data[var].dtype == np.bool:
+            if data[var].dtype == bool:
                 tiles = [[tile.astype(np.float32) for tile in row] for row in tiles]
-                var_assembled = output_tiler.assemble(tiles).astype(np.bool)
+                var_assembled = output_tiler.assemble(tiles).astype(bool)
             else:
                 var_assembled = output_tiler.assemble(tiles)
             ndims = var_assembled.ndim
