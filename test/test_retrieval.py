@@ -75,9 +75,15 @@ def test_retrieval_read_and_write(tmp_path):
     #
     # Orbit header.
     #
+    exceptions = [
+        "preprocessor",
+        "algorithm",
+        "creation_date",
+        "granule_end_date",
+    ]
 
     for k in ORBIT_HEADER_TYPES.fields:
-        if k not in ["algorithm", "creation_date", "granule_end_date"]:
+        if k not in exceptions:
             assert retrieval_file.orbit_header[k] == output_file.orbit_header[k]
 
     #
@@ -203,9 +209,34 @@ def test_retrieval_preprocessor_3d_tiled(tmp_path):
     driver = RetrievalDriver(input_file,
                              qrnn,
                              output_file=tmp_path,
-                             tile=True)
+                             tiling=(128, 128))
     output_file = driver.run()
     data_tiled = RetrievalFile(output_file).to_xarray_dataset()
+
+    assert data.scans.size == data_tiled.scans.size
+
+
+def test_retrieval_hr_tiled(tmp_path):
+    """
+    Ensure that running the 3D tiled retrieval yields the expected
+    output dimensions.
+    """
+    input_file = DATA_PATH / "gmi" / "l1c" / "1C-R.GPM.GMI.XCAL2016-C.20190101-S001447-E014719.027510.V05A.HDF5"
+
+    model_path = get_model_path("HR", sensors.GMI, "ERA5")
+    qrnn = QRNN.load(model_path)
+    driver = RetrievalDriver(input_file,
+                             qrnn,
+                             output_file=tmp_path)
+    output_file = driver.run()
+    data = xr.load_dataset(output_file)
+
+    driver = RetrievalDriver(input_file,
+                             qrnn,
+                             output_file=tmp_path,
+                             tiling=(128, 128))
+    output_file = driver.run()
+    data_tiled = xr.load_dataset(output_file)
 
     assert data.scans.size == data_tiled.scans.size
 

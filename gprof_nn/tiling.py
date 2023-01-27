@@ -48,7 +48,7 @@ class Tiler:
         """
 
         self.x = x
-        _, _, m, n = x.shape
+        m, n = x.shape[-2:]
         self.m = m
         self.n = n
 
@@ -57,13 +57,19 @@ class Tiler:
         if len(tile_size) == 1:
             tile_size = tile_size * 2
         self.tile_size = (min(m, tile_size[0]), min(n, tile_size[1]))
+
+        if isinstance(overlap, int):
+            overlap = (overlap, overlap)
+        if len(overlap) == 1:
+            overlap = overlap * 2
+
         self.overlap = overlap
 
-        i_start, i_clip = get_start_and_clips(self.m, tile_size[0], overlap)
+        i_start, i_clip = get_start_and_clips(self.m, tile_size[0], overlap[0])
         self.i_start = i_start
         self.i_clip = i_clip
 
-        j_start, j_clip = get_start_and_clips(self.n, tile_size[1], overlap)
+        j_start, j_clip = get_start_and_clips(self.n, tile_size[1], overlap[1])
         self.j_start = j_start
         self.j_clip = j_clip
 
