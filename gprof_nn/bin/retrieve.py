@@ -175,6 +175,13 @@ def process_file(
     if targets is not None:
         xrnn.set_targets(targets)
     driver = RetrievalDriver
+
+    if hasattr(xrnn, "tiling"):
+        tiling = xrnn.tiling
+        LOGGER.info("Using '%s' tiling.", tiling)
+    else:
+        tiling = None
+
     if gradients:
         driver = RetrievalGradientDriver
     retrieval = driver(
@@ -185,7 +192,7 @@ def process_file(
         preserve_structure=preserve_structure,
         sensor=sensor,
         output_format=fmt,
-        tile=False,
+        tiling=tiling
     )
     retrieval.run()
 

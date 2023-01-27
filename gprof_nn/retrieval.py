@@ -1169,7 +1169,7 @@ class ObservationLoader3D:
             tile_size = (n_scans, n_pixels)
             overlap = (0, 0)
             self.tiler = Tiler(self.input_data, tile_size=tile_size, overlap=overlap)
-        self.batch_size = 4
+        self.batch_size = 16
         tile_0 = self.tiler.get_tile(0, 0)
         self.padding = calculate_padding_dimensions(tile_0)
 
@@ -1341,7 +1341,11 @@ class L1CLoaderHR(ObservationLoader3D):
             configuration: Not used.
             tiling: Tile dimensions or 'None' if no tiling should be applied.
         """
-        super().__init__(filename, L1CFile, normalizer, tiling=tiling)
+        if Path(filename).suffix == ".pp":
+            file_class = PreprocessorFile
+        else:
+            file_class = L1CFile
+        super().__init__(filename, file_class, normalizer, tiling=tiling)
 
         if tiling is not None:
             n_scans, n_pixels = tiling

@@ -110,10 +110,17 @@ def process_file(
         kind, sensor.name, kind
     )
 
+    if hasattr(model, "tiling"):
+        tiling = model.tiling
+        LOGGER.info("Using '%s' tiling.", tiling)
+    else:
+        tiling = None
+
     driver = RetrievalDriver(
         input_file,
         model,
-        output_file=output_file
+        output_file=output_file,
+        tiling=tiling
     )
     driver.run()
 
