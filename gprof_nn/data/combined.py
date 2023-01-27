@@ -428,7 +428,6 @@ class GPMCMBFile:
         from h5py import File
         with File(str(self.filename), "r") as data:
 
-            # Handle V7 and pre-V7 variable names.
             try:
                 data = data["KuKaGMI"]
                 sp_var = "estimSurfPrecipTotRate"
@@ -480,28 +479,11 @@ class GPMCMBFile:
 
             if profiles:
                 twc = data["precipTotWaterCont"][i_start:i_end]
-
-                if self.format.startswith("ITE"):
-                    l_frac = data["precipLiqRate"][i_start:i_end]
-                else:
-                    l_frac = data["liqMassFracTrans"][i_start:i_end]
-                l_frac[l_frac < 0] = 1.0
-                levels = (np.arange(88) + 1).reshape(1, 1, -1)
-                phases = data["phaseBinNodes"][i_start:i_end]
-                top = np.expand_dims(phases[..., 1], 2)
-
-                rwc = twc.copy()
-                indices = levels < top
-                rwc[indices] = 0.0
-                indices = (levels >= top) * (levels < top + 10.0)
-
-                lf_mask = (np.arange(10)).reshape(1, 1, -1) + top
-                lf_mask = lf_mask <= 88
-                rwc[indices] *= l_frac[lf_mask].ravel()
-                rwc[twc < -1000] = np.nan
+                rwc = data["precipLiqWaterCont"][i_start:i_end]
+                rwc[rwc < -1000] = np.nan
+                twc[twc < -1000] = np.nan
 
                 swc = twc - rwc
-                swc[twc < -1000] = np.nan
 
                 if smooth:
                     swc = smooth_field(swc, k)

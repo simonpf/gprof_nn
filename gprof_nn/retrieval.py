@@ -29,6 +29,7 @@ from gprof_nn.data.training_data import (
     _THRESHOLDS,
 )
 from gprof_nn.data.l1c import L1CFile
+from gprof_nn.tiling import Tiler
 from gprof_nn.data.preprocessor import PreprocessorFile, run_preprocessor
 from gprof_nn.data.utils import load_variable, upsample_scans
 from gprof_nn.utils import calculate_tiles_and_cuts, expand_tbs
@@ -1146,23 +1147,35 @@ class ObservationLoader3D:
         }
 
         if tile:
-            self.tiles, self.cuts = calculate_tiles_and_cuts(self.n_scans, 256, 0)
+            n_scans = 256
+            n_pixels = 128
+            tile_size = (n_scans, n_pixels)
+            overlap = (n_scans // 4, n_pixels // 4)
+            self.tiler = Tiler(self.input_data, tile_size=tile_size)
         else:
+            n_scans = self.input_data.scans.size
+            n_pixels = self.input_data.pixels.size
+            n_pixels = 128
+            tile_size = (n_scans, n_pixels)
+            overlap = (n_scans // 4, n_pixels // 4)
+            tile_size = (n_scans, n_pixels)
+            overlap = (n_scans // 4, n_pixels // 4)
             self.tiles, self.cuts = calculate_tiles_and_cuts(
                 self.n_scans, self.n_scans, 0
             )
         self.batch_size = 4
-        tile_0 = input_data[:, :, self.tiles[0]]
+        tile_0 = self.tiler.get_tile(0, 0)
         self.padding = calculate_padding_dimensions(tile_0)
 
     def __len__(self):
         """
         The number of batches in the input file.
         """
-        n = len(self.tiles) // self.batch_size
-        if len(self.tiles) % self.batch_size:
-            n = n + 1
-        return n
+        n_inputs = self.tiler.M * self.tiler.N
+        n_batches = n_inputs // self.batch_size
+        if n_inputs % self.batch_size:
+            n_batches += 1
+        return n_batches
 
     def __getitem__(self, i):
         """
@@ -1176,9 +1189,15 @@ class ObservationLoader3D:
         """
         i_start = i * self.batch_size
         i_end = i_start + self.batch_size
-        tiles = self.tiles[i_start:i_end]
-        xs = [torch.tensor(self.input_data[:, :, tile]) for tile in tiles]
-        x = torch.cat(xs, 0)
+
+        samples = []
+        for index in range(i_start, i_end):
+            row_index = index // self.tiler.N
+            col_index = index // self.tiler.N
+            samples.append(
+                self.tiler.get_tile(row_index, col_index)
+            )
+        x = torch.cat(samples, 0)
         return nn.functional.pad(x, self.padding, mode="replicate")
 
     def finalize(self, data):
@@ -1196,15 +1215,25 @@ class ObservationLoader3D:
             }
         ]
 
-        for i_s, cut in enumerate(self.cuts):
-            tile = data[{"samples": i_s, "scans": cut}]
-            tiles.append(tile)
-        data = xr.concat(tiles, "scans")
+        dims = ("layers", "pixels", "scans")
+        data_assembled = xr.Dataset()
+        for var in data.variables:
+            tiles = []
+            for i in range(self.tiler.M):
+                tiles.append([])
+                for j in range(self.tiler.N):
+                    sample_index = i * self.tiler.N + j
+                    tiles[-1].append(data[var][{"samples": sample_index}])
 
-        if "layers" in data.dims:
+            var_assembled = self.tiler.assemble(tiles)
+            ndims = var_assembled.ndim
+            data_assembled[var] = ((dims[-ndims:]), var_assembled)
+            data_assembled[var].attrs = data[var].attrs
+
+        if "layers" in data_assembled.dims:
             dims = ["scans", "pixels", "layers"]
-            data = data.transpose(*dims)
-        return data
+            data_assembled = data_assembled.transpose(*dims)
+        return data_assembled
 
     def write_retrieval_results(
         self, output_path, results, ancillary_data=None, suffix=None
