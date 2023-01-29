@@ -697,6 +697,7 @@ class ResultCollector:
 NAMES = {
     "gprof_nn_1d": "GPROF-NN 1D",
     "gprof_nn_3d": "GPROF-NN 3D",
+    "gprof_nn_hr": "GPROF-NN HR",
     "gprof_v5": "GPROF V5",
     "gprof_v7": "GPROF V7",
     "simulator": "Simulator",
@@ -821,6 +822,7 @@ def plot_granule(sensor, reference_path, granule, datasets, n_cols=3, height=4, 
     plt.colorbar(m, label="Surface precip. [mm/h]", cax=ax)
     return f
 
+
 def calculate_scatter_plot(results, group, rqi_threshold=0.8):
     """
     Calculate normalized scatter plot for a given retrieval.
@@ -841,7 +843,7 @@ def calculate_scatter_plot(results, group, rqi_threshold=0.8):
     """
     bins = np.logspace(-2, 2, 101)
 
-    sp_ref = results[group].surface_precip_avg.data
+    sp_ref = results[group].surface_precip_ref.data
     sp = results[group].surface_precip.data
     valid = (sp_ref >= 0) * (sp >= 0)
 
@@ -915,7 +917,8 @@ def calculate_error_metrics(
         groups,
         rqi_threshold=0.8,
         region=None,
-        ranges=None
+        ranges=None,
+        fpa=False
 ):
     """
     Calculate error metrics for validation data.
@@ -937,14 +940,10 @@ def calculate_error_metrics(
     pod = {}
 
     for group in groups:
-        if group == "cmb":
-            sp_ref = results[group].surface_precip_ref.data
-        else:
-            if "surface_precip_ref" not in results[group].variables:
-                sp_ref = results[group].surface_precip_mrms.data
-            else:
-                sp_ref = results[group].surface_precip_ref.data
+        if fpa:
             sp_ref = results[group].surface_precip_avg.data
+        else:
+            sp_ref = results[group].surface_precip_ref.data
         sp = results[group].surface_precip.data
 
         valid = (sp_ref >= 0) * (sp >= 0)
@@ -953,7 +952,11 @@ def calculate_error_metrics(
             surface_type = results[group].surface_type.data
             valid *= ((surface_type < 8) + ((surface_type > 11) * (surface_type < 17)))
 
-        if ranges is not None:
+        if isinstance(ranges, tuple):
+            rng = results[group].range.data
+            valid *= (rng >= ranges[0])
+            valid *= (rng <= ranges[1])
+        elif ranges is not None:
             rng = results[group].range.data
             valid *= (rng <= ranges)
 
@@ -981,10 +984,10 @@ def calculate_error_metrics(
         mse[group] = np.mean((sp - sp_ref) ** 2)
         mae[group] = np.mean(np.abs(sp - sp_ref))
 
-        ref = 0.5 * np.abs(sp) + np.abs(sp_ref)
+        ref = 0.5 * (np.abs(sp) + np.abs(sp_ref))
         rel_err = np.abs((sp - sp_ref) / ref)
 
-        mape[group] = np.mean(rel_err[ref > 1e-1]) * 100
+        mape[group] = np.mean(rel_err[sp_ref > 1e-1]) * 100
         corr = np.corrcoef(x=sp_ref, y=sp)
         correlation[group] = corr[0, 1]
 
@@ -1212,3 +1215,176 @@ def get_colors():
         "gprof_nn_3d": c1_d,
         "combined": c2
     }
+
+def extract_results_from_file(
+        filename,
+        groups,
+        rqi_threshold,
+        mask_group="gprof_v7",
+        reference_group="reference"
+):
+    """
+    Extract results from a combined collocation file.
+
+    This utility function loads all valid pixels from a collocation
+    files into an xarray dataset.
+
+    Args:
+        filename: Path to the collocation file containing the collocated
+            retrieval results as a NetCDF4 file with a separate group
+            for every retrieval.
+        groups: The groups for which to extract the results.
+        rqi_thresholds: If the 'reference' group has a 'radar_quality_index'
+            variable (as is the case for MRMS collocations over CONUS), then
+            only pixels with radar quality indices above this threshold will
+            be extracted.
+        mask_group: Only pixels where this group has valid retrieval results
+            will be extracted.
+        reference_group: The group whose 'surface_precip' values to as the
+            the reference value.
+
+    Return:
+        An xarray.Dataset containing the loaded pixels as a 1D dataset.
+    """
+    ref = xr.load_dataset(filename, group="reference")
+    time_ref, _ = xr.broadcast(ref.time, ref.surface_precip)
+    time_ref = time_ref.data
+
+    try:
+        ref = xr.load_dataset(filename, group = reference_group)
+    except OSError:
+        LOGGER.error("File '%s' has no '%s' group.",
+                     filename,
+                     reference_group)
+        return None
+    sp_ref = ref.surface_precip.data
+    if "surface_precip_avg" in ref:
+        sp_ref_avg = ref.surface_precip_avg.data
+    else:
+        sp_ref_avg = ref.surface_precip.data
+    if "radar_quality_index" in ref.variables:
+        rqi = ref.radar_quality_index.data
+    else:
+        rqi = None
+
+    if "mask" in ref.variables:
+        mask = ref.mask.data
+    else:
+        mask = None
+
+    ref = xr.load_dataset(filename, group = "reference")
+    lats = ref.latitude.data
+    lons = ref.longitude.data
+
+    results = {}
+
+    try:
+        gprof = xr.load_dataset(filename, group = mask_group)
+        gprof_mask = gprof.surface_precip.data >= 0
+        if rqi is None and "radar_quality_index" in gprof.variables:
+            rqi = gprof.radar_quality_index.data
+    except OSError:
+        LOGGER.error("File '%s' has no '%s' group.", filename, mask_group)
+        return None
+
+    try:
+        surface_types = xr.load_dataset(filename, group="gprof_nn_3d").surface_type.data
+    except OSError:
+        LOGGER.error("File '%s' has no '%s' group.", filename, "gprof_nn_3d")
+        return None
+
+    for group in groups:
+        try:
+            data = xr.load_dataset(filename, group=group)
+            #if group == "simulator":
+                #data["airmass_type"] = (("along_track", "across_track"), at)
+                #apply_orographic_enhancement(data)
+            sp = data.surface_precip.data
+
+            valid = (sp_ref >= 0.0) * (sp >= 0.0) * (gprof_mask)
+            if rqi is not None:
+                valid = valid * (rqi >= rqi_threshold)
+            samples = xr.Dataset(
+                {
+                    "surface_precip": (("samples",), sp[valid]),
+                    "surface_precip_avg": (("samples",), sp_ref_avg[valid]),
+                    "surface_precip_ref": (("samples",), sp_ref[valid]),
+                    "latitude": (("samples",), lats[valid]),
+                    "longitude": (("samples",), lons[valid]),
+                    "time": (("samples",), time_ref[valid]),
+                }
+            )
+            if "pop" in data.variables:
+                samples["pop"] = (("samples",), data.pop.data[valid])
+            if rqi is not None:
+                samples["rqi"] = (("samples",), rqi[valid])
+            if mask is not None:
+                samples["mask"] = (("samples",), mask[valid])
+            samples["surface_type"] = (("samples"), surface_types[valid])
+            if "airmass_type" in gprof.variables:
+                samples["airmass_type"] = (("samples"), gprof.airmass_type.data[valid])
+            if "range" in ref.variables:
+                ranges, _ = xr.broadcast(ref.range, ref.surface_precip)
+                samples["range"] = (("samples"), ranges.data[valid])
+            results[group] = samples
+        except OSError as e:
+            LOGGER.error(
+                    "The following error occurred during processing of "
+                    " file '%s': \n %s",  filename, e
+            )
+            return None
+    return results
+
+
+def extract_results(
+        path,
+        groups,
+        rqi_threshold,
+        mask_group="gprof_v7",
+        reference_group="reference"
+):
+    """
+    Extracts collocation results from all collocations files in a given
+    directory.
+
+    Args:
+        path: Directory containing the collocated validation resullts.
+        groups: List of the names of the groups containing the retrieval results.
+        rqi_threshold: A threshold for the minimum Radar Quality Index (RQI) of the radar
+            measurements to be included in the results.
+
+    Return:
+        A dict mapping the group names of the retrieval products to datasets containing the
+        retrieved precipitation 'surface_precip' and the ref precipitation as
+        'surface_precip_ref'.
+    """
+    files = list(Path(path).glob("*.nc"))
+    results = {}
+    pool = ProcessPoolExecutor(max_workers=8)
+    tasks = []
+    for filename in files:
+        args = [
+            filename,
+            groups,
+            rqi_threshold
+        ]
+        kwargs = {
+            "mask_group": mask_group,
+            "reference_group": reference_group
+        }
+        tasks.append(pool.submit(extract_results_from_file, *args, **kwargs))
+
+    for filename, task in zip(files, tasks):
+        try:
+            result = task.result()
+            if result is not None:
+                for k, stats in result.items():
+                    results.setdefault(k, []).append(stats)
+
+        except Exception as e:
+            LOGGER.exception(e)
+
+    for k in results:
+        results[k] = xr.concat(results[k], "samples")
+    pool.shutdown()
+    return results
