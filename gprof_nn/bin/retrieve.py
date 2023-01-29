@@ -178,9 +178,10 @@ def process_file(
 
     if hasattr(xrnn, "tiling"):
         tiling = xrnn.tiling
-        LOGGER.info("Using '%s' tiling.", tiling)
+        logger.info("Using '%s' tiling.", tiling)
     else:
         tiling = None
+        logger.info("Using no tiling.")
 
     if gradients:
         driver = RetrievalGradientDriver
@@ -313,6 +314,7 @@ def run(args):
             )
         ]
 
+    gprof_nn.logging.LOGGER.addHandler(gprof_nn.logging._HANDLER)
     for filename, task in track(
         list(zip(input_files, tasks)),
         description="Processing files:",
