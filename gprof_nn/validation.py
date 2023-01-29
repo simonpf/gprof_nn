@@ -302,6 +302,44 @@ class GPROFLegacyResults:
         return dataset
 
 
+class GPROFNNHRResults:
+    """
+    Data interface class to collect results from GPROF-NN HR retrieval.
+    """
+    def __init__(self, path):
+        """
+        Args:
+            path: Path pointing to the root of the directory tree containing
+                the retrieval results.
+        """
+        self.path = Path(path)
+        files = self.path.glob("**/*.bin")
+        self.granules = {}
+        for filename in files:
+            try:
+                granule = int(str(filename).split("_")[-1].split(".")[0])
+                self.granules[granule] = filename
+            except ValueError:
+                pass
+            except IndexError:
+                pass
+
+    def __len__(self):
+        return len(self.granules)
+
+    @property
+    def smooth(self):
+        return True
+
+    @property
+    def group_name(self):
+        return "gprof_nn_hr"
+
+    def open_granule(self, granule):
+        data = xr.load_dataset(self.granules[granule])
+        return data
+
+
 class GPMCMBResults(GPROFLegacyResults):
     """
     Data interface class to collect results from GPROF V6 result files.
@@ -341,14 +379,6 @@ class GPMCMBResults(GPROFLegacyResults):
             profiles=False,
             smooth=False,
         )
-        data_smooth = input_file.to_xarray_dataset(
-            profiles=False,
-            smooth=True,
-        )
-        data["surface_precip_avg"] = (
-            ("scans", "pixels"),
-            data_smooth["surface_precip"].data
-        )
         return data
 
 
@@ -386,6 +416,9 @@ class SimulatorFiles():
 
     def open_granule(self, granule):
         sim_data = SimFile(self.granules[granule]).to_xarray_dataset()
+        sim_data = sim_data.drop_vars(["surface_precip"]).rename({
+            "surface_precip_combined": "surface_precip"
+        })
         return sim_data
 
 
@@ -575,7 +608,7 @@ class ResultCollector:
                             surface_precip,
                             angles
                         )
-                        reference_data["surface_precip_avg"] = (
+                        data_r["surface_precip_avg"] = (
                             ("along_track", "across_track"),
                             surface_precip_smoothed
                         )
@@ -766,6 +799,8 @@ def plot_granule(sensor, reference_path, granule, datasets, n_cols=3, height=4, 
 
         data = dataset.open_granule(granule)
         sp = np.maximum(data.surface_precip.data, 1e-4)
+        valid = sp[sp >= 0]
+        print("MEAN PRECIP :: ", valid.mean())
         lats = data.latitude.data
         lons = data.longitude.data
 

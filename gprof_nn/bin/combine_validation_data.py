@@ -84,6 +84,12 @@ def add_parser(subparsers):
         help="Path to GPM combined files.",
     )
     parser.add_argument(
+        "--gprof_nn_hr",
+        metavar="path",
+        type=str,
+        help="Path to GPROF-NN HR files."
+    )
+    parser.add_argument(
         "--start",
         metavar="date",
         type=str,
@@ -118,6 +124,7 @@ def run(args):
     from gprof_nn.validation import (ResultCollector,
                                      GPROFNN1DResults,
                                      GPROFNN3DResults,
+                                     GPROFNNHRResults,
                                      GPROFResults,
                                      GPROFLegacyResults,
                                      GPMCMBResults,
@@ -163,6 +170,13 @@ def run(args):
         datasets.append(gprof_nn_3d)
     LOGGER.info(f"Found %s GPROF-NN 3D granules.", len(gprof_nn_3d))
 
+    # GPROF NN HR
+    if args.gprof_nn_hr:
+        gprof_nn_hr = GPROFNNHRResults(args.gprof_nn_hr)
+        if len(gprof_nn_hr) > 0:
+            datasets.append(gprof_nn_hr)
+            LOGGER.info(f"Found %s GPROF-NN HR granules.", len(gprof_nn_hr))
+
     # GPM CMB
     if args.combined is not None:
         gpm_cmb = GPMCMBResults(args.combined)
@@ -176,6 +190,7 @@ def run(args):
         if len(simulator) > 0:
             datasets.append(simulator)
         LOGGER.info(f"Found %s simulator granules.", len(simulator))
+
 
     start = args.start
     if start is not None:
