@@ -974,7 +974,7 @@ def run_training_hr(configuration, training_data, validation_data, output, args)
         lr = lr * len(n_epochs)
 
     if args.normalizer is None:
-        normalizer = get_normalizer(sensor)
+        normalizer = get_normalizer(sensors.GMI)
     else:
         normalizer = Normalizer.load(args.normalizer)
 
