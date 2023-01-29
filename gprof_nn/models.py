@@ -967,7 +967,12 @@ class UpsamplingStage3(nn.Module):
         x_in = self.in_block(x)
         b, c, h, w = x_in.shape
         size_out = (3 * (h - 1) + 1, w)
-        x_up = nn.functional.interpolate(x_in, size_out)
+        x_up = nn.functional.interpolate(
+            x_in,
+            size_out,
+            mode="bilinear",
+            align_corners=True
+        )
         return self.body(x_up)
 
 
