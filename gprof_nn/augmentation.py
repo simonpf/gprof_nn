@@ -458,7 +458,7 @@ class CrossTrack(ViewingGeometry):
             * np.sin(np.pi - np.deg2rad(earth_incidence_angles))
         )
         beta = np.arcsin(sin_ang)
-        beta = np.clip(beta, -self.scan_range / 2, self.scan_range / 2)
+        beta = np.clip(beta, np.deg2rad(-self.scan_range / 2), np.deg2rad(self.scan_range / 2))
 
         c = (R_EARTH + self.altitude) / R_EARTH
         dg_db = c * np.cos(beta) / np.sqrt(1 - (c * np.sin(beta)) ** 2)
@@ -478,7 +478,7 @@ class CrossTrack(ViewingGeometry):
             * np.sin(np.pi - np.deg2rad(earth_incidence_angle))
         )
         beta = np.arcsin(sin_ang)
-        beta = np.clip(beta, -self.scan_range / 2, self.scan_range / 2)
+        beta = np.clip(beta, np.deg2rad(-self.scan_range / 2), np.deg2rad(self.scan_range / 2))
 
         gamma = np.deg2rad(earth_incidence_angle) - beta
         pi_m_eia = np.pi - np.deg2rad(earth_incidence_angle)
