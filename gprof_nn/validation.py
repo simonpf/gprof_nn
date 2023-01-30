@@ -113,7 +113,8 @@ def smooth_reference_field(
             # opposite direction.
             kernels.append(rotate(kernel, -angle, order=1))
     elif isinstance(sensor, sensors.CrossTrackScanner):
-        kernel_angles = np.linspace(1e-3, angles.max(), steps)
+        angle_max = np.minimum(angles.max(), sensor.viewing_geometry.scan_range / 2)
+        kernel_angles = np.linspace(1e-6, angle_max, steps)
         angles = np.abs(angles)
         along_track = sensor.viewing_geometry.get_resolution_a(kernel_angles)
         across_track = sensor.viewing_geometry.get_resolution_x(kernel_angles)
