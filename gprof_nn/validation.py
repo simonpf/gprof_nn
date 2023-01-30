@@ -691,7 +691,7 @@ class ResultCollector:
             try:
                 task.result()
             except Exception as e:
-                LOGGER.error(
+                LOGGER.exception(
                     "The following error was encountered when processing "
                     "file %s: \n %s", filename, e
                 )
