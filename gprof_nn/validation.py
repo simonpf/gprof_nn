@@ -627,7 +627,7 @@ class ResultCollector:
                 else:
                     data_r.to_netcdf(output_file, group=dataset.group_name)
             except KeyError as error:
-                LOGGER.error(
+                LOGGER.exception(
                     "The following error was encountered while processing granule "
                     "'%s' of dataset '%s':\n %s",
                     granule,
