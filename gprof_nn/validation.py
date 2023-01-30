@@ -586,15 +586,21 @@ class ResultCollector:
                             missing = np.nan
                             if data[variable].dtype not in [np.float32, np.float64]:
                                 missing = -999
+                                v_data = data[variable].data
+                                v_data[:, 0] = missing
+                                v_data[:, -1] = missing
                                 resampled = kd_tree.get_sample_from_neighbour_info(
-                                    'nn', result_grid.shape, data[variable].data,
+                                    'nn', result_grid.shape, v_data,
                                     valid_inputs_nn, valid_outputs_nn, indices_nn,
                                     fill_value=missing
                                 )
                             else:
                                 missing = np.nan
+                                v_data = data[variable].data
+                                v_data[:, 0] = missing
+                                v_data[:, -1] = missing
                                 resampled = kd_tree.get_sample_from_neighbour_info(
-                                    'nn', result_grid.shape, data[variable].data,
+                                    'nn', result_grid.shape, v_data,
                                     valid_inputs_nn, valid_outputs_nn, indices_nn,
                                     fill_value=missing
                                 )
@@ -701,7 +707,8 @@ NAMES = {
     "gprof_v5": "GPROF V5",
     "gprof_v7": "GPROF V7",
     "simulator": "Simulator",
-    "combined": "GPM-CMB"
+    "combined": "GPM-CMB",
+    "combined_avg": "GPM-CMB (Smoothed)"
 }
 
 REGIONS = {
@@ -890,7 +897,7 @@ def calculate_conditional_mean(results, group, rqi_threshold=0.8):
     """
     bins = np.logspace(-2, 2, 101)
 
-    sp_ref = results[group].surface_precip_avg.data
+    sp_ref = results[group].surface_precip_ref.data
     sp = results[group].surface_precip.data
     valid = (sp_ref >= 0) * (sp >= 0)
 
@@ -941,7 +948,7 @@ def calculate_error_metrics(
 
     for group in groups:
         if fpa:
-            sp_ref = results[group].surface_precip_avg.data
+            sp_ref = results[group].surface_precip_ref_avg.data
         else:
             sp_ref = results[group].surface_precip_ref.data
         sp = results[group].surface_precip.data
@@ -1020,7 +1027,7 @@ def calculate_monthly_statistics(
        groups: Names of the retrievals for which to calculate error metrics.
        rqi_threshold: Optional additional rqi_threshold to filter co-locations.
     """
-    sp_ref = results[group].surface_precip_avg.data
+    sp_ref = results[group].surface_precip_ref.data
     sp = results[group].surface_precip.data
     valid = (sp_ref >= 0) * (sp >= 0)
 
@@ -1085,11 +1092,11 @@ def calculate_seasonal_cycles(
        rqi_threshold: Optional additional rqi_threshold to filter co-locations.
     """
     if group == "reference":
-        sp_ref = results["gprof_nn_1d"].surface_precip_avg.data
-        sp = results["gprof_nn_1d"].surface_precip_avg.data
+        sp_ref = results["gprof_nn_1d"].surface_precip_ref.data
+        sp = results["gprof_nn_1d"].surface_precip_ref.data
         group = "gprof_nn_1d"
     else:
-        sp_ref = results[group].surface_precip_avg.data
+        sp_ref = results[group].surface_precip_ref.data
         sp = results[group].surface_precip.data
     valid = (sp_ref >= 0) * (sp >= 0)
 
@@ -1148,11 +1155,11 @@ def calculate_daily_cycles(
        rqi_threshold: Optional additional rqi_threshold to filter co-locations.
     """
     if group == "reference":
-        sp_ref = results["gprof_nn_1d"].surface_precip_avg.data
-        sp = results["gprof_nn_1d"].surface_precip_avg.data
+        sp_ref = results["gprof_nn_1d"].surface_precip_ref_avg.data
+        sp = results["gprof_nn_1d"].surface_precip_ref.data
         group = "gprof_nn_1d"
     else:
-        sp_ref = results[group].surface_precip_avg.data
+        sp_ref = results[group].surface_precip_ref_avg.data
         sp = results[group].surface_precip.data
     valid = (sp_ref >= 0) * (sp >= 0)
 
@@ -1201,10 +1208,12 @@ def get_colors():
     """
     c0 = to_rgba("C0")
     c0_d = np.array(c0).copy()
-    c0_d[:3] *= 0.6
+    c0_d[:3] *= 0.5
     c1 = to_rgba("C1")
     c1_d = np.array(c1).copy()
-    c1_d[:3] *= 0.6
+    c1_d[:3] *= 0.7
+    c1_dd = np.array(c1).copy()
+    c1_dd[:3] *= 0.4
     c2 = to_rgba("C2")
     bar_palette = [c0, c0_d, c1, c1_d, c2]
 
@@ -1213,6 +1222,7 @@ def get_colors():
         "gprof_v7": c0_d,
         "gprof_nn_1d": c1,
         "gprof_nn_3d": c1_d,
+        "gprof_nn_hr": c1_dd,
         "combined": c2
     }
 
@@ -1272,14 +1282,14 @@ def extract_results_from_file(
     else:
         mask = None
 
-    ref = xr.load_dataset(filename, group = "reference")
+    ref = xr.load_dataset(filename, group="reference")
     lats = ref.latitude.data
     lons = ref.longitude.data
 
     results = {}
 
     try:
-        gprof = xr.load_dataset(filename, group = mask_group)
+        gprof = xr.load_dataset(filename, group=mask_group)
         gprof_mask = gprof.surface_precip.data >= 0
         if rqi is None and "radar_quality_index" in gprof.variables:
             rqi = gprof.radar_quality_index.data
@@ -1301,19 +1311,35 @@ def extract_results_from_file(
                 #apply_orographic_enhancement(data)
             sp = data.surface_precip.data
 
-            valid = (sp_ref >= 0.0) * (sp >= 0.0) * (gprof_mask)
-            if rqi is not None:
-                valid = valid * (rqi >= rqi_threshold)
+            valid = (sp >= 0.0)
+            #valid = (sp_ref >= 0.0) * (sp >= 0.0) * (gprof_mask)
+            #if rqi is not None:
+            #    valid = valid * (rqi >= rqi_threshold)
+
+            along_track = data.along_track.data
+            across_track = data.across_track.data
+            across_track, _  = np.meshgrid(across_track, along_track)
+            across_track = across_track[valid]
+
             samples = xr.Dataset(
                 {
                     "surface_precip": (("samples",), sp[valid]),
-                    "surface_precip_avg": (("samples",), sp_ref_avg[valid]),
+                    "surface_precip_ref_avg": (("samples",), sp_ref_avg[valid]),
                     "surface_precip_ref": (("samples",), sp_ref[valid]),
                     "latitude": (("samples",), lats[valid]),
                     "longitude": (("samples",), lons[valid]),
                     "time": (("samples",), time_ref[valid]),
+                    "across_track": (("samples",), across_track),
                 }
             )
+            if "surface_precip_avg" in data:
+                samples["surface_precip_avg"] = (
+                    ("samples", ), data.surface_precip_avg.data[valid]
+                )
+            else:
+                samples["surface_precip_avg"] = (
+                    ("samples",), data.surface_precip.data[valid]
+                )
             if "pop" in data.variables:
                 samples["pop"] = (("samples",), data.pop.data[valid])
             if rqi is not None:
