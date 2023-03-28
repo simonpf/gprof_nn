@@ -20,7 +20,15 @@ import numpy as np
 from pyresample import geometry, kd_tree
 from rich.progress import Progress
 import xarray as xr
-
+from pansat.download.providers import GesdiscProvider, Disc2Provider
+from pansat.products.satellite.gpm import (
+    l1c_gpm_gmi_r,
+    l1c_noaa19_mhs,
+    l1c_trmm_tmi,
+    l1c_f18_ssmis,
+    l1c_gcomw1_amsr2,
+    l1c_npp_atms
+)
 from gprof_nn.logging import get_console
 from gprof_nn.data.training_data import decompress_and_load
 from gprof_nn.augmentation import latlon_to_ecef, ecef_to_latlon
@@ -55,6 +63,15 @@ VALIDATION_VARIABLES = {
     "RC": "surface_precip_rc",
 }
 
+PROVIDERS = {
+    "GMI": GesdiscProvider(l1c_gpm_gmi_r),
+    "MHS": GesdiscProvider(l1c_noaa19_mhs),
+    "TMIPO": Disc2Provider(l1c_trmm_tmi),
+    "SSMIS": GesdiscProvider(l1c_f18_ssmis),
+    "AMSR2": GesdiscProvider(l1c_gcomw1_amsr2),
+    "ATMS": GesdiscProvider(l1c_npp_atms),
+}
+
 
 def get_overpasses(sensor_name):
     """
@@ -79,10 +96,9 @@ def get_overpasses(sensor_name):
         year = int(date[:4])
         month = int(date[4:6])
         day = int(date[6:8])
-        granule = int(granule)
 
         key = (year, month, day)
-        overpasses.setdefault(key, []).append(granule)
+        overpasses.setdefault(key, []).append(filename)
 
     return overpasses
 
@@ -417,6 +433,7 @@ class FileExtractor:
         for (year, month, day), granules in overpasses.items():
             if year == self.year and month == self.month:
                 self.overpasses[(year, month, day)] = granules
+        self.provider = PROVIDERS[sensor.name]
 
     def process_radar_file(
             self,
@@ -568,8 +585,8 @@ class FileExtractor:
 
         data_r = xr.concat(datasets, "time")
         data_r["angles"] = (("along_track", "across_track"), angles)
-        data_r["latitude"] = (("along_track", "across_track"), lats_5)
-        data_r["longitude"] = (("along_track", "across_track"), lons_5)
+        data_r["latitude"] = (("along_track", "across_track"), lats_5.data)
+        data_r["longitude"] = (("along_track", "across_track"), lons_5.data)
 
         # Finally interpolate all reference data to scan time.
 
@@ -618,7 +635,7 @@ class FileExtractor:
         radar_files = RadarFile.get_files(year, month)
         if key not in self.overpasses or key not in radar_files:
             return None
-        granules = self.overpasses[key]
+        l1c_files = self.overpasses[key]
 
         kwaj_path = Path(kwaj_path)
         pp_path = Path(pp_path)
@@ -630,20 +647,28 @@ class FileExtractor:
             "{sensor}_kwaj_{year}{month:02}{day:02}_{granule}.pp"
         )
 
-        for granule in granules:
-            l1c_file = L1CFile.open_granule(granule, self.sensor.l1c_file_path, self.sensor)
-            fname_kwargs = {
-                "sensor": self.sensor.name.lower(),
-                "year": year,
-                "month": month,
-                "day": day,
-                "granule": granule
-            }
-            kwaj_file = kwaj_path / radar_file_pattern.format(**fname_kwargs)
-            pp_file = pp_path / pp_file_pattern.format(**fname_kwargs)
-
+        for l1c_file in l1c_files:
             with TemporaryDirectory() as tmp:
                 tmp = Path(tmp)
+
+                _, granule = l1c_file.split(".")[-4:-2]
+                granule = int(granule)
+
+                self.provider.download_file(
+                    l1c_file.strip(),
+                    tmp / l1c_file
+                )
+                l1c_file = L1CFile(tmp / l1c_file)
+
+                fname_kwargs = {
+                    "sensor": self.sensor.name.lower(),
+                    "year": year,
+                    "month": month,
+                    "day": day,
+                    "granule": granule
+                }
+                kwaj_file = kwaj_path / radar_file_pattern.format(**fname_kwargs)
+                pp_file = pp_path / pp_file_pattern.format(**fname_kwargs)
 
                 l1c_sub_file = tmp / "l1c_file.HDF5"
                 scan_start, scan_end = l1c_file.extract_scans(
@@ -697,7 +722,7 @@ class FileExtractor:
                 try:
                     task.result()
                 except Exception as e:
-                    LOGGER.error(
+                    LOGGER.exception(
                         "The following error occurred when processing day "
                         "%s: \n %s",
                         key,
