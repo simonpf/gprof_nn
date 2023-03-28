@@ -19,6 +19,7 @@ import xarray as xr
 from rich.progress import track
 from scipy.ndimage import rotate
 from scipy.signal import convolve
+from scipy.stats import binned_statistic_2d, binned_statistic
 import pandas as pd
 from pykdtree.kdtree import KDTree
 
@@ -61,7 +62,9 @@ PRECIP_TYPES = {
     "Convective": [6.0],
     "Hail": [7.0],
     "Tropical/stratiform mix": [91.0],
-    "Tropical/convective rain mix": [96.0]
+    "Tropical/convective rain mix": [96.0],
+    "Stratiform": [1.0, 2.0, 10.0, 91.0],
+    "Convective": [6.0, 7.0, 96.0],
 }
 
 FOOTPRINTS = {
@@ -697,6 +700,76 @@ class ResultCollector:
                     "file %s: \n %s", filename, e
                 )
 
+
+def calculate_precip_contribution(
+        results,
+        precip_type=None,
+        region=None,
+        absolute=False,
+        no_orographic=False):
+    """
+    Calculate contribution of precipitation type to total precipitation.
+    Args:
+        results: xarray.Dataset containing collocated validation data. The
+            'surface_precip_ref' field will be used to calculate the
+            precipitation.
+        precip_type: Name of the precip type.
+        absolute: If true the absolute contribution to the mean precipitation
+            is returned.
+        no_orographic: If True precipitation over mountains will be ignored.
+
+    Return:
+        The fraction r (0 <= r <= 1) that the precipitation type contributed
+        to overall precipitation.
+    """
+    surface_precip = results.surface_precip_ref.data
+    surface_type = results.surface_type.data
+    mask = results.mask.data
+
+    valid = surface_precip >= 0.0
+
+    if no_orographic:
+        sfc_mask = (
+            ((surface_type < 8) + ((surface_type > 11) * (surface_type < 17))) *
+            ~np.isclose(mask, 3.0) *
+            ~np.isclose(mask, 4.0))
+    else:
+        sfc_mask = (
+            ((surface_type < 8) + (surface_type > 11)) *
+            ~np.isclose(mask, 3.0) *
+            ~np.isclose(mask, 4.0))
+    valid *= sfc_mask
+
+    if region is not None:
+        lons = results.longitude
+        lats = results.latitude
+        lon_0, lat_0, lon_1, lat_1 = REGIONS[region]
+        region_mask = ((lons >= lon_0) * (lons < lon_1) *
+                       (lats >= lat_0) * (lats < lat_1))
+        valid *= region_mask
+
+    mean_precip_rate = surface_precip[valid].mean()
+
+    rain_mask = (mask > 0)
+    surface_precip = surface_precip[rain_mask * valid]
+    mask = mask[rain_mask * valid]
+
+    if precip_type is not None:
+        type_mask = np.zeros_like(surface_precip, dtype=bool)
+        for val in PRECIP_TYPES[precip_type]:
+            type_mask += np.isclose(mask, val)
+    else:
+        type_mask = np.ones_like(surface_precip, dtype=bool)
+
+    sp_t = surface_precip[type_mask].sum()
+    sp_t /= surface_precip.sum()
+
+    if absolute:
+        sp_t *= mean_precip_rate
+
+    return sp_t
+
+
 ###############################################################################
 # Utilities
 ###############################################################################
@@ -830,7 +903,7 @@ def plot_granule(sensor, reference_path, granule, datasets, n_cols=3, height=4, 
     return f
 
 
-def calculate_scatter_plot(results, group, rqi_threshold=0.8):
+def calculate_scatter_plot(results, group, rqi_threshold=0.8, fpavg=False):
     """
     Calculate normalized scatter plot for a given retrieval.
 
@@ -843,6 +916,7 @@ def calculate_scatter_plot(results, group, rqi_threshold=0.8):
         group: The key to use to obtain the validation results form 'results'.
         rqi_threshold: Additional RQI threshold to select subsets of validation
             samples.
+        fpavg: Whether to use footprint averaged reference data or not.
 
     Return:
         A tuple ``(bins, y)`` containing the precipitation bins ``bins`` and the
@@ -850,7 +924,10 @@ def calculate_scatter_plot(results, group, rqi_threshold=0.8):
     """
     bins = np.logspace(-2, 2, 101)
 
-    sp_ref = results[group].surface_precip_ref.data
+    if fpavg:
+        sp_ref = results[group].surface_precip_ref_avg.data
+    else:
+        sp_ref = results[group].surface_precip_ref.data
     sp = results[group].surface_precip.data
     valid = (sp_ref >= 0) * (sp >= 0)
 
@@ -877,7 +954,12 @@ def calculate_scatter_plot(results, group, rqi_threshold=0.8):
     return bins, y
 
 
-def calculate_conditional_mean(results, group, rqi_threshold=0.8):
+def calculate_conditional_mean(
+        results,
+        group,
+        rqi_threshold=0.8,
+        fpavg=False
+):
     """
     Calculate normalized scatter plot for a given retrieval.
 
@@ -897,7 +979,10 @@ def calculate_conditional_mean(results, group, rqi_threshold=0.8):
     """
     bins = np.logspace(-2, 2, 101)
 
-    sp_ref = results[group].surface_precip_ref.data
+    if fpavg:
+        sp_ref = results[group].surface_precip_ref_avg.data
+    else:
+        sp_ref = results[group].surface_precip_ref.data
     sp = results[group].surface_precip.data
     valid = (sp_ref >= 0) * (sp >= 0)
 
@@ -905,9 +990,10 @@ def calculate_conditional_mean(results, group, rqi_threshold=0.8):
         surface_type = results[group].surface_type.data
         valid = ((surface_type < 8) + ((surface_type > 11) * (surface_type < 17)))
 
-    mask = results[group].mask
-    snow = np.isclose(mask, 3.0) + np.isclose(mask, 4.0)
-    valid *= ~snow
+    if "mask" in results[group]:
+        mask = results[group].mask
+        snow = np.isclose(mask, 3.0) + np.isclose(mask, 4.0)
+        valid *= ~snow
 
     sp_ref = sp_ref[valid]
     sp = sp[valid]
@@ -925,7 +1011,8 @@ def calculate_error_metrics(
         rqi_threshold=0.8,
         region=None,
         ranges=None,
-        fpa=False
+        fpa=False,
+        no_orographic=False
 ):
     """
     Calculate error metrics for validation data.
@@ -937,6 +1024,7 @@ def calculate_error_metrics(
        results: Dictionary holding xr.Datasets with the results for the different retrievals.
        groups: Names of the retrievals for which to calculate error metrics.
        rqi_threshold: Optional additional rqi_threshold to filter co-locations.
+       no_orographic: Whether or not to include precipitation over mountain surfaces.
     """
     bias = {}
     correlation = {}
@@ -957,7 +1045,11 @@ def calculate_error_metrics(
 
         if "surface_type" in results[group]:
             surface_type = results[group].surface_type.data
-            valid *= ((surface_type < 8) + ((surface_type > 11) * (surface_type < 17)))
+            if no_orographic:
+                valid *= ((surface_type < 8) + ((surface_type > 11) * (surface_type < 17)))
+            else:
+                valid *= ((surface_type < 8) + (surface_type > 11))
+
 
         if isinstance(ranges, tuple):
             rng = results[group].range.data
@@ -987,7 +1079,7 @@ def calculate_error_metrics(
         sp = sp[valid]
         sp_ref = sp_ref[valid]
 
-        bias[group] = 100 * np.mean(sp - sp_ref) / np.mean(sp_ref)
+        bias[group] = np.mean(sp - sp_ref) / np.mean(sp_ref) * 100.0
         mse[group] = np.mean((sp - sp_ref) ** 2)
         mae[group] = np.mean(np.abs(sp - sp_ref))
 
@@ -1078,10 +1170,11 @@ def calculate_seasonal_cycles(
         group,
         rqi_threshold=0.8,
         region=None,
-        ranges=None
+        ranges=None,
+        precip_type=None
 ):
     """
-    Calculates daily cycles.
+    Calculates seasonal cycles.
 
     Uses only observations over surface types 1 - 8 and 12 - 16 and
     that are not marked as snow by the radar.
@@ -1121,27 +1214,42 @@ def calculate_seasonal_cycles(
 
     sp_ref = sp_ref[valid]
     sp = sp[valid]
+    mask = mask[valid]
 
     time = results[group].time[valid]
-    months = time.dt.month.data
+    months = time.dt.month.data.astype(float)
 
     bins = (np.linspace(0, 12, 13) + 0.5)
-    sums, _ = np.histogram(months, weights=sp, bins=bins)
-    cts, _ = np.histogram(months, bins=bins)
-    means = sums / cts
 
-    means = np.concatenate([means[-1:], means, means[:1]])
-    means = 0.5  * (means[1:] + means[:-1])
+    mean_precip = binned_statistic(months, sp, bins=bins)[0]
+    if precip_type is not None:
+        tot_precip = binned_statistic(months, sp, bins=bins, statistic=np.sum)[0]
+        t_mask = np.zeros_like(sp, dtype=bool)
+        for val in PRECIP_TYPES[precip_type]:
+            t_mask += np.isclose(mask, val)
+        if np.any(t_mask):
+            t_contrib = binned_statistic(months[t_mask],
+                                         sp[t_mask],
+                                         statistic=np.sum,
+                                         bins=bins)[0]
+            mean_precip *= t_contrib / tot_precip
+        else:
+            mean_precip *= np.nan
 
-    months = np.arange(1, 14)
-    return months, means
+    mean_precip = np.concatenate([mean_precip[-1:], mean_precip, mean_precip[:1]])
+    k = np.ones(3) / 3.0
+    mean_precip = convolve(mean_precip, k, mode="valid")
 
-def calculate_daily_cycles(
+    months = 0.5 * (bins[1:] + bins[:-1])
+    return months, mean_precip
+
+def calculate_diurnal_cycles(
         results,
         group,
         rqi_threshold=0.8,
         region=None,
-        ranges=None
+        ranges=None,
+        precip_type=None
 ):
     """
     Calculates daily cycles.
@@ -1153,6 +1261,10 @@ def calculate_daily_cycles(
        results: Dictionary holding xr.Datasets with the results for the different retrievals.
        groups: Names of the retrievals for which to calculate error metrics.
        rqi_threshold: Optional additional rqi_threshold to filter co-locations.
+       region: Name of a region to restrict the analysis to.
+       ranges: Upper limit for radar range to be included in the analysis.
+       precip_type: If given, only the contribution of the given precipitation type
+           will be calculated.
     """
     if group == "reference":
         sp_ref = results["gprof_nn_1d"].surface_precip_ref_avg.data
@@ -1182,24 +1294,39 @@ def calculate_daily_cycles(
         valid *= ((lons >= lon_0) * (lons < lon_1) *
                   (lats >= lat_0) * (lats < lat_1))
 
-
     sp_ref = sp_ref[valid]
     sp = sp[valid]
+    mask = mask[valid]
 
     time = results[group].time[valid]
-    time += (lons[valid] / 360 * 24 * 60 * 60).astype("timedelta64[s]")
-    minutes = time.dt.hour.data + 60 * time.dt.minute.data
+    time = time + (lons[valid] / 360 * 24 * 60 * 60).astype("timedelta64[s]")
+    hours = time.dt.hour.data
+    bins = np.linspace(0, 24, 25)
 
-    bins = (np.linspace(0, 24, 25) - 0.5) * 60
-    sums, _ = np.histogram(minutes, weights=sp, bins=bins)
-    cts, _ = np.histogram(minutes, bins=bins)
-    means = sums / cts
+    mean_precip = binned_statistic(hours, sp, bins=bins)[0]
 
-    means = np.concatenate([means[-1:], means, means[:1]])
-    means = 0.5  * (means[1:] + means[:-1])
-    hours = np.arange(0, 25, 1)
+    if precip_type is not None:
+        tot_precip = binned_statistic(hours, sp, bins=bins, statistic=np.sum)[0]
+        t_mask = np.zeros_like(sp, dtype=bool)
+        for val in PRECIP_TYPES[precip_type]:
+            t_mask += np.isclose(mask, val)
+        if np.any(t_mask):
+            t_contrib = binned_statistic(hours[t_mask],
+                                         sp[t_mask],
+                                         statistic=np.sum,
+                                         bins=bins)[0]
+            mean_precip *= t_contrib / tot_precip
+        else:
+            mean_precip *= np.nan
 
-    return hours, means
+    hours = bins[:-1]#0.5 * (bins[1:] + bins[:-1]) / 60
+
+    mean_precip = np.concatenate([mean_precip[-3:], mean_precip, mean_precip[:2]])
+    k = np.ones(6)
+    k /= k.sum()
+    mean_precip = convolve(mean_precip, k, mode="valid")
+
+    return hours, mean_precip
 
 
 def get_colors():
@@ -1411,3 +1538,59 @@ def extract_results(
         results[k] = xr.concat(results[k], "samples")
     pool.shutdown()
     return results
+
+
+def gridded_stats(lons, lats, prediction, truth, bins, min_samples=None):
+    """
+    Calculate correlation of retrieval and prediction over lat-lon grid.
+
+    Args:
+        lons: The longitude coordinates of the retrieval samples.
+        lats: The latitude coordinates of the retrieval samples.
+        prediction: The retrieved value.
+        truth: The true value.
+        bins: A tuple ``(lon_bins, lats_bins) containing the longitude
+            and latitude bins.
+        min_samples: The minimum numbers of samples in each bin.
+        fpa: If True, the footprint-averaged reference precipitation will be
+            used.
+
+    Return:
+        A tuple ``(bias, mae, mse, corr)`` containing the bias, mean absolute
+        error, mean-squared error and correlation for the given
+        longitude-latitude.
+    """
+    lons = lons.ravel()
+    lats = lats.ravel()
+    prediction = prediction.ravel()
+    truth = truth.ravel()
+
+    xx = prediction * prediction
+    xy = prediction * truth
+    yy = truth * truth
+    x = prediction
+    y = truth
+
+    mae = binned_statistic_2d(lons, lats, np.abs(x - y), bins=bins)[0]
+    mse = binned_statistic_2d(lons, lats, (x - y) ** 2, bins=bins)[0]
+    xx = binned_statistic_2d(lons, lats, xx, bins=bins)[0]
+    xy = binned_statistic_2d(lons, lats, xy, bins=bins)[0]
+    yy = binned_statistic_2d(lons, lats, yy, bins=bins)[0]
+    x = binned_statistic_2d(lons, lats, x, bins=bins)[0]
+    y = binned_statistic_2d(lons, lats, y, bins=bins)[0]
+    n_samples = binned_statistic_2d(lons, lats, lons, "count", bins=bins)[0]
+
+    if min_samples is not None:
+        mae[n_samples < min_samples] = np.nan
+        mse[n_samples < min_samples] = np.nan
+        xx[n_samples < min_samples] = np.nan
+        xy[n_samples < min_samples] = np.nan
+        yy[n_samples < min_samples] = np.nan
+        x[n_samples < min_samples] = np.nan
+        y[n_samples < min_samples] = np.nan
+
+
+    sigma_x = np.sqrt(xx - x ** 2)
+    sigma_y = np.sqrt(yy - y ** 2)
+    corr = (xy - x * y) / (sigma_x * sigma_y)
+    return x - y, mae, mse, corr
