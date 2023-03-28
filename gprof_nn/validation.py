@@ -29,6 +29,7 @@ from gprof_nn.data.retrieval import RetrievalFile
 from gprof_nn.data.sim import SimFile
 from gprof_nn.data.combined import GPMCMBFile
 from gprof_nn.definitions import LIMITS
+from gprof_nn.data.sim import apply_orographic_enhancement
 from gprof_nn.utils import (
     calculate_interpolation_weights,
     interpolate,
@@ -66,7 +67,8 @@ PRECIP_TYPES = {
 FOOTPRINTS = {
         "GMI": (12.5, 5),
         "AMSR2": (10.0, 10.0),
-        "SSMIS": (38, 38)
+        "SSMIS": (38, 38),
+        "TMIPO": (18, 30),
 }
 
 
@@ -113,8 +115,8 @@ def smooth_reference_field(
             # opposite direction.
             kernels.append(rotate(kernel, -angle, order=1))
     elif isinstance(sensor, sensors.CrossTrackScanner):
-        angle_max = np.minimum(angles.max(), sensor.viewing_geometry.scan_range / 2)
-        kernel_angles = np.linspace(1e-6, angle_max, steps)
+        angles = np.clip(angles, -np.max(sensor.angles), np.max(sensor.angles))
+        kernel_angles = np.linspace(1e-3, angles.max(), steps)
         angles = np.abs(angles)
         along_track = sensor.viewing_geometry.get_resolution_a(kernel_angles)
         across_track = sensor.viewing_geometry.get_resolution_x(kernel_angles)
@@ -181,7 +183,8 @@ class GPROFNN1DResults:
         return "gprof_nn_1d"
 
     def open_granule(self, granule):
-        data = RetrievalFile(self.granules[granule]).to_xarray_dataset()
+        #data = RetrievalFile(self.granules[granule]).to_xarray_dataset()
+        data = xr.load_dataset(self.granules[granule])
         return data
 
 
@@ -417,9 +420,6 @@ class SimulatorFiles():
 
     def open_granule(self, granule):
         sim_data = SimFile(self.granules[granule]).to_xarray_dataset()
-        sim_data = sim_data.drop_vars(["surface_precip"]).rename({
-            "surface_precip_combined": "surface_precip"
-        })
         return sim_data
 
 
@@ -809,7 +809,6 @@ def plot_granule(sensor, reference_path, granule, datasets, n_cols=3, height=4, 
         data = dataset.open_granule(granule)
         sp = np.maximum(data.surface_precip.data, 1e-4)
         valid = sp[sp >= 0]
-        print("MEAN PRECIP :: ", valid.mean())
         lats = data.latitude.data
         lons = data.longitude.data
 
@@ -1299,7 +1298,7 @@ def extract_results_from_file(
         return None
 
     try:
-        surface_types = xr.load_dataset(filename, group="gprof_nn_3d").surface_type.data
+        surface_types = xr.load_dataset(filename, group="gprof_nn_1d").surface_type.data
     except OSError:
         LOGGER.error("File '%s' has no '%s' group.", filename, "gprof_nn_3d")
         return None
@@ -1307,15 +1306,12 @@ def extract_results_from_file(
     for group in groups:
         try:
             data = xr.load_dataset(filename, group=group)
-            #if group == "simulator":
-                #data["airmass_type"] = (("along_track", "across_track"), at)
-                #apply_orographic_enhancement(data)
             sp = data.surface_precip.data
 
             valid = (sp >= 0.0)
-            #valid = (sp_ref >= 0.0) * (sp >= 0.0) * (gprof_mask)
-            #if rqi is not None:
-            #    valid = valid * (rqi >= rqi_threshold)
+            valid = (sp_ref >= 0.0) * (sp >= 0.0) * (gprof_mask)
+            if rqi is not None:
+                valid = valid * (rqi >= rqi_threshold)
 
             along_track = data.along_track.data
             across_track = data.across_track.data
