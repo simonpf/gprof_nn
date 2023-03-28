@@ -140,36 +140,66 @@ class Tiler:
         Return:
             Numpy array containing weights for the corresponding tile.
         """
-        sl_i, sl_j = self.get_slices(i, j)
-
-        m, n  = self.tile_size
+        m, n = self.tile_size
         w_i = np.ones((m, n))
         if i > 0:
             trans_start = self.i_start[i]
+            # Shift start to right if transition overlaps with
+            # antepenultimate tile.
+            if i > 1:
+                trans_end_prev = self.i_start[i - 2] + self.tile_size[0]
+                trans_start = max(trans_start, trans_end_prev)
+            zeros = trans_start - self.i_start[i]
             trans_end = self.i_start[i - 1] + self.tile_size[0]
-            l_trans = trans_end - trans_start
-            start = l_trans
-            w_i[:start] = np.linspace(0, 1, l_trans)[..., np.newaxis]
+            # Limit transition zone to overlap.
+            l_trans = min(trans_end - trans_start, self.overlap[0])
+            w_i[:zeros] = 0.0
+            w_i[zeros:zeros + l_trans] = np.linspace(0, 1, l_trans)[..., np.newaxis]
+
         if i < self.M - 1:
             trans_start = self.i_start[i + 1]
+            if (i > 0):
+                trans_end_prev = self.i_start[i - 1] + self.tile_size[0]
+                trans_start = max(
+                    trans_start,
+                    trans_end_prev
+                )
             trans_end = self.i_start[i] + self.tile_size[0]
-            l_trans = trans_end - trans_start
-            start = (self.tile_size[0] - l_trans)
-            w_i[start:] = np.linspace(1, 0, l_trans)[..., np.newaxis]
+            l_trans = min(trans_end - trans_start, self.overlap[0])
+
+            start = trans_start - self.i_start[i]
+            w_i[start: start + l_trans] = np.linspace(1, 0, l_trans)[..., np.newaxis]
+            w_i[start + l_trans:] = 0.0
 
         w_j = np.ones((m, n))
         if j > 0:
             trans_start = self.j_start[j]
+            # Shift start to right if transition overlaps with
+            # antepenultimate tile.
+            if j > 1:
+                trans_end_prev = self.j_start[j - 2] + self.tile_size[1]
+                trans_start = max(trans_start, trans_end_prev)
+            zeros = trans_start - self.j_start[j]
             trans_end = self.j_start[j - 1] + self.tile_size[1]
-            l_trans = trans_end - trans_start
-            start = l_trans
-            w_j[:, :start] = np.linspace(0, 1, l_trans)[np.newaxis]
+            # Limit transition zone to overlap.
+            l_trans = min(trans_end - trans_start, self.overlap[1])
+            w_j[:, :zeros] = 0.0
+            w_j[:, zeros:zeros + l_trans] = np.linspace(0, 1, l_trans)[np.newaxis]
+
         if j < self.N - 1:
             trans_start = self.j_start[j + 1]
+            if (j > 0):
+                trans_end_prev = self.j_start[j - 1] + self.tile_size[1]
+                trans_start = max(
+                    trans_start,
+                    trans_end_prev
+                )
             trans_end = self.j_start[j] + self.tile_size[1]
-            l_trans = trans_end - trans_start
-            start = (self.tile_size[1] - l_trans)
-            w_j[:, start:] = np.linspace(1, 0, l_trans)[np.newaxis]
+            l_trans = min(trans_end - trans_start, self.overlap[1])
+
+            start = trans_start - self.j_start[j]
+            w_j[:, start: start + l_trans] = np.linspace(1, 0, l_trans)[np.newaxis]
+            w_j[:, start + l_trans:] = 0.0
 
         return w_i * w_j
 
