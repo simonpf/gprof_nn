@@ -30,7 +30,7 @@ if not _TEST_DIR.exists():
     _TEST_DIR.mkdir(parents=True, exist_ok=True)
 
 
-_DATA_URL = "http://rain.atmos.colostate.edu/gprof_nn/"
+_DATA_URL = "https://rain.atmos.colostate.edu/gprof_nn/"
 
 
 def get_file(path):
