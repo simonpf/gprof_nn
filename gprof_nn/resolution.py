@@ -69,7 +69,7 @@ class WaveletAnalysis(AnalysisBase):
         reference = window["reference"]
 
         w_ref = pywt.WaveletPacket2D(
-            data=reference.surface_precip_avg.data,
+            data=reference.surface_precip.data,
             wavelet="haar",
             mode="constant",
             maxlevel=6
@@ -251,8 +251,8 @@ class FourierAnalysis(AnalysisBase):
         """
         reference = window["reference"]
 
-        n = reference.surface_precip_avg.data.shape[0]
-        w_ref = dctn(reference.surface_precip_avg.data, norm="ortho")
+        n = reference.surface_precip.data.shape[0]
+        w_ref = dctn(reference.surface_precip.data, norm="ortho")
 
         for group in window:
             if group == "reference":
@@ -418,6 +418,7 @@ class ResolutionCalculator:
         self.window_size = window_size
         self.valid_fraction = 1.0
         self.minimum_radar_quality = minimum_radar_quality
+        self.interp_limit = 32
         self.results = {
             group: xr.Dataset() for group in retrieval_groups
         }
@@ -444,7 +445,7 @@ class ResolutionCalculator:
         other_scenes = [xr.load_dataset(filename, group=group)
                         for group in groups]
 
-        sp_ref = reference_scene.surface_precip_avg
+        sp_ref = reference_scene.surface_precip
         sp_fields = [scene["surface_precip"] for scene in other_scenes]
         n_scans = sp_ref.along_track.size
         n_pixels = sp_ref.across_track.size
@@ -458,30 +459,55 @@ class ResolutionCalculator:
             found_box = False
 
             while pixel_end < n_pixels:
-
-
                 indices = {
                     "along_track": slice(scan_start, scan_end),
                     "across_track": slice(pixel_start, pixel_end)
                 }
                 window = reference_scene[indices]
-                valid_frac = (window.surface_precip_avg.data >= 0).mean()
                 windows = [
                     scene[indices].interpolate_na(
                         "across_track",
                         "linear",
                     ) for scene in other_scenes
                 ]
+
+                valid_frac = (window.surface_precip.data >= 0).mean()
+                valid_fracs = [
+                    (scene.surface_precip.data >= 0).mean() for scene in windows
+                ]
+
+                # Interpolate NAN values.
+                window["surface_precip"] = window.surface_precip.interpolate_na(
+                    dim="along_track",
+                    limit=self.interp_limit
+                )
+                window["surface_precip"] = window.surface_precip.interpolate_na(
+                    dim="across_track",
+                    limit=self.interp_limit
+                )
+                for scene in windows:
+                    scene["surface_precip"] = scene.surface_precip.interpolate_na(
+                        dim="along_track",
+                        limit=self.interp_limit
+                    )
+                    scene["surface_precip"] = scene.surface_precip.interpolate_na(
+                        dim="across_track",
+                        limit=self.interp_limit
+                    )
+
+                valid_frac = (window.surface_precip.data >= 0).mean()
                 valid_fracs = [
                     (scene.surface_precip.data >= 0).mean() for scene in windows
                 ]
 
                 valid = valid_frac >= self.valid_fraction
                 valid &= min(valid_fracs) >= self.valid_fraction
+
                 if "radar_quality_index" in window.variables:
                     rqi = window.radar_quality_index.data
                     rqi_min = rqi.min()
                     valid &= rqi_min > self.minimum_radar_quality
+
 
                 if valid:
                     results = {
