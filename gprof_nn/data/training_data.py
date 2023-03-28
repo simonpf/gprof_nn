@@ -1280,7 +1280,25 @@ HR_TARGETS = [
 ]
 
 
-def _remap_scene(scene, coords, targets):
+def _remap_hr_scene(scene, coords, targets):
+    """
+    Special remapping functions for GPROF-NN HR training scenes.
+
+    Since the HR training scenes contain retrieval outputs at higher
+    resolution, this function must be used for the remapping as it takes
+    into account the differences in the interpolation between input
+    and output data.
+
+    Args:
+        scenes: An xarray.Dataset containing the data for the training
+            schene.
+        coords: A numpy array containing the coordinates defining the
+            remapping.
+        targets: A list defining the targets to load.
+
+    Return:
+        An xarray.Dataset containing the remapped scene.
+    """
     variables = ["brightness_temperatures",] + targets
     data = {}
 
@@ -1289,10 +1307,9 @@ def _remap_scene(scene, coords, targets):
 
     i_start, _ = compressed_pixel_range()
     coords_3 = upsample_scans(coords, axis=1)
-    coords_3[1] -= i_start
+    coords_3[1] -= (i_start + 1)
     n_scans = scene.scans.size
-    scaling = (3 * n_scans - 2) / n_scans
-    coords_3[0] *= scaling
+    coords_3[0] *= 3
 
     for v in variables:
         if v in HR_TARGETS:
@@ -1441,7 +1458,7 @@ class GPROF_NN_HR_Dataset(GPROF_NN_3D_Dataset):
                 lats, lons, geometry, 96, 128, p_x_i, p_x_o, p_y
             )
 
-            scene = _remap_scene(scene, coords, targets + vs)
+            scene = _remap_hr_scene(scene, coords, targets + vs)
 
             #
             # Input data
