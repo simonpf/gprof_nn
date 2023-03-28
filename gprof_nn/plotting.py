@@ -18,7 +18,6 @@ import numpy as np
 import xarray as xr
 
 
-
 _STYLE_FILE = pathlib.Path(__file__).parent / "files" / "matplotlib_style.rc"
 
 
@@ -154,7 +153,6 @@ def set_cartopy_ticks(ax, left, bottom):
     gl.xlabels_bottom = bottom
     gl.ylabels_left = left
 
-
 def create_equidistant_area(lon_center, lat_center, extent=2e6, resolution=4e3):
     """
     Creates an area definition for an equidistant projection around a given
@@ -200,7 +198,6 @@ def make_goes_background(time, area, filename, night=False):
         composite = "C13"
     goes_files = goes.download(time, time)
 
-    print([str(f) for f in goes_files])
     scene = Scene([str(f) for f in goes_files], reader="abi_l1b")
 
     scene.load([composite])
@@ -209,7 +206,7 @@ def make_goes_background(time, area, filename, night=False):
     scene_r.save_dataset(composite, filename)
 
 
-def add_surface(scene, area, background):
+def add_surface(scene, area, background, z_scaling=10):
     """
     Add surface with background texture to scene.
 
@@ -233,7 +230,7 @@ def add_surface(scene, area, background):
     g = pv.StructuredGrid(
         x[:, :, :2],
         y[:, :, :2],
-        z[:, :, :2] * 10
+        z[:, :, :2] * z_scaling
     )
     g.texture_map_to_plane(inplace=True)
     texture = pv.numpy_to_texture(np.array(background)[:, :, ...,:3])
@@ -245,133 +242,171 @@ def add_hydrometeors(
         area,
         input_file,
         opacity=None,
-        bars=False
+        rwc_bar=False,
+        swc_bar=False,
+        z_scaling=10,
+        sigma=None
 ):
     from pyresample.geometry import SwathDefinition
-    from pyresample.kd_tree import resample_gauss
+    from pyresample.kd_tree import resample_gauss, resample_nearest
     import pyvista as pv
 
-    data = xr.open_dataset(input_file)
+    with xr.open_dataset(input_file) as data:
 
-    lats = data.latitude.data
-    lons = data.longitude.data
-    swath = SwathDefinition(lats=lats, lons=lons)
+        lats = data.latitude.data
+        lons = data.longitude.data
+        swath = SwathDefinition(lats=lats, lons=lons)
 
-    sp = data.surface_precip
-    rwc = data.rain_water_content.data
-    swc = data.snow_water_content.data
+        sp = data.surface_precip
+        rwc = data.rain_water_content.data
+        swc = data.snow_water_content.data
 
-    n_layers = swc.shape[-1]
-    rwc_r = resample_gauss(swath, rwc, area, 8e3, fill_value=np.nan, sigmas=[5e3] * n_layers)
-    rwc_r = rwc_r
-    swc_r = resample_gauss(swath, swc, area, 8e3, fill_value=np.nan, sigmas=[5e3] * n_layers)
-    swc_r = swc_r
+        n_layers = swc.shape[-1]
+        if sigma is not None:
+            rwc_r = resample_gauss(swath, rwc, area, 10e3, sigmas=[sigma] * n_layers, fill_value=np.nan)
+            swc_r = resample_gauss(swath, swc, area, 10e3, sigmas=[sigma] * n_layers, fill_value=np.nan)
+        else:
+            rwc_r = resample_nearest(swath, rwc, area, 10e3, fill_value=np.nan)
+            swc_r = resample_nearest(swath, swc, area, 10e3, fill_value=np.nan)
 
-    extent = area.area_extent
-    m, n = area.shape
-    y = np.linspace(extent[0], extent[2], m)
-    x = np.linspace(extent[1], extent[3], n)
-    if n_layers == 28:
+        extent = area.area_extent
+        m, n = area.shape
+        y = np.linspace(extent[0], extent[2], m)
+        x = np.linspace(extent[1], extent[3], n)
+        if n_layers == 28:
+            z = np.concatenate([np.linspace(0, 9.5e3, 20) + 0.25e3, 10.5e3 + np.arange(0, 8) * 1e3])
+        elif n_layers == 88:
+            z = np.linspace(0, 22, 88 + 1)[1:] * 1e3
+        else:
+            z = np.linspace(0, 20, 41) * 1e3
+            z = 0.5 * (z[1:] + z[:-1])
+        xyz = np.stack(np.meshgrid(x, y, z), axis=-1)
+
+
+        g = pv.StructuredGrid(
+            xyz[:, :, ..., 0],
+            xyz[:, :, ..., 1],
+            xyz[:, :, ..., 2] * z_scaling
+        )
+        norm = LogNorm(1e-2, 1e0)
+
+        m = ScalarMappable(norm=norm, cmap="Reds")
+        cm = lambda x: m.to_rgba(x)
+        g.point_data["rwc"] = rwc_r[::-1].flatten(order="F")
+        rwc_levels = np.linspace(0, 1, 11)[1:]
+        colors = [to_hex(c) for c in m.to_rgba(rwc_levels)]
+        contours = g.contour(scalars="rwc", isosurfaces=rwc_levels)
+
+
+        scalar_bar_args = {
+            "title": "RWC [g / m³]",
+            "position_x": 0.05,
+            "position_y": 0.25,
+            "vertical": True
+        }
+        scene.add_mesh(
+            contours,
+            cmap=colors,
+            opacity=opacity,
+            show_scalar_bar=rwc_bar,
+            scalar_bar_args=scalar_bar_args,
+            clim=[0.1, 1.0],
+            smooth_shading=True,
+            ambient=0.35,
+            specular=1.0
+        )
+
+        g.point_data["swc"] = swc_r[::-1].flatten(order="F")
+        swc_levels = np.linspace(0, 1, 11)[1:]
+        if opacity is None:
+            opacity = "linear"
+        m = ScalarMappable(norm=norm, cmap="Blues")
+        cm = lambda x: m.to_rgba(x)
+        colors = [to_hex(c) for c in m.to_rgba(swc_levels)]
+
+        scalar_bar_args = {
+            "title": "SWC [g / m³]",
+            "position_x": 0.90,
+            "position_y": 0.25,
+            "vertical": True
+        }
+        contours = g.contour(scalars="swc", isosurfaces=swc_levels)
+        scene.add_mesh(
+            contours,
+            cmap=colors,
+            opacity=opacity,
+            show_scalar_bar=swc_bar,
+            scalar_bar_args=scalar_bar_args,
+            clim=[0.1, 1.0],
+            smooth_shading=True,
+            ambient=0.35,
+            specular=1.0
+        )
+
+        x_l, y_l = area.get_xy_from_lonlat(lons[:, 0], lats[:, 0])
+        x_r, y_r = area.get_xy_from_lonlat(lons[:, -1], lats[:, -1])
+
+        i_start, i_end = np.where((~x_l.mask) * (~y_l.mask))[0][[0, -1]]
+        x_l = x_l[i_start:i_end]
+        y_l = y_l[i_start:i_end]
+
+        i_start, i_end = np.where((~x_r.mask) * (~y_r.mask))[0][[0, -1]]
+        x_r = x_r[i_start:i_end]
+        y_r = y_r[i_start:i_end]
+
+        x = xyz[::-1, :, :, 0][y_l.data, x_l.data, 1]
+        y = xyz[::-1, :, :, 1][y_l.data, x_l.data, 1]
+        z = np.ones_like(x) * 1e3 * z_scaling
+        coords = np.stack([x, y, z], axis=-1)
+        line_l = pv.Spline(coords)
+        scene.add_mesh(line_l, color="k", line_width=2)
+
+        x = xyz[::-1, :, :, 0][y_r.data, x_r.data, 1]
+        y = xyz[::-1, :, :, 1][y_r.data, x_r.data, 1]
+        z = np.ones_like(x) * 1e3 * z_scaling
+        coords = np.stack([x, y, z], axis=-1)
+        line_r = pv.Spline(coords)
+        scene.add_mesh(line_r, color="k", line_width=2)
+
+
+def add_swath_edges(
+        scene,
+        area,
+        input_file,
+        z_scaling=10
+):
+    import pyvista as pv
+    with xr.open_dataset(input_file) as data:
+        lats = data.latitude.data
+        lons = data.longitude.data
+        x_l, y_l = area.get_xy_from_lonlat(lons[:, 0], lats[:, 0])
+        x_r, y_r = area.get_xy_from_lonlat(lons[:, -1], lats[:, -1])
+
+        i_start, i_end = np.where((~x_l.mask) * (~y_l.mask))[0][[0, -1]]
+        x_l = x_l[i_start:i_end]
+        y_l = y_l[i_start:i_end]
+
+        i_start, i_end = np.where((~x_r.mask) * (~y_r.mask))[0][[0, -1]]
+        x_r = x_r[i_start:i_end]
+        y_r = y_r[i_start:i_end]
+
+        extent = area.area_extent
+        m, n = area.shape
+        y = np.linspace(extent[0], extent[2], m)
+        x = np.linspace(extent[1], extent[3], n)
         z = np.concatenate([np.linspace(0, 9.5e3, 20) + 0.25e3, 10.5e3 + np.arange(0, 8) * 1e3])
-    else:
-        z = np.linspace(0, 20, 41) * 1e3
-        z = 0.5 * (z[1:] + z[:-1])
-    xyz = np.stack(np.meshgrid(x, y, z), axis=-1)
+        xyz = np.stack(np.meshgrid(x, y, z), axis=-1)
 
-    print(swc_r.shape, xyz.shape)
+        x = xyz[::-1, :, :, 0][y_l.data, x_l.data, 1]
+        y = xyz[::-1, :, :, 1][y_l.data, x_l.data, 1]
+        z = np.ones_like(x) * 1e3 * z_scaling
+        coords = np.stack([x, y, z], axis=-1)
+        line_l = pv.Spline(coords)
+        scene.add_mesh(line_l, color="k", line_width=2)
 
-    g = pv.StructuredGrid(
-        xyz[:, :, ..., 0],
-        xyz[:, :, ..., 1],
-        xyz[:, :, ..., 2] * 10
-    )
-    norm = LogNorm(1e-2, 1e0)
-
-    m = ScalarMappable(norm=norm, cmap="Reds")
-    cm = lambda x: m.to_rgba(x)
-    g.point_data["rwc"] = rwc_r[::-1].flatten(order="F")
-    rwc_levels = np.linspace(0, 1, 11)[1:]
-    colors = [to_hex(c) for c in m.to_rgba(rwc_levels)]
-    contours = g.contour(scalars="rwc", isosurfaces=rwc_levels)
-
-
-    scalar_bar_args = {
-        "title": "RWC [g / m³]",
-        "position_x": 0.05,
-        "position_y": 0.25,
-        "vertical": True
-    }
-    scene.add_mesh(
-        contours,
-        cmap=colors,
-        opacity=opacity,
-        show_scalar_bar=bars,
-        scalar_bar_args=scalar_bar_args,
-        clim=[0.1, 1.0],
-        smooth_shading=True,
-        ambient=0.35,
-        specular=1.0
-    )
-
-    g.point_data["swc"] = swc_r[::-1].flatten(order="F")
-    swc_levels = np.linspace(0, 1, 11)[1:]
-    if opacity is None:
-        opacity = "linear"
-    m = ScalarMappable(norm=norm, cmap="Blues")
-    cm = lambda x: m.to_rgba(x)
-    colors = [to_hex(c) for c in m.to_rgba(swc_levels)]
-
-    scalar_bar_args = {
-        "title": "SWC [g / m³]",
-        "position_x": 0.90,
-        "position_y": 0.25,
-        "vertical": True
-    }
-    contours = g.contour(scalars="swc", isosurfaces=swc_levels)
-    scene.add_mesh(
-        contours,
-        cmap=colors,
-        opacity=opacity,
-        show_scalar_bar=bars,
-        scalar_bar_args=scalar_bar_args,
-        clim=[0.1, 1.0],
-        smooth_shading=True,
-        ambient=0.35,
-        specular=1.0
-    )
-
-    if bars:
-        pass
-        #scene.add_scalar_bar(
-        #    title="RWC [kg / m³]",
-        #    vertical=True,
-        #    position_x=0.9,
-        #)
-
-    x_l, y_l = area.get_xy_from_lonlat(lons[:, 0], lats[:, 0])
-    x_r, y_r = area.get_xy_from_lonlat(lons[:, -1], lats[:, -1])
-
-    i_start, i_end = np.where((~x_l.mask) * (~y_l.mask))[0][[0, -1]]
-    x_l = x_l[i_start:i_end]
-    y_l = y_l[i_start:i_end]
-
-    i_start, i_end = np.where((~x_r.mask) * (~y_r.mask))[0][[0, -1]]
-    x_r = x_r[i_start:i_end]
-    y_r = y_r[i_start:i_end]
-
-    alt = 500.0 / 1e3
-    coords = np.stack([
-        (xyz[::-1, :, :, 0])[y_l.data, x_l.data, 1],
-        (xyz[::-1, :, :, 1])[y_l.data, x_l.data, 1],
-        (xyz[::-1, :, :, 2])[y_l.data, x_l.data, 1] * 10
-    ], axis=-1)
-    line_l = pv.Spline(coords)
-    scene.add_mesh(line_l, color="w", line_width=2)
-
-    coords = np.stack([
-        (xyz[::-1, :, :, 0])[y_r.data, x_r.data, 1],
-        (xyz[::-1, :, :, 1])[y_r.data, x_r.data, 1],
-        (xyz[::-1, :, :, 2])[y_r.data, x_r.data, 1] * 10
-    ], axis=-1)
-    line_r = pv.Spline(coords)
-    scene.add_mesh(line_r, color="w", line_width=2)
+        x = xyz[::-1, :, :, 0][y_r.data, x_r.data, 1]
+        y = xyz[::-1, :, :, 1][y_r.data, x_r.data, 1]
+        z = np.ones_like(x) * 1e3 * z_scaling
+        coords = np.stack([x, y, z], axis=-1)
+        line_r = pv.Spline(coords)
+        scene.add_mesh(line_r, color="k", line_width=2)
