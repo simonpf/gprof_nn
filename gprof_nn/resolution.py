@@ -28,6 +28,9 @@ class AnalysisBase:
     Base class for spectral analysis classes.
 
     """
+    def __init__(self, retrieval_groups):
+        self.retrieval_groups = retrieval_groups
+
     def merge(self, other):
         """
         Merge results from spectral analysis object with that from another
@@ -36,15 +39,17 @@ class AnalysisBase:
         Args:
             other: The object whose results to merge with.
         """
-        results_ref = self.results["reference"]
-        if len(results_ref.variables) == 0:
-            self.results = {
-                group: value.copy() for group, value in other.results.items()
-            }
-        else:
-            if len(other.variables) > 0:
-                for group, values in other.results.items():
-                    self.results[group] += values
+        groups = other.retrieval_groups + self.retrieval_groups
+        for group in groups:
+            if group not in self.retrieval_groups:
+                self.results[group] = other.results[group].copy()
+            elif group in other.retrieval_groups:
+                results_this = self.results[group]
+                results_other = other.results[group]
+                if len(results_this.variables) == 0:
+                    self.results[group] = results_other
+                elif len(results_other.variables) > 0:
+                    results_this += results_other
 
 
 class WaveletAnalysis(AnalysisBase):
@@ -52,7 +57,7 @@ class WaveletAnalysis(AnalysisBase):
     Implements spectral analysis of spatial resolution using Haar wavelets.
     """
     def __init__(self, retrieval_groups):
-        self.retrieval_groups = retrieval_groups
+        super().__init__(retrieval_groups)
         self.results = {group: xr.Dataset() for group in self.retrieval_groups}
         self.results["reference"] = xr.Dataset()
 
@@ -235,7 +240,7 @@ class FourierAnalysis(AnalysisBase):
     Implements spectral analysis of spatial resolution using 2D DCT transform.
     """
     def __init__(self, retrieval_groups):
-        self.retrieval_groups = retrieval_groups
+        super().__init__(retrieval_groups)
         self.results = {group: xr.Dataset() for group in self.retrieval_groups}
         self.results["reference"] = xr.Dataset()
 
@@ -422,6 +427,7 @@ class ResolutionCalculator:
         self.results = {
             group: xr.Dataset() for group in retrieval_groups
         }
+        self.no_ocean = False
 
 
     def get_windows(self, filename):
@@ -447,6 +453,7 @@ class ResolutionCalculator:
 
         sp_ref = reference_scene.surface_precip
         sp_fields = [scene["surface_precip"] for scene in other_scenes]
+
         n_scans = sp_ref.along_track.size
         n_pixels = sp_ref.across_track.size
 
@@ -470,6 +477,11 @@ class ResolutionCalculator:
                         "linear",
                     ) for scene in other_scenes
                 ]
+
+                sfc_types = None
+                for win in windows:
+                    if "surface_type" in win:
+                        sfc_types = win.surface_type
 
                 valid_frac = (window.surface_precip.data >= 0).mean()
                 valid_fracs = [
@@ -508,6 +520,12 @@ class ResolutionCalculator:
                     rqi_min = rqi.min()
                     valid &= rqi_min > self.minimum_radar_quality
 
+                if sfc_types is not None:
+                    valid_sfcs = (sfc_types < 8)
+                    valid_sfcs += (sfc_types > 11) * (sfc_types < 17)
+                    if self.no_ocean:
+                        valid_sfcs *= sfc_types > 1
+                    valid &= valid_sfcs.all()
 
                 if valid:
                     results = {
@@ -575,8 +593,8 @@ class ResolutionCalculator:
 
         self.analysis = self.analysis_class(self.retrieval_groups)
         tasks = []
-        for files in file_lists:
-            tasks.append(pool.submit(process_files, self, files))
+        for filename in files:
+            tasks.append(pool.submit(process_files, self, [filename]))
 
         for task in track(
             tasks,
@@ -586,4 +604,4 @@ class ResolutionCalculator:
                 results = task.result()
                 self.merge(results)
             except Exception as exc:
-                LOGGER.error("Error during processing of filess: %s", exc)
+                LOGGER.exception("Error during processing of filess: %s", exc)
