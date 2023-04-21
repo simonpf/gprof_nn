@@ -771,8 +771,8 @@ class NetcdfLoader3D(GPROF_NN_3D_Dataset):
             sensor=sensor,
         )
         self.n_samples = len(self)
-        self.scalar_dimensions = ("samples",)
-        self.profile_dimensions = ("samples", "layers")
+        self.scalar_dimensions = ("samples", "scans", "pixels")
+        self.profile_dimensions = ("samples", "scans", "pixels", "layers")
         dimensions = {}
         for t in ALL_TARGETS:
             if t in PROFILE_NAMES:
