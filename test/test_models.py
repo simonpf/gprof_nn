@@ -54,7 +54,7 @@ def test_residual_mlp():
     network = ResidualMLP(39, 39, 39, 3, internal=True)
     x = torch.ones(1, 39)
     for p in network.parameters():
-        p[:] = 0.0
+        p.data[:] = 0.0
     y, acc = network(x, None)
     assert np.all(np.isclose(y.detach().numpy(), x.detach().numpy()))
 
@@ -73,13 +73,13 @@ def test_hyper_residual_mlp():
     network = HyperResidualMLP(39, 39, 39, 3, internal=True)
     x = torch.ones(1, 39)
     for p in network.parameters():
-        p[:] = 0.0
+        p.data[:] = 0.0
     y, acc = network(x, None)
     assert np.all(np.isclose(y.detach().numpy(), 3.0 * x.detach().numpy()))
     assert np.all(np.isclose(acc.detach().numpy(), 4.0 * x.detach().numpy()))
 
 
-def test_gprof_nn_0d():
+def test_gprof_nn_1d():
     """
     Tests for GPROFNN1D classes module with hyper-residual connections.
     """
@@ -108,7 +108,7 @@ def test_gprof_nn_0d():
     assert all([t in y for t in ALL_TARGETS])
 
 
-def test_gprof_nn_2d_gmi():
+def test_gprof_nn_3d_gmi():
     """
     Ensure that GPROF_NN_3D model is consistent with training data
     for GMI.
@@ -121,14 +121,14 @@ def test_gprof_nn_2d_gmi():
     assert all([t in y_pred for t in y])
 
 
-def test_gprof_nn_2d_mhs():
+def test_gprof_nn_3d_mhs():
     """
     Ensure that GPROF_NN_3D model is consistent with training data
     for MHS.
     """
     path = Path(__file__).parent
     input_file = DATA_PATH / "mhs" / "gprof_nn_mhs_era5.nc"
-    dataset = GPROF_NN_3D_Dataset(input_file)
+    dataset = GPROF_NN_3D_Dataset(input_file, sensor=sensors.MHS)
     network = GPROF_NN_3D_QRNN(sensors.MHS, 2, 128, 2, 64)
     x, y = dataset[0]
     y_pred = network.predict(x)
