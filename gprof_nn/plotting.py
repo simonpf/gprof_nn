@@ -40,6 +40,7 @@ def scale_bar(
         linewidth=3,
         height=0.01,
         border=0.05,
+        border_color="k",
         parts=4,
         zorder=50,
         textcolor="k"
@@ -113,7 +114,7 @@ def scale_bar(
             l_part,
             height,
             facecolor=color,
-            edgecolor="k",
+            edgecolor=border_color,
             transform=ax.transAxes,
             zorder=zorder
         )
@@ -186,7 +187,19 @@ def create_equidistant_area(lon_center, lat_center, extent=2e6, resolution=4e3):
     )
     return area
 
+
 def make_goes_background(time, area, filename, night=False):
+    """
+    Creates a GOES 16 RGB composite for the given area.
+
+    Args:
+        time: A 'datetime' object specifying the time for which to create
+            the background image.
+        area: A pyresample area definition defining the area.
+        filename: The file to which to store the backgroun image.
+        night: If 'True', the background image will be created from
+            the IR window channel.
+    """
     from pansat.products.satellite.goes import GOES16L1BRadiances
     from satpy import Scene
 
@@ -226,7 +239,7 @@ def add_surface(scene, area, background, z_scaling=10):
 
     z = np.linspace(0, 20, 41) * 1e3
     z = 0.5 * (z[1:] + z[:-1])
-    x, y, z = np.meshgrid(x, y, z, indexing="ij")
+    x, y, z = np.meshgrid(x, y, z)
     g = pv.StructuredGrid(
         x[:, :, :2],
         y[:, :, :2],
@@ -253,13 +266,17 @@ def add_hydrometeors(
 
     with xr.open_dataset(input_file) as data:
 
+        data = data.transpose("scans", "pixels", "layers")
+
         lats = data.latitude.data
         lons = data.longitude.data
         swath = SwathDefinition(lats=lats, lons=lons)
+        print(lats.shape)
 
         sp = data.surface_precip
         rwc = data.rain_water_content.data
         swc = data.snow_water_content.data
+
 
         n_layers = swc.shape[-1]
         if sigma is not None:
@@ -293,10 +310,8 @@ def add_hydrometeors(
         m = ScalarMappable(norm=norm, cmap="Reds")
         cm = lambda x: m.to_rgba(x)
         g.point_data["rwc"] = rwc_r[::-1].flatten(order="F")
-        rwc_levels = np.linspace(0, 1, 11)[1:]
-        colors = [to_hex(c) for c in m.to_rgba(rwc_levels)]
-        contours = g.contour(scalars="rwc", isosurfaces=rwc_levels)
-
+        levels = np.linspace(0, 1, 11)[1:]
+        colors = [to_hex(c) for c in m.to_rgba(levels)]
 
         scalar_bar_args = {
             "title": "RWC [g / m³]",
@@ -304,6 +319,7 @@ def add_hydrometeors(
             "position_y": 0.25,
             "vertical": True
         }
+        contours = g.contour(scalars="rwc", isosurfaces=levels)
         scene.add_mesh(
             contours,
             cmap=colors,
@@ -317,12 +333,11 @@ def add_hydrometeors(
         )
 
         g.point_data["swc"] = swc_r[::-1].flatten(order="F")
-        swc_levels = np.linspace(0, 1, 11)[1:]
         if opacity is None:
             opacity = "linear"
         m = ScalarMappable(norm=norm, cmap="Blues")
         cm = lambda x: m.to_rgba(x)
-        colors = [to_hex(c) for c in m.to_rgba(swc_levels)]
+        colors = [to_hex(c) for c in m.to_rgba(levels)]
 
         scalar_bar_args = {
             "title": "SWC [g / m³]",
@@ -330,7 +345,7 @@ def add_hydrometeors(
             "position_y": 0.25,
             "vertical": True
         }
-        contours = g.contour(scalars="swc", isosurfaces=swc_levels)
+        contours = g.contour(scalars="swc", isosurfaces=levels)
         scene.add_mesh(
             contours,
             cmap=colors,
@@ -346,27 +361,42 @@ def add_hydrometeors(
         x_l, y_l = area.get_xy_from_lonlat(lons[:, 0], lats[:, 0])
         x_r, y_r = area.get_xy_from_lonlat(lons[:, -1], lats[:, -1])
 
-        i_start, i_end = np.where((~x_l.mask) * (~y_l.mask))[0][[0, -1]]
-        x_l = x_l[i_start:i_end]
-        y_l = y_l[i_start:i_end]
+        masked = np.where((~x_l.mask) * (~y_l.mask))[0]
+        if len(masked) > 1:
+            i_start, i_end = masked[[0, -1]] 
+            x_l = x_l[i_start:i_end]
+            y_l = y_l[i_start:i_end]
 
-        i_start, i_end = np.where((~x_r.mask) * (~y_r.mask))[0][[0, -1]]
-        x_r = x_r[i_start:i_end]
-        y_r = y_r[i_start:i_end]
+            x = xyz[::-1, :, :, 0][y_l.data, x_l.data, 1]
+            y = xyz[::-1, :, :, 1][y_l.data, x_l.data, 1]
+            z = np.ones_like(x) * 1e3 * z_scaling
+            coords = np.stack([x, y, z], axis=-1)
+            line_l = pv.Spline(coords)
+            scene.add_mesh(line_l, color="k", line_width=2)
 
-        x = xyz[::-1, :, :, 0][y_l.data, x_l.data, 1]
-        y = xyz[::-1, :, :, 1][y_l.data, x_l.data, 1]
-        z = np.ones_like(x) * 1e3 * z_scaling
-        coords = np.stack([x, y, z], axis=-1)
-        line_l = pv.Spline(coords)
-        scene.add_mesh(line_l, color="k", line_width=2)
+            z = np.ones_like(x) * 15e3 * z_scaling
+            coords = np.stack([x, y, z], axis=-1)
+            line_l = pv.Spline(coords)
+            scene.add_mesh(line_l, color="k", line_width=2)
 
-        x = xyz[::-1, :, :, 0][y_r.data, x_r.data, 1]
-        y = xyz[::-1, :, :, 1][y_r.data, x_r.data, 1]
-        z = np.ones_like(x) * 1e3 * z_scaling
-        coords = np.stack([x, y, z], axis=-1)
-        line_r = pv.Spline(coords)
-        scene.add_mesh(line_r, color="k", line_width=2)
+        masked = np.where((~x_r.mask) * (~y_r.mask))[0]
+        if len(masked) > 1:
+            i_start, i_end = masked[[0, -1]]
+            x_r = x_r[i_start:i_end]
+            y_r = y_r[i_start:i_end]
+            x = xyz[::-1, :, :, 0][y_r.data, x_r.data, 1]
+            y = xyz[::-1, :, :, 1][y_r.data, x_r.data, 1]
+            z = np.ones_like(x) * 1e3 * z_scaling
+            coords = np.stack([x, y, z], axis=-1)
+            line_r = pv.Spline(coords)
+            scene.add_mesh(line_r, color="k", line_width=2)
+
+            z = np.ones_like(x) * 15e3 * z_scaling
+            coords = np.stack([x, y, z], axis=-1)
+            line_r = pv.Spline(coords)
+            scene.add_mesh(line_r, color="k", line_width=2)
+
+        return rwc_r, swc_r
 
 
 def add_swath_edges(
