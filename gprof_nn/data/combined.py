@@ -324,7 +324,7 @@ def smooth_field(field, kernel):
     field_m[field < -1000] = 0.0
     field_s = convolve(field_m, kernel, mode="same", method="direct")
 
-    mask = (field > -1000).astype(np.float)
+    mask = (field > -1000).astype(np.float32)
     weights = convolve(mask, kernel, mode="same", method="direct")
     field_s /= weights
     field_s[weights < 1e-6] = np.nan
