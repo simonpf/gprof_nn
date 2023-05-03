@@ -68,7 +68,7 @@ def add_parser(subparsers):
         help="The number of processes to use for the processing.",
     )
     parser.add_argument(
-        "--output_format",
+        "--format",
         metavar="netcdf/binary",
         type=str,
         default="binary",
@@ -159,7 +159,7 @@ def run(args):
         if path.is_dir():
             files = list(path.glob("**/*.HDF5"))
             input_files += files
-            if args.output_format.lower() == "netcdf":
+            if args.format.lower() == "netcdf":
                 suffix = "nc"
             else:
                 suffix = "pp"
