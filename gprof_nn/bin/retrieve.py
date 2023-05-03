@@ -244,7 +244,14 @@ def run(args):
     gradients = args.gradients
     n_procs = args.n_processes
     device = args.device
-    fmt = args.format
+    fmt = args.format.lower()
+    if fmt not in ["netcdf", "binary"]:
+        LOGGER.error(
+            "'format' argument must be one of 'netcdf' or 'binary'. Not '%s'.",
+            fmt
+        )
+        return 1
+
     if device.startswith("cuda"):
         mp.set_start_method("spawn")
 
@@ -267,15 +274,15 @@ def run(args):
             files += list(inp.glob("**/*.HDF5"))
             input_files += files
 
-            for f in files:
-                of = f.relative_to(inp)
-                if of.suffix in [".nc", ".HDF5"]:
-                    of = of.with_suffix(".nc")
-                elif of.suffix == ".gz":
-                    of = of.with_suffix("")
+            for input_file in files:
+                output_file = input_file.relative_to(inp)
+                if output_file.suffix == ".gz":
+                    output_file = output_file.with_suffix("")
+                if fmt == "netcdf":
+                    output_file = output_file.with_suffix(".nc")
                 else:
-                    of = of.with_suffix(".bin")
-                output_files.append(output / of)
+                    output_file = output_file.with_suffix(".bin")
+                output_files.append(output / output_file)
         else:
             input_files += [inp]
             output_files += [output]
