@@ -115,8 +115,8 @@ class L1CFile:
         data_path = Path(path) / f"{year:02}{month:02}" / f"{year:02}{month:02}{day:02}"
 
         files += list(data_path.glob(sensor.l1c_file_prefix + f"*{sensor.l1c_version}.HDF5"))
-
         files += list(path.glob(sensor.l1c_file_prefix + f"*{sensor.l1c_version}.HDF5"))
+        files = sorted(files)
 
         start_times = []
         end_times = []
@@ -512,25 +512,29 @@ class L1CFile:
             tbs = np.concatenate(tbs_r, axis=-1)
 
             n_scans = lats.shape[0]
-            times = np.zeros(n_scans, dtype="datetime64[ms]")
 
-            year = input[f"{swath}/ScanTime/Year"][indices]
-            month = input[f"{swath}/ScanTime/Month"][indices]
-            day_of_month = input[f"{swath}/ScanTime/DayOfMonth"][indices]
+            year = input[f"{swath}/ScanTime/Year"][indices] - 1970
+            month = input[f"{swath}/ScanTime/Month"][indices] - 1
+            day = input[f"{swath}/ScanTime/DayOfMonth"][indices] - 1
             hour = input[f"{swath}/ScanTime/Hour"][indices]
             minute = input[f"{swath}/ScanTime/Minute"][indices]
             second = input[f"{swath}/ScanTime/Second"][indices]
             milli_second = input[f"{swath}/ScanTime/MilliSecond"][indices]
-            for i in range(n_scans):
-                times[i] = datetime(
-                    year[i],
-                    month[i],
-                    day_of_month[i],
-                    hour[i],
-                    minute[i],
-                    second[i],
-                    milli_second[i] * 1000,
-                )
+
+            time = year.astype("datetime64[Y]").astype("datetime64[M]")
+            time += month.astype("timedelta64[M]")
+            time = time.astype("datetime64[D]")
+            time += day.astype("timedelta64[D]")
+            time = time.astype("datetime64[h]")
+            time += hour.astype("timedelta64[h]")
+            time = time.astype("datetime64[m]")
+            time += minute.astype("timedelta64[m]")
+            time = time.astype("datetime64[s]")
+            time += second.astype("timedelta64[s]")
+            time = time.astype("datetime64[ms]")
+            time += milli_second.astype("timedelta64[ms]")
+
+            times = time.astype("datetime64[ns]")
 
             dims = ("scans", "pixels")
             data = {
