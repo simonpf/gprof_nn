@@ -9,7 +9,6 @@ to GPM GMI observation and to transform them to other viewing
 """
 from abc import ABC, abstractmethod
 import numpy as np
-import scipy
 from scipy.ndimage import map_coordinates
 from scipy.interpolate import interp1d
 
@@ -132,37 +131,36 @@ class Swath(ViewingGeometry):
         """
         Map latlon coordinates of swath to 2D euclidean coordinates.
         """
-        m, n = lats.shape
-        lat_c = lats[m // 2, n // 2]
-        lon_c = lons[m // 2, n // 2]
+        n_scans, n_pixels = lats.shape
+        lat_c = lats[n_scans // 2, n_pixels // 2]
+        lon_c = lons[n_scans // 2, n_pixels // 2]
 
         xyz = latlon_to_ecef().transform(
-            lons[m // 2 : m // 2 + 2],
-            lats[m // 2 : m // 2 + 2],
+            lons[n_scans // 2 : n_scans // 2 + 2],
+            lats[n_scans // 2 : n_scans // 2 + 2],
             np.zeros((2, lats.shape[1]), dtype=np.float32),
             radians=False,
         )
         xyz = np.stack(xyz, axis=-1)
-        c = xyz[0, n // 2]
-        xyz = xyz - c
+        cntr = xyz[0, n_pixels // 2]
+        xyz = xyz - cntr
 
         # Unit vector in along-track direction.
-        d_a = xyz[1, n // 2]
-        d_a = d_a / np.sqrt(np.sum(d_a ** 2))
+        d_a = xyz[1, n_pixels // 2]
+        d_a = d_a / np.sqrt(np.sum(d_a**2))
 
         # Unit vector perpendicular to surface
         d_z = np.stack(latlon_to_ecef().transform(lon_c, lat_c, 1.0, radians=False))
-        d_z -= c
+        d_z -= cntr
 
         # Unit vector in across-track direction
         d_x = np.cross(d_a, d_z)
 
-        x = np.dot(xyz[0], d_x)
-        y = np.dot(xyz[0], d_a)
-
-        self.x = x
-        self.y = y
-        self.y_a = np.sqrt(np.sum(xyz[1, n // 2] ** 2))
+        proj_x = np.dot(xyz[0], d_x)
+        proj_y = np.dot(xyz[0], d_a)
+        self.x = proj_x
+        self.y = proj_y
+        self.y_a = np.sqrt(np.sum(xyz[1, n_pixels // 2] ** 2))
 
     def pixel_coordinates_to_euclidean(self, c_p):
         """
@@ -202,14 +200,14 @@ class Swath(ViewingGeometry):
         i = y / self.y_a
         return np.stack([i, j])
 
-    def get_window_center(self, p_x, width, height):
+    def get_window_center(self, p_x, width):
         """
         Calculate pixel positions of the center of a window with given width
         and height.
         """
         i = self.y.shape[0] // 2
         j = np.round((self.y.shape[1] - width) * p_x + width / 2)
-        return np.array([i, j]).reshape(2, 1, 1)
+        return np.array([i, j]).reshape((2, 1, 1))
 
 
 class Conical(ViewingGeometry):
@@ -244,6 +242,7 @@ class Conical(ViewingGeometry):
 
     @property
     def altitude(self):
+        """The altitude of the sensor."""
         return self._altitude
 
     @altitude.setter
@@ -269,13 +268,13 @@ class Conical(ViewingGeometry):
             Array of same shape as ``c_p`` with the along track coordinates in
             ``c_p[0]`` and the across track coordinates in ``c_p[1]``.
         """
-        R = self.scan_radius
+        r_s = self.scan_radius
         a_0 = np.floor(self.pixels_per_scan / 2)
-        a = (c_p[1] - a_0) / self.pixels_per_scan * self.scan_range
-        x = R * np.sin(np.deg2rad(a))
+        alpha = (c_p[1] - a_0) / self.pixels_per_scan * self.scan_range
+        x = r_s * np.sin(np.deg2rad(alpha))
 
         y = c_p[0] * self.scan_offset
-        dy = R * (1.0 - np.cos(np.deg2rad(a)))
+        dy = r_s * (1.0 - np.cos(np.deg2rad(alpha)))
         y = y - dy
 
         return np.stack([y, x])
@@ -294,25 +293,25 @@ class Conical(ViewingGeometry):
             ``c_p[0]`` and the column pixel coordinates in ``c_p[1]``.
         """
 
-        R = self.scan_radius
-        a = np.rad2deg(np.arcsin(c_x[1] / R))
-        j = a / self.scan_range * self.pixels_per_scan
+        r_s = self.scan_radius
+        alpha = np.rad2deg(np.arcsin(c_x[1] / r_s))
+        j = alpha / self.scan_range * self.pixels_per_scan
         a_0 = np.floor(self.pixels_per_scan / 2)
         j = j + a_0
 
-        y_offset = R * (1.0 - np.cos(np.deg2rad(a)))
+        y_offset = r_s * (1.0 - np.cos(np.deg2rad(alpha)))
         i = (c_x[0] + y_offset) / self.scan_offset
 
         return np.stack([i, j])
 
-    def get_window_center(self, p_x, width, height):
+    def get_window_center(self, p_x, width):
         """
         Calculate pixel positions of the center of a window with given width
         and height.
         """
         i = SCANS_PER_SAMPLE // 2
         j = np.round((self.pixels_per_scan - width) * p_x + width / 2)
-        return np.array([i, j]).reshape(2, 1, 1)
+        return np.array([i, j]).reshape((2, 1, 1))
 
 
 class CrossTrack(ViewingGeometry):
@@ -384,16 +383,24 @@ class CrossTrack(ViewingGeometry):
         i = c_x[0] / self.scan_offset
         return np.stack([i, j])
 
-    def get_window_center(self, p_x, width, height):
+    def get_window_center(self, p_x, width):
         """
         Calculate pixel positions of the center of a window with given width
         and height.
+
+        Args:
+            p_x: Fration specifying the position of the window across the
+                swath. 'p_x = 0' corresponds to the left-most possible
+                position, while 'p_x = 1.0' to the right-most possible
+                position.
+            width: The width of the swath.
         """
         i = SCANS_PER_SAMPLE // 2
         j = np.round((self.pixels_per_scan - width) * p_x + width / 2)
-        return np.array([i, j]).reshape(2, 1, 1)
+        return np.array([i, j]).reshape((2, 1, 1))
 
     def get_interpolation_weights(self, earth_incidence_angles):
+        """ """
         # Reverse angle so they are in ascending order.
         sin_ang = (
             R_EARTH
@@ -458,7 +465,9 @@ class CrossTrack(ViewingGeometry):
             * np.sin(np.pi - np.deg2rad(earth_incidence_angles))
         )
         beta = np.arcsin(sin_ang)
-        beta = np.clip(beta, np.deg2rad(-self.scan_range / 2), np.deg2rad(self.scan_range / 2))
+        beta = np.clip(
+            beta, np.deg2rad(-self.scan_range / 2), np.deg2rad(self.scan_range / 2)
+        )
 
         c = (R_EARTH + self.altitude) / R_EARTH
         dg_db = c * np.cos(beta) / np.sqrt(1 - (c * np.sin(beta)) ** 2)
@@ -478,7 +487,9 @@ class CrossTrack(ViewingGeometry):
             * np.sin(np.pi - np.deg2rad(earth_incidence_angle))
         )
         beta = np.arcsin(sin_ang)
-        beta = np.clip(beta, np.deg2rad(-self.scan_range / 2), np.deg2rad(self.scan_range / 2))
+        beta = np.clip(
+            beta, np.deg2rad(-self.scan_range / 2), np.deg2rad(self.scan_range / 2)
+        )
 
         gamma = np.deg2rad(earth_incidence_angle) - beta
         pi_m_eia = np.pi - np.deg2rad(earth_incidence_angle)
@@ -514,9 +525,9 @@ def get_center_pixel_input(x, width):
     Returns pixel coordinate of the center of a window of given with
     that covers the swath center of GMI observations.
     """
-    l = 110 - width // 2
-    r = 110 + width // 2
-    return int(np.round(l + (r - l) * x))
+    left = 110 - width // 2
+    right = 110 + width // 2
+    return int(np.round(left + (right - left) * x))
 
 
 def get_transformation_coordinates(
@@ -551,7 +562,7 @@ def get_transformation_coordinates(
         define the reprojection of the input data with respect to the scene
         coordinates.
     """
-    center_out = viewing_geometry.get_window_center(x_o, width, height)
+    center_out = viewing_geometry.get_window_center(x_o, width)
     d_i = np.arange(height) - np.floor(height / 2.0)
     d_j = np.arange(width) - np.floor(width / 2.0)
     coords_pixel_out = center_out + np.meshgrid(d_i, d_j, indexing="ij")
@@ -568,7 +579,6 @@ def get_transformation_coordinates(
         coords_rel_out + coords_center_in
     )
     coords_pixel_in = np.nan_to_num(coords_pixel_in, nan=-1)
-    c = coords_rel_out + coords_center_in
 
     y_min = coords_pixel_in[0].min()
     y_max = SCANS_PER_SAMPLE - coords_pixel_in[0].max() - 1
