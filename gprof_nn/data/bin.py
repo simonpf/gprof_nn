@@ -68,7 +68,7 @@ class BinFile:
         elif len(parts) == 5:
             self.airmass_type = int(parts[-2])
         else:
-            raise Exception(f"Filename {filename} does not match expected format!")
+            raise ValueError(f"Filename {filename} does not match expected format!")
 
         # Read the header
         header = np.fromfile(self.filename, GENERIC_HEADER, count=1)
@@ -143,7 +143,7 @@ class BinFile:
             dim_dict[self.sensor.n_angles] = "angles"
 
         record_type = self.sensor.get_bin_file_record(self.surface_type)
-        for key, _, *shape in record_type.descr:
+        for key, _, *_ in record_type.descr:
             if key == "scan_time":
                 data = self.handle[key]
                 date = pd.DataFrame(
@@ -159,8 +159,7 @@ class BinFile:
                 results[key] = (("samples",), pd.to_datetime(date, errors="coerce"))
             else:
                 data = self.handle[key]
-                if key in ["brightness_temperatures",
-                           "delta_tb"]:
+                if key in ["brightness_temperatures", "delta_tb"]:
                     if isinstance(self.sensor, sensors.ConstellationScanner):
                         data = data[..., self.sensor.gmi_channels]
                 dims = ("samples",)
@@ -186,7 +185,10 @@ class BinFile:
             source * np.ones(n_samples, dtype=np.int32),
         )
 
-        results["tcwv_bin"] = (("samples"), self.tcwv * np.ones(n_samples, dtype=np.float32))
+        results["tcwv_bin"] = (
+            ("samples"),
+            self.tcwv * np.ones(n_samples, dtype=np.float32),
+        )
         results["temperature"] = (
             ("samples",),
             self.temperature * np.ones(n_samples, np.float32),
@@ -267,9 +269,9 @@ class FileProcessor:
                 groups = match.groups()
                 t2m = float(groups[0])
                 tcwv = float(groups[1])
-                if (t2m < t2m_min or t2m > t2m_max):
+                if t2m < t2m_min or t2m > t2m_max:
                     continue
-                if (tcwv < tcwv_min or tcwv > tcwv_max):
+                if tcwv < tcwv_min or tcwv > tcwv_max:
                     continue
                 self.files.append(input_file)
 
