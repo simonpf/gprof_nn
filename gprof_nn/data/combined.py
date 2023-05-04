@@ -18,7 +18,6 @@ import numpy as np
 import pandas as pd
 from pyresample import geometry, kd_tree
 from rich.progress import Progress
-import scipy
 from scipy.signal import convolve
 import xarray as xr
 
@@ -46,7 +45,7 @@ BIN_DIMENSIONS = {
     "channels": 13,
     "top_bottom": 2,
     "indices": 2,
-    "date": 6
+    "date": 6,
 }
 
 # Types of the variables of the combined data in .bin
@@ -101,13 +100,12 @@ def load_combined_data_bin(filename):
 
     # Decompress file if compressed.
     if filename.suffix == ".gz":
-        with TemporaryDirectory() as tmp:
-            data = io.BytesIO()
-            args = ["gunzip", "-c", str(filename)]
-            with subprocess.Popen(args, stdout=subprocess.PIPE) as proc:
-                data.write(proc.stdout.read())
-            data.seek(0)
-            data = data.read()
+        data = io.BytesIO()
+        args = ["gunzip", "-c", str(filename)]
+        with subprocess.Popen(args, stdout=subprocess.PIPE) as proc:
+            data.write(proc.stdout.read())
+        data.seek(0)
+        data = data.read()
     else:
         data = open(filename, "rb").read()
 
@@ -131,11 +129,7 @@ def load_combined_data_bin(filename):
 
 
 def load_combined_data_special(
-        filename,
-        smooth=False,
-        profiles=True,
-        slh_path=None,
-        roi=None
+    filename, smooth=False, profiles=True, slh_path=None, roi=None
 ):
     """
     Load data from specal combined run for generation of GPROF database.
@@ -156,17 +150,17 @@ def load_combined_data_special(
         An xarray.Dataset containing the data from the file.
     """
     from h5py import File
+
     filename = Path(filename)
 
     # Decompress file if compressed.
     if filename.suffix == ".gz":
-        with TemporaryDirectory() as tmp:
-            data = io.BytesIO()
-            args = ["gunzip", "-c", str(filename)]
-            with subprocess.Popen(args, stdout=subprocess.PIPE) as proc:
-                data.write(proc.stdout.read())
-            data.seek(0)
-            data = File(data, "r")
+        data = io.BytesIO()
+        args = ["gunzip", "-c", str(filename)]
+        with subprocess.Popen(args, stdout=subprocess.PIPE) as proc:
+            data.write(proc.stdout.read())
+        data.seek(0)
+        data = File(data, "r")
     else:
         data = File(filename, "r")
 
@@ -235,15 +229,19 @@ def load_combined_data_special(
             minute = data["ScanTime/Minute"][0]
 
             path = (
-                Path(slh_path) /
-                f"{year % 2000:02}{month:02}" /
-                f"{year % 2000:02}{month:02}{day:02}"
+                Path(slh_path)
+                / f"{year % 2000:02}{month:02}"
+                / f"{year % 2000:02}{month:02}{day:02}"
             )
             files = list(path.glob(f"*S{hour:02}{minute:02}*.HDF5"))
             if len(files) == 0:
                 LOGGER.warning(
                     "Did not find SLH file for start time %s-%s-%s %s:%s",
-                    year, month, day, hour, minute
+                    year,
+                    month,
+                    day,
+                    hour,
+                    minute,
                 )
                 slh = np.zeros_like(liquid_water)
                 slh[:] = np.nan
@@ -257,8 +255,7 @@ def load_combined_data_special(
         # Fill to surface
         dataset = dataset.bfill("levels")
         dataset = 0.5 * (
-            dataset[{"levels": slice(0, 80, 2)}] +
-            dataset[{"levels": slice(1, 80, 2)}]
+            dataset[{"levels": slice(0, 80, 2)}] + dataset[{"levels": slice(1, 80, 2)}]
         )
 
         if smooth:
@@ -266,7 +263,7 @@ def load_combined_data_special(
                 "rain_water_content",
                 "snow_water_content",
                 "cloud_water_content",
-                "latent_heat"
+                "latent_heat",
             ]
             for var in profile_names:
                 if var in dataset:
@@ -300,7 +297,7 @@ def calculate_smoothing_kernels(fwhm_a, fwhm_x):
     x_a = np.arange(-n_a, n_a + 1).reshape(-1, 1) * d_a
     x_x = np.arange(-n_x, n_x + 1).reshape(1, -1) * d_x
     radius = np.sqrt((2.0 * x_a / fwhm_a) ** 2 + (2.0 * x_x / fwhm_x) ** 2)
-    kernel = np.exp(np.log(0.5) * radius ** 2)
+    kernel = np.exp(np.log(0.5) * radius**2)
     kernel /= kernel.sum()
     return kernel
 
@@ -335,6 +332,7 @@ class GPMCMBFile:
     """
     Class to read in GPM combined data.
     """
+
     @staticmethod
     def find_file(path, granule, date=None):
         """
@@ -354,9 +352,11 @@ class GPMCMBFile:
             year = date.year
             month = date.month
             day = date.day
-            pattern = (f"{(year - 2000):02}{month:02}" +
-                       f"/{(year - 2000):02}{month:02}{day:02}/" +
-                       pattern)
+            pattern = (
+                f"{(year - 2000):02}{month:02}"
+                + f"/{(year - 2000):02}{month:02}{day:02}/"
+                + pattern
+            )
         else:
             pattern = "**/" + pattern
 
@@ -388,14 +388,7 @@ class GPMCMBFile:
             self.start_time = datetime.strptime(time[:-8], "%Y%m%d-S%H%M%S")
             self.granule = int(granule)
 
-
-    def to_xarray_dataset(
-            self,
-            smooth=False,
-            profiles=False,
-            roi=None,
-            slh_path=None
-    ):
+    def to_xarray_dataset(self, smooth=False, profiles=False, roi=None, slh_path=None):
         """
         Load data in file into 'xarray.Dataset'.
 
@@ -415,19 +408,20 @@ class GPMCMBFile:
         if self.format == "BIN":
             data = load_combined_data_bin(self.filename)
             return data
-        elif self.format == "ITE768":
+
+        if self.format == "ITE768":
             data = load_combined_data_special(
                 self.filename,
                 smooth=smooth,
                 profiles=profiles,
                 slh_path=slh_path,
-                roi=roi
+                roi=roi,
             )
             return data
 
         from h5py import File
-        with File(str(self.filename), "r") as data:
 
+        with File(str(self.filename), "r") as data:
             try:
                 data = data["KuKaGMI"]
                 sp_var = "estimSurfPrecipTotRate"
@@ -505,7 +499,6 @@ class GPMCMBFile:
                 )
             return xr.Dataset(dataset)
 
-
     def match_targets(self, input_data, targets=None, slh_path=None):
         """
         Match retrieval targets from combined file to points in
@@ -522,8 +515,6 @@ class GPMCMBFile:
         if targets is None:
             targets = ALL_TARGETS
 
-        n_scans = input_data.scans.size
-        n_pixels = 221
         w_c = 40
         i_c = 110
         ix_start = i_c - w_c // 2
@@ -561,23 +552,23 @@ class GPMCMBFile:
         input_grid = geometry.SwathDefinition(lats=lats, lons=lons)
         output_grid = geometry.SwathDefinition(lats=lats3, lons=lons3)
         resampling_info = kd_tree.get_neighbour_info(
-            input_grid,
-            output_grid,
-            4.0e3,
-            neighbours=1
+            input_grid, output_grid, 4.0e3, neighbours=1
         )
-        valid_inputs, valid_outputs, indices, distances = resampling_info
+        valid_inputs, valid_outputs, indices, _ = resampling_info
 
         # Extract matching data
         for target in targets:
-
             if not target in data:
                 continue
 
             resampled = kd_tree.get_sample_from_neighbour_info(
-                'nn', output_grid.shape, data[target].data,
-                valid_inputs, valid_outputs, indices,
-                fill_value=np.nan
+                "nn",
+                output_grid.shape,
+                data[target].data,
+                valid_inputs,
+                valid_outputs,
+                indices,
+                fill_value=np.nan,
             )
 
             if target in PROFILE_NAMES:
@@ -605,6 +596,7 @@ class GPMLHFile:
     """
     Class to read in DPR spectral latent heating files.
     """
+
     def __init__(self, filename):
         """
         Create GPMCMB object to read a given file.
@@ -706,10 +698,12 @@ def _extract_scenes(data):
 
     scenes = []
     while i_start + n < i_end:
-        subscene = data[{
-            "scans": slice(i_start, i_start + n),
-            "scans_3": slice(3 * i_start, 3 * (i_start + n))
-        }]
+        subscene = data[
+            {
+                "scans": slice(i_start, i_start + n),
+                "scans_3": slice(3 * i_start, 3 * (i_start + n)),
+            }
+        ]
         surface_precip = subscene["surface_precip"].data
         if np.isfinite(surface_precip).sum() > 50:
             scenes.append(subscene)
@@ -722,11 +716,7 @@ def _extract_scenes(data):
     return None
 
 
-def process_l1c_file(
-        l1c_filename,
-        cmb_path,
-        slh_path,
-        log_queue=None):
+def process_l1c_file(l1c_filename, cmb_path, slh_path, log_queue=None):
     """
     Match L1C files with ERA5 surface and convective precipitation for
     sea-ice and sea-ice-edge surfaces.
@@ -737,7 +727,6 @@ def process_l1c_file(
             L1C files.
         era5_path: Root of the directory tree containing the ERA5 data.
     """
-    import gprof_nn.logging
     if log_queue is not None:
         gprof_nn.logging.configure_queue_logging(log_queue)
     LOGGER.info("Starting processing L1C file %s.", l1c_filename)
@@ -762,12 +751,12 @@ class CombinedFileProcessor:
     """
 
     def __init__(
-            self,
-            output_file,
-            combined_path,
-            slh_path,
-            n_workers=4,
-            day=None,
+        self,
+        output_file,
+        combined_path,
+        slh_path,
+        n_workers=4,
+        day=None,
     ):
         """
         Create retrieval driver.
@@ -804,11 +793,7 @@ class CombinedFileProcessor:
         for year, month in DATABASE_MONTHS:
             try:
                 date = datetime(year, month, self.day)
-                l1c_files += L1CFile.find_files(
-                    date,
-                    l1c_file_path,
-                    sensor=sensors.GMI
-                )
+                l1c_files += L1CFile.find_files(date, l1c_file_path, sensor=sensors.GMI)
             except ValueError:
                 pass
 
@@ -894,7 +879,7 @@ class CombinedFileProcessor:
         if len(datasets) > 0:
             dataset = xr.concat(datasets, "samples")
             filename = output_path / (output_file + f"_{chunk:02}.nc")
-            dataset.attrs["sensor"] =  sensors.GMI.name
+            dataset.attrs["sensor"] = sensors.GMI.name
             LOGGER.info("Writing file: %s", filename)
             dataset.to_netcdf(filename)
             subprocess.run(["lz4", "-f", "--rm", filename], check=True)
