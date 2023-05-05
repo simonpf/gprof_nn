@@ -69,8 +69,8 @@ def test_swath_geometry():
 
     xy = swath.pixel_coordinates_to_euclidean(ij)
     ij_r = swath.euclidean_to_pixel_coordinates(xy)
-    assert np.all(np.isclose(ij, ij_r))
 
+    assert np.all(np.isclose(ij, ij_r))
 
 
 def test_interpolation_weights():
@@ -110,4 +110,4 @@ def test_transformation_coordinates():
         lats, lons, geometry, 64,
         64, 0.5, 0.5, 0.5
     )
-    assert np.all(np.isclose(c[1, 0, :], np.arange(110 - 32, 110 + 32), atol=2.0))
+    assert np.all(np.isclose(c[1, 32, :], np.arange(110 - 32, 110 + 32), atol=2.0))

@@ -117,7 +117,7 @@ def get_mask(v, v_min, v_max):
         Bool array of same shape as v containing 'True' where the values
         of 'v' are within the range ``[v_min, v_max]``.
     """
-    mask = np.ones(v.shape, dtype=np.bool)
+    mask = np.ones(v.shape, dtype=bool)
     if v_min is not None:
         mask = mask * (v >= v_min)
     if v_max is not None:

@@ -4,6 +4,7 @@ Tests for the 'gprof_nn.data.combined' module.
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 from gprof_nn.data import get_test_data_path
 from gprof_nn.data.combined import (
@@ -23,7 +24,7 @@ def test_read_gpm_cmb_file():
     path = DATA_PATH / "cmb"
     filename = (
         path /
-        "2B.GPM.DPRGMI.CORRA2018.20210829-S205206-E222439.042628.V06A.HDF5"
+        "2B.GPM.DPRGMI.CORRA2022.20210829-S205206-E222439.042628.V07A.HDF5"
     )
     data = GPMCMBFile(filename).to_xarray_dataset()
     assert "latitude" in data.variables
@@ -35,16 +36,18 @@ def test_read_gpm_cmb_file_smoothed():
     """
     Test reading of GPM combined file with smoothing of surface precip data.
     """
-    path = Path(__file__).parent
+    path = DATA_PATH / "cmb"
     filename = (
-        path / "data" / "cmb" /
-        "2B.GPM.DPRGMI.CORRA2018.20210829-S205206-E222439.042628.V06A.HDF5"
+        path /
+        "2B.GPM.DPRGMI.CORRA2022.20210829-S205206-E222439.042628.V07A.HDF5"
     )
     data = GPMCMBFile(filename).to_xarray_dataset(smooth=True)
     assert "latitude" in data.variables
     assert "longitude" in data.variables
     assert "surface_precip" in data.variables
 
+
+@pytest.mark.slow
 def test_read_gpm_cmb_file_profiles_smoothed():
     """
     Test reading of GPM combined file with profiles and smoothing.
@@ -52,7 +55,7 @@ def test_read_gpm_cmb_file_profiles_smoothed():
     path = DATA_PATH / "cmb"
     filename = (
         path /
-        "2B.GPM.DPRGMI.CORRA2018.20210829-S205206-E222439.042628.V06A.HDF5"
+        "2B.GPM.DPRGMI.CORRA2022.20210829-S205206-E222439.042628.V07A.HDF5"
     )
     data = GPMCMBFile(filename).to_xarray_dataset(profiles=True, smooth=True)
     assert "latitude" in data.variables

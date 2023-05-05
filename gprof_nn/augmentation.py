@@ -12,6 +12,8 @@ import numpy as np
 from scipy.ndimage import map_coordinates
 from scipy.interpolate import interp1d
 
+from gprof_nn.coordinates import get_latlon_to_ecef_transformer
+
 M = 128
 N = 96
 
@@ -150,7 +152,9 @@ class Swath(ViewingGeometry):
         d_a = d_a / np.sqrt(np.sum(d_a**2))
 
         # Unit vector perpendicular to surface
-        d_z = np.stack(latlon_to_ecef().transform(lon_c, lat_c, 1.0, radians=False))
+        d_z = np.stack(
+            latlon_to_ecef().transform(lon_c, lat_c, 1.0, radians=False)
+        )
         d_z -= cntr
 
         # Unit vector in across-track direction
@@ -567,7 +571,9 @@ def get_transformation_coordinates(
     d_j = np.arange(width) - np.floor(width / 2.0)
     coords_pixel_out = center_out + np.meshgrid(d_i, d_j, indexing="ij")
     coords_eucl_out = viewing_geometry.pixel_coordinates_to_euclidean(coords_pixel_out)
+
     offset = coords_eucl_out[:, height // 2, width // 2]
+
     coords_rel_out = coords_eucl_out - offset[:, np.newaxis, np.newaxis]
 
     center_in = center_out.copy()
