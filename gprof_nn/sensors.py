@@ -1764,7 +1764,7 @@ class CrossTrackScanner(Sensor):
         vs = ["simulated_brightness_temperatures", "brightness_temperature_biases"]
         scene = remap_scene(scene, coords, targets + vs)
 
-        center = self.viewing_geometry.get_window_center(p_x_o, width, height)
+        center = self.viewing_geometry.get_window_center(p_x_o, width)
         j_start = int(center[1, 0, 0] - width // 2)
         j_end = int(center[1, 0, 0] + width // 2)
         eia = self.viewing_geometry.get_earth_incidence_angles()

@@ -21,16 +21,20 @@ def get_latlon_to_ecef_transformer():
     if LATLON_TO_ECEF_TRANSFORMER is None:
         try:
             from pyproj import Transformer
+            LATLON_TO_ECEF_TRANSFORMER = Transformer.from_crs(
+                {"proj": "latlong", "ellps": "WGS84", "datum": "WGS84"},
+                {"proj": "geocent", "ellps": "WGS84", "datum": "WGS84"},
+            )
+            LATLON_TO_ECEF_TRANSFORMER = Transformer.from_crs("epsg:4379", "epsg:4978")
 
-            LATLON_TO_ECEF_TRANSFORMER = Transformer.from_crs("epsg:4326", "epsg:4978")
         except:
+            LATLON_TO_ECEF_TRANSFORMER = None
             raise ModuleNotFoundError(
                 """
                 This functionality of the 'gprof_nn' package requires the 'pyproj'
                 package to be installed on your system.
                 """
             )
-            LATLON_TO_ECEF_TRANSFORMER = None
 
     return LATLON_TO_ECEF_TRANSFORMER
 
@@ -56,7 +60,6 @@ def latlon_to_ecef(longitudes, latitudes, altitudes=None):
     """
     longitudes = np.array(longitudes)
     latitudes = np.array(latitudes)
-
 
     if altitudes is None:
         altitudes = np.zeros(latitudes.shape)
