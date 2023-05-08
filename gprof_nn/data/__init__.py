@@ -6,6 +6,8 @@ gprof_nn.data
 The ``gprof_nn.data`` module collects interfaces to read different GPM-related
 data formats.
 """
+import logging
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -13,9 +15,19 @@ import urllib
 
 from appdirs import user_config_dir
 
-_DATA_DIR = Path(user_config_dir("gprof_nn", "gprof_nn"))
-if not _DATA_DIR.exists():
-    _DATA_DIR.mkdir(parents=True)
+import gprof_nn.logging
+
+
+LOGGER = logging.getLogger(__name__)
+
+
+_DATA_DIR = os.environ.get("GPROF_NN_DATA_PATH")
+if _DATA_DIR is None:
+    _DATA_DIR = Path(user_config_dir("gprof_nn", "gprof_nn"))
+    if not _DATA_DIR.exists():
+        _DATA_DIR.mkdir(parents=True)
+else:
+    _DATA_DIR = Path(_DATA_DIR)
 
 _MODEL_DIR = _DATA_DIR / "models"
 if not _MODEL_DIR.exists():
