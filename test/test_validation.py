@@ -49,13 +49,13 @@ def test_unify_grid():
     close to 5km.
     """
     l1c_file = DATA_PATH / "gmi" / "l1c" / (
-        "1C-R.GPM.GMI.XCAL2016-C.20190101-S001447-E014719.027510.V05A.HDF5"
+        "1C-R.GPM.GMI.XCAL2016-C.20190101-S001447-E014719.027510.V07A.HDF5"
     )
     l1c_data = L1CFile(l1c_file).to_xarray_dataset()
     lats = l1c_data.latitude.data
     lons = l1c_data.longitude.data
 
-    lats_5, lons_5 = unify_grid(lats, lons)
+    lats_5, lons_5 = unify_grid(lats, lons, sensors.GMI)
 
     # Along track distance.
     d = great_circle_distance(
