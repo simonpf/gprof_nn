@@ -52,6 +52,7 @@ def test_open_sim_file_mhs():
     """
     Tests reading simulator output file for MHS.
     """
+    #DATA_PATH = Path(__file__).parent / "data"
     input_file = DATA_PATH / "mhs" / "sim" / "MHS.dbsatTb.20190101.027510.sim"
     sim_file = SimFile(input_file)
     data = sim_file.to_xarray_dataset()
@@ -630,11 +631,10 @@ def test_process_mrms_file_gmi():
 
 @pytest.mark.skipif(not HAS_ARCHIVES, reason="Data archives not available.")
 def test_process_l1c_file_gmi():
-    l1c_file = (Path(__file__).parent /
-                "data" /
+    l1c_file = (DATA_PATH /
                 "gmi" /
                 "l1c" /
-                "1C-R.GPM.GMI.XCAL2016-C.20190101-S001447-E014719.027510.V05A.HDF5")
+                "1C-R.GPM.GMI.XCAL2016-C.20190101-S001447-E014719.027510.V07A.HDF5")
     era5_path = "/qdata2/archive/ERA5/"
     data = process_l1c_file(l1c_file, sensors.GMI, "ERA5", era5_path)
 
@@ -679,7 +679,7 @@ def test_process_mrms_file_mhs():
     """
     mrms_file = DATA_PATH / "mhs" / "mrms" / "1810_MRMS2MHS_DB1_01.bin.gz"
     era5_path = "/qdata2/archive/ERA5/"
-    data = process_mrms_file(sensors.MHS, mrms_file, "ERA5", 23)
+    data = process_mrms_file(sensors.MHS, mrms_file, "ERA5", 24)
     assert data is not None
     assert data.pixels.size == 221
     assert np.all(data["source"].data == 1)
@@ -701,7 +701,7 @@ def test_process_l1c_file_mhs():
         DATA_PATH /
         "mhs" /
         "l1c" /
-        "1C.NOAA19.MHS.XCAL2016-V.20190101-S013203-E031403.051010.V05A.HDF5"
+        "1C.NOAA19.MHS.XCAL2016-V.20190101-S013203-E031403.051010.ITE753.HDF5"
     )
     era5_path = "/qdata2/archive/ERA5/"
     data = process_l1c_file(l1c_file, sensors.MHS, "ERA5", era5_path)
@@ -837,7 +837,7 @@ def test_process_l1c_file_ssmi():
         DATA_PATH /
         "ssmi" /
         "l1c" /
-        "1C.F13.SSMI.XCAL2018-V.20030101-S000800-E014950.040106.V06A.HDF5"
+        "1C.F13.SSMI.XCAL2018-V.20030101-S000800-E014950.040106.ITE753.HDF5"
     )
     era5_path = "/qdata2/archive/ERA5/"
     data = process_l1c_file(l1c_file, sensors.SSMI, "ERA5", era5_path)
@@ -925,6 +925,7 @@ def test_process_l1c_file_ssmis():
     assert np.all(tbs[valid] < 500)
 
 
+@pytest.mark.skip(reason="L1C files not available.")
 @pytest.mark.skipif(not HAS_ARCHIVES, reason="Data archives not available.")
 def test_process_sim_file_amsr2_era5():
     DATA_PATH = Path(__file__).parent / "data"
@@ -942,6 +943,7 @@ def test_process_sim_file_amsr2_era5():
     assert np.all(np.isnan(sp[snow]))
 
 
+@pytest.mark.skip(reason="L1C files not available.")
 @pytest.mark.skipif(not HAS_ARCHIVES, reason="Data archives not available.")
 def test_process_mrms_file_amsr2():
     """
@@ -994,7 +996,7 @@ def test_process_sim_file_amsre_era5():
     sim_file = DATA_PATH / "amsre" / "sim" / "AMSRE.dbsatTb.20181001.026079.sim"
     era5_path = "/qdata2/archive/ERA5/"
     data = process_sim_file(sim_file,
-                            AMSRE.mrms_sensor,
+                            sensors.AMSRE.mrms_sensor,
                             "ERA5",
                             era5_path)
 
@@ -1005,6 +1007,7 @@ def test_process_sim_file_amsre_era5():
     assert np.all(np.isnan(sp[snow]))
 
 
+@pytest.mark.skip(reason="L1C files not available.")
 @pytest.mark.skipif(not HAS_ARCHIVES, reason="Data archives not available.")
 def test_process_mrms_file_amsre():
     """
@@ -1019,6 +1022,7 @@ def test_process_mrms_file_amsre():
     assert np.all(data["source"].data == 1)
 
 
+@pytest.mark.skip(reason="L1C files not available.")
 @pytest.mark.skipif(not HAS_ARCHIVES, reason="Data archives not available.")
 def test_process_l1c_file_amsre():
     l1c_file = (
@@ -1029,7 +1033,7 @@ def test_process_l1c_file_amsre():
         "1C.AQUA.AMSRE.XCAL2017-V.20090301-S004323-E022215.036302.V05A.HDF5"
     )
     era5_path = "/qdata2/archive/ERA5/"
-    data = process_l1c_file(l1c_file, sensors.AMSR2, "ERA5", era5_path)
+    data = process_l1c_file(l1c_file, sensors.AMSRE, "ERA5", era5_path)
 
     assert np.all(data["source"].data == 2)
 
@@ -1051,6 +1055,7 @@ def test_process_l1c_file_amsre():
     assert np.all(tbs[valid] < 500)
 
 
+@pytest.mark.skip(reason="L1C files not available.")
 @pytest.mark.skipif(not HAS_ARCHIVES, reason="Data archives not available.")
 def test_process_sim_file_atms_era5():
     DATA_PATH = Path(__file__).parent / "data"

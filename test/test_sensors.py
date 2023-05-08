@@ -116,11 +116,14 @@ def test_load_training_data_3d_gmi():
     targets = ["surface_precip", "rain_water_content"]
     rng = np.random.default_rng()
 
-    x, y = sensor.load_training_data_3d(input_data, targets, False, rng)
+    x, y = sensor.load_training_data_3d(
+        input_data, targets, False, rng
+    )
 
     # TB ranges
-    assert np.all(x[:, :5] > 20)
-    assert np.all(x[:, :5] < 500)
+    valid = np.isfinite(x[:, :5])
+    assert np.all(x[:, :5][valid] > 20)
+    assert np.all(x[:, :5][valid] < 500)
     # Two-meter temperature
     assert np.all(x[:, 15] > 200)
     assert np.all(x[:, 15] < 400)

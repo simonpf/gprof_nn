@@ -221,7 +221,10 @@ def test_retrieval_hr_tiled(tmp_path):
     Ensure that running the 3D tiled retrieval yields the expected
     output dimensions.
     """
-    input_file = DATA_PATH / "gmi" / "l1c" / "1C-R.GPM.GMI.XCAL2016-C.20190101-S001447-E014719.027510.V05A.HDF5"
+    input_file = (
+        DATA_PATH / "gmi" / "l1c" /
+        "1C-R.GPM.GMI.XCAL2016-C.20190101-S001447-E014719.027510.V07A.HDF5"
+    )
 
     model_path = get_model_path("HR", sensors.GMI, "ERA5")
     qrnn = QRNN.load(model_path)
