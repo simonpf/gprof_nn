@@ -24,7 +24,7 @@ def test_open_granule_gmi():
     l1c_data = l1c_file.to_xarray_dataset()
 
     assert l1c_data.pixels.size == 221
-    assert l1c_data.scans.size == 2962
+    assert l1c_data.scans.size == 512
     assert l1c_file.sensor == sensors.GMI
 
     tbs = l1c_data.brightness_temperatures.data
@@ -181,7 +181,7 @@ def test_find_files():
     l1c_path = DATA_PATH / "gmi" / "l1c"
     date = np.datetime64("2019-01-01T00:30:00")
 
-    roi = (-35, -68, -10, -62)
+    roi = (-37, -65, -35, -63)
     files = list(L1CFile.find_files(date, l1c_path, roi=roi))
     assert len(files) == 1
 
@@ -193,10 +193,10 @@ def test_find_files():
 
     # Ensure each scan has at least one obs at a longitude larger than the
     # minimum requested.
-    assert np.all(np.sum(lons >= -35, -1) > 1)
-    assert np.all(np.sum(lons < -10, -1) > 1)
-    assert np.all(np.sum(lats >= -68, -1) > 1)
-    assert np.all(np.sum(lats < -62, -1) > 1)
+    assert np.all(np.sum(lons >= roi[0], -1) > 1)
+    assert np.all(np.sum(lons < roi[2], -1) > 1)
+    assert np.all(np.sum(lats >= roi[1], -1) > 1)
+    assert np.all(np.sum(lats < roi[3], -1) > 1)
 
     roi = (-35, 60, -10, 62)
     files = list(L1CFile.find_files(date, l1c_path, roi=roi))

@@ -71,7 +71,7 @@ def test_run_gprof_training_data_preserve_structure():
     assert "surface_precip" in results.variables
     assert "surface_precip_true" in results.variables
 
-
+@pytest.mark.slow
 @pytest.mark.skipif(not HAS_GPROF, reason="GPROF executable missing.")
 def test_run_gprof_standard():
     """

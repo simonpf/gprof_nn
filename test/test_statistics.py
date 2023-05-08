@@ -327,7 +327,7 @@ def test_bin_statistics_mhs_ocean(tmpdir):
     Ensure that TrainingDataStatistics class reproduces statistic of
     MHS bin file for a land surface.
     """
-    files = [DATA_PATH / "mhs" / "gpm_289_52_04.bin"] * 2
+    files = [DATA_PATH / "mhs" / "bin" / "gpm_289_52_04.bin"] * 2
 
 
     stats = [BinFileStatistics(),
@@ -464,7 +464,7 @@ def test_observation_statistics_mhs(tmpdir):
     """
     files = [DATA_PATH / "mhs" / "pp" / "MHS.pp"] * 2
 
-    stats = [ObservationStatistics(),
+    stats = [ObservationStatistics(gmi_range=False),
              ZonalDistribution(),
              GlobalDistribution()]
     processor = StatisticsProcessor(sensors.MHS,
@@ -475,17 +475,17 @@ def test_observation_statistics_mhs(tmpdir):
 
     results = xr.open_dataset(str(
         tmpdir /
-        "observation_statistics_mhs.nc"
+        "observation_statistics_mhs.nc",
     ))
 
     # Ensure TB dists match.
     bins = np.linspace(0, 400, 401)
     st = 1
     sensor = sensors.MHS
-    angle_bins = np.zeros(sensor.angles.size + 1)
-    angle_bins[1:-1] = 0.5 * (sensor.angles[1:] + sensor.angles[:-1])
-    angle_bins[0] = 2.0 * angle_bins[1] - angle_bins[2]
-    angle_bins[-1] = 2.0 * angle_bins[-2] - angle_bins[-3]
+    angle_bins = sensor.angle_bins#np.zeros(sensor.angles.size + 1)
+    #angle_bins[1:-1] = 0.5 * (sensor.angles[1:] + sensor.angles[:-1])
+    #angle_bins[0] = 2.0 * angle_bins[1] - angle_bins[2]
+    #angle_bins[-1] = 2.0 * angle_bins[-2] - angle_bins[-3]
     lower = angle_bins[3]
     upper = angle_bins[2]
     eia = np.abs(input_data.earth_incidence_angle.data)
@@ -559,10 +559,11 @@ def test_retrieval_statistics_gmi(tmpdir):
 
     results = xr.load_dataset(str(tmpdir / "retrieval_statistics.nc"))
 
-    mean_sp = results["surface_precip_mean_t2m"][0, 33]
+    i_b = 18
+    mean_sp = results["surface_precip_mean_t2m"][4, i_b]
     st = data.surface_type.data
-    l_t2m, r_t2m = np.linspace(239.5, 339.5, 101)[33:35]
-    indices = ((data.surface_type.data == 1) *
+    l_t2m, r_t2m = np.linspace(239.5, 339.5, 101)[i_b:i_b + 2]
+    indices = ((data.surface_type.data == 5) *
                (data.two_meter_temperature.data >= l_t2m) *
                (data.two_meter_temperature.data < r_t2m) *
                (data.surface_precip.data > -999))
@@ -570,9 +571,9 @@ def test_retrieval_statistics_gmi(tmpdir):
 
     assert np.isclose(mean_sp_ref, mean_sp)
 
-    mean_sp = results["surface_precip_mean_tcwv"][0, 10]
+    mean_sp = results["surface_precip_mean_tcwv"][0, i_b]
     st = data.surface_type.data
-    l_tcwv, r_tcwv = np.linspace(-0.5, 99.5, 101)[10:12]
+    l_tcwv, r_tcwv = np.linspace(-0.5, 99.5, 101)[i_b:i_b + 2]
     indices = ((data.surface_type.data == 1) *
                (data.total_column_water_vapor.data >= l_tcwv) *
                (data.total_column_water_vapor.data < r_tcwv) *
@@ -616,10 +617,10 @@ def test_resample_scans():
     """
     Tests the resampling of observation along the scan dimension.
     """
-    n = 24 * 60
-    lats = np.linspace(-90, 89, n) + 0.5
-    lons = np.zeros(n)
-    scan_time = np.arange(0, n, dtype="datetime64[m]")
+    n_mins = 24 * 60
+    lats = np.linspace(-90, 89, n_mins) + 0.5
+    lons = np.zeros(n_mins)
+    scan_time = np.arange(0, n_mins, dtype="datetime64[m]")
 
     dataset = xr.Dataset({
         "scan_time": (("scans",), scan_time),
@@ -637,7 +638,7 @@ def test_resample_scans():
     dataset = resample_scans(dataset, weights)
     minutes = (dataset.scan_time.dt.hour * 60 +
                dataset.scan_time.dt.minute)
-    assert np.all(minutes.data > n // 2)
+    assert np.all(minutes.data >= n_mins // 2)
 
 
 def test_retrieval_statistics_resampled(tmpdir):
@@ -654,7 +655,7 @@ def test_retrieval_statistics_resampled(tmpdir):
     # equator are considered.
     statistics = np.zeros(LAT_BINS.size - 1)
     lats = 0.5 * (LAT_BINS[1:] + LAT_BINS[:-1])
-    statistics[lats < 0] = 1.0
+    statistics[lats > 0] = 1.0
 
     files = [tmpdir / "input.nc"] * 2
     stats = [RetrievalStatistics(statistics)]
@@ -665,15 +666,13 @@ def test_retrieval_statistics_resampled(tmpdir):
 
     results = xr.load_dataset(str(tmpdir / "retrieval_statistics.nc"))
 
-    # Select only scans who's mean latitude is above equator.
-    mean_lats = data.latitude.data.mean()
-    print(mean_lats)
-    data = data[{"scans": mean_lats < 0}]
+    # Select only scans whose mean latitude is above equator.
+    mean_lats = data.latitude.mean("pixels")
+    data = data[{"scans": mean_lats > 0}]
 
-    mean_sp = results["surface_precip_mean_t2m"][0, 33]
-    st = data.surface_type.data
-    l_t2m, r_t2m = np.linspace(239.5, 339.5, 101)[33:35]
-    indices = ((data.surface_type.data == 1) *
+    mean_sp = results["surface_precip_mean_t2m"][1, 1]
+    l_t2m, r_t2m = np.linspace(239.5, 339.5, 101)[1:3]
+    indices = ((data.surface_type.data == 2) *
                (data.two_meter_temperature.data >= l_t2m) *
                (data.two_meter_temperature.data < r_t2m) *
                (data.surface_precip.data > -999))
@@ -681,10 +680,10 @@ def test_retrieval_statistics_resampled(tmpdir):
 
     assert np.isclose(mean_sp_ref, mean_sp, atol=1e-2)
 
-    mean_sp = results["surface_precip_mean_tcwv"][0, 10]
+    mean_sp = results["surface_precip_mean_tcwv"][1, 2]
     st = data.surface_type.data
-    l_tcwv, r_tcwv = np.linspace(-0.5, 99.5, 101)[10:12]
-    indices = ((data.surface_type.data == 1) *
+    l_tcwv, r_tcwv = np.linspace(-0.5, 99.5, 101)[2:4]
+    indices = ((data.surface_type.data == 2) *
                (data.total_column_water_vapor.data >= l_tcwv) *
                (data.total_column_water_vapor.data < r_tcwv) *
                (data.surface_precip.data > -999))

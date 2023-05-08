@@ -410,8 +410,8 @@ def test_run_preprocessor_mhs_era5():
     """
     Test running the MHS preprocessor on a specific L1C file.
     """
-    l1c_path = Path("/pdata4/archive/GPM/1C_NOAA19")
-    date = datetime(2019, 1, 1, 0, 30)
+    l1c_path = DATA_PATH / "mhs" / "l1c"
+    date = datetime(2019, 1, 1, 1, 35)
     l1c_file = L1CFile.find_file(
         date,
         l1c_path,
@@ -449,8 +449,8 @@ def test_run_preprocessor_mhs_ganal():
     """
     Test running the MHS preprocessor on a specific L1C file.
     """
-    l1c_path = Path("/pdata4/archive/GPM/1C_NOAA19")
-    date = datetime(2019, 1, 1, 0, 30)
+    l1c_path = DATA_PATH / "mhs" / "l1c"
+    date = datetime(2019, 1, 1, 1, 35)
     l1c_file = L1CFile.find_file(
         date,
         l1c_path,
@@ -483,13 +483,13 @@ def test_run_preprocessor_mhs_ganal():
     assert np.all((tcwv >= 0) * (tcwv < 200))
 
 
-@pytest.mark.skipif(not HAS_PREPROCESSOR, reason="Preprocessor missing.")
+@pytest.mark.skip(reason="No valid input files available.")
 def test_run_preprocessor_tmi_era5():
     """
     Test running the TMI preprocessor on a specific L1C file.
     """
-    l1c_path = Path("/pdata4/archive/GPM/1C_TMI")
-    date = datetime(2010, 1, 1, 0, 30)
+    l1c_path = Path("/pdata4/archive/GPM/1C_TMI_V7")
+    date = datetime(2013, 1, 1, 0, 30)
     l1c_file = L1CFile.find_file(
         date,
         l1c_path,
@@ -561,6 +561,7 @@ def test_run_preprocessor_ssmis_era5():
     assert np.all((tcwv >= 0) * (tcwv < 200))
 
 
+@pytest.mark.skip(reason="No valid input files.")
 @pytest.mark.skipif(not HAS_PREPROCESSOR, reason="Preprocessor missing.")
 def test_run_preprocessor_amsr2_era5():
     """
