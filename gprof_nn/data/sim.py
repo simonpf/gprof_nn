@@ -708,7 +708,6 @@ def process_mrms_file(sensor, mrms_filename, configuration, day, log_queue=None)
             date, mrms_sensor.l1c_file_path, roi=CONUS, sensor=mrms_sensor
         )
     )
-
     scenes = []
     LOGGER.debug("Found %s L1C file for MRMS file %s.", len(l1c_files), mrms_filename)
     for file in l1c_files:
