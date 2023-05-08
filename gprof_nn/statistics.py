@@ -107,13 +107,12 @@ def resample_scans(dataset, statistics):
                 "to that of definintion.TIME_BINS - 1."
             )
 
-
     if "scan_time" not in dataset:
         return dataset
 
     longitude = dataset.longitude.mean("pixels")
     latitude = dataset.latitude.mean("pixels")
-    scan_time = dataset.scan_time.mean("scans")
+    scan_time = dataset.scan_time
     local_time = (
         scan_time + (longitude / 360 * 24 * 60 * 60).astype("timedelta64[s]")
     )
@@ -136,7 +135,6 @@ def resample_scans(dataset, statistics):
 
     probs = weights / norm
     indices = np.random.choice(indices, size=latitude.size, p=probs)
-
 
     # Now resample scans.
     return dataset[{"scans": indices}]
@@ -927,6 +925,8 @@ class GlobalDistribution(Statistic):
         Merge the data of this statistic with that calculated in a different
         process.
         """
+        if self.counts is None and other.counts is None:
+            return None
         if self.counts is None:
             self.sums = other.sums
             self.counts = other.counts
@@ -2183,7 +2183,7 @@ def process_files(sensor, files, statistics, log_queue):
             try:
                 stat.process_file(sensor, file)
             except Exception as exc:
-                LOGGER.error("Error during processing of %s: %s", file, exc)
+                LOGGER.exception("Error during processing of %s: %s", file, exc)
 
     return statistics
 
