@@ -102,7 +102,7 @@ def process_file(
 
     # Finally, run the retrieval:
     LOGGER.info(
-        "Loading model from file '%s'", model_path.name
+        "Loading model from file '%s'", model_path
     )
     model = QRNN.load(model_path)
     LOGGER.info(

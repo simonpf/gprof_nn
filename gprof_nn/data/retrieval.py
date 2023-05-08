@@ -423,7 +423,7 @@ class RetrievalFile:
             minute.astype("timedelta64[m]") +
             second.astype("timedelta64[s]") +
             ms.astype("timedelta64[ms]")
-        )
+        ).astype("datetime64[ns]")
         dataset["scan_time"] = (("scans",), dates)
 
         return xarray.Dataset(dataset)

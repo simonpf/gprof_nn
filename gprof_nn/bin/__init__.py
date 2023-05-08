@@ -29,6 +29,7 @@ def gprof_nn():
     from gprof_nn.bin import process
     from gprof_nn.bin import extract_validation_data
     from gprof_nn.bin import combine_validation_data
+    from gprof_nn.bin import download_models
 
     warnings.filterwarnings("ignore", category=RuntimeWarning)
 
@@ -56,6 +57,7 @@ def gprof_nn():
     statistics.add_parser(subparsers)
     extract_validation_data.add_parser(subparsers)
     combine_validation_data.add_parser(subparsers)
+    download_models.add_parser(subparsers)
 
     process.add_parser(subparsers, "1d")
     process.add_parser(subparsers, "3d")
