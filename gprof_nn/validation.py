@@ -1012,7 +1012,8 @@ def calculate_error_metrics(
         region=None,
         ranges=None,
         fpa=False,
-        no_orographic=False
+        no_orographic=False,
+        no_ocean=True
 ):
     """
     Calculate error metrics for validation data.
@@ -1025,6 +1026,11 @@ def calculate_error_metrics(
        groups: Names of the retrievals for which to calculate error metrics.
        rqi_threshold: Optional additional rqi_threshold to filter co-locations.
        no_orographic: Whether or not to include precipitation over mountain surfaces.
+       no_ocean: Whether or not to include precipitation over ocean.
+
+    Return:
+
+        A pandas DataFrame containing the retrieval metrics.
     """
     bias = {}
     correlation = {}
@@ -1049,6 +1055,9 @@ def calculate_error_metrics(
                 valid *= ((surface_type < 8) + ((surface_type > 11) * (surface_type < 17)))
             else:
                 valid *= ((surface_type < 8) + (surface_type > 11))
+
+            if no_ocean:
+                valid *= surface_type > 1
 
 
         if isinstance(ranges, tuple):
@@ -1250,7 +1259,8 @@ def calculate_seasonal_cycles(
         rqi_threshold=0.8,
         region=None,
         ranges=None,
-        precip_type=None
+        precip_type=None,
+        no_ocean=False
 ):
     """
     Calculates seasonal cycles.
@@ -1262,6 +1272,15 @@ def calculate_seasonal_cycles(
        results: Dictionary holding xr.Datasets with the results for the different retrievals.
        groups: Names of the retrievals for which to calculate error metrics.
        rqi_threshold: Optional additional rqi_threshold to filter co-locations.
+       region: Name of a region to restrict the analysis to.
+       ranges: Radar range limit to restrict the analysis to. This will only have
+           an effect for the comparison against the Kwajalein data.
+       precip_type: Precipitation type to restrict the analysis to.
+       no_ocean: Whether pixels over ocean should be excluded from the analysis.
+
+    Return:
+       A tuple ``(months, precip)`` containing the months and the corresponding
+       normalized precipitation.
     """
     if group == "reference":
         sp_ref = results["gprof_nn_1d"].surface_precip_ref.data
@@ -1274,6 +1293,8 @@ def calculate_seasonal_cycles(
 
     surface_type = results[group].surface_type.data
     valid *= ((surface_type < 8) + ((surface_type > 11) * (surface_type < 17)))
+    if no_ocean:
+        valid *= (surface_type > 1)
 
     mask = results[group].mask
     snow = np.isclose(mask, 3.0) + np.isclose(mask, 4.0)
@@ -1322,13 +1343,15 @@ def calculate_seasonal_cycles(
     months = 0.5 * (bins[1:] + bins[:-1])
     return months, mean_precip
 
+
 def calculate_diurnal_cycles(
         results,
         group,
         rqi_threshold=0.8,
         region=None,
         ranges=None,
-        precip_type=None
+        precip_type=None,
+        no_ocean=False
 ):
     """
     Calculates daily cycles.
@@ -1356,6 +1379,8 @@ def calculate_diurnal_cycles(
 
     surface_type = results[group].surface_type.data
     valid *= ((surface_type < 8) + ((surface_type > 11) * (surface_type < 17)))
+    if no_ocean:
+        valid *= (surface_type > 1)
 
     mask = results[group].mask
     snow = np.isclose(mask, 3.0) + np.isclose(mask, 4.0)
@@ -1637,7 +1662,7 @@ def gridded_stats(lons, lats, prediction, truth, bins, min_samples=None):
     Return:
         A tuple ``(bias, mae, mse, corr)`` containing the bias, mean absolute
         error, mean-squared error and correlation for the given
-        longitude-latitude.
+    longitude-latitude.
     """
     lons = lons.ravel()
     lats = lats.ravel()
