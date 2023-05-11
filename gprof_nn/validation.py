@@ -1101,6 +1101,85 @@ def calculate_error_metrics(
     return pd.DataFrame(data, index=names)
 
 
+def calculate_explained_error(
+        results,
+        groups,
+        rqi_threshold=0.8,
+        region=None,
+        ranges=None,
+        fpa=False,
+        no_orographic=False
+):
+    """
+    Calculates the fraction of error explained by GPM CMB error.
+
+    Uses only observations over surface types 1 - 8 and 12 - 16 and
+    that are not marked as snow by the radar.
+
+    Args:
+       results: Dictionary holding xr.Datasets with the results for the different retrievals.
+       groups: Names of the retrievals for which to calculate error metrics.
+       rqi_threshold: Optional additional rqi_threshold to filter co-locations.
+       no_orographic: Whether or not to include precipitation over mountain surfaces.
+    """
+    var_exp = {}
+
+    for group in groups:
+        if fpa:
+            sp_ref = results[group].surface_precip_ref_avg.data
+        else:
+            sp_ref = results[group].surface_precip_ref.data
+        sp = results[group].surface_precip.data
+        sp_cmb = results["combined"].surface_precip.data
+
+        valid = (sp_ref >= 0) * (sp >= 0) * (sp_cmb >= 0.0)
+
+        if "surface_type" in results[group]:
+            surface_type = results[group].surface_type.data
+            if no_orographic:
+                valid *= ((surface_type < 8) + ((surface_type > 11) * (surface_type < 17)))
+            else:
+                valid *= ((surface_type < 8) + (surface_type > 11))
+
+
+        if isinstance(ranges, tuple):
+            rng = results[group].range.data
+            valid *= (rng >= ranges[0])
+            valid *= (rng <= ranges[1])
+        elif ranges is not None:
+            rng = results[group].range.data
+            valid *= (rng <= ranges)
+
+        lats = results[group].latitude.data
+        lons = results[group].longitude.data
+        if region is not None:
+            lon_0, lat_0, lon_1, lat_1 = REGIONS[region]
+            valid *= ((lons >= lon_0) * (lons < lon_1) *
+                    (lats >= lat_0) * (lats < lat_1))
+
+
+        if "mask" in results[group]:
+            mask = results[group].mask
+            snow = np.isclose(mask, 3.0) + np.isclose(mask, 4.0)
+            valid *= ~snow
+
+        if "rqi" in results[group].variables:
+            rqi = results[group].rqi.data
+            valid *=  (rqi > rqi_threshold)
+
+        sp = sp[valid]
+        sp_ref = sp_ref[valid]
+        sp_cmb = sp_cmb[valid]
+
+        _, _, r, *_ = linregress(sp_cmb - sp_ref, sp - sp_ref)
+        var_exp[group] = r ** 2
+
+    data = {
+        "Explained variance": list(var_exp),
+    }
+    names = [NAMES[g] for g in groups]
+    return pd.DataFrame(data, index=names)
+
 def calculate_monthly_statistics(
         results,
         group,
@@ -1321,8 +1400,8 @@ def calculate_diurnal_cycles(
 
     hours = bins[:-1]#0.5 * (bins[1:] + bins[:-1]) / 60
 
-    mean_precip = np.concatenate([mean_precip[-3:], mean_precip, mean_precip[:2]])
-    k = np.ones(6)
+    mean_precip = np.concatenate([mean_precip[-3:], mean_precip, mean_precip[:3]])
+    k = np.exp(np.log(0.5) * ((np.ones(7) - 3) / 3) ** 2
     k /= k.sum()
     mean_precip = convolve(mean_precip, k, mode="valid")
 
