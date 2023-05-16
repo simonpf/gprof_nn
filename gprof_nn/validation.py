@@ -163,7 +163,7 @@ class GPROFNN1DResults:
                 the retrieval results.
         """
         self.path = Path(path)
-        files = self.path.glob("**/*.bin")
+        files = self.path.glob("**/*.nc")
         self.granules = {}
         for filename in files:
             try:
@@ -320,7 +320,7 @@ class GPROFNNHRResults:
                 the retrieval results.
         """
         self.path = Path(path)
-        files = self.path.glob("**/*.bin")
+        files = self.path.glob("**/*.nc")
         self.granules = {}
         for filename in files:
             try:
@@ -1321,8 +1321,8 @@ def calculate_diurnal_cycles(
 
     hours = bins[:-1]#0.5 * (bins[1:] + bins[:-1]) / 60
 
-    mean_precip = np.concatenate([mean_precip[-3:], mean_precip, mean_precip[:2]])
-    k = np.ones(6)
+    mean_precip = np.concatenate([mean_precip[-3:], mean_precip, mean_precip[:3]])
+    k = np.exp(np.log(0.5) * ((np.ones(7) - 3) / 3) ** 2)
     k /= k.sum()
     mean_precip = convolve(mean_precip, k, mode="valid")
 

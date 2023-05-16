@@ -25,7 +25,7 @@ from pansat.products.satellite.gpm import (
     l1c_gpm_gmi_r,
     l1c_noaa19_mhs,
     l1c_trmm_tmi,
-    l1c_f18_ssmis,
+    l1c_f17_ssmis,
     l1c_gcomw1_amsr2,
     l1c_npp_atms
 )
@@ -67,7 +67,7 @@ PROVIDERS = {
     "GMI": GesdiscProvider(l1c_gpm_gmi_r),
     "MHS": GesdiscProvider(l1c_noaa19_mhs),
     "TMIPO": Disc2Provider(l1c_trmm_tmi),
-    "SSMIS": GesdiscProvider(l1c_f18_ssmis),
+    "SSMIS": GesdiscProvider(l1c_f17_ssmis),
     "AMSR2": GesdiscProvider(l1c_gcomw1_amsr2),
     "ATMS": GesdiscProvider(l1c_npp_atms),
 }
