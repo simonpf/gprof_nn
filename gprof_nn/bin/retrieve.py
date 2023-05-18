@@ -93,9 +93,11 @@ def add_parser(subparsers):
         type=str,
         help=(
             """
-            The output file format. Should be 'GPROF_BINARY' or 'NETCDF'.
+            The output file format. Should be 'GPROF_BINARY' or 'NETCDF'. Defaults
+            to 'NETCDF'.
             """
         ),
+        default="netcdf"
     )
     parser.add_argument(
         "--sensor",
