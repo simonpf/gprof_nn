@@ -245,7 +245,12 @@ def add_surface(scene, area, background, z_scaling=10):
         y[:, :, :2],
         z[:, :, :2] * z_scaling
     )
-    g.texture_map_to_plane(inplace=True)
+    g.texture_map_to_plane(
+        inplace=True,
+        origin=(extent[0], extent[1], 0),
+        point_u=(extent[2], extent[1], 0),
+        point_v=(extent[0], extent[3], 0),
+    )
     texture = pv.numpy_to_texture(np.array(background)[:, :, ...,:3])
     scene.add_mesh(g, texture=texture)
 
@@ -258,8 +263,28 @@ def add_hydrometeors(
         rwc_bar=False,
         swc_bar=False,
         z_scaling=10,
-        sigma=None
+        sigma=None,
+        norm=None,
+        levels=None
 ):
+    """
+    Add iso-surfaces of hydrometeors to scene.
+
+    Args:
+        scene: The pyvista.Plotter containing the precipitation scene.
+        area: 'pyresample' area definition defining the region of interest.
+        input_file: NetCDF file containing the retrieval results to plot.
+        opacity: Opacity value to use. If not given opacity will be set from
+            the corresponding hydrometeor concentrations.
+        rwc_bar: Whether or not to draw a scalar bar for the RWC concentrations.
+        swc_bar: Whether or not to draw a scalar bar for the SWC concentrations.
+        z_scaling: Scaling for the vertical dimension.
+        sigma: FWHM to use for the calculation of the Gaussian weights for the
+            nearest neighbor resampling.
+
+
+
+    """
     from pyresample.geometry import SwathDefinition
     from pyresample.kd_tree import resample_gauss, resample_nearest
     import pyvista as pv
@@ -271,7 +296,6 @@ def add_hydrometeors(
         lats = data.latitude.data
         lons = data.longitude.data
         swath = SwathDefinition(lats=lats, lons=lons)
-        print(lats.shape)
 
         sp = data.surface_precip
         rwc = data.rain_water_content.data
@@ -305,13 +329,22 @@ def add_hydrometeors(
             xyz[:, :, ..., 1],
             xyz[:, :, ..., 2] * z_scaling
         )
-        norm = LogNorm(1e-2, 1e0)
+
+        if norm is None:
+            norm = LogNorm(1e-2, 1e0)
+
+        if levels is None:
+            levels = np.linspace(0, 1, 11)[1:]
 
         m = ScalarMappable(norm=norm, cmap="Reds")
         cm = lambda x: m.to_rgba(x)
         g.point_data["rwc"] = rwc_r[::-1].flatten(order="F")
-        levels = np.linspace(0, 1, 11)[1:]
         colors = [to_hex(c) for c in m.to_rgba(levels)]
+
+        if opacity is None:
+            rwc_opc = norm(rwc_r[::-1].flatten(order="F"))
+            g.point_data["rwc_opc"] = rwc_opc
+            opacity = "rwc_opc"
 
         scalar_bar_args = {
             "title": "RWC [g / m³]",
@@ -333,8 +366,12 @@ def add_hydrometeors(
         )
 
         g.point_data["swc"] = swc_r[::-1].flatten(order="F")
+
         if opacity is None:
-            opacity = "linear"
+            swc_opc = norm(swc_r[::-1].flatten(order="F"))
+            g.point_data["swc_opc"] = swc_opc
+            opacity = "swc_opc"
+
         m = ScalarMappable(norm=norm, cmap="Blues")
         cm = lambda x: m.to_rgba(x)
         colors = [to_hex(c) for c in m.to_rgba(levels)]
