@@ -19,7 +19,7 @@ import xarray as xr
 from rich.progress import track
 from scipy.ndimage import rotate
 from scipy.signal import convolve
-from scipy.stats import binned_statistic_2d, binned_statistic
+from scipy.stats import binned_statistic_2d, binned_statistic, linregress
 import pandas as pd
 from pykdtree.kdtree import KDTree
 
@@ -1184,7 +1184,7 @@ def calculate_explained_error(
         var_exp[group] = r ** 2
 
     data = {
-        "Explained variance": list(var_exp),
+        "Explained variance": list(var_exp.values()),
     }
     names = [NAMES[g] for g in groups]
     return pd.DataFrame(data, index=names)
@@ -1426,7 +1426,7 @@ def calculate_diurnal_cycles(
     hours = bins[:-1]#0.5 * (bins[1:] + bins[:-1]) / 60
 
     mean_precip = np.concatenate([mean_precip[-3:], mean_precip, mean_precip[:3]])
-    k = np.exp(np.log(0.5) * ((np.ones(7) - 3) / 3) ** 2
+    k = np.exp(np.log(0.5) * ((np.ones(7) - 3) / 3) ** 2)
     k /= k.sum()
     mean_precip = convolve(mean_precip, k, mode="valid")
 
