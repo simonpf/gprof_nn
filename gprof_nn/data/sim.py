@@ -11,10 +11,12 @@ The module also provides functionality to extract the training data
  for the GPROF-NN algorithm from these files.
 """
 from concurrent import futures
+from dataclasses import dataclass
 from datetime import datetime
 import logging
 from pathlib import Path
 import tempfile
+from typing import Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -412,15 +414,17 @@ def apply_orographic_enhancement(data, kind="ERA5"):
 ###############################################################################
 
 
-def _extract_scenes(data):
+def _extract_scenes(data, min_valid=20):
     """
     Extract 221 x 221 pixel wide scenes from dataset where
     ground truth surface precipitation rain rates are
     available.
 
     Args:
-        xarray.Dataset containing the data from the preprocessor together
-        with the matches surface precipitation from the .sim file.
+        data: xarray.Dataset containing the data from the preprocessor
+            together matched reference data.
+        min_valid: The minimum number of pixels with valid surface
+            precipitation.
 
     Return:
         New xarray.Dataset which containing 128x128 patches of input data
@@ -429,37 +433,44 @@ def _extract_scenes(data):
     n = 221
     surface_precip = data["surface_precip"].data
 
+    n_scans = data.scans.size
+    n_pixels = data.pixels.size
+
     if np.all(np.isnan(surface_precip)):
         return None
 
-    i_start = 0
-    i_end = data.scans.size
-    i_step = n
-    j_end = data.pixels.size
-    j_step = min(data.pixels.size, n)
+    valid = np.stack(np.where(surface_precip >= 0.0), -1)
+    valid_inds = list(np.random.permutation(valid.shape[0]))
 
     scenes = []
-    while i_start + i_step <= i_end:
-        j_start = 0
-        had_scene = False
-        while j_start + j_step <= j_end:
-            subscene = data[
-                {
-                    "scans": slice(i_start, i_start + n),
-                    "pixels": slice(j_start, j_start + n),
-                }
-            ]
-            surface_precip = subscene["surface_precip"].data
-            if np.isfinite(surface_precip).sum() > 50:
-                scenes.append(subscene)
-                j_start += j_step
-                had_scene = True
-            else:
-                j_start += j_step // 2
-        if had_scene:
-            i_start += i_step
+
+    while len(valid_inds) > 0:
+
+        ind = np.random.choice(valid_inds)
+        scan_cntr, pixel_cntr = valid[ind]
+
+        scan_start = min(max(scan_cntr - n // 2, 0), n_scans - n)
+        scan_end = scan_start + 221
+        pixel_start = min(max(pixel_cntr - n // 2, 0), n_pixels - n)
+        pixel_end = pixel_start + 221
+
+        subscene = data[
+            {
+                "scans": slice(scan_start, scan_end),
+                "pixels": slice(pixel_start, pixel_end),
+            }
+        ]
+        surface_precip = subscene["surface_precip"].data
+        if np.isfinite(surface_precip).sum() > 20:
+            scenes.append(subscene)
+            covered = (
+                (valid[..., 0] >= scan_start) * (valid[..., 0] < scan_end) *
+                (valid[..., 1] >= pixel_start) * (valid[..., 1] < pixel_end)
+            )
+            covered = {ind for ind in valid_inds if covered[ind]}
+            valid_inds = [ind for ind in valid_inds if not ind in covered]
         else:
-            i_start += i_step // 2
+            valid_inds.remove(ind)
 
     if scenes:
         return xr.concat(scenes, "samples")
@@ -567,7 +578,14 @@ def _add_era5_precip(input_data, l1c_data, era5_data):
     input_data["convective_precip"].data[indices] = 1000.0 * convective_precip
 
 
-def process_sim_file(sim_filename, sensor, configuration, era5_path, log_queue=None):
+def process_sim_file(
+        sim_filename,
+        sensor,
+        configuration,
+        era5_path,
+        subset=None,
+        log_queue=None
+):
     """
     Extract 2D training scenes from sim file.
 
@@ -671,6 +689,9 @@ def process_sim_file(sim_filename, sensor, configuration, era5_path, log_queue=N
         for var in ["surface_precip", "convective_precip"]:
             data_pp[var].data[sea_ice] = np.nan
 
+    if subset is not None:
+        subset.mask_surface_precip(data_pp)
+
     # Organize into scenes.
     data = _extract_scenes(data_pp)
 
@@ -761,7 +782,12 @@ def process_mrms_file(sensor, mrms_filename, configuration, day, log_queue=None)
     return None
 
 
-def process_l1c_file(l1c_filename, sensor, configuration, era5_path, log_queue=None):
+def process_l1c_file(
+        l1c_filename,
+        sensor,
+        configuration,
+        era5_path,
+        log_queue=None):
     """
     Match L1C files with ERA5 surface and convective precipitation for
     sea-ice and sea-ice-edge surfaces.
@@ -1024,6 +1050,49 @@ def get_l1c_files_for_seaice(sensor, day):
     return l1c_files
 
 
+@dataclass
+class SubsetConfig:
+    tcwv_bounds: Optional[Tuple[float, float]] = None
+    t2m_bounds: Optional[Tuple[float, float]] = None
+    ocean_only: bool = False
+    land_only: bool = False
+
+
+    def mask_surface_precip(self, dataset):
+        """
+        Sets surface precip in given dataset to nan for samples
+        outside certain ancillary data bounds.
+
+        Args:
+            dataset: An xarray.Dataset containing a 'surface_precip' field
+                and GPROF anciallary data.
+        """
+        surface_precip = dataset.surface_precip.data
+
+        if self.tcwv_bounds is not None:
+            tcwv_min, tcwv_max = self.tcwv_bounds
+            tcwv = dataset.tcwv.data
+            valid = (tcwv >= tcwv_min) * (tcwv <= tcwv_max)
+            surface_precip[~valid] = np.nan
+
+        if self.t2m_bounds is not None:
+            t2m_min, t2m_max = self.t2m_bounds
+            t2m = dataset.t2m.data
+            valid = (t2m >= t2m_min) * (t2m <= t2m_max)
+            surface_precip[~valid] = np.nan
+
+        if self.ocean_only:
+            ocean_frac = dataset.ocean_fraction
+            valid = ocean_frac == 100
+            surface_precip[~valid] = np.nan
+
+        if self.land_only:
+            land_frac = dataset.land_fraction
+            valid = land_frac == 100
+            surface_precip[~valid] = np.nan
+
+
+
 class SimFileProcessor:
     """
     Processor class that manages the extraction of GPROF training data. A
@@ -1039,6 +1108,7 @@ class SimFileProcessor:
         era5_path=None,
         n_workers=4,
         day=None,
+        subset=None
     ):
         """
         Create retrieval driver.
@@ -1051,8 +1121,9 @@ class SimFileProcessor:
                 ERA5 data.
             n_workers: The number of worker processes to use.
             day: Day of the month for which to extract the data.
+            subset: A SubsetConfig object specifying a subset of the
+                database to extract.
         """
-
         self.output_file = output_file
         self.sensor = sensor
         self.configuration = configuration
@@ -1067,6 +1138,10 @@ class SimFileProcessor:
             self.day = 1
         else:
             self.day = day
+
+        if subset is None:
+            subset = SubsetConfig()
+        self.subset = subset
 
     def run(self):
         """
@@ -1138,6 +1213,7 @@ class SimFileProcessor:
                         self.sensor,
                         self.configuration,
                         self.era5_path,
+                        self.subset,
                         log_queue=log_queue,
                     )
                 )
