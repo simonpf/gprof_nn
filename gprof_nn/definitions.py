@@ -152,3 +152,10 @@ UNITS = {
 # Bins for calculating observation and training statistics
 LAT_BINS = np.linspace(-90, 90, 181)
 TIME_BINS = 60 * (np.linspace(0, 24, 25) - 0.5)
+
+ANCILLARY_DATA = [
+    "two-meter temperature",
+    "total-column water vapor",
+]
+ANCILLARY_DATA += [f"surface_type_{ind + 1}" for ind in range(18)]
+ANCILLARY_DATA += [f"airmass_type_{ind + 1}" for ind in range(4)]

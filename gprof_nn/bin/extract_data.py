@@ -119,6 +119,51 @@ def add_parser(subparsers):
             " CONICAL_CONST, XTRACK and SNOW."
         ),
     )
+    parser.add_argument(
+        "--no_mrms",
+        action="store_true",
+        help=(
+            "Do not extract training data from MRMS collocations."
+        )
+    )
+    parser.add_argument(
+        "--tcwv_bounds",
+        type=float,
+        nargs=2,
+        default=None,
+        help=(
+            "Restricts the extraction of training data samples to profiles"
+            "within the given total-column water vapor (TCWV) bounds."
+        ),
+    )
+    parser.add_argument(
+        "--t2m_bounds",
+        type=float,
+        nargs=2,
+        default=None,
+        help=(
+            "Restricts the extraction of training data samples to profiles"
+            "within the given 2-meter temperature (t2m) bounds."
+        ),
+    )
+    parser.add_argument(
+        "--ocean_only",
+        action="store_true",
+        default=None,
+        help=(
+            "Restricts the extraction of training data samples to profiles"
+            "with an ocean fraction of 100%."
+        ),
+    )
+    parser.add_argument(
+        "--land_only",
+        action="store_true",
+        help=(
+            "Restricts the extraction of training data samples to profiles"
+            "with a land fraction of 100%."
+        ),
+    )
+
     parser.set_defaults(func=run)
 
 
@@ -131,7 +176,7 @@ def run(args):
         args: The namespace object provided by the top-level parser.
     """
     from gprof_nn import sensors
-    from gprof_nn.data.sim import SimFileProcessor
+    from gprof_nn.data.sim import SimFileProcessor, SubsetConfig
     from gprof_nn.data.combined import CombinedFileProcessor
 
     # Check sensor
@@ -209,6 +254,25 @@ def run(args):
             LOGGER.error("%s", e)
             return 1
 
+    if args.no_mrms:
+        sensor.mrms_file_path = None
+
+    tcwv_bounds = args.tcwv_bounds
+    t2m_bounds = args.t2m_bounds
+    ocean_only = args.ocean_only
+    land_only = args.land_only
+    if (tcwv_bounds is not None or
+        t2m_bounds is not None or
+        ocean_only is not None or
+        land_only is not None):
+        subset = SubsetConfig(
+            tcwv_bounds=tcwv_bounds,
+            t2m_bounds=t2m_bounds,
+            ocean_only=ocean_only,
+            land_only=land_only
+        )
+    else:
+        subset = None
 
     era5_path = args.era5_path
     if args.no_seaice:
@@ -239,6 +303,7 @@ def run(args):
                 era5_path=era5_path,
                 n_workers=n_procs,
                 day=d,
+                subset=subset
             )
         else:
             processor = CombinedFileProcessor(

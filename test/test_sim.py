@@ -12,6 +12,7 @@ from gprof_nn import sensors
 from gprof_nn.data import get_test_data_path
 from gprof_nn.data.l1c import L1CFile
 from gprof_nn.data.sim import (SimFile,
+                               SubsetConfig,
                                _load_era5_data,
                                _add_era5_precip,
                                apply_orographic_enhancement,
@@ -601,6 +602,18 @@ def test_process_sim_file_gmi_era5():
     st = data["surface_type"].data
     snow = (st >= 8) * (st <= 11)
     assert np.all(np.isnan(sp[snow]))
+
+
+    subset = SubsetConfig(surface_types=[1])
+    data = process_sim_file(sim_file,
+                            sensors.GMI,
+                            "ERA5",
+                            era5_path,
+                            subset)
+    assert np.all(data["source"].data == 0)
+    sp = data["surface_precip"].data
+    sfct = data["surface_type"].data
+    assert np.all(sfct[np.isfinite(sp)] == 1)
 
 
 @pytest.mark.skipif(not HAS_ARCHIVES, reason="Data archives not available.")
