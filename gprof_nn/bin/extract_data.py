@@ -143,7 +143,7 @@ def add_parser(subparsers):
         default=None,
         help=(
             "Restricts the extraction of training data samples to profiles"
-            "within the given 2-meter temperature (t2m) bounds."
+            " within the given 2-meter temperature (t2m) bounds."
         ),
     )
     parser.add_argument(
@@ -153,7 +153,7 @@ def add_parser(subparsers):
         default=None,
         help=(
             "Extract only training samples with any of the given surface"
-            "types."
+            " types."
         ),
     )
 
