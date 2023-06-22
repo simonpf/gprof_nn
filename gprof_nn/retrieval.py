@@ -11,6 +11,7 @@ import math
 import subprocess
 from tempfile import TemporaryDirectory
 from pathlib import Path
+import re
 
 import numpy as np
 import xarray as xr
@@ -22,6 +23,7 @@ import pandas as pd
 from gprof_nn import sensors
 from gprof_nn.definitions import PROFILE_NAMES, ALL_TARGETS
 from gprof_nn.data import get_profile_clusters
+from gprof_nn.data.bin import BinFile
 from gprof_nn.data.training_data import (
     GPROF_NN_1D_Dataset,
     GPROF_NN_3D_Dataset,
@@ -36,6 +38,9 @@ from gprof_nn.utils import calculate_tiles_and_cuts, expand_tbs
 
 
 LOGGER = logging.getLogger(__name__)
+
+
+BIN_FILE_PATTERN = re.compile(r"gpm_\d\d\d_\d\d_\d\d(_\d\d)?.bin")
 
 
 ###############################################################################
@@ -239,6 +244,7 @@ def run_preprocessor_l1c(l1c_file, configuration, output_file):
 
 
 GPROF_BINARY = "GPROF_BINARY"
+GPROF_DATABASE = "GPROF_DATABASE"
 L1C = "L1C"
 NETCDF = "NETCDF"
 
@@ -285,7 +291,9 @@ class RetrievalDriver:
 
         # Determine input format.
         suffix = input_file.suffix
-        if suffix in [".pp", ".bin"]:
+        if BIN_FILE_PATTERN.match(input_file.name):
+            self.input_format = GPROF_DATABASE
+        elif suffix in [".pp", ".bin"]:
             self.input_format = GPROF_BINARY
         elif suffix.endswith("HDF5"):
             self.input_format = L1C
@@ -297,7 +305,7 @@ class RetrievalDriver:
             self.output_format = output_format
         else:
             if output_file is None or Path(output_file).is_dir():
-                if self.input_format in [L1C, NETCDF]:
+                if self.input_format in [L1C, NETCDF, GPROF_DATABASE]:
                     self.output_format = NETCDF
                 else:
                     self.output_format = GPROF_BINARY
@@ -355,7 +363,12 @@ class RetrievalDriver:
             object is returned. ``None`` otherwise.
         """
         # Load input data.
-        if self.input_format in [GPROF_BINARY, L1C]:
+        if self.input_format == GPROF_DATABASE:
+            input_data = BinFileLoader(
+                self.input_file,
+                self.model.normalizer,
+            )
+        elif self.input_format in [GPROF_BINARY, L1C]:
             input_data = self.model.preprocessor_class(
                 self.input_file,
                 self.model.normalizer,
@@ -1417,6 +1430,88 @@ class L1CLoaderHR(ObservationLoader3D):
 # Kept for backwards compatibility.
 # TODO: Remove before release.
 L1CLoader2D = L1CLoader3D
+
+
+class BinFileLoader:
+    """
+    Data loader for running the GPROF-NN 1D retrieval on input data
+    in NetCDF data format.
+    """
+
+    def __init__(
+            self,
+            filename,
+            normalizer,
+            batch_size=16 * 1024,
+    ):
+        """
+        Create loader for retrieval input from a bin file.
+
+        Args:
+            filename: The name of the NetCDF file containing the input data.
+            normalizer: The normalizer object to use to normalize the input
+                data.
+            batch_size: How many observations to combine into a single
+                input batch.
+        """
+        self.bin_file = BinFile(filename)
+        self.sensor = self.bin_file.sensor
+
+        data = BinFile(filename).to_xarray_dataset()
+        data["brightness_temperatures"] += data["delta_tb"]
+        self.data = data
+
+        self.n_samples = self.data.samples.size
+        self.batch_size = batch_size
+        self.x = combine_input_data_1d(self.data, self.sensor)
+        dimensions = {}
+        for t in ALL_TARGETS:
+            if t in PROFILE_NAMES:
+                dimensions[t] = ("samples", "layers")
+            else:
+                dimensions[t] = ("samples")
+        self.dimensions = dimensions
+
+    def __len__(self):
+        n_batches = self.n_samples // self.batch_size
+        if self.n_samples % self.batch_size:
+            n_batches += 1
+        return n_batches
+
+    def __getitem__(self, i):
+        """
+        Return batch of input data.
+
+        Args:
+            The batch index.
+
+        Return:
+            PyTorch tensor containing the batch of input data.
+        """
+        i_start = i * self.batch_size
+        i_end = i_start + self.batch_size
+        x = torch.tensor(self.x[i_start:i_end])
+
+        return x
+
+    def finalize(self, data):
+        """
+        Reshape retrieval results into shape of input data.
+        """
+        invalid = np.all(self.x[:, : self.sensor.n_chans] <= -1.5, axis=-1)
+        for v in ALL_TARGETS:
+            if v in data:
+                data[v].data[invalid] = np.nan
+
+        variables = [target for target in ALL_TARGETS if target in data.variables]
+        for var in variables:
+            data[var + "_true"] = self.data[var]
+        data["latitude"] = self.data["latitude"]
+        data["longitude"] = self.data["longitude"]
+        if "earth_incidence_angle" in self.data.variables:
+            data["earth_incidence_angle"] = self.data["earth_incidence_angle"]
+
+        return data
 
 
 ###############################################################################

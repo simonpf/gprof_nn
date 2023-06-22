@@ -265,6 +265,26 @@ def test_retrieval_l1c_3d(tmp_path):
     assert "rain_water_content" in data.variables
 
 
+def test_retrieval_bin_file_1d(tmp_path):
+    """
+    Ensure that GPROF-NN 1D retrieval works with NetCDF input.
+    """
+    input_file = DATA_PATH / "gmi" / "bin" / "gpm_275_14_03_17.bin"
+
+    model_path = get_model_path("1D", sensors.GMI, "ERA5")
+    qrnn = QRNN.load(model_path)
+    qrnn.training_data_class = GPROF_NN_1D_Dataset
+    qrnn.preprocessor_class = PreprocessorLoader1D
+    driver = RetrievalDriver(input_file,
+                             qrnn,
+                             output_file=tmp_path,
+                             compress=False)
+    output_file = driver.run()
+    data = xr.load_dataset(output_file)
+    assert "rain_water_content" in data.variables
+    assert "rain_water_content_true" in data.variables
+
+
 def test_retrieval_netcdf_1d(tmp_path):
     """
     Ensure that GPROF-NN 1D retrieval works with NetCDF input.
