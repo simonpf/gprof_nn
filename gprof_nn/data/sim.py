@@ -1071,13 +1071,13 @@ class SubsetConfig:
 
         if self.tcwv_bounds is not None:
             tcwv_min, tcwv_max = self.tcwv_bounds
-            tcwv = dataset.tcwv.data
+            tcwv = dataset.total_column_water_vapor.data
             valid = (tcwv >= tcwv_min) * (tcwv <= tcwv_max)
             surface_precip[~valid] = np.nan
 
         if self.t2m_bounds is not None:
             t2m_min, t2m_max = self.t2m_bounds
-            t2m = dataset.t2m.data
+            t2m = dataset.two_meter_temperature.data
             valid = (t2m >= t2m_min) * (t2m <= t2m_max)
             surface_precip[~valid] = np.nan
 
@@ -1304,8 +1304,14 @@ class SimFileProcessor:
             dataset.attrs["sensor"] = self.sensor.name
             dataset.attrs["configuration"] = self.configuration
             LOGGER.info("Writing file: %s", filename)
-            dataset.to_netcdf(filename)
-            # subprocess.run(["lz4", "-f", "--rm", filename], check=True)
+
+            encodings = {}
+            for var in datasets:
+                encodings[var] = {"zlib": True}
+                if var.dtype == np.float64:
+                    encodings[var]["dtype"] == "float32"
+
+            dataset.to_netcdf(filename, encodings=encodings)
 
         # Explicit clean up to avoid memory leak.
         del datasets

@@ -120,6 +120,13 @@ def add_parser(subparsers):
         ),
     )
     parser.add_argument(
+        "--no_mrms",
+        action="store_true",
+        help=(
+            "Do not extract training data from MRMS collocations."
+        )
+    )
+    parser.add_argument(
         "--tcwv_bounds",
         type=float,
         nargs=2,
@@ -246,6 +253,9 @@ def run(args):
         except ValueError as e:
             LOGGER.error("%s", e)
             return 1
+
+    if args.no_mrms:
+        sensor.mrms_file_path = None
 
     tcwv_bounds = args.tcwv_bounds
     t2m_bounds = args.t2m_bounds
