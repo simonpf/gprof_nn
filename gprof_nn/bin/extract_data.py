@@ -63,13 +63,6 @@ def add_parser(subparsers):
         default="/qdata2/archive/ERA5",
     )
     parser.add_argument(
-        "--no_seaice",
-        action="store_true",
-        help=(
-            "Turns off the extraction of ERA5 collocations over sea ice."
-        )
-    )
-    parser.add_argument(
         "--n_processes",
         metavar="n",
         type=int,
@@ -124,6 +117,13 @@ def add_parser(subparsers):
         action="store_true",
         help=(
             "Do not extract training data from MRMS collocations."
+        )
+    )
+    parser.add_argument(
+        "--no_seaice",
+        action="store_true",
+        help=(
+            "Turns off the extraction of ERA5 collocations over sea ice."
         )
     )
     parser.add_argument(
