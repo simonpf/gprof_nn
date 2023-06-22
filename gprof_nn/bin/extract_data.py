@@ -147,20 +147,13 @@ def add_parser(subparsers):
         ),
     )
     parser.add_argument(
-        "--ocean_only",
-        action="store_true",
+        "--surface_types",
+        type=int,
+        nargs="*",
         default=None,
         help=(
-            "Restricts the extraction of training data samples to profiles"
-            "with an ocean fraction of 100%."
-        ),
-    )
-    parser.add_argument(
-        "--land_only",
-        action="store_true",
-        help=(
-            "Restricts the extraction of training data samples to profiles"
-            "with a land fraction of 100%."
+            "Extract only training samples with any of the given surface"
+            "types."
         ),
     )
 
@@ -259,17 +252,14 @@ def run(args):
 
     tcwv_bounds = args.tcwv_bounds
     t2m_bounds = args.t2m_bounds
-    ocean_only = args.ocean_only
-    land_only = args.land_only
+    surface_types = args.surface_types
     if (tcwv_bounds is not None or
         t2m_bounds is not None or
-        ocean_only is not None or
-        land_only is not None):
+        surface_types is not None):
         subset = SubsetConfig(
             tcwv_bounds=tcwv_bounds,
             t2m_bounds=t2m_bounds,
-            ocean_only=ocean_only,
-            land_only=land_only
+            surface_types=surface_types,
         )
     else:
         subset = None
