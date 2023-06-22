@@ -306,11 +306,24 @@ def add_parser(subparsers):
         metavar="index",
         type=int,
         nargs="*",
-        default=None
+        default=None,
+        help=(
+            "A list of indices specifying inputs to drop from the GPROF input."
+            "The inputs are ordered as follows: \n"
+            " [1] Tbs\n (Number of inputs depends on sensor.)"
+            " [2]. Earth incidence angle (Only cross-track scanning sensors)\n"
+            " [3] TCWV\n"
+            " [4] T2m\n"
+            " [5] Surface types (16 inputs)\n"
+            " [6] Airmass types (4 inputs)\n"
+        ),
     )
     parser.add_argument(
         "--simulated_tbs",
         action="store_true",
+        help=(
+            "Train the retrieval using only simulated TBs."
+        )
     )
 
 def run(args):
