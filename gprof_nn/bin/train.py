@@ -308,6 +308,10 @@ def add_parser(subparsers):
         nargs="*",
         default=None
     )
+    parser.add_argument(
+        "--simulated_tbs",
+        action="store_true",
+    )
 
 def run(args):
     """
@@ -331,6 +335,8 @@ def run(args):
     if sensor is None:
         LOGGER.error("Sensor '%s' is not supported.", args.sensor.strip().upper())
         return 1
+    if args.simulated_tbs:
+        sensor.use_simulated_tbs = True
 
     variant = args.variant
     if variant.upper() not in ["1D", "3D", "SIM", "HR"]:

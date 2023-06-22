@@ -1458,7 +1458,6 @@ class BinFileLoader:
         self.sensor = self.bin_file.sensor
 
         data = BinFile(filename).to_xarray_dataset()
-        data["brightness_temperatures"] += data["delta_tb"]
         self.data = data
 
         self.n_samples = self.data.samples.size

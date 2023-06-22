@@ -222,6 +222,7 @@ class Sensor(ABC):
         self.viewing_geometry = viewing_geometry
         self.missing_channels = None
         self.l1c_version = ""
+        self.use_simulated_tbs = False
 
         # Bin file types
         self._bin_file_header = types.get_bin_file_header(n_chans, n_angles, kind)
@@ -610,6 +611,8 @@ class ConicalScanner(Sensor):
         self._sim_file_path = path
 
     def load_brightness_temperatures(self, data, angles=None, mask=None):
+        if self.use_simulated_tbs:
+            return load_variable(data, "simulated_brightness_temperatures", mask=mask)
         return load_variable(data, "brightness_temperatures", mask=mask)
 
     def _load_scene_1d(self, scene, targets, augment, rng):
@@ -966,7 +969,6 @@ class ConstellationScanner(ConicalScanner):
         )
         self.nedt = nedt
         self.gmi_channels = gmi_channels
-        self.apply_biases = True
 
         if correction is None:
             self._correction = None
@@ -1007,7 +1009,7 @@ class ConstellationScanner(ConicalScanner):
                 data, "simulated_brightness_temperatures", mask=mask
             )
 
-            if self.apply_biases:
+            if not self.use_simulated_tbs:
                 bias = load_variable(data, "brightness_temperature_biases")
 
             if mask is not None:
@@ -1462,7 +1464,6 @@ class CrossTrackScanner(Sensor):
         self.bias_scales = np.cos(np.deg2rad(gmi_angles).reshape(1, -1)) / np.cos(
             np.deg2rad(self.angles).reshape(-1, 1)
         )
-        self.apply_biases = True
         self.bias_scaling = True
 
         self._mrms_file_path = mrms_file_path
@@ -1543,7 +1544,7 @@ class CrossTrackScanner(Sensor):
                 data, "simulated_brightness_temperatures", mask=mask
             )
 
-            if self.apply_biases:
+            if not self.use_simulated_tbs:
                 bias = load_variable(data, "brightness_temperature_biases")
                 bias = smooth_gmi_field(bias, self.kernels)
                 # Apply scaling of biases
