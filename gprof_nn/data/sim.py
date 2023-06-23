@@ -1299,7 +1299,13 @@ class SimFileProcessor:
                         dataset = xr.concat(datasets, "samples")
                         filename = output_path / (output_file + f"_{chunk:02}.nc")
                         dataset.attrs["sensor"] = self.sensor.name
-                        dataset.to_netcdf(filename)
+
+                        encodings = {}
+                        for var in dataset:
+                            encodings[var] = {"zlib": True}
+                            if dataset[var].dtype == np.float64:
+                                encodings[var]["dtype"] = "float32"
+                        dataset.to_netcdf(filename, encoding=encodings)
                         # subprocess.run(["lz4", "-f", "--rm", filename], check=True)
                         LOGGER.info("Finished writing file: %s", filename)
                         datasets = []
@@ -1314,12 +1320,11 @@ class SimFileProcessor:
             LOGGER.info("Writing file: %s", filename)
 
             encodings = {}
-            for var in datasets:
+            for var in dataset:
                 encodings[var] = {"zlib": True}
-                if var.dtype == np.float64:
-                    encodings[var]["dtype"] == "float32"
-
-            dataset.to_netcdf(filename, encodings=encodings)
+                if dataset[var].dtype == np.float64:
+                    encodings[var]["dtype"] = "float32"
+            dataset.to_netcdf(filename, encoding=encodings)
 
         # Explicit clean up to avoid memory leak.
         del datasets
