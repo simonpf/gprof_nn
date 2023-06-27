@@ -1490,7 +1490,8 @@ class BinFileLoader:
 
         self.n_samples = self.data.samples.size
         self.batch_size = batch_size
-        self.x = combine_input_data_1d(self.data, self.sensor)
+        x = combine_input_data_1d(self.data, self.sensor)
+        self.x = normalizer(x)
         dimensions = {}
         for t in ALL_TARGETS:
             if t in PROFILE_NAMES:
@@ -1525,11 +1526,6 @@ class BinFileLoader:
         """
         Reshape retrieval results into shape of input data.
         """
-        invalid = np.all(self.x[:, : self.sensor.n_chans] <= -1.5, axis=-1)
-        for v in ALL_TARGETS:
-            if v in data:
-                data[v].data[invalid] = np.nan
-
         variables = [target for target in ALL_TARGETS if target in data.variables]
         for var in variables:
             data[var + "_true"] = self.data[var]
