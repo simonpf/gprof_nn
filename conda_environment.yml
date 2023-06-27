@@ -13,8 +13,7 @@ dependencies:
   - h5py
   - pyproj
   - pyresample
-  - cudatoolkit=11.3
-  - pytorch
   - torchaudio
   - torchvision
   - tensorboard
+  - xarray
