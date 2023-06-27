@@ -223,6 +223,7 @@ class Sensor(ABC):
         self.missing_channels = None
         self.l1c_version = ""
         self.use_simulated_tbs = False
+        self.delta_tbs = None
 
         # Bin file types
         self._bin_file_header = types.get_bin_file_header(n_chans, n_angles, kind)
@@ -619,11 +620,12 @@ class ConicalScanner(Sensor):
         """
         Helper function to parallelize loading of 1D training data.
         """
-        pass
         if "surface_precip" not in targets:
             ts = targets + ["surface_precip"]
         else:
             ts = targets
+        if self.use_simulated_tbs:
+            ts = targets + ["simulated_brightness_temperatures"]
         scene = decompress_scene(scene, ts)
 
         #
@@ -635,6 +637,10 @@ class ConicalScanner(Sensor):
         valid = sp >= 0
 
         tbs = self.load_brightness_temperatures(scene, mask=valid)
+        if self.use_simulated_tbs and self.delta_tbs is not None:
+            noise = np.array(self.delta_tbs) * rng.normal(size=tbs.shape)
+            tbs += noise
+
         if augment:
             r = rng.random(tbs.shape[0])
             tbs[r > 0.9, 10:15] = np.nan
@@ -658,7 +664,7 @@ class ConicalScanner(Sensor):
         return x, y
 
     def load_training_data_1d(
-        self, dataset, targets, augment, rng, n_workers=1, drop_inputs=None
+        self, dataset, targets, augment, rng, drop_inputs=None
     ):
         """
         Load training data for GPROF-NN 1D retrieval. This function will
@@ -675,8 +681,6 @@ class ConicalScanner(Sensor):
             targets: List of the targets to load.
             augment: Whether or not to augment the training data.
             rng: Numpy random number generator to use for augmentation.
-            n_workers: If larger than 1, multiple processes will be load
-                the training data.
             drop_inputs: A probability with which to set all inputs randomly
                 to a missing value.
 
@@ -684,6 +688,8 @@ class ConicalScanner(Sensor):
             Tuple ``(x, y)`` containing the un-batched, un-shuffled training
             data as it is contained in the given NetCDF file.
         """
+        dataset.load()
+
         x = []
         y = {}
 
@@ -695,38 +701,12 @@ class ConicalScanner(Sensor):
 
         n_scenes = dataset.samples.size
 
-        # Multi-process loading.
-        if n_workers > 1:
-            pool = ProcessPoolExecutor(max_workers=n_workers)
-            # Distribute tasks to workers
-            tasks = []
-            for i in range(n_scenes):
-                scene = dataset[{"samples": i}]
-                tasks.append(
-                    pool.submit(
-                        ConicalScanner._load_scene_1d,
-                        self,
-                        scene,
-                        targets,
-                        augment,
-                        rng,
-                    )
-                )
-
-            # Collect results
-            for task in tasks:
-                x_i, y_i = task.result()
-                x.append(x_i)
-                for target in targets:
-                    y.setdefault(target, []).append(y_i[target])
-        # Single-process loading.
-        else:
-            for i in range(n_scenes):
-                scene = dataset[{"samples": i}]
-                x_i, y_i = self._load_scene_1d(scene, targets, augment, rng)
-                x.append(x_i)
-                for target in targets:
-                    y.setdefault(target, []).append(y_i[target])
+        for i in range(n_scenes):
+            scene = dataset[{"samples": i}]
+            x_i, y_i = self._load_scene_1d(scene, targets, augment, rng)
+            x.append(x_i)
+            for target in targets:
+                y.setdefault(target, []).append(y_i[target])
 
         x = np.concatenate(x, axis=0)
         for k in targets:
@@ -1011,10 +991,9 @@ class ConstellationScanner(ConicalScanner):
 
             if not self.use_simulated_tbs:
                 bias = load_variable(data, "brightness_temperature_biases")
-
-            if mask is not None:
-                bias = bias[mask]
-            tbs = tbs_sim - bias
+                if mask is not None:
+                    bias = bias[mask]
+                tbs = tbs_sim - bias
 
         else:
             tbs = load_variable(data, "brightness_temperatures", mask=mask)
