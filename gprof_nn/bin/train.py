@@ -325,6 +325,16 @@ def add_parser(subparsers):
             "Train the retrieval using only simulated TBs."
         )
     )
+    parser.add_argument(
+        "--delta_tbs",
+        type=float,
+        nargs="*",
+        default=None,
+        help=(
+            "List of channel uncertainties that are used to add random noise"
+            " to  simulated brightness temperatures."
+        )
+    )
 
 def run(args):
     """
@@ -350,6 +360,7 @@ def run(args):
         return 1
     if args.simulated_tbs:
         sensor.use_simulated_tbs = True
+        sensor.delta_tbs = args.delta_tbs
 
     variant = args.variant
     if variant.upper() not in ["1D", "3D", "SIM", "HR"]:
@@ -520,7 +531,7 @@ def run_training_1d(
 
         if args.drop_inputs is not None:
             input_names = {
-                ind: f"channel {ind}" for ind in range(sensor.n_chans)
+                ind: f"channel {ind + 1}" for ind in range(sensor.n_chans)
             }
             for ind, name in enumerate(ANCILLARY_DATA):
                 input_names[sensor.n_chans + ind] = name
