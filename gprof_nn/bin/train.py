@@ -631,6 +631,10 @@ def run_training_1d(
         LOGGER.info(f"Saving training network to {output}.")
         xrnn.save(output)
 
+    del training_data
+    del validation_data
+    LOGGER.info(f"Training finished.")
+
 
 def run_training_3d(
     sensor, configuration, training_data, validation_data, output, args
@@ -842,6 +846,10 @@ def run_training_3d(
         LOGGER.info(f"Saving training network to {output}.")
         xrnn.save(output)
 
+    del training_data
+    del validation_data
+    LOGGER.info(f"Training finished.")
+
 
 def run_training_sim(
     sensor, configuration, training_data, validation_data, output, args
@@ -992,6 +1000,10 @@ def run_training_sim(
         )
         LOGGER.info(f"Saving training network to {output}.")
         xrnn.save(output)
+
+    del training_data
+    del validation_data
+    LOGGER.info(f"Training finished.")
 
 
 def run_training_hr(configuration, training_data, validation_data, output, args):
@@ -1149,3 +1161,7 @@ def run_training_hr(configuration, training_data, validation_data, output, args)
         )
         LOGGER.info(f"Saving training network to {output}.")
         xrnn.save(output)
+
+    del training_data
+    del validation_data
+    LOGGER.info(f"Training finished.")
