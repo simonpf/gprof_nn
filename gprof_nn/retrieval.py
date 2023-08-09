@@ -302,7 +302,7 @@ class RetrievalDriver:
 
         # Determine output format.
         if output_format is not None:
-            self.output_format = output_format
+            self.output_format = output_format.upper()
         else:
             if output_file is None or Path(output_file).is_dir():
                 if self.input_format in [L1C, NETCDF, GPROF_DATABASE]:
