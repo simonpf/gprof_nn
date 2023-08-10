@@ -15,6 +15,7 @@ import subprocess
 from tempfile import TemporaryDirectory
 
 import numpy as np
+from scipy.ndimage import rotate
 import torch
 import xarray as xr
 
@@ -1460,6 +1461,17 @@ class GPROF_NN_HR_Dataset(GPROF_NN_3D_Dataset):
             coords = get_transformation_coordinates(
                 lats, lons, geometry, 96, 128, p_x_i, p_x_o, p_y
             )
+
+            if augment:
+                ang = rng.uniform(-90, 90)
+                coords = rotate(
+                    coords,
+                    angle=ang,
+                    axes=(-1, -2),
+                    reshape=False,
+                    order=0,
+                    cval=np.nan
+                )
 
             scene = _remap_hr_scene(scene, coords, targets + vs)
 
