@@ -163,7 +163,7 @@ class GPROFNN1DResults:
                 the retrieval results.
         """
         self.path = Path(path)
-        files = self.path.glob("**/*.nc")
+        files = self.path.glob("**/*.bin")
         self.granules = {}
         for filename in files:
             try:

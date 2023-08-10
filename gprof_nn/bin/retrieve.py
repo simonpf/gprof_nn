@@ -278,6 +278,7 @@ def run(args):
             files += list(inp.glob("**/*.nc.bin.gz"))
             files += list(inp.glob("**/*.pp"))
             files += list(inp.glob("**/*.HDF5"))
+            files += list(inp.glob("**/*.bin"))
             input_files += files
 
             for input_file in files:
