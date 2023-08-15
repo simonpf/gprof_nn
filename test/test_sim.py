@@ -611,9 +611,18 @@ def test_process_sim_file_gmi_era5():
                             era5_path,
                             subset)
     assert np.all(data["source"].data == 0)
-    sp = data["surface_precip"].data
     of = data["ocean_fraction"].data
     assert np.all(of[np.isfinite(sp)] == 100)
+
+    subset = SubsetConfig(surface_types=[1])
+    data = process_sim_file(sim_file,
+                            sensors.GMI,
+                            "ERA5",
+                            era5_path,
+                            subset)
+    assert np.all(data["source"].data == 0)
+    sfct = data["surface_type"].data
+    assert np.all(sfct[np.isfinite(sp)] == 1)
 
 
 @pytest.mark.skipif(not HAS_ARCHIVES, reason="Data archives not available.")

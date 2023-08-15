@@ -695,6 +695,9 @@ def process_sim_file(
     # Organize into scenes.
     data = _extract_scenes(data_pp)
 
+    if data is None:
+        return data
+
     # Add source indicator.
     data["source"] = ("samples", np.zeros(data.samples.size, dtype=np.int8))
     return data
@@ -1055,6 +1058,7 @@ class SubsetConfig:
     t2m_bounds: Optional[Tuple[float, float]] = None
     ocean_only: bool = False
     land_only: bool = False
+    surface_types: Optional[Tuple[float, float]] = None
 
 
     def mask_surface_precip(self, dataset):
@@ -1090,6 +1094,11 @@ class SubsetConfig:
             valid = land_frac == 100
             surface_precip[~valid] = np.nan
 
+        if self.surface_types is not None:
+            valid = np.zeros_like(surface_precip, dtype=bool)
+            for surface_type in self.surface_types:
+                valid += dataset.surface_type.data == surface_type
+            surface_precip[~valid] = np.nan
 
 
 class SimFileProcessor:

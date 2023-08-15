@@ -170,3 +170,5 @@ ANCILLARY_DATA = [
     "orographic wind",
     "moisture convergence"
 ]
+ANCILLARY_DATA += [f"surface_type_{ind + 1}" for ind in range(18)]
+ANCILLARY_DATA += [f"airmass_type_{ind + 1}" for ind in range(4)]
