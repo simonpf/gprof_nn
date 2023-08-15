@@ -151,7 +151,7 @@ def test_gprof_nn_3d_mhs():
     """
     path = Path(__file__).parent
     input_file = DATA_PATH / "mhs" / "gprof_nn_mhs_era5.nc"
-    dataset = GPROF_NN_3D_Dataset(input_file)
+    dataset = GPROF_NN_3D_Dataset(input_file, sensor=sensors.MHS)
     network = GPROF_NN_3D_QRNN(sensors.MHS, 2, 128, 2, 64)
     x, y = dataset[0]
     y_pred = network.predict(x)
