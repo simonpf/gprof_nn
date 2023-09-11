@@ -1,5 +1,6 @@
 from configparser import ConfigParser, SectionProxy
 from dataclasses import dataclass, asdict
+import os
 from pathlib import Path
 from typing import Optional
 
@@ -40,16 +41,16 @@ class PreprocessorConfig(ConfigBase):
 
 
     def print(self):
-        txt = ""
-        txt += f"AMSRE: {self.AMSRE}\n"
-        txt += f"AMSR2: {self.ASMR2}\n"
-        txt += f"ATMS: {self.ATMS}\n"
-        txt += f"GMI: {self.GMI}\n"
-        txt += f"MHS: {self.MHS}\n"
-        txt += f"SSMI: {self.SSMI}\n"
-        txt += f"SSMIS: {self.SSMIS}\n"
-        txt += f"TMIPR: {self.TMIPR}\n"
-        txt += f"TMIPO: {self.TMIPO}\n"
+        txt = "[preprocessor]\n"
+        txt += f"AMSRE = {self.AMSRE}\n"
+        txt += f"AMSR2 = {self.AMSR2}\n"
+        txt += f"ATMS  = {self.ATMS}\n"
+        txt += f"GMI   = {self.GMI}\n"
+        txt += f"MHS   = {self.MHS}\n"
+        txt += f"SSMI  = {self.SSMI}\n"
+        txt += f"SSMIS = {self.SSMIS}\n"
+        txt += f"TMIPR = {self.TMIPR}\n"
+        txt += f"TMIPO = {self.TMIPO}\n"
         return txt
 
 
@@ -62,15 +63,22 @@ class DataConfig:
     era5_path : Path = Path("/qdata2/archive/ERA5")
 
     def print(self):
-        txt = ""
-        txt += f"era5_path: {self.era5_path}\n"
-        txt += f"model_path: {self.model_path}\n"
+        txt = "[data]\n"
+        txt += f"era5_path  = {self.era5_path}\n"
+        txt += f"model_path = {self.model_path}\n"
         return txt
 
 @dataclass
 class Config:
     data: DataConfig
     preprocessor: PreprocessorConfig
+
+    def print(self):
+        txt = ""
+        txt += self.data.print()
+        txt += "\n"
+        txt += self.preprocessor.print()
+        return txt
 
 
 def parse_config_file(path: Optional[Path] = None):
@@ -108,3 +116,28 @@ def parse_config_file(path: Optional[Path] = None):
 
 
 CONFIG = parse_config_file()
+
+
+def get_config_file() -> Path:
+    """
+    Determine path of config file.
+    """
+    if "GPROF_NN_CONFIG" in os.environ:
+        config_file = Path(os.environ["GPROF_NN_CONFIG"])
+        return config_file
+    return Path(user_config_dir("gprof_nn", "gprof_nn"))
+
+
+def show_config():
+    """
+    Show the current gprof_nn system configuration.
+
+    """
+    print(CONFIG.print())
+
+
+def file():
+    """
+    Print the file from which the config is read.
+    """
+    print(get_config_file())
