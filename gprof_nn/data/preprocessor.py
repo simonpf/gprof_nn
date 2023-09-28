@@ -722,7 +722,7 @@ PREPROCESSOR_EXECUTABLES = {
     "TMIPO": "gprof2021pp_TMI_L1C",
     "SSMI": "gprof2021pp_SSMI_L1C",
     "SSMIS": "gprof2021pp_SSMIS_L1C",
-    "AMSR2": "gprof2021pp_AMSR2_L1C",
+    "AMSR2": "gprof2023pp_AMSR2_L1C",
     "AMSRE": "gprof2021pp_AMSRE_L1C",
     "ATMS": "gprof2021pp_ATMS_L1C",
     ("GMI", "MHS"): "gprof2021pp_GMI_MHS_L1C",
@@ -745,21 +745,9 @@ PREPROCESSOR_SETTINGS = {
 }
 
 
-def get_preprocessor_settings(configuration):
-
-    """
-    Return preprocessor settings as list of command line arguments to invoke
-    the preprocessor.
-    """
-    settings = PREPROCESSOR_SETTINGS.copy()
-    if configuration != ERA5:
-        settings["prodtype"] = "STANDARD"
-        settings["prepdir"] = "/qdata1/pbrown/gpm/modelprep/GANALV7/"
-    return [s for _, s in settings.items()]
-
 
 def run_preprocessor(
-    l1c_file, sensor, configuration=ERA5, output_file=None, robust=True
+    l1c_file, sensor, output_file=None, robust=True
 ):
     """
     Run preprocessor on L1C GMI file.
@@ -769,7 +757,6 @@ def run_preprocessor(
             using the preprocessor.
         sensor: Sensor object representing the sensor for which to run the
             preprocessor.
-        configuration: The configuration(ERA5 of GANAL)
         output_file: Optional name of an output file. Results will be written
             to a temporary file and the results returned as xarray.Dataset.
 
@@ -797,16 +784,14 @@ def run_preprocessor(
             )
 
         jobid = str(os.getpid()) + "_pp"
-        args = [jobid] + get_preprocessor_settings(configuration)
+        args = [jobid] + list(PREPROCESSOR_SETTINGS.values())
         args.insert(2, str(l1c_file))
         args.append(str(output_file))
 
         LOGGER = logging.getLogger(__name__)
         LOGGER.info(
-            "Invoking the preprocesor '%s' with '%s' ancillary data using the "
-            "following command: %s",
+            "Invoking the preprocesor '%s' using the " "following command: %s",
             executable,
-            configuration,
             " ".join([executable] + args)
 
         )

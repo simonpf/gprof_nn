@@ -9,16 +9,26 @@ import xarray as xr
 from gprof_nn.augmentation import get_transformation_coordinates
 from gprof_nn.data import get_test_data_path
 from gprof_nn.sensors import GMI_VIEWING_GEOMETRY
-from gprof_nn.utils import (apply_limits,
-                            get_mask,
-                            calculate_interpolation_weights,
-                            interpolate,
-                            calculate_tiles_and_cuts)
-from gprof_nn.data.utils import (load_variable,
-                                 decompress_scene,
-                                 remap_scene,
-                                 upsample_scans)
+from gprof_nn.utils import (
+    apply_limits,
+    get_mask,
+    calculate_interpolation_weights,
+    interpolate,
+    calculate_tiles_and_cuts,
+)
+from gprof_nn.data.utils import (
+    load_variable,
+    decompress_scene,
+    remap_scene,
+    upsample_scans,
+    save_scene
+)
 from gprof_nn.data.training_data import decompress_and_load
+
+from conftest import (
+    training_files_3d_gmi,
+    sim_collocations_gmi
+)
 
 
 DATA_PATH = get_test_data_path()
@@ -121,19 +131,21 @@ def test_load_variable():
     assert np.all((sp > 10.0) * (sp < 500))
 
 
-def test_decompress_scene():
+def test_decompress_scene(training_files_3d_gmi):
     """
     Ensure that loading a variable correctly replaces invalid value and
     conserves shape when used without mask.
 
     Also ensure that masking works.
     """
-    input_file = DATA_PATH / "gmi" / "gprof_nn_gmi_era5.nc.gz"
-    scene = decompress_and_load(input_file)[{"samples": 1}]
+    input_file = training_files_3d_gmi[0]
+    scene = xr.load_dataset(input_file) #decompress_and_load(input_file)[{"samples": 1}]
 
     scene_d = decompress_scene(scene, ["surface_precip",
                                        "rain_water_content",
-                                       "rain_water_path"])
+                                       "rain_water_path",
+                                       "surface_type"
+                                       ])
 
     assert "pixels" in scene_d.rain_water_content.dims
 
@@ -176,3 +188,80 @@ def test_upsample_scans():
     assert array_3.size == 28
     assert np.all(np.isclose(array_3, np.linspace(0, 9, 28)))
 
+
+def test_save_scene(
+        tmp_path,
+        sim_collocations_gmi
+):
+    data = sim_collocations_gmi
+
+    save_scene(sim_collocations_gmi, tmp_path / "scene.nc")
+    data_loaded = xr.load_dataset(tmp_path / "scene.nc")
+
+    # TB differences should be small and invalid values should
+    # be the same
+    for var in [
+            "brightness_temperatures",
+            "simulated_brightness_temperatures",
+            "brightness_temperature_biases"
+    ]:
+        tbs = data[var].data
+        tbs_l = data_loaded[var].data
+        mask = np.isnan(tbs) + (tbs < -150)
+        mask_l = np.isnan(tbs_l)
+        assert np.all(mask == mask_l)
+        delta = tbs[~mask] - tbs_l[~mask]
+        assert np.abs(delta).max() <= 0.01
+        assert np.abs(delta).max() > 0.0
+
+    tbs = data.brightness_temperatures.data
+    tbs_l = data.brightness_temperatures.data
+    mask = np.isnan(tbs)
+    mask_l = np.isnan(tbs_l)
+    assert np.all(mask == mask_l)
+    delta = tbs[~mask] - tbs_l[~mask]
+    assert np.abs(delta).max() <= 0.01
+
+    # Ensure that compression of ancillary data is
+    # lossless.
+    for var in [
+            "surface_type",
+            "mountain_type",
+            "airlifting_index",
+            "mountain_type",
+            "land_fraction",
+            "ice_fraction",
+    ]:
+        trgt = data[var].data
+        trgt_l = data_loaded[var].data
+
+        valid = trgt >= 0
+        valid_l = trgt_l >= 0
+        assert np.all(valid == valid_l)
+
+        err = trgt[valid] - trgt_l[valid]
+        assert np.all(err == 0.0)
+
+    # Ensure that compression of ancillary data and targets is
+    # lossless.
+    for var in [
+            "total_column_water_vapor",
+            "two_meter_temperature",
+            "surface_precip",
+            "ice_water_path",
+            "rain_water_path",
+            "cloud_water_path",
+            "rain_water_content",
+            "cloud_water_content",
+            "snow_water_content",
+            "latent_heat"
+    ]:
+        trgt = data[var].data
+        trgt_l = data_loaded[var].data
+
+        valid = np.isfinite(trgt)
+        valid_l = np.isfinite(trgt_l)
+        assert np.all(valid == valid_l)
+
+        err = trgt[valid] - trgt_l[valid]
+        assert np.all(err == 0.0)

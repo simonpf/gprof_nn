@@ -19,7 +19,7 @@ setup(
     author_email="simon.pfreundschuh@chalmers.se",
     install_requires=[
         "numpy", "scipy", "xarray", "torch", "appdirs", "rich",
-        "quantnn>=0.0.5dev", "h5py", "netCDF4", "h5netcdf"
+        "quantnn>=0.0.5dev", "h5py", "netCDF4", "h5netcdf", "pandas"
     ],
     extras_require = {
         'development': [
@@ -27,7 +27,7 @@ setup(
             ]
         },
     entry_points = {
-        'console_scripts': ['gprof_nn=gprof_nn.bin:gprof_nn'],
+        'console_scripts': ['gprof_nn=gprof_nn.cli:gprof_nn'],
     },
     packages=find_packages(),
     package_data={

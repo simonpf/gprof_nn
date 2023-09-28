@@ -7,7 +7,7 @@ provided by the 'gprof_nn' package.
 """
 import click
 import gprof_nn.config as conf
-from gprof_nn.data import sim
+from gprof_nn.data import sim, pretraining
 
 @click.group()
 def gprof_nn():
@@ -18,6 +18,11 @@ def extract_training_data():
     pass
 
 extract_training_data.command(name="sim")(sim.cli)
+extract_training_data.command(name="pre")(pretraining.cli)
+
+######################################################################
+# gprof_nn config
+######################################################################
 
 @gprof_nn.group()
 def config():
@@ -25,3 +30,4 @@ def config():
 
 config.command(name="file")(conf.file)
 config.command(name="show")(conf.show_config)
+config.command(name="set")(conf.set_config)

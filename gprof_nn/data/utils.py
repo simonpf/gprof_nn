@@ -6,6 +6,8 @@ gprof_nn.data.utils
 Functions that are shared across multiple sub modules of
 the ``gprof_nn.data`` module.
 """
+from pathlib import Path
+
 import numpy as np
 import xarray as xr
 
@@ -14,7 +16,7 @@ from gprof_nn.definitions import LIMITS
 from gprof_nn.utils import apply_limits
 
 CENTER = 110
-N_PIXELS_CENTER = 41
+N_PIXELS_CENTER = 31
 
 
 def compressed_pixel_range():
@@ -211,3 +213,103 @@ def upsample_scans(array, axis=0):
     array_3[tuple(indices)] = array_l + 2 / 3 * diff#1 / 3 * array_l + 2 / 3 * array_r
 
     return array_3
+
+
+def save_scene(
+        scene: xr.Dataset,
+        path: Path
+) -> None:
+    """
+    Saves a GPROF-NN training scene as NetCDF file applying appropriate
+    compression.
+
+    Args:
+        scene: An xarray.Dataset containing the training scene to save
+        path: Path pointing to the file to which to write the scene.
+    """
+    scene = scene.copy(deep=True)
+
+    tbs = scene.brightness_temperatures.data
+    tbs[tbs < 0] = np.nan
+    tbs[tbs > 400] = np.nan
+    if "simulated_brightness_temperatures" in scene:
+        tbs = scene.simulated_brightness_temperatures.data
+        tbs[tbs < 0] = np.nan
+        tbs[tbs > 400] = np.nan
+        dtbs = scene.brightness_temperature_biases.data
+        dtbs[dtbs < -150] = np.nan
+        dtbs[dtbs > 150] = np.nan
+
+    sfc = scene.surface_type.data
+    sfc[sfc < 0] = -99
+    ali = scene.airlifting_index.data
+    ali[ali < 0] = -99
+    mtn = scene.mountain_type.data
+    mtn[mtn < 0] = -99
+    lfr = scene.land_fraction.data
+    lfr[lfr < 0] = -99
+    ifr = scene.ice_fraction.data
+    ifr[ifr < 0] = -99
+
+    encoding = {
+        "brightness_temperatures": {
+            "dtype": "uint16",
+            "scale_factor": 0.01,
+            "add_offset": 1,
+            "_FillValue": 2 ** 16 - 1,
+            "zlib": True
+        },
+        "simulated_brightness_temperatures": {
+            "dtype": "uint16",
+            "scale_factor": 0.01,
+            "add_offset": 1,
+            "_FillValue":  2 ** 16 - 1,
+            "zlib": True
+        },
+        "brightness_temperature_biases": {
+            "dtype": "int16",
+            "scale_factor": 0.01,
+            "add_offset": 0,
+            "_FillValue": - (2 ** 15),
+            "zlib": True
+        },
+        "surface_type": {
+            "dtype": "int8",
+            "zlib": True
+        },
+        "mountain_type": {
+            "dtype": "int8",
+            "zlib": True
+        },
+        "airlifting_index": {
+            "dtype": "int8",
+            "zlib": True
+        },
+        "mountain_type": {
+            "dtype": "int8",
+            "zlib": True
+        },
+        "land_fraction": {
+            "dtype": "int8",
+            "zlib": True
+        },
+        "ice_fraction": {
+            "dtype": "int8",
+            "zlib": True
+        }
+
+    }
+
+    for var in [
+            "ice_water_path",
+            "cloud_water_path",
+            "rain_water_path",
+    ]:
+        encoding[var] = {"dtype": "float32", "zlib": True}
+
+    for var in scene.variables:
+        if not var in encoding:
+            encoding[var] = {"zlib": True}
+
+    encoding = {key: val for key, val in encoding.items() if key in scene}
+    scene.to_netcdf(path, encoding=encoding)

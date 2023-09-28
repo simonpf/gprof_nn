@@ -9,11 +9,10 @@ dependencies:
   - pytorch
   - torchvision
   - torchaudio
+  - lightning
   - pytorch-cuda=11.7
   - h5py
   - pyproj
   - pyresample
-  - torchaudio
-  - torchvision
   - tensorboard
   - xarray

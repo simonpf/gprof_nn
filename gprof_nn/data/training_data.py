@@ -17,6 +17,7 @@ from tempfile import TemporaryDirectory
 import numpy as np
 from scipy.ndimage import rotate
 import torch
+from torch.utils.data import Dataset
 import xarray as xr
 
 from quantnn.normalizer import MinMaxNormalizer
@@ -1520,3 +1521,138 @@ class GPROF_NN_HR_Dataset(GPROF_NN_3D_Dataset):
             y[k] = np.stack(y[k])
 
         return x, y
+
+
+NORMALIZER = MinMaxNormalizer(np.ones((23, 1, 1)), feature_axis=0)
+NORMALIZER.stats = {
+    0: (130, 350),    #
+    1: (70, 350),     #
+    2: (130, 350),    #
+    3: (80, 350),     #
+    4: (130, 310),    #
+    5: (110, 310),    #
+    6: (60, 310),     #
+    7: (100, 310),    #
+    8: (50, 310),     #
+    9: (50, 310),     #
+    10: (60, 310),    #
+    11: (60, 310),    #
+    12: (60, 310),    #
+    13: (60, 310),    #
+    14: (60, 310),    #
+    15: (-70, 70),    # Earth incidence angle
+    16: (220, 320),   # Two-meter temperature
+    17: (0, 85),      # Total-column water vapor
+    18: (0, 100),     # Land fraction
+    19: (0, 100),     # Ice fraction
+    20: (0, 7),       # Leaf-area index
+    21: (-4, 4),      # Orographic wind
+    22: (-5e-6, 5e-6) # Moisture convergence
+}
+
+
+class PretrainingDataset(Dataset):
+    """
+    Dataset class to load pretraining data for GPROF retrievals.
+
+    The unsupervised pretraining tasks the GPROF-NN model to reproduce
+    all 15 GPM channels from as little as three input channels. Input
+    channels are dropped randomly. Corruption in the form of scaling by
+    a value between 0.8 and 1.2 is applied to the remaining channels
+    with a pre-defined probability.
+    """
+    def __init__(
+            self,
+            path: Path,
+            normalize: bool = True,
+            ancillary_data: bool = True,
+            channel_corruption: float = 0.2
+    ):
+        """
+        Args:
+            path: The path containing the pretraining data.
+            normalize: Whether or not the input data should be normalized.
+            ancillary_data: Whether or not to include ancillary data
+                in the input.
+            channel_corruption: The probability of an input channel to be
+                corrupted by a random scaling between 0.8 and 1.2.
+        """
+        self.normalize = normalize
+        self.ancillary_data = ancillary_data
+        self.files = np.array(sorted(list(Path(path).glob("**/*.nc"))))
+        self.rng = np.random.default_rng()
+        self.channel_corruption = channel_corruption
+
+    def seed(self, *args):
+        """
+        Seed the data loader's random generator.
+        """
+        seed = int.from_bytes(os.urandom(4), "little") + os.getpid()
+        self.rng = np.random.default_rng(seed)
+
+    def __len__(self):
+        """
+        The number of samples in the dataset.
+        """
+        return len(self.files)
+
+    def __getitem__(self, index):
+        """
+        Load one training sample.
+        """
+        path = self.files[index]
+        with xr.open_dataset(path) as data:
+
+            tbs = np.transpose(data.brightness_temperatures.data, (2, 0, 1))
+            valid_chans = np.where(np.any(tbs >= 0.0, (1, 2)))[0]
+            n_valid = len(valid_chans)
+            n_drop = self.rng.integers(1, max(n_valid - 3, 0))
+            drop = self.rng.permutation(valid_chans)[:n_drop]
+            n_valid = len(valid_chans)
+
+            tbs_in = -1.5 * np.ones_like(tbs)
+            tbs_out = MASKED_OUTPUT * np.ones_like(tbs)
+
+            for chan in valid_chans:
+                if chan not in drop:
+                    tbs_in[chan] = tbs[chan]
+
+                    if self.rng.random() > (1.0 - self.channel_corruption):
+                        fac = 0.8 + 0.4 * self.rng.random()
+                        tbs_in[chan] *= fac
+
+                tbs_out[chan] = tbs[chan]
+
+            if self.ancillary_data:
+
+                eia = data.earth_incidence_angle.data[..., 0][None]
+                t2m = data.two_meter_temperature.data[None]
+                tcwv = data.total_column_water_vapor.data[None]
+                f_land = data.land_fraction.data[None]
+                f_ice = data.ice_fraction.data[None]
+                snow = data.snow_depth.data[None]
+                lai = data.leaf_area_index.data[None]
+                wind = data.orographic_wind.data[None]
+                conv = data.moisture_convergence.data[None]
+
+                x = np.concatenate([
+                    tbs_in, eia, t2m, tcwv, f_land, f_ice, snow, lai, wind,
+                    conv
+                ])
+            else:
+                x = tbs_in
+
+        if self.rng.random() > 0.5:
+            x = np.flip(x, -1)
+            tbs_out = np.flip(tbs_out, -1)
+
+        if self.rng.random() > 0.5:
+            x = np.flip(x, -2)
+            tbs_out = np.flip(tbs_out, -2)
+
+        if self.normalize:
+            x = torch.tensor(NORMALIZER(x))
+
+        tbs_out = np.nan_to_num(tbs_out, nan=MASKED_OUTPUT, copy=True)
+        y = {f"tbs_{ind}": torch.tensor(tbs_out[ind]) for ind in range(15)}
+        return (x, y)

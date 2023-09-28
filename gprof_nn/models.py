@@ -7,6 +7,8 @@ This module defines the neural network models that are used
 for the implementation of the GPROF-NN algorithms.
 """
 from copy import deepcopy
+from dataclasses import dataclass
+from typing import List, Tuple, Dict
 
 import numpy as np
 import torch
@@ -15,8 +17,18 @@ from torch.nn.functional import softplus
 from quantnn.qrnn import QRNN
 from quantnn.drnn import DRNN
 from quantnn.mrnn import MRNN, Mean, Quantiles, Density
-from quantnn.models.pytorch.xception import (SeparableConv3x3,
-                                             SymmetricPadding)
+from quantnn.models.pytorch.xception import (
+    SeparableConv3x3,
+    SymmetricPadding
+)
+from quantnn.models.pytorch.encoders import SpatialEncoder
+from quantnn.models.pytorch.decoders import SpatialDecoder
+from quantnn.models.pytorch.normalization import LayerNormFirst
+from quantnn.models.pytorch.downsampling import ConvNextDownsamplerFactory
+from quantnn.models.pytorch.upsampling import BilinearFactory
+from quantnn.models.pytorch.blocks import ConvNextBlockFactory
+from quantnn.models.pytorch import fully_connected
+
 
 from gprof_nn.definitions import ALL_TARGETS, PROFILE_NAMES
 from gprof_nn.retrieval import (
@@ -1830,3 +1842,131 @@ class Simulator(MRNN):
         This function does nothing. It's a dummy function provided
         for compatibilty with retrieval driver interface.
         """
+
+
+@dataclass
+class ModelConfig:
+    """
+    Dataclass to store GPROF-NN model configurations.
+    """
+    n_channels: List[int]
+    n_blocks: List[int]
+    ancillary_data: bool
+
+
+GPROF_NN_3D_CONFIGS = {
+    "small": ModelConfig(
+        [64, 128, 256, 512, 512],
+        [2, 2, 2, 2, 2],
+        True
+    ),
+    "small_no_ancillary": ModelConfig(
+        [64, 128, 256, 512, 512],
+        [2, 2, 2, 2, 2],
+        False
+    ),
+    "large": ModelConfig(
+        [128, 128, 256, 512, 512],
+        [4, 4, 6, 4, 2],
+        True
+    ),
+    "large_no_ancillary": ModelConfig(
+        [128, 128, 256, 512, 512],
+        [4, 4, 6, 4, 2],
+        False
+    )
+}
+
+
+class GPROFNet3D(nn.Module):
+    """
+    Convolutional version of the GPROF-NN retrieval model.
+
+    The GPROFNet3D consisits of three principal components: An encoder,
+    a decoder and heads for all output targets. The network comprises 5
+    stages with 4 downsampling steps. The downsampling factor between all
+    stages is 2 but is only applied along the along-track direction in
+    the last stage to make up for typical asymmetry of satellite data.
+    """
+    def __init__(
+        self,
+        n_channels: List[int],
+        n_blocks: List[int],
+        targets: Dict[str, Tuple[int, int]],
+        ancillary_data: bool = True,
+    ):
+        """
+        Args:
+            n_channels: A list defining the number of channels in each stage.
+            n_blocks: A list defining the number of convolution blocks in each
+                 decoder stage.
+            targets: A dictionary mapping target names to output shapes, where
+                a shape is a tuple ``(n_quantiles, n_levels)`` defining the
+                number of quantiles and atmospheric level of the target
+                variable.
+            ancillary_data: Boolean flag indicating whether or not to include
+                ancillary data in the network inputs.
+        """
+        super().__init__()
+        self.ancillary_data = ancillary_data
+        if self.ancillary_data:
+            n_inputs = 24
+        else:
+            n_inputs = 15
+
+        self.stem = nn.Sequential(
+            nn.Conv2d(n_inputs, n_channels[0], kernel_size=3, padding=1),
+            LayerNormFirst(n_channels[0])
+        )
+
+        downsampler_factory = ConvNextDownsamplerFactory()
+        block_factory = ConvNextBlockFactory(version=2)
+        upsampler_factory = BilinearFactory()
+        self.encoder = SpatialEncoder(
+            channels=n_channels,
+            stages=n_blocks,
+            downsampler_factory=downsampler_factory,
+            block_factory=block_factory,
+            downsampling_factors=[2, 2, 2, (2, 1)]
+        )
+        self.decoder = SpatialDecoder(
+            channels=n_channels[::-1],
+            stages=[1] * (len(n_blocks) - 1),
+            block_factory=block_factory,
+            skip_connections=self.encoder.skip_connections,
+            upsampler_factory=upsampler_factory,
+            upsampling_factors=[(2, 1), 2, 2, 2],
+        )
+
+        self.heads = nn.ModuleDict()
+        for name, shape in targets.items():
+            n_out = np.prod(shape)
+            self.heads[name] = fully_connected.MLP(
+                features_in=n_channels[0],
+                n_features=n_channels[0],
+                features_out=n_out,
+                n_layers=3,
+                residuals="simple",
+                activation_factory=nn.GELU,
+                norm_factory=nn.LayerNorm,
+                output_shape=shape
+            )
+
+    def forward(self, x: torch.Tensor) -> Dict[str, torch.tensor]:
+        """
+        Forward input tensor through network.
+
+        Args:
+            x: The input tensor containing the normalized network inputs.
+
+        Return:
+            A dictionary containing the predicted quantiles tensors for
+            all retrieval targets.
+        """
+        if not self.ancillary_data:
+            x = x[:, :15]
+
+        x_in = self.stem(x)
+        y = self.decoder(self.encoder(x_in, return_skips=True))
+        y = {name: head(y) for name, head in self.heads.items()}
+        return y

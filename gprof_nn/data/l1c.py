@@ -31,7 +31,6 @@ class L1CFile:
     """
     Interface class to GPROF L1C-R files in HDF5 format.
     """
-
     @classmethod
     def open_granule(cls, granule, path, sensor, date=None):
         """

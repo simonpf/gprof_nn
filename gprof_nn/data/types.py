@@ -98,17 +98,19 @@ def get_preprocessor_pixel_record(n_chans, kind):
                 ("total_column_water_vapor", "f4"),
                 ("surface_temperature", "f4"),
                 ("two_meter_temperature", "f4"),
+                ("convective_precipitation", "f4"),
                 ("moisture_convergence", "f4"),
                 ("leaf_area_index", "f4"),
                 ("snow_depth", "f4"),
                 ("orographic_wind", "f4"),
-                ("ocean_fraction", "i4"),
+                ("10m_wind", "f4"),
+                ("mountain_type", "i4"),
                 ("land_fraction", "i4"),
                 ("ice_fraction", "i4"),
                 ("quality_flag", "i4"),
                 ("sunglint_angle", "i1"),
                 ("surface_type", "i1"),
-                ("__padding__", "i2"),
+                ("airlifting_index", "i2"),
             ]
         )
     else:
@@ -313,6 +315,7 @@ def get_sim_file_record(n_chans, n_angles, n_layers, kind):
         ]
     )
 
+
     if kind == CONICAL:
         dtype = np.dtype(
             [
@@ -324,6 +327,8 @@ def get_sim_file_record(n_chans, n_angles, n_layers, kind):
                 ("elevation", "f4"),
                 ("scan_time", date_type),
                 ("surface_type", "i4"),
+                ("mirs_chi_squared", "f4"),
+                ("mirs_quality", "f4"),
                 ("surface_precip_combined", "f4"),
                 ("surface_precip_mirs", "f4"),
                 ("surface_precip", "f4"),

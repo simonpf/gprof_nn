@@ -18,6 +18,7 @@ from pathlib import Path
 import tempfile
 from typing import Optional, Tuple
 
+import click
 import numpy as np
 import pandas as pd
 from pykdtree.kdtree import KDTree
@@ -26,6 +27,7 @@ import xarray as xr
 
 import gprof_nn
 from gprof_nn import sensors
+from gprof_nn.config import CONFIG
 from gprof_nn.definitions import N_LAYERS
 from gprof_nn.definitions import (
     ALL_TARGETS,
@@ -39,9 +41,14 @@ from gprof_nn.coordinates import latlon_to_ecef
 from gprof_nn.data.l1c import L1CFile
 from gprof_nn.data.mrms import MRMSMatchFile
 from gprof_nn.data.preprocessor import run_preprocessor
-from gprof_nn.data.utils import compressed_pixel_range, N_PIXELS_CENTER
+from gprof_nn.data.utils import (
+    compressed_pixel_range,
+    N_PIXELS_CENTER,
+    save_scene
+)
 from gprof_nn.logging import get_console
 from gprof_nn.utils import CONUS
+from gprof_nn.sensors import Sensor
 
 
 LOGGER = logging.getLogger(__name__)
@@ -127,7 +134,7 @@ class SimFile:
         """
         self.path = path
         parts = str(path).split(".")
-        self.granule = int(parts[-2])
+        self.granule = int(parts[-2][:6])
 
         year = int(parts[-3][:4])
         month = int(parts[-3][4:6])
@@ -169,14 +176,12 @@ class SimFile:
 
         n_scans = input_data.scans.size
         n_pixels = 221
-        w_c = 40
-        i_c = 110
-        ix_start = i_c - w_c // 2
-        ix_end = i_c + 1 + w_c // 2
         i_left, i_right = compressed_pixel_range()
+        cmpr = slice(i_left, i_right)
+        w_c = i_right - i_left
 
-        lats_1c = input_data["latitude"][:, ix_start:ix_end].data.reshape(-1, 1)
-        lons_1c = input_data["longitude"][:, ix_start:ix_end].data.reshape(-1, 1)
+        lats_1c = input_data["latitude"][:, cmpr].data.reshape(-1, 1)
+        lons_1c = input_data["longitude"][:, cmpr].data.reshape(-1, 1)
         coords_1c = latlon_to_ecef(lons_1c, lats_1c)
         coords_1c = np.concatenate(coords_1c, axis=1)
 
@@ -196,14 +201,14 @@ class SimFile:
 
         if "tbs_simulated" in self.data.dtype.fields:
             if n_angles > 0:
-                shape = (n_scans, w_c + 1, n_angles, n_chans)
+                shape = (n_scans, w_c, n_angles, n_chans)
                 full_shape = (n_scans, n_pixels, n_angles, n_chans)
-                matched = np.zeros((n_scans * (w_c + 1), n_angles, n_chans))
+                matched = np.zeros((n_scans * w_c, n_angles, n_chans))
                 dims = ("scans", "pixels_center", "angles", "channels")
             else:
-                shape = (n_scans, w_c + 1, n_chans)
+                shape = (n_scans, w_c, n_chans)
                 full_shape = (n_scans, n_pixels, n_chans)
-                matched = np.zeros((n_scans * (w_c + 1), n_chans))
+                matched = np.zeros((n_scans * w_c, n_chans))
                 dims = ("scans", "pixels_center", "channels")
             matched[:] = np.nan
             assert np.all(indices[dists < 10e3] < matched.shape[0])
@@ -221,17 +226,17 @@ class SimFile:
 
             matched_full = np.zeros(full_shape, dtype=np.float32)
             matched_full[:] = np.nan
-            matched_full[:, ix_start:ix_end] = matched
+            matched_full[:, cmpr] = matched
 
             input_data["simulated_brightness_temperatures"] = (
                 dims,
-                matched_full[:, i_left:i_right],
+                matched_full[:, cmpr],
             )
 
         if "tbs_bias" in self.data.dtype.fields:
-            shape = (n_scans, w_c + 1, n_chans)
+            shape = (n_scans, w_c, n_chans)
             full_shape = (n_scans, n_pixels, n_chans)
-            matched = np.zeros((n_scans * (w_c + 1), n_chans))
+            matched = np.zeros((n_scans * w_c, n_chans))
 
             matched[:] = np.nan
 
@@ -246,28 +251,28 @@ class SimFile:
 
             matched_full = np.zeros(full_shape, dtype=np.float32)
             matched_full[:] = np.nan
-            matched_full[:, ix_start:ix_end] = matched
+            matched_full[:, cmpr] = matched
 
             input_data["brightness_temperature_biases"] = (
                 ("scans", "pixels_center", "channels"),
-                matched_full[:, i_left:i_right],
+                matched_full[:, cmpr],
             )
 
         # Extract matching data
         for target in targets:
             if target in PROFILE_NAMES:
-                n = n_scans * (w_c + 1)
-                shape = (n_scans, w_c + 1, 28)
+                n = n_scans * w_c
+                shape = (n_scans, w_c, 28)
                 full_shape = (n_scans, n_pixels, 28)
                 matched = np.zeros((n, 28), dtype=np.float32)
             else:
-                n = n_scans * (w_c + 1)
+                n = n_scans * w_c
                 if n_angles > 0:
-                    shape = (n_scans, w_c + 1, n_angles)
+                    shape = (n_scans, w_c, n_angles)
                     full_shape = (n_scans, n_pixels, n_angles)
                     matched = np.zeros((n, n_angles), dtype=np.float32)
                 else:
-                    shape = (n_scans, w_c + 1)
+                    shape = (n_scans, w_c)
                     full_shape = (n_scans, n_pixels)
                     matched = np.zeros(n, dtype=np.float32)
 
@@ -278,10 +283,10 @@ class SimFile:
 
             matched_full = np.zeros(full_shape, dtype=np.float32)
             matched_full[:] = np.nan
-            matched_full[:, ix_start:ix_end] = matched
+            matched_full[:, cmpr] = matched
 
             if target in PROFILE_NAMES:
-                data = matched_full[:, i_left:i_right]
+                data = matched_full[:, cmpr]
                 input_data[target] = (
                     ("scans", "pixels_center", "levels"),
                     data.astype(np.float32),
@@ -299,7 +304,7 @@ class SimFile:
                 else:
                     input_data[target] = (
                         ("scans", "pixels_center"),
-                        matched_full[:, i_left:i_right].astype(np.float32),
+                        matched_full[:, cmpr].astype(np.float32),
                     )
 
         return input_data
@@ -353,7 +358,7 @@ class SimFile:
             + minute.astype("timedelta64[m]")
             + second.astype("timedelta64[s]")
         )
-        dataset["scan_time"] = (("samples",), dates)
+        dataset["scan_time"] = (("samples",), dates.astype("datetime64[ns]"))
 
         return dataset
 
@@ -391,7 +396,7 @@ def apply_orographic_enhancement(data, kind="ERA5"):
     if kind not in ["ERA5", "GANAL"]:
         raise ValueError("The kind argument to  must be 'ERA5' or 'GANAL'.")
     surface_types = data["surface_type"].data
-    airmass_types = data["airmass_type"].data
+    airlifting_index = data["airlifting_index"].data
     surface_precip = data["surface_precip"].data
     convective_precip = data["convective_precip"].data
 
@@ -402,7 +407,7 @@ def apply_orographic_enhancement(data, kind="ERA5"):
             key = (t_s, t_a)
             if key not in factors:
                 continue
-            indices = (surface_types == t_s) * (airmass_types == t_a)
+            indices = (surface_types == t_s) * (airlifting_index == t_a)
             enh[indices] = factors[key]
 
     surface_precip *= enh
@@ -509,6 +514,11 @@ def _load_era5_data(start_time, end_time, base_directory):
         base_directory: Root of the directory tree containing the
             ERA5 files.
     """
+    base_directory = Path(base_directory)
+    if not base_directory.exists():
+        raise RuntimeError(
+            "The provided ERA5 directory does not exist."
+        )
     start_time = pd.to_datetime(start_time)
     end_time = pd.to_datetime(end_time)
 
@@ -578,22 +588,18 @@ def _add_era5_precip(input_data, l1c_data, era5_data):
     input_data["convective_precip"].data[indices] = 1000.0 * convective_precip
 
 
-def process_sim_file(
+def collocate_targets(
         sim_filename,
         sensor,
-        configuration,
         era5_path,
         subset=None,
         log_queue=None
 ):
     """
-    Extract 2D training scenes from sim file.
+    This method collocates retrieval input data from the preprocessor
+    with retrieval targets from a sim file.
 
-    This method reads a given sim file, matches it with the input data
-    from the GMI L1C file and preprocessor files and reshapes the
-    data to scenes of dimensions 221 x 221.
-
-    For the GMI sensor also ERA5 precip over sea ice and sea ice edge are
+    For GMI also ERA5 precip over sea ice and sea ice edge are
     added to the surface precipitation.
 
     Surface and convective precipitation over mountains is set to NAN.
@@ -603,13 +609,14 @@ def process_sim_file(
     Args:
         sim_filename: Filename of the Sim file to process.
         sensor: The sensor for which the training data is extracted.
-        l1c_path: Base path of the directory tree containing the L1C file.
         era5_path: Base path of the directory containing the ERA5 data.
+        subset: An optional SubsetConfig object limiting that will be
+            used to mask samples not to be used in the training.
         log_queue: Optional queue object to use for multi-process logging.
 
     Return:
-        xarray.Dataset containing the data from the sim file as multiple
-        2D training scenes.
+        An xarray.Dataset containing GMI preprocessor data collocated with
+        reference data from the given SIM file.
     """
     import gprof_nn.logging
 
@@ -626,7 +633,7 @@ def process_sim_file(
 
     LOGGER.info("Running preprocessor for sim file %s.", sim_filename)
     data_pp = run_preprocessor(
-        l1c_file.filename, sensor=sensor, configuration=configuration, robust=False
+        l1c_file.filename, sensor=sensor, robust=False
     )
     data_pp = data_pp.drop_vars(
         [
@@ -683,6 +690,15 @@ def process_sim_file(
             era5_data = _load_era5_data(start_time, end_time, era5_path)
             _add_era5_precip(data_pp, l1c_data, era5_data)
             LOGGER.debug("Added era5 precip.")
+        else:
+            LOGGER.debug(
+                (
+                    "Not add ERA5 precip for file %s because ERA5 "
+                    " path is not provided"
+                ),
+                sim_filename
+            )
+
     # Else set to missing.
     else:
         sea_ice = (surface_type == 2) + (surface_type == 16)
@@ -692,15 +708,273 @@ def process_sim_file(
     if subset is not None:
         subset.mask_surface_precip(data_pp)
 
-    # Organize into scenes.
-    data = _extract_scenes(data_pp)
+    return data_pp
 
-    if data is None:
-        return data
 
-    # Add source indicator.
-    data["source"] = ("samples", np.zeros(data.samples.size, dtype=np.int8))
-    return data
+def write_training_samples_1d(
+        dataset: xr.Dataset,
+        output_path: Path,
+) -> None:
+    """
+    Write training data in GPROF-NN 1D format.
+
+    Args:
+        dataset: An 'xarray.Dataset' containing collocated input
+            observations and reference data.
+        output_path: Path to which the training data will be written.
+    """
+    subset = {}
+    dataset = dataset[{"pixels": slice(*compressed_pixel_range())}]
+    mask = np.isfinite(dataset.surface_precip.data)
+
+    for var in dataset.variables:
+        arr = dataset[var]
+        if arr.data.ndim < 2:
+            arr_data = np.broadcast_to(arr.data[..., None], mask.shape)
+        else:
+            arr_data = arr.data
+
+        subset[var] = ((("samples",) + arr.dims[2:]), arr_data[mask])
+
+    subset = xr.Dataset(subset)
+    start_time = pd.to_datetime(dataset.scan_time.data[0].item())
+    start_time = start_time.strftime("%Y%m%d%H%M%S")
+    end_time = pd.to_datetime(dataset.scan_time.data[-1].item())
+    end_time = end_time.strftime("%Y%m%d%H%M%S")
+    filename = f"sim_{start_time}_{end_time}.nc"
+
+    save_scene(subset, output_path / filename)
+
+
+def write_training_samples_3d(
+        dataset,
+        output_path,
+        min_valid=20
+):
+    """
+    Write training data in GPROF-NN 3D format.
+
+    Args:
+        dataset:
+        output_path:
+        min_valid: The minimum number of valid surface precipitation
+            pixels for a scene to be stored.
+
+    """
+    mask = np.any(np.isfinite(dataset.surface_precip.data), 1)
+    valid_scans = np.where(mask)[0]
+    n_scans = dataset.scans.size
+
+    encodings = {
+        name: {"zlib": True} for name in dataset.variables
+    }
+
+    while len(valid_scans) > 0:
+
+        ind = np.random.randint(0, len(valid_scans))
+        scan_start = min(max(valid_scans[ind] - 110, 0), n_scans - 221)
+        scan_end = scan_start + 221
+
+        scene = dataset[{"scans": slice(scan_start, scan_end)}]
+        start_time = pd.to_datetime(scene.scan_time.data[0].item())
+        start_time = start_time.strftime("%Y%m%d%H%M%S")
+        end_time = pd.to_datetime(scene.scan_time.data[-1].item())
+        end_time = end_time.strftime("%Y%m%d%H%M%S")
+        filename = f"sim_{start_time}_{end_time}.nc"
+
+        valid_pixels = (scene.surface_precip.data >= 0.0).sum()
+        if valid_pixels > min_valid:
+            #scene.to_netcdf(output_path / filename, encoding=encodings)
+            save_scene(scene, output_path / filename)
+
+        within_scene = (valid_scans >= scan_start) * (valid_scans < scan_end)
+        if within_scene.sum() == 0:
+            break
+        valid_scans = valid_scans[~within_scene]
+
+
+def process_sim_file(
+        sensor: Sensor,
+        sim_file: Path,
+        era5_path: Optional[Path],
+        output_path_1d: Path,
+        output_path_3d: Path,
+) -> None:
+    """
+    Extract training data from a single .sim-file and write output to
+    given folders.
+
+    Args:
+        sensor: A sensor object representing the sensor for which to extract
+            the training data.
+        sim_file: Path to the .sim file to process.
+        era5_path: Path to the ERA5 data archive. This is required for adding
+            precip over sea ice surfaces.
+        output_path_1d: Path pointing to the folder to which the 1D training data
+            should be written.
+        output_path_3d: Path pointing to the folder to which the 3D training data
+            should be written.
+    """
+    data = collocate_targets(sim_file, sensor, era5_path)
+    if output_path_1d is not None:
+        write_training_samples_1d(data, output_path_1d)
+    if output_path_3d is not None:
+        write_training_samples_3d(data, output_path_3d)
+
+
+def process_files(
+        sensor: Sensor,
+        path: Path,
+        start_time: np.datetime64,
+        end_time: np.datetime64,
+        output_path_1d: Path,
+        output_path_3d: Path,
+        n_processes: int = 1
+) -> None:
+    """
+    Parallel processing of all .sim files within a given time range.
+
+    Args:
+        sensor: A sensor object representing the sensor for which to extract
+            the training data.
+        sim_file_path: Path to the folder containing the sim files from which to
+            extract the training data.
+        start_time: Start time of the time interval limiting the sim files from
+            which training scenes will be extracted.
+        end_time: End time of the time interval limiting the sim files from
+            which training scenes will be extracted.
+        output_path_1d: Path pointing to the folder to which the 1D training data
+            should be written.
+        output_path_3d: Path pointing to the folder to which the 3D training data
+            should be written.
+    """
+    sim_files = sorted(list(path.glob("**/*.sim")))
+    files = []
+    for path in sim_files:
+        date = path.stem.split(".")[-2]
+        date = datetime.strptime(date, "%Y%m%d")
+        if (date >= start_time) and (date < end_time):
+            files.append(path)
+
+    LOGGER.info(f"""
+    Found {len(files)} files to process in time range {start_time} - {end_time}.
+    """)
+
+    pool = futures.ProcessPoolExecutor(max_workers=n_processes)
+    tasks = []
+    for path in files:
+        tasks.append(
+            pool.submit(
+                process_sim_file,
+                sensor,
+                path,
+                CONFIG.data.era5_path,
+                output_path_1d,
+                output_path_3d
+            )
+        )
+        tasks[-1].file = path
+
+    for task in futures.as_completed(tasks):
+        try:
+            task.result()
+            LOGGER.info(f"""
+            Finished processing file {task.file}.
+            """)
+        except Exception as exc:
+            LOGGER.exception(
+                "The following error was encountered when processing file %s:"
+                "%s.",
+                task.file,
+                exc
+            )
+
+
+@click.argument("sensor")
+@click.argument("sim_file_path")
+@click.argument("start_time")
+@click.argument("end_time")
+@click.argument("output_1d")
+@click.argument("output_3d")
+def cli(
+        sensor: Sensor,
+        sim_file_path: Path,
+        start_time: np.datetime64,
+        end_time: np.datetime64,
+        output_1d: Path,
+        output_3d: Path
+) -> None:
+    """
+    This function implements the command line interface for extracting
+    training data from sim files.
+
+    Args:
+        sensor: A sensor object representing the sensor for which to extract
+            the training data.
+        sim_file_path: Path to the folder containing the sim files from which to
+            extract the training data.
+        start_time: Start time of the time interval limiting the sim files from
+            which training scenes will be extracted.
+        end_time: End time of the time interval limiting the sim files from
+            which training scenes will be extracted.
+        output_1d: Path pointing to the folder to which the 1D training data
+            should be written.
+        output_3d: Path pointing to the folder to which the 3D training data
+            should be written.
+    """
+    from gprof_nn import sensors
+    from gprof_nn.data.sim import process_files
+
+    # Check sensor
+    sensor_obj = getattr(sensors, sensor.strip().upper(), None)
+    if sensor_obj is None:
+        LOGGER.error("The sensor '%s' is not known.", sensor)
+        return 1
+    sensor = sensor_obj
+
+    sim_file_path = Path(sim_file_path)
+    if not sim_file_path.exists() or not sim_file_path.is_dir():
+        LOGGER.error("The 'sim_file_path' argument must point to a directory.")
+        return 1
+
+    output_path_1d = Path(output_1d)
+    if not output_path_1d.exists() or not output_path_1d.is_dir():
+        LOGGER.error("The 'output_1d' argument must point to a directory.")
+        return 1
+
+    output_path_3d = Path(output_3d)
+    if not output_path_3d.exists() or not output_path_3d.is_dir():
+        LOGGER.error("The 'output_3d' argument must point to a directory.")
+        return 1
+
+    try:
+        start_time = np.datetime64(start_time)
+    except ValueError:
+        LOGGER.error(
+            "Coud not parse 'start_time' argument as numpy.datetime64 object. "
+            "Please make sure that the start time is provided in the right "
+            "format."
+        )
+        return 1
+
+    try:
+        end_time = np.datetime64(end_time)
+    except ValueError:
+        LOGGER.error(
+            "Coud not parse 'end_time' argument as numpy.datetime64 object. "
+            "Please make sure that the start time is provided in the right "
+            "format."
+        )
+        return 1
+
+    process_files(
+        sensor,
+        sim_file_path,
+        start_time,
+        end_time,
+        output_path_1d,
+        output_path_3d,
+    )
 
 
 def process_mrms_file(sensor, mrms_filename, configuration, day, log_queue=None):

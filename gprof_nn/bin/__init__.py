@@ -29,6 +29,8 @@ def gprof_nn():
     from gprof_nn.bin import process
     from gprof_nn.bin import extract_validation_data
     from gprof_nn.bin import combine_validation_data
+    from gprof_nn.bin import extract_training_data
+
     from gprof_nn.bin import download_models
 
     warnings.filterwarnings("ignore", category=RuntimeWarning)
@@ -49,7 +51,7 @@ def gprof_nn():
     )
 
     subparsers = parser.add_subparsers(help="Sub-commands")
-    extract_data.add_parser(subparsers)
+    extract_training_data.add_parser(subparsers)
     train.add_parser(subparsers)
     retrieve.add_parser(subparsers)
     run_preprocessor.add_parser(subparsers)
