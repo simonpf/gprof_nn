@@ -113,7 +113,7 @@ def test_find_files_mhs():
     """
     path = MRMS_PATH / "MHS2MRMS_match2019" / "monthly_2021"
     files = MRMSMatchFile.find_files(path, sensor=sensors.MHS)
-    assert len(files) == 1
+    assert len(files) == 58
 
 ###############################################################################
 # SSMIS

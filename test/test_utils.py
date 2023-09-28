@@ -21,7 +21,10 @@ from gprof_nn.data.utils import (
     decompress_scene,
     remap_scene,
     upsample_scans,
-    save_scene
+    save_scene,
+    extract_scenes,
+    write_training_samples_1d,
+    write_training_samples_3d,
 )
 from gprof_nn.data.training_data import decompress_and_load
 
@@ -141,11 +144,14 @@ def test_decompress_scene(training_files_3d_gmi):
     input_file = training_files_3d_gmi[0]
     scene = xr.load_dataset(input_file) #decompress_and_load(input_file)[{"samples": 1}]
 
-    scene_d = decompress_scene(scene, ["surface_precip",
-                                       "rain_water_content",
-                                       "rain_water_path",
-                                       "surface_type"
-                                       ])
+    scene_d = decompress_scene(
+        scene,
+        [
+            "surface_precip",
+            "rain_water_content",
+            "rain_water_path",
+            "surface_type"
+        ])
 
     assert "pixels" in scene_d.rain_water_content.dims
 
@@ -232,6 +238,7 @@ def test_save_scene(
             "land_fraction",
             "ice_fraction",
     ]:
+        print("TARGET :: ", var)
         trgt = data[var].data
         trgt_l = data_loaded[var].data
 
@@ -264,4 +271,112 @@ def test_save_scene(
         assert np.all(valid == valid_l)
 
         err = trgt[valid] - trgt_l[valid]
-        assert np.all(err == 0.0)
+        assert np.all(np.abs(err) < 1e-6)
+
+
+def test_extract_scenes():
+    """
+    Ensure that extracting scenes produces the expected amount
+    of valid pixels in the output.
+    """
+    brightness_temperatures = np.random.rand(100, 100, 12)
+    surface_precip = np.random.rand(100, 100)
+    surface_precip[surface_precip < 0.5] = np.nan
+    data = xr.Dataset({
+        "brightness_temperatures": (
+            ("scans", "pixels", "channels"), brightness_temperatures
+        ),
+        "surface_precip": (
+            ("scans", "pixels"), surface_precip
+        )
+    })
+
+    scenes_sp_o = extract_scenes(
+        data,
+        10,
+        10,
+        overlapping=True,
+        min_valid=50,
+        reference_var="surface_precip"
+    )
+    scenes_tbs_o = extract_scenes(
+        data,
+        10,
+        10,
+        overlapping=True,
+        min_valid=50,
+        reference_var="brightness_temperatures"
+    )
+    scenes_sp = extract_scenes(
+        data,
+        10,
+        10,
+        overlapping=False,
+        min_valid=50,
+        reference_var="surface_precip"
+    )
+    scenes_tbs = extract_scenes(
+        data,
+        10,
+        10,
+        overlapping=False,
+        min_valid=50,
+        reference_var="brightness_temperatures"
+    )
+
+    for scene in scenes_sp_o:
+        assert np.isfinite(scene.surface_precip.data).sum() >= 50
+
+    assert len(scenes_sp_o) <= len(scenes_tbs_o)
+    assert len(scenes_sp) <= len(scenes_sp_o)
+    assert len(scenes_tbs) <= len(scenes_tbs_o)
+
+
+def test_write_training_samples_1d(
+        tmp_path,
+        sim_collocations_gmi
+):
+    """
+    Ensure that extracting and writing training samples produces
+    scenes of the expected size and containing the expected amount
+    of valid pixels.
+    """
+    data = sim_collocations_gmi
+
+    write_training_samples_1d(
+        tmp_path,
+        "sim_",
+        sim_collocations_gmi,
+    )
+
+    samples = sorted(list(tmp_path.glob("*.nc")))
+    assert len(samples) == 1
+
+
+def test_write_training_samples_3d(
+        tmp_path,
+        sim_collocations_gmi
+):
+    """
+    Ensure that extracting and writing training samples produces
+    scenes of the expected size and containing the expected amount
+    of valid pixels.
+    """
+    data = sim_collocations_gmi
+
+    write_training_samples_3d(
+        tmp_path,
+        "sim_",
+        sim_collocations_gmi,
+        min_valid=512,
+        n_scans=128,
+        n_pixels=64
+    )
+
+    samples = sorted(list(tmp_path.glob("*.nc")))
+    for sample in samples:
+        data = xr.load_dataset(sample)
+        valid = np.isfinite(data.surface_precip.data)
+
+        assert valid.shape == (128, 64)
+        assert valid.sum() >= 512

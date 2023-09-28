@@ -39,14 +39,14 @@ def sim_collocations_gmi() -> xr.Dataset:
 
 @pytest.fixture(scope="session")
 def training_files_1d_gmi(
-        tmp_path: Path,
+        tmp_path_factory,
         sim_collocations_gmi: xr.Dataset
 ) -> List[Path]:
     """
     Provides GPROF-NN 3D training data for gmi.
     """
-    output_path = tmp_path / "3d"
-    output_path.mkdir()
+
+    output_path = tmp_path_factory.mktemp("1d")
     write_training_samples_1d(sim_collocations_gmi, output_path)
 
     return sorted(list(output_path.glob("*.nc")))
@@ -54,14 +54,13 @@ def training_files_1d_gmi(
 
 @pytest.fixture(scope="session")
 def training_files_3d_gmi(
-        tmp_path: Path,
+        tmp_path_factory,
         sim_collocations_gmi: xr.Dataset
 ) -> List[Path]:
     """
     Provides GPROF-NN 3D training data for gmi.
     """
-    output_path = tmp_path / "3d"
-    output_path.mkdir()
+    output_path = tmp_path_factory.mktemp("3d")
     write_training_samples_3d(sim_collocations_gmi, output_path)
 
     return sorted(list(output_path.glob("*.nc")))

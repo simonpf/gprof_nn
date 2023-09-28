@@ -7,7 +7,7 @@ provided by the 'gprof_nn' package.
 """
 import click
 import gprof_nn.config as conf
-from gprof_nn.data import sim, pretraining
+from gprof_nn.data import sim, pretraining, mrms
 
 @click.group()
 def gprof_nn():
@@ -19,6 +19,7 @@ def extract_training_data():
 
 extract_training_data.command(name="sim")(sim.cli)
 extract_training_data.command(name="pre")(pretraining.cli)
+extract_training_data.command(name="mrms")(mrms.cli)
 
 ######################################################################
 # gprof_nn config

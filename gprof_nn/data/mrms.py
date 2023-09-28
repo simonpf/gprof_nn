@@ -5,25 +5,41 @@ gprof_nn.data.mrms
 
 Interface class to read GPROF MRMS match ups used over snow surfaces.
 """
+from concurrent.futures import ProcessPoolExecutor, as_completed
 import gzip
+import logging
 from pathlib import Path
+from tempfile import TemporaryDirectory
+from typing import Optional, List
 
+import click
 import numpy as np
 import xarray as xr
 import pandas as pd
 from pyresample import geometry, kd_tree
 from pykdtree.kdtree import KDTree
+from rich.progress import Progress
 from scipy.signal import convolve
 
 from gprof_nn import sensors
+from gprof_nn.logging import get_console, log_messages
 from gprof_nn.coordinates import latlon_to_ecef
 from gprof_nn.data.validation import unify_grid, calculate_angles
+from gprof_nn.data.preprocessor import run_preprocessor
+from gprof_nn.data.l1c import L1CFile
+from gprof_nn.data.utils import (
+    write_training_samples_1d,
+    write_training_samples_3d
+)
 from gprof_nn.utils import calculate_smoothing_kernel
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 class MRMSMatchFile:
     """
-    Class to read GMI-MRMS match up files.
+    Class to read GPM-MRMS match up files.
 
     Attributes:
         data: Numpy structured array holding raw MRMS match-up data.
@@ -208,6 +224,226 @@ class MRMSMatchFile:
                 input_data[var] = (("scans", "pixels"), matched)
 
         return input_data
+
+
+def extract_collocations(
+        sensor: sensors.Sensor,
+        match_file: Path,
+        l1c_file: Path,
+        output_path_1d: Optional[Path] = None,
+        output_path_3d: Optional[Path] = None
+):
+    """
+    Extract collocations between a given L1C file and a MRMS match-up
+    file.
+
+    Args:
+        sensor: The sensor for which the collocations are extracted.
+        match_file: Path object pointing to the MRMS match-up file
+             from which to extract collocations.
+        l1c_file: Path object pointing to the L1C file to collocate
+             with the match ups.
+        output_path_1d: Path pointing to the folder to which to write
+            the GPROF-NN 1D training data.
+        output_path_3d: Path pointing to the folder to which to write
+            the GPROF-NN 3D training data.
+    """
+    match_file = MRMSMatchFile(match_file)
+    with TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+
+        # Extract scans over CONUS and run preprocessor.
+        l1c_input = tmp_path / l1c_file.name
+        l1c_file = L1CFile(l1c_file)
+        start, end = l1c_file.extract_scans(
+            (-130, 20, -60, 55),
+            l1c_input,
+            256,
+        )
+        n_scans = end - start
+
+        if n_scans < 128:
+            return None
+
+        data_pp = run_preprocessor(l1c_input, sensor)
+
+        # Match targets
+        match_file.match_targets(data_pp)
+        data_pp.attrs["source"] = 1
+
+        if output_path_1d is not None:
+            write_training_samples_1d(
+                output_path_1d,
+                "mrms",
+                data_pp,
+            )
+
+        if output_path_3d is not None:
+            n_pixels = data_pp.pixels.size
+            n_scans = max(n_pixels, 128)
+            write_training_samples_3d(
+                output_path_3d,
+                "mrms",
+                data_pp,
+                n_scans=n_scans,
+                n_pixels=n_pixels,
+                overlapping=True,
+                min_valid=50,
+                reference_var="surface_precip"
+            )
+
+
+def process_match_file(
+        sensor: sensors.Sensor,
+        match_file: Path,
+        l1c_path: Path,
+        output_path_1d: Optional[Path] = None,
+        output_path_3d: Optional[Path] = None,
+        n_processes: int = 4
+):
+    """
+    Process a single MRMS match-up file.
+
+    Args:
+        sensor: The sensor for which the collocations are extracted.
+        match_file: Path object pointing to the MRMS match-up file
+             from which to extract collocations.
+        l1c_file: Path object pointing to the L1C file to collocate
+             with the match ups.
+        output_path_1d: Path pointing to the folder to which to write
+            the GPROF-NN 1D training data.
+        output_path_3d: Path pointing to the folder to which to write
+            the GPROF-NN 3D training data.
+    """
+    year_month = match_file.name[:4]
+    l1c_files = (l1c_path / year_month).glob(
+        f"**/{sensor.l1c_file_prefix}*.HDF5"
+    )
+    l1c_files = sorted(list(l1c_files))
+
+    LOGGER.info(
+        f"Found {len(l1c_files)} L1C files matching MRMS match-up file "
+        f"{match_file}."
+    )
+
+    pool = ProcessPoolExecutor(max_workers=n_processes)
+    tasks = []
+    for l1c_file in l1c_files:
+        tasks.append(
+            pool.submit(
+                extract_collocations,
+                sensor,
+                match_file,
+                l1c_file,
+                output_path_1d,
+                output_path_3d,
+            )
+        )
+        tasks[-1].l1c_file = l1c_file
+
+    with Progress(console=get_console()) as progress:
+        pbar = progress.add_task(
+            "Extracting pretraining data:",
+            total=len(tasks)
+        )
+        for task in as_completed(tasks):
+            log_messages()
+            try:
+                task.result()
+                LOGGER.info(f"""
+                Finished processing file {task.l1c_file}.
+                """)
+            except Exception as exc:
+                LOGGER.exception(
+                    "The following error was encountered when processing file %s:"
+                    "%s.",
+                    task.l1c_file,
+                    exc
+                )
+            progress.advance(pbar)
+
+
+def process_match_files(
+        sensor: sensors.Sensor,
+        match_path: Path,
+        l1c_path: Path,
+        output_path_1d: Path,
+        output_path_3d: Path,
+        n_processes: int = 4
+):
+    """
+    Process all MRMS match-up files in at a given path.
+
+    Args:
+        sensor: The sensor from which the observations stem.
+        match_path: Path pointing to the folder containing the MRMS match-ups.
+        l1c_path: Path pointing to the folder containing the L1C observations.
+        output_path_1d: The path to which to write the training data for
+            the GPROF-NN 1D retrieval.
+        output_path_3d: The path to which to write the training data for
+            the GPROF-NN 3D retrieval.
+    """
+    match_files = MRMSMatchFile.find_files(match_path, sensor=sensor)
+    for match_file in match_files:
+        process_match_file(
+            sensor,
+            match_file,
+            l1c_path,
+            output_path_1d,
+            output_path_1d,
+            n_processes=n_processes
+        )
+
+
+@click.argument("sensor")
+@click.argument("match_path")
+@click.argument("l1c_path")
+@click.argument("output_1d")
+@click.argument("output_3d")
+@click.option("--n_processes", default=4)
+def cli(
+    sensor,
+    match_path,
+        l1c_path,
+        output_1d,
+        output_3d,
+        n_processes: int = 4
+):
+
+    sensor_obj = getattr(sensors, sensor.strip().upper(), None)
+    if sensor_obj is None:
+        LOGGER.error("The sensor '%s' is not known.", sensor)
+        return 1
+    sensor = sensor_obj
+
+    match_path = Path(match_path)
+    if not match_path.exists() or not match_path.is_dir():
+        LOGGER.error("The 'match_path' argument must point to a directory.")
+        return 1
+
+    l1c_path = Path(l1c_path)
+    if not l1c_path.exists() or not l1c_path.is_dir():
+        LOGGER.error("The 'l1c_path' argument must point to a directory.")
+        return 1
+
+    output_path_1d = Path(output_1d)
+    if not output_path_1d.exists() or not output_path_1d.is_dir():
+        LOGGER.error("The 'output_1d' argument must point to a directory.")
+        return 1
+
+    output_path_3d = Path(output_3d)
+    if not output_path_3d.exists() or not output_path_3d.is_dir():
+        LOGGER.error("The 'output_3d' argument must point to a directory.")
+        return 1
+
+    process_match_files(
+        sensor,
+        match_path,
+        l1c_path,
+        output_path_1d,
+        output_path_3d,
+        n_processes=n_processes
+    )
 
 
 ###############################################################################

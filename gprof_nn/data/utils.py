@@ -7,8 +7,10 @@ Functions that are shared across multiple sub modules of
 the ``gprof_nn.data`` module.
 """
 from pathlib import Path
+from typing import List
 
 import numpy as np
+import pandas as pd
 import xarray as xr
 
 from gprof_nn.augmentation import extract_domain
@@ -313,3 +315,168 @@ def save_scene(
 
     encoding = {key: val for key, val in encoding.items() if key in scene}
     scene.to_netcdf(path, encoding=encoding)
+
+
+def extract_scenes(
+        data: xr.Dataset,
+        n_scans: int = 128,
+        n_pixels: int = 64,
+        min_valid: int = 20,
+        overlapping: bool = False,
+        reference_var: str = "surface_precip"
+) -> List[xr.Dataset]:
+    """
+    Extract scenes from an xr.Dataset containing satellite
+    observations.
+
+    Args:
+        data: xarray.Dataset containing GPM observations from which to
+            extract training scenes.
+        n_scans: The number of scans in a single scene.
+        n_pixels: The number of pixels in a single scene.
+        min_valid: The minimum number of pixels with valid surface
+            precipitation.
+        overlapping: Boolean flag indicating whether or not the
+            extracted scenes should be overlapping or not.
+        reference_var: The variable to use to determine valid
+            pixels.
+
+    Return:
+        A list of scenes extracted from the provided observations.
+    """
+    n_scans_tot = data.scans.size
+    n_pixels_tot = data.pixels.size
+
+    tbs = data.brightness_temperatures.data
+
+    def get_valid(dataset):
+        valid = np.isfinite(dataset[reference_var])
+        if valid.ndim > 2:
+            valid = valid.any([dim for dim in valid.dims if not dim in ["scans", "pixels"]])
+        return valid
+
+    valid = np.stack(np.where(get_valid(data)), -1)
+    valid_inds = list(np.random.permutation(valid.shape[0]))
+
+    scenes = []
+
+    while len(valid_inds) > 0:
+
+        ind = np.random.choice(valid_inds)
+        scan_cntr, pixel_cntr = valid[ind]
+
+        scan_start = min(max(scan_cntr - n_scans // 2, 0), n_scans_tot - n_scans)
+        scan_end = scan_start + n_scans
+        pixel_start = min(max(pixel_cntr - n_pixels // 2, 0), n_pixels_tot - n_pixels)
+        pixel_end = pixel_start + n_pixels
+
+        subscene = data[
+            {
+                "scans": slice(scan_start, scan_end),
+                "pixels": slice(pixel_start, pixel_end),
+            }
+        ]
+        n_valid = get_valid(subscene).sum()
+        if n_valid >= min_valid:
+            scenes.append(subscene)
+            if overlapping:
+                covered = (
+                    (valid[..., 0] >= scan_start) *
+                    (valid[..., 0] < scan_end) *
+                    (valid[..., 1] >= pixel_start) *
+                    (valid[..., 1] < pixel_end)
+                )
+            else:
+                covered = (
+                    (valid[..., 0] >= scan_start - n_scans // 2) *
+                    (valid[..., 0] < scan_end + n_scans // 2) *
+                    (valid[..., 1] >= pixel_start - n_pixels // 2) *
+                    (valid[..., 1] < pixel_end + n_pixels // 2)
+                )
+
+            covered = {ind for ind in valid_inds if covered[ind]}
+            valid_inds = [ind for ind in valid_inds if not ind in covered]
+        else:
+            valid_inds.remove(ind)
+
+    return scenes
+
+
+def write_training_samples_1d(
+        output_path: Path,
+        prefix: str,
+        dataset: xr.Dataset,
+) -> None:
+    """
+    Write training data in GPROF-NN 1D format.
+
+    Args:
+        dataset: An 'xarray.Dataset' containing collocated input
+            observations and reference data.
+        output_path: Path to which the training data will be written.
+    """
+    dataset = dataset[{"pixels": slice(*compressed_pixel_range())}]
+    mask = np.isfinite(dataset.surface_precip.data)
+
+    valid = {}
+    for var in dataset.variables:
+        arr = dataset[var]
+        if arr.data.ndim < 2:
+            arr_data = np.broadcast_to(arr.data[..., None], mask.shape)
+        else:
+            arr_data = arr.data
+        valid[var] = ((("samples",) + arr.dims[2:]), arr_data[mask])
+    valid = xr.Dataset(valid)
+
+    start_time = pd.to_datetime(dataset.scan_time.data[0].item())
+    start_time = start_time.strftime("%Y%m%d%H%M%S")
+    end_time = pd.to_datetime(dataset.scan_time.data[-1].item())
+    end_time = end_time.strftime("%Y%m%d%H%M%S")
+    filename = f"{prefix}_{start_time}_{end_time}.nc"
+    save_scene(valid, output_path / filename)
+
+
+def write_training_samples_3d(
+        output_path: Path,
+        prefix: str,
+        data : xr.Dataset,
+        n_scans: int = 128,
+        n_pixels: int = 64,
+        overlapping: bool = True,
+        min_valid = 20,
+        reference_var: str = "surface_precip"
+):
+    """
+    Write training data in GPROF-NN 3D format.
+
+    Args:
+        output_path: Path pointing to the directory to which to
+            write the training files.
+        data: xarray.Dataset containing GPM observations from which to
+            extract training scenes.
+        n_scans: The number of scans in a single scene.
+        n_pixels: The number of pixels in a single scene.
+        min_valid: The minimum number of pixels with valid surface
+            precipitation.
+        overlapping: Boolean flag indicating whether or not the
+            extracted scenes should be overlapping or not.
+        reference_var: The variable to use to determine valid
+            pixels.
+
+    """
+    scenes = extract_scenes(
+        data,
+        n_scans,
+        n_pixels,
+        min_valid=min_valid,
+        overlapping=overlapping,
+        reference_var=reference_var
+    )
+
+    for scene in scenes:
+        start_time = pd.to_datetime(scene.scan_time.data[0].item())
+        start_time = start_time.strftime("%Y%m%d%H%M%S")
+        end_time = pd.to_datetime(scene.scan_time.data[-1].item())
+        end_time = end_time.strftime("%Y%m%d%H%M%S")
+        filename = f"{prefix}_{start_time}_{end_time}.nc"
+        save_scene(scene, output_path / filename)
