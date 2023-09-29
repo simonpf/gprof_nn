@@ -6,6 +6,7 @@ import pytest
 import xarray as xr
 
 from gprof_nn import sensors
+from gprof_nn.data.preprocessor import run_preprocessor
 from gprof_nn.data.sim import (
     collocate_targets,
     write_training_samples_1d,
@@ -64,3 +65,17 @@ def training_files_3d_gmi(
     write_training_samples_3d(sim_collocations_gmi, output_path)
 
     return sorted(list(output_path.glob("*.nc")))
+
+@pytest.fixture(scope="session")
+def l1c_file_gmi() -> Path:
+    l1c_path = Path(sensors.GMI.l1c_file_path) / "1801" / "180101"
+    l1c_files = sorted(list(
+        l1c_path.glob(f"**/{sensors.GMI.l1c_file_prefix}*.HDF5")
+    ))
+    return l1c_files[0]
+
+
+@pytest.fixture(scope="session")
+def preprocessor_data_gmi(l1c_file_gmi) -> xr.Dataset:
+    data_pp = run_preprocessor(l1c_file_gmi, sensors.GMI)
+    return data_pp

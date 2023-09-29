@@ -10,17 +10,16 @@ from datetime import datetime
 import logging
 import multiprocessing
 from pathlib import Path
-from typing import List, Optional
+from typing import Optional
 
 import click
 import numpy as np
-import xarray as xr
 import pandas as pd
 from rich.progress import Progress
 
 from gprof_nn.sensors import Sensor
 from gprof_nn.data.preprocessor import run_preprocessor
-from gprof_nn.data.utils import save_scene
+from gprof_nn.data.utils import save_scene, extract_scenes
 from gprof_nn.logging import (
     configure_queue_logging,
     log_messages,
@@ -30,68 +29,6 @@ from gprof_nn.logging import (
 
 
 LOGGER = logging.getLogger(__name__)
-
-
-def _extract_scenes(
-        data: xr.Dataset,
-        n_scans: int = 128,
-        n_pixels: int = 64,
-        min_valid: int = 20
-) -> List[xr.Dataset]:
-    """
-    Extract non-overlapping scenes from an xr.Dataset containing satellite
-    observations.
-
-    Args:
-        data: xarray.Dataset containing the preprocessor data.
-        n_scans: The number of scans in a single scene.
-        n_pixels: The number of pixels in a single scene.
-        min_valid: The minimum number of pixels with valid surface
-            precipitation.
-
-    Return:
-        A list of scenes extracted from the provided observations.
-    """
-    n_scans_tot = data.scans.size
-    n_pixels_tot = data.pixels.size
-
-    tbs = data.brightness_temperatures.data
-    valid = np.stack(np.where(np.any(tbs >= 0.0, -1)), -1)
-    valid_inds = list(np.random.permutation(valid.shape[0]))
-
-    scenes = []
-
-    while len(valid_inds) > 0:
-
-        ind = np.random.choice(valid_inds)
-        scan_cntr, pixel_cntr = valid[ind]
-
-        scan_start = min(max(scan_cntr - n_scans // 2, 0), n_scans_tot - n_scans)
-        scan_end = scan_start + n_scans
-        pixel_start = min(max(pixel_cntr - n_pixels // 2, 0), n_pixels_tot - n_pixels)
-        pixel_end = pixel_start + n_pixels
-
-        subscene = data[
-            {
-                "scans": slice(scan_start, scan_end),
-                "pixels": slice(pixel_start, pixel_end),
-            }
-        ]
-        tbs = subscene["brightness_temperatures"].data
-        if np.any(np.isfinite(tbs), -1).sum() > 20:
-            scenes.append(subscene)
-            covered = (
-                (valid[..., 0] >= scan_start - n_scans // 2) *
-                (valid[..., 0] < scan_end + n_scans // 2) *
-                (valid[..., 1] >= pixel_start - n_pixels // 2) *
-                (valid[..., 1] < pixel_end + n_pixels // 2)
-            )
-            covered = {ind for ind in valid_inds if covered[ind]}
-            valid_inds = [ind for ind in valid_inds if not ind in covered]
-        else:
-            valid_inds.remove(ind)
-
-    return scenes
 
 
 def process_l1c_file(
@@ -120,7 +57,14 @@ def process_l1c_file(
         sensor,
         robust=False
     )
-    scenes = _extract_scenes(data_pp)
+    scenes = extract_scenes(
+        data_pp,
+        n_scans=128,
+        n_pixels=64,
+        overlapping=False,
+        min_valid=50,
+        reference_var="brightness_temperatures"
+    )
 
     for scene in scenes:
         start_time = pd.to_datetime(scene.scan_time.data[0].item())
@@ -187,9 +131,10 @@ def process_l1c_files(
             log_messages()
             try:
                 task.result()
-                LOGGER.info(f"""
-                Finished processing file {task.file}.
-                """)
+                LOGGER.info(
+                    f"Finished processing file %s.",
+                    task.file
+                )
             except Exception as exc:
                 LOGGER.exception(
                     "The following error was encountered when processing file %s:"
@@ -277,3 +222,4 @@ def cli(
         output_path,
         n_processes=n_processes
     )
+    return 0

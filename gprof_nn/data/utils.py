@@ -347,8 +347,6 @@ def extract_scenes(
     n_scans_tot = data.scans.size
     n_pixels_tot = data.pixels.size
 
-    tbs = data.brightness_temperatures.data
-
     def get_valid(dataset):
         valid = np.isfinite(dataset[reference_var])
         if valid.ndim > 2:

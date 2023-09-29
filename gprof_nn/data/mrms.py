@@ -390,7 +390,7 @@ def process_match_files(
             match_file,
             l1c_path,
             output_path_1d,
-            output_path_1d,
+            output_path_3d,
             n_processes=n_processes
         )
 
