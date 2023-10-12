@@ -199,6 +199,34 @@ class BinFile:
         return dataset
 
 
+    def write(
+            self,
+            data: xr.Dataset,
+            path: Path
+    ):
+        path = Path(path)
+        n_samples = data.samples.size
+        with open(path, "wb") as output_file:
+            self.header.tofile(output_file)
+
+            record_type = self.sensor.get_bin_file_record(self.surface_type)
+            bin_data = np.zeros(n_samples, dtype=record_type)
+
+            for key, _, *_ in record_type.descr:
+
+                if key == "scan_time":
+                    bin_data[key][:, 0] = data.scan_time.dt.year
+                    bin_data[key][:, 1] = data.scan_time.dt.month
+                    bin_data[key][:, 2] = data.scan_time.dt.day
+                    bin_data[key][:, 3] = data.scan_time.dt.hour
+                    bin_data[key][:, 4] = data.scan_time.dt.minute
+                    bin_data[key][:, 5] = data.scan_time.dt.second
+                else:
+                    bin_data[key] = data[key].data
+            bin_data.tofile(output_file)
+
+
+
 def load_data(filename, start=0.0, end=1.0, include_profiles=False):
     """
     Wrapper function to load data from a file.

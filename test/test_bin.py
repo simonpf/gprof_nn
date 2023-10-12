@@ -16,7 +16,7 @@ from gprof_nn.data.training_data import GPROF_NN_1D_Dataset
 DATA_PATH = get_test_data_path()
 
 
-def test_bin_file_gmi():
+def test_bin_file_gmi(tmp_path):
     """
     Test reading the different types of bin files for standard surface types,
     for sea ice and snow.
@@ -42,6 +42,19 @@ def test_bin_file_gmi():
     tbs = tbs[valid]
     assert np.all(tbs > 20)
     assert np.all(tbs < 400)
+
+    #
+    # Test writing of bin file.
+    #
+
+
+    output_file = tmp_path / "gpm_275_14_03_17.bin"
+    BinFile(input_file).write(input_data, output_file)
+    input_data_2 = BinFile(output_file).to_xarray_dataset()
+
+    for var in input_data:
+        if isinstance(input_data[var].data, np.floating):
+            assert np.all(np.isclose(input_data[var].data, input_data_2[var].data))
 
     #
     # Seaice bin files.
