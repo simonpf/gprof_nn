@@ -75,7 +75,7 @@ def calculate_padding_dimensions(t):
     return (p_l_n, p_r_n, p_l_m, p_r_m)
 
 
-def combine_input_data_1d(dataset, sensor):
+def combine_input_data_1d(dataset, sensor, allow_unphysical_tbs=False):
     """
     Combine retrieval input data into input matrix for the single-pixel
     retrieval.
@@ -86,6 +86,8 @@ def combine_input_data_1d(dataset, sensor):
             from.
         sensor: The sensor object representing the sensor from which the
             data stems.
+        allow_neg_tbs: If 'True', will allow unphysical TBs which can
+            be produced when excessive noise is added to simulated TBs.
 
     Return:
         Rank-2 input tensor containing the input data with features oriented
@@ -98,8 +100,9 @@ def combine_input_data_1d(dataset, sensor):
     if sensor == sensors.GMI and tbs.shape[-1] < n_chans:
         tbs = expand_tbs(tbs)
     tbs = tbs.reshape(-1, n_chans)
-    invalid = (tbs > 500.0) + (tbs < 0.0)
-    tbs[invalid] = np.nan
+    if not allow_unphysical_tbs:
+        invalid = (tbs > 500.0) + (tbs < 0.0)
+        tbs[invalid] = np.nan
     features = [tbs]
 
     if "two_meter_temperature" in dataset.variables:
@@ -128,7 +131,6 @@ def combine_input_data_1d(dataset, sensor):
         features.insert(1, va.reshape(-1, 1))
 
     x = np.concatenate(features, axis=1)
-    x[:, :n_chans][x[:, :n_chans] < 0] = np.nan
     return x
 
 
@@ -1458,11 +1460,17 @@ class BinFileLoader:
         self.sensor = self.bin_file.sensor
 
         data = BinFile(filename).to_xarray_dataset()
+        tbs = data.brightness_temperatures.data
+        tbs[tbs == -9999.9] = np.nan
         self.data = data
 
         self.n_samples = self.data.samples.size
         self.batch_size = batch_size
-        x = combine_input_data_1d(self.data, self.sensor)
+        x = combine_input_data_1d(
+            self.data,
+            self.sensor,
+            allow_unphysical_tbs=True
+        )
         self.x = normalizer(x)
         dimensions = {}
         for t in ALL_TARGETS:
