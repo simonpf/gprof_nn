@@ -466,7 +466,8 @@ def run_training_1d(
         lr = lr * len(n_epochs)
 
     if args.normalizer is None:
-        normalizer = get_normalizer(sensor)
+        nedts = args.delta_tbs
+        normalizer = get_normalizer(sensor, nedts=nedts)
     else:
         normalizer = Normalizer.load(args.normalizer)
 
