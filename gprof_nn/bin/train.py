@@ -326,7 +326,7 @@ def add_parser(subparsers):
         )
     )
     parser.add_argument(
-        "--delta_tbs",
+        "--nedts",
         type=float,
         nargs="*",
         default=None,
@@ -360,7 +360,7 @@ def run(args):
         return 1
     if args.simulated_tbs:
         sensor.use_simulated_tbs = True
-        sensor.delta_tbs = args.delta_tbs
+        sensor.nedts = args.nedts
 
     variant = args.variant
     if variant.upper() not in ["1D", "3D", "SIM", "HR"]:
@@ -466,7 +466,7 @@ def run_training_1d(
         lr = lr * len(n_epochs)
 
     if args.normalizer is None:
-        nedts = args.delta_tbs
+        nedts = args.nedts
         normalizer = get_normalizer(sensor, nedts=nedts)
     else:
         normalizer = Normalizer.load(args.normalizer)

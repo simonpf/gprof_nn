@@ -223,7 +223,7 @@ class Sensor(ABC):
         self.missing_channels = None
         self.l1c_version = ""
         self.use_simulated_tbs = False
-        self.delta_tbs = None
+        self.nedts = None
 
         # Bin file types
         self._bin_file_header = types.get_bin_file_header(n_chans, n_angles, kind)
@@ -637,8 +637,8 @@ class ConicalScanner(Sensor):
         valid = sp >= 0
 
         tbs = self.load_brightness_temperatures(scene, mask=valid)
-        if self.use_simulated_tbs and self.delta_tbs is not None:
-            noise = np.array(self.delta_tbs) * rng.normal(size=tbs.shape)
+        if self.nedts is not None:
+            noise = np.array(self.nedts) * rng.normal(size=tbs.shape)
             tbs += noise
 
         if augment:
