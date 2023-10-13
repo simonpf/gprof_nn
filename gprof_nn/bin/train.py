@@ -360,7 +360,7 @@ def run(args):
         return 1
     if args.simulated_tbs:
         sensor.use_simulated_tbs = True
-        sensor.nedts = args.nedts
+    sensor.nedts = args.nedts
 
     variant = args.variant
     if variant.upper() not in ["1D", "3D", "SIM", "HR"]:
