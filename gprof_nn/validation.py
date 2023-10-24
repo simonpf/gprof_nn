@@ -10,6 +10,7 @@ from concurrent.futures import ProcessPoolExecutor
 from copy import copy
 import logging
 from pathlib import Path
+from typing import Dict, Tuple, Optional
 
 from h5py import File
 from matplotlib.colors import to_rgba
@@ -19,7 +20,7 @@ import xarray as xr
 from rich.progress import track
 from scipy.ndimage import rotate
 from scipy.signal import convolve
-from scipy.stats import binned_statistic_2d, binned_statistic
+from scipy.stats import binned_statistic_2d, binned_statistic, linregress
 import pandas as pd
 from pykdtree.kdtree import KDTree
 
@@ -706,7 +707,11 @@ def calculate_precip_contribution(
         precip_type=None,
         region=None,
         absolute=False,
-        no_orographic=False):
+        no_orographic=False,
+        no_frozen=True,
+        no_ocean=True,
+        no_snow_sfc=True
+):
     """
     Calculate contribution of precipitation type to total precipitation.
     Args:
@@ -716,29 +721,45 @@ def calculate_precip_contribution(
         precip_type: Name of the precip type.
         absolute: If true the absolute contribution to the mean precipitation
             is returned.
-        no_orographic: If True precipitation over mountains will be ignored.
+        no_ocean: If 'True', precipitation over the ocean will be omitted
+            from the analysis.
+        no_orographic: If 'True', precipitation over mountains will be omitted
+            from the analysis,
+        no_froze: If 'True', precipitation classified as snow will be omitted
+            from the analysis.
+        no_snow_sfc: If 'True', precipitation over snow surface will be
+            omitted from the calculation.
 
     Return:
         The fraction r (0 <= r <= 1) that the precipitation type contributed
         to overall precipitation.
     """
     surface_precip = results.surface_precip_ref.data
-    surface_type = results.surface_type.data
     mask = results.mask.data
 
     valid = surface_precip >= 0.0
 
-    if no_orographic:
-        sfc_mask = (
-            ((surface_type < 8) + ((surface_type > 11) * (surface_type < 17))) *
-            ~np.isclose(mask, 3.0) *
-            ~np.isclose(mask, 4.0))
-    else:
-        sfc_mask = (
-            ((surface_type < 8) + (surface_type > 11)) *
-            ~np.isclose(mask, 3.0) *
-            ~np.isclose(mask, 4.0))
-    valid *= sfc_mask
+    if "surface_type" in results:
+        sfc = results.surface_type.data
+
+        if no_ocean:
+            valid *= (sfc > 1)
+
+        if no_orographic:
+            valid *= (sfc < 17)
+
+        if no_snow_sfc:
+            valid *= ((sfc < 8) + (sfc > 11))
+
+    if "mask" in results:
+        mask = results.mask
+        if no_frozen:
+            frozen = (
+                np.isclose(mask, 3.0) +
+                np.isclose(mask, 4.0) +
+                np.isclose(mask, 7.0)
+            )
+            valid *= ~frozen
 
     if region is not None:
         lons = results.longitude
@@ -781,8 +802,8 @@ NAMES = {
     "gprof_v5": "GPROF V5",
     "gprof_v7": "GPROF V7",
     "simulator": "Simulator",
-    "combined": "GPM-CMB",
-    "combined_avg": "GPM-CMB (Smoothed)"
+    "combined": "GPM CMB",
+    "combined_avg": "GPM CMB (Smoothed)"
 }
 
 REGIONS = {
@@ -900,10 +921,20 @@ def plot_granule(sensor, reference_path, granule, datasets, n_cols=3, height=4, 
 
     ax = f.add_subplot(gs[:, -1])
     plt.colorbar(m, label="Surface precip. [mm/h]", cax=ax)
+
     return f
 
 
-def calculate_scatter_plot(results, group, rqi_threshold=0.8, fpavg=False):
+def calculate_scatter_plot(
+        results: Dict[str, xr.Dataset],
+        group: str,
+        rqi_threshold: int = 0.8,
+        no_ocean: bool = True,
+        no_orographic: bool = True,
+        no_frozen: bool = True,
+        no_snow_sfc: bool = True,
+        fpavg: bool = False
+):
     """
     Calculate normalized scatter plot for a given retrieval.
 
@@ -916,6 +947,14 @@ def calculate_scatter_plot(results, group, rqi_threshold=0.8, fpavg=False):
         group: The key to use to obtain the validation results form 'results'.
         rqi_threshold: Additional RQI threshold to select subsets of validation
             samples.
+        no_ocean: If 'True' precipitation over ocean surfaces is excluded from
+            the analysis.
+        no_orographic: If 'True' precipitation in mountain regions is excluded from
+            the analysis.
+        no_frozen: If 'True', precipitation classified as snow and hail will be
+            excluded from the analysis.
+        no_snow_sfc: If 'True', precipitation over snow surfaces will be excluded
+            the analysis.
         fpavg: Whether to use footprint averaged reference data or not.
 
     Return:
@@ -932,13 +971,26 @@ def calculate_scatter_plot(results, group, rqi_threshold=0.8, fpavg=False):
     valid = (sp_ref >= 0) * (sp >= 0)
 
     if "surface_type" in results[group]:
-        surface_type = results[group].surface_type.data
-        valid *= ((surface_type < 8) + ((surface_type > 11) * (surface_type < 17)))
 
-    if "mask" in results[group].variables:
+        surface_type = results[group].surface_type.data
+        sea_ice = (surface_type == 2) + (surface_type == 16)
+        valid *= ~sea_ice
+
+        if no_orographic:
+            valid *= (surface_type < 17)
+        if no_snow_sfc:
+            valid *= ((surface_type < 8) + ((surface_type > 11)))
+        if no_ocean:
+            valid *= (surface_type > 1)
+
+    if "mask" in results[group].variables and no_frozen:
         mask = results[group].mask
-        snow = np.isclose(mask, 3.0) + np.isclose(mask, 4.0)
-        valid *= ~snow
+        frozen = (
+            np.isclose(mask, 3.0) +
+            np.isclose(mask, 4.0) +
+            np.isclose(mask, 7.0)
+        )
+        valid *= ~frozen
 
     y, _, _ = np.histogram2d(
         sp_ref[valid],
@@ -955,9 +1007,13 @@ def calculate_scatter_plot(results, group, rqi_threshold=0.8, fpavg=False):
 
 
 def calculate_conditional_mean(
-        results,
+        results: Dict[str, xr.Dataset],
         group,
         rqi_threshold=0.8,
+        no_ocean=True,
+        no_orographic=True,
+        no_frozen=True,
+        no_snow_sfc=True,
         fpavg=False
 ):
     """
@@ -972,6 +1028,12 @@ def calculate_conditional_mean(
         group: The key to use to obtain the validation results form 'results'.
         rqi_threshold: Additional RQI threshold to select subsets of validation
             samples.
+        no_ocean: If 'True', pixels over ocean surfaces are excluded from the analysis
+        no_orographic: If 'True', pixels over mountains are excluded from the analysis.
+        no_frozen: If 'True' precipitation classified as frozen by MRMS is excluded
+            from the analysis.
+        no_snow_sfc: If 'True' precipitation over snow surfaces is excluded from
+            the analysis.
 
     Return:
         A tuple ``(x, means)`` containing values of reference precipitation and
@@ -988,12 +1050,27 @@ def calculate_conditional_mean(
 
     if "surface_type" in results[group]:
         surface_type = results[group].surface_type.data
-        valid = ((surface_type < 8) + ((surface_type > 11) * (surface_type < 17)))
 
-    if "mask" in results[group]:
+        sea_ice = (surface_type == 2) + (surface_type == 16)
+        valid *= ~sea_ice
+
+        if no_ocean:
+            valid *= surface_type > 1
+
+        if no_orographic:
+            valid *= surface_type < 17
+
+        if no_snow_sfc:
+            valid *= ((surface_type < 8) + (surface_type > 11))
+
+    if "mask" in results[group] and no_frozen:
         mask = results[group].mask
-        snow = np.isclose(mask, 3.0) + np.isclose(mask, 4.0)
-        valid *= ~snow
+        frozen = (
+            np.isclose(mask, 3.0) +
+            np.isclose(mask, 4.0) +
+            np.isclose(mask, 7.0)
+        )
+        valid *= ~frozen
 
     sp_ref = sp_ref[valid]
     sp = sp[valid]
@@ -1013,7 +1090,9 @@ def calculate_error_metrics(
         ranges=None,
         fpa=False,
         no_orographic=False,
-        no_ocean=True
+        no_ocean=True,
+        no_frozen=True,
+        no_snow_sfc=True
 ):
     """
     Calculate error metrics for validation data.
@@ -1022,11 +1101,15 @@ def calculate_error_metrics(
     that are not marked as snow by the radar.
 
     Args:
-       results: Dictionary holding xr.Datasets with the results for the different retrievals.
-       groups: Names of the retrievals for which to calculate error metrics.
-       rqi_threshold: Optional additional rqi_threshold to filter co-locations.
-       no_orographic: Whether or not to include precipitation over mountain surfaces.
-       no_ocean: Whether or not to include precipitation over ocean.
+        results: Dictionary holding xr.Datasets with the results for the different retrievals.
+        groups: Names of the retrievals for which to calculate error metrics.
+        rqi_threshold: Optional additional rqi_threshold to filter co-locations.
+        no_orographic: Whether or not to include precipitation over mountain surfaces.
+        no_ocean: Whether or not to include precipitation over ocean.
+        no_frozen: If 'True', precipitation classified as frozen will be excluded from
+            the analysis.
+        no_snow_sfc: If 'True', precipitation over snow surfaces will be excluded
+            the analysis.
 
     Return:
 
@@ -1050,15 +1133,17 @@ def calculate_error_metrics(
         valid = (sp_ref >= 0) * (sp >= 0)
 
         if "surface_type" in results[group]:
-            surface_type = results[group].surface_type.data
-            if no_orographic:
-                valid *= ((surface_type < 8) + ((surface_type > 11) * (surface_type < 17)))
-            else:
-                valid *= ((surface_type < 8) + (surface_type > 11))
 
+            surface_type = results[group].surface_type.data
+            sea_ice = (surface_type == 2) + (surface_type == 16)
+            valid *= ~sea_ice
+
+            if no_orographic:
+                valid *= (surface_type < 17)
+            if no_snow_sfc:
+                valid *= ((surface_type < 8) + (surface_type > 11))
             if no_ocean:
                 valid *= surface_type > 1
-
 
         if isinstance(ranges, tuple):
             rng = results[group].range.data
@@ -1075,11 +1160,14 @@ def calculate_error_metrics(
             valid *= ((lons >= lon_0) * (lons < lon_1) *
                     (lats >= lat_0) * (lats < lat_1))
 
-
-        if "mask" in results[group]:
+        if "mask" in results[group] and no_frozen:
             mask = results[group].mask
-            snow = np.isclose(mask, 3.0) + np.isclose(mask, 4.0)
-            valid *= ~snow
+            frozen = (
+                np.isclose(mask, 3.0) +
+                np.isclose(mask, 4.0) +
+                np.isclose(mask, 7.0)
+            )
+            valid *= ~frozen
 
         if "rqi" in results[group].variables:
             rqi = results[group].rqi.data
@@ -1103,7 +1191,7 @@ def calculate_error_metrics(
         "Bias": list(bias.values()),
         "MAE": list(mae.values()),
         "MSE": list(mse.values()),
-        "Correlation": list(correlation.values()),
+        "Correlation coeff.": list(correlation.values()),
         "SMAPE": list(mape.values()),
     }
     names = [NAMES[g] for g in groups]
@@ -1123,7 +1211,7 @@ def calculate_explained_error(
     Calculates the fraction of error explained by GPM CMB error.
 
     Uses only observations over surface types 1 - 8 and 12 - 16 and
-    that are not marked as snow by the radar.
+    that are not marked as frozen by the radar.
 
     Args:
        results: Dictionary holding xr.Datasets with the results for the different retrievals.
@@ -1169,8 +1257,8 @@ def calculate_explained_error(
 
         if "mask" in results[group]:
             mask = results[group].mask
-            snow = np.isclose(mask, 3.0) + np.isclose(mask, 4.0)
-            valid *= ~snow
+            frozen = np.isclose(mask, 3.0) + np.isclose(mask, 4.0)
+            valid *= ~frozen
 
         if "rqi" in results[group].variables:
             rqi = results[group].rqi.data
@@ -1189,6 +1277,7 @@ def calculate_explained_error(
     names = [NAMES[g] for g in groups]
     return pd.DataFrame(data, index=names)
 
+
 def calculate_monthly_statistics(
         results,
         group,
@@ -1200,7 +1289,7 @@ def calculate_monthly_statistics(
     Calculates monthly relative biases and correlations.
 
     Uses only observations over surface types 1 - 8 and 12 - 16 and
-    that are not marked as snow by the radar.
+    that are not marked as frozen by the radar.
 
     Args:
        results: Dictionary holding xr.Datasets with the results for the different retrievals.
@@ -1215,8 +1304,8 @@ def calculate_monthly_statistics(
     valid *= ((surface_type < 8) + ((surface_type > 11) * (surface_type < 17)))
 
     mask = results[group].mask
-    snow = np.isclose(mask, 3.0) + np.isclose(mask, 4.0)
-    valid *= ~snow
+    frozen = (np.isclose(mask, 3.0) + np.isclose(mask, 4.0) + np.isclose(mask, 7.0))
+    valid *= ~frozen
 
     if ranges is not None:
         rng = results[group].range.data
@@ -1260,27 +1349,32 @@ def calculate_seasonal_cycles(
         region=None,
         ranges=None,
         precip_type=None,
-        no_ocean=False
+        no_ocean=True,
+        no_orographic=True,
+        no_frozen=True,
+        no_snow_sfc=True
 ):
     """
     Calculates seasonal cycles.
 
-    Uses only observations over surface types 1 - 8 and 12 - 16 and
-    that are not marked as snow by the radar.
-
     Args:
-       results: Dictionary holding xr.Datasets with the results for the different retrievals.
-       groups: Names of the retrievals for which to calculate error metrics.
-       rqi_threshold: Optional additional rqi_threshold to filter co-locations.
-       region: Name of a region to restrict the analysis to.
-       ranges: Radar range limit to restrict the analysis to. This will only have
-           an effect for the comparison against the Kwajalein data.
-       precip_type: Precipitation type to restrict the analysis to.
-       no_ocean: Whether pixels over ocean should be excluded from the analysis.
+        results: Dictionary holding xr.Datasets with the results for the different retrievals.
+        groups: Names of the retrievals for which to calculate error metrics.
+        rqi_threshold: Optional additional rqi_threshold to filter co-locations.
+        region: Name of a region to restrict the analysis to.
+        ranges: Radar range limit to restrict the analysis to. This will only have
+            an effect for the comparison against the Kwajalein data.
+        precip_type: Precipitation type to restrict the analysis to.
+        no_ocean: If 'True', measurements over ocean will be excluded.
+        no_orographic: If 'True', measurements over mountains will be excluded.
+        no_frozen: If 'True', precipitation classified as frozen is excluded from
+            the analysis.
+        no_snow_sfc: If 'True', precipitation over snow surfaces is excluded from
+            the analysis.
 
     Return:
-       A tuple ``(months, precip)`` containing the months and the corresponding
-       normalized precipitation.
+        A tuple ``(months, precip)`` containing the months and the corresponding
+        normalized precipitation.
     """
     if group == "reference":
         sp_ref = results["gprof_nn_1d"].surface_precip_ref.data
@@ -1292,13 +1386,24 @@ def calculate_seasonal_cycles(
     valid = (sp_ref >= 0) * (sp >= 0)
 
     surface_type = results[group].surface_type.data
-    valid *= ((surface_type < 8) + ((surface_type > 11) * (surface_type < 17)))
-    if no_ocean:
-        valid *= (surface_type > 1)
+
+    if "surface_type" in results[group]:
+        surface_type = results[group].surface_type.data
+        if no_orographic:
+            valid *= (surface_type < 17)
+        if no_snow_sfc:
+            valid *= ((surface_type < 8) + (surface_type > 11))
+        if no_ocean:
+            valid *= (surface_type > 1)
 
     mask = results[group].mask
-    snow = np.isclose(mask, 3.0) + np.isclose(mask, 4.0)
-    valid *= ~snow
+    if no_frozen:
+        frozen = (
+            np.isclose(mask, 3.0) +
+            np.isclose(mask, 4.0) +
+            np.isclose(mask, 7.0)
+        )
+        valid *= ~frozen
 
     lats = results[group].latitude.data
     lons = results[group].longitude.data
@@ -1351,22 +1456,33 @@ def calculate_diurnal_cycles(
         region=None,
         ranges=None,
         precip_type=None,
-        no_ocean=False
+        no_ocean=True,
+        no_orographic=True,
+        no_frozen=True,
+        no_snow_sfc=True,
 ):
     """
-    Calculates daily cycles.
-
-    Uses only observations over surface types 1 - 8 and 12 - 16 and
-    that are not marked as snow by the radar.
+    Calculates diurnal cycles.
 
     Args:
-       results: Dictionary holding xr.Datasets with the results for the different retrievals.
-       groups: Names of the retrievals for which to calculate error metrics.
-       rqi_threshold: Optional additional rqi_threshold to filter co-locations.
-       region: Name of a region to restrict the analysis to.
-       ranges: Upper limit for radar range to be included in the analysis.
-       precip_type: If given, only the contribution of the given precipitation type
-           will be calculated.
+        results: Dictionary holding xr.Datasets with the results for the different retrievals.
+        groups: Names of the retrievals for which to calculate error metrics.
+        rqi_threshold: Optional additional rqi_threshold to filter co-locations.
+        region: Name of a region to restrict the analysis to.
+        ranges: Upper limit for radar range to be included in the analysis.
+        precip_type: If given, only the contribution of the given precipitation type
+            will be calculated.
+        no_ocean: If 'True', measurements over ocean will be excluded.
+        no_orographic: If 'True', measurements over mountains will be excluded.
+        no_frozen: If 'True', precipitation classified as frozen is excluded from
+            the analysis.
+        no_snow_sfc: If 'True', precipitation over snow surfaces is excluded from
+            the analysis.
+
+    Return:
+        A tuple ``(hours, precip)`` containing the local time of day in
+        ``hours`` and the corresponding mean precipitation rate in
+       ``precip``.
     """
     if group == "reference":
         sp_ref = results["gprof_nn_1d"].surface_precip_ref_avg.data
@@ -1377,14 +1493,24 @@ def calculate_diurnal_cycles(
         sp = results[group].surface_precip.data
     valid = (sp_ref >= 0) * (sp >= 0)
 
-    surface_type = results[group].surface_type.data
-    valid *= ((surface_type < 8) + ((surface_type > 11) * (surface_type < 17)))
-    if no_ocean:
-        valid *= (surface_type > 1)
+    if "surface_type" in results[group]:
+        surface_type = results[group].surface_type.data
+        if no_orographic:
+            valid *= (surface_type < 17)
+        if no_snow_sfc:
+            valid *= ((surface_type < 8) + (surface_type > 11))
+        if no_ocean:
+            valid *= (surface_type > 1)
+
 
     mask = results[group].mask
-    snow = np.isclose(mask, 3.0) + np.isclose(mask, 4.0)
-    valid *= ~snow
+    if no_frozen:
+        frozen = (
+            np.isclose(mask, 3.0) +
+            np.isclose(mask, 4.0) +
+            np.isclose(mask, 7.0)
+        )
+        valid *= ~frozen
 
     if ranges is not None:
         rng = results[group].range.data
@@ -1423,7 +1549,7 @@ def calculate_diurnal_cycles(
         else:
             mean_precip *= np.nan
 
-    hours = bins[:-1]#0.5 * (bins[1:] + bins[:-1]) / 60
+    hours = bins[:-1]
 
     mean_precip = np.concatenate([mean_precip[-3:], mean_precip, mean_precip[:3]])
     k = np.exp(np.log(0.5) * ((np.ones(7) - 3) / 3) ** 2)
@@ -1644,36 +1770,82 @@ def extract_results(
     return results
 
 
-def gridded_stats(lons, lats, prediction, truth, bins, min_samples=None):
+def gridded_stats(
+        results: xr.Dataset,
+        bins: Tuple[np.ndarray],
+        min_samples: Optional[int] = None, fpa: bool = False,
+        no_orographic=False,
+        no_frozen=True,
+        no_ocean=True,
+        no_snow_sfc=True
+
+):
     """
     Calculate correlation of retrieval and prediction over lat-lon grid.
 
     Args:
-        lons: The longitude coordinates of the retrieval samples.
-        lats: The latitude coordinates of the retrieval samples.
-        prediction: The retrieved value.
-        truth: The true value.
+        results: An xr.Dataset containing the retrieved precipitation and
+            the validation precipitation.
         bins: A tuple ``(lon_bins, lats_bins) containing the longitude
             and latitude bins.
         min_samples: The minimum numbers of samples in each bin.
         fpa: If True, the footprint-averaged reference precipitation will be
             used.
+        no_orographic: Whether or not to include precipitation over mountain surfaces.
+        no_ocean: Whether or not to include precipitation over ocean.
+        no_frozen: If 'True', precipitation classified as frozen will be excluded from
+            the analysis.
+        no_snow_sfc: If 'True', precipitation over snow surfaces will be excluded
+            the analysis.
 
     Return:
         A tuple ``(bias, mae, mse, corr)`` containing the bias, mean absolute
         error, mean-squared error and correlation for the given
     longitude-latitude.
     """
-    lons = lons.ravel()
-    lats = lats.ravel()
-    prediction = prediction.ravel()
-    truth = truth.ravel()
+    sp = results.surface_precip
+    if fpa:
+        sp_ref = results.surface_precip_ref_avg
+    else:
+        sp_ref = results.surface_precip_ref
 
-    xx = prediction * prediction
-    xy = prediction * truth
-    yy = truth * truth
-    x = prediction
-    y = truth
+    valid = (sp >= 0.0) * (sp_ref >= 0.0)
+
+    if "surface_type" in results:
+        sfc = results.surface_type.data
+
+        sea_ice = (sfc == 2) + (sfc == 16)
+        valid *= ~sea_ice
+
+        if no_ocean:
+            valid *= (sfc > 1)
+
+        if no_orographic:
+            valid *= (sfc < 17)
+
+        if no_snow_sfc:
+            valid *= ((sfc < 8) + (sfc > 11))
+
+    if "mask" in results:
+        mask = results.mask
+        if no_frozen:
+            frozen = (
+                np.isclose(mask, 3.0) +
+                np.isclose(mask, 4.0) +
+                np.isclose(mask, 7.0)
+            )
+            valid *= ~frozen
+
+    sp = sp[valid]
+    sp_ref = sp_ref[valid]
+    lons = results.longitude.data[valid]
+    lats = results.latitude.data[valid]
+
+    xx = sp * sp
+    xy = sp * sp_ref
+    yy = sp_ref * sp_ref
+    x = sp
+    y = sp_ref
 
     mae = binned_statistic_2d(lons, lats, np.abs(x - y), bins=bins)[0]
     mse = binned_statistic_2d(lons, lats, (x - y) ** 2, bins=bins)[0]
@@ -1693,8 +1865,82 @@ def gridded_stats(lons, lats, prediction, truth, bins, min_samples=None):
         x[n_samples < min_samples] = np.nan
         y[n_samples < min_samples] = np.nan
 
-
     sigma_x = np.sqrt(xx - x ** 2)
     sigma_y = np.sqrt(yy - y ** 2)
     corr = (xy - x * y) / (sigma_x * sigma_y)
     return x - y, mae, mse, corr
+
+
+def calculate_pr_curve(
+        results: xr.Dataset,
+        fpa: bool = False,
+        no_orographic=False,
+        no_frozen=True,
+        no_ocean=True,
+        no_snow_sfc=True
+
+):
+    """
+    Calculate precision-recall curve for retrieval.
+
+    Args:
+        results: An xr.Dataset containing the retrieved precipitation and
+            the validation precipitation.
+        fpa: If True, the footprint-averaged reference precipitation will be
+            used.
+        no_orographic: Whether or not to include precipitation over mountain surfaces.
+        no_ocean: Whether or not to include precipitation over ocean.
+        no_frozen: If 'True', precipitation classified as frozen will be excluded from
+            the analysis.
+        no_snow_sfc: If 'True', precipitation over snow surfaces will be excluded
+            the analysis.
+
+    Return:
+        A tuple ``(prec, rec, thresh)`` containing the precision values
+        in ``prec``, the recall values in ``rec`` and the thresholds values
+        in ``thresh``.
+    """
+    from sklearn.metrics import precision_recall_curve
+
+    if "pop" in results:
+        pop = results.pop
+    else:
+        pop = results.surface_precip
+    if fpa:
+        sp_ref = results.surface_precip_ref_avg
+    else:
+        sp_ref = results.surface_precip_ref
+
+    valid = (pop >= 0.0) * (sp_ref >= 0.0)
+
+    if "surface_type" in results:
+        sfc = results.surface_type.data
+
+        valid *= ((sfc != 2) * (sfc != 16))
+
+        if no_ocean:
+            valid *= (sfc > 1)
+
+        if no_orographic:
+            valid *= (sfc < 17)
+
+        if no_snow_sfc:
+            valid *= ((sfc < 8) + (sfc > 11))
+
+    if "mask" in results:
+        mask = results.mask
+        if no_frozen:
+            frozen = (
+                np.isclose(mask, 3.0) +
+                np.isclose(mask, 4.0) +
+                np.isclose(mask, 7.0)
+            )
+            valid *= ~frozen
+
+    pop = pop[valid]
+    sp_ref = sp_ref[valid]
+    prec, rec, threshs = precision_recall_curve(
+        sp_ref > 1e-4,
+        pop,
+    )
+    return prec, rec, threshs
