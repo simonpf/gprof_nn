@@ -8,6 +8,7 @@ This sub-module implements the 'train' sub-command of the
 networks for the GPROF-NN retrieval algorithm.
 """
 import argparse
+import gc
 import logging
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
@@ -632,8 +633,9 @@ def run_training_1d(
         LOGGER.info(f"Saving training network to {output}.")
         xrnn.save(output)
 
-    del training_data
     del validation_data
+    del training_data
+    gc.collect()
     LOGGER.info(f"Training finished.")
 
 
@@ -849,6 +851,7 @@ def run_training_3d(
 
     del training_data
     del validation_data
+    gc.collect()
     LOGGER.info(f"Training finished.")
 
 
@@ -1004,6 +1007,7 @@ def run_training_sim(
 
     del training_data
     del validation_data
+    gc.collect()
     LOGGER.info(f"Training finished.")
 
 
@@ -1165,4 +1169,6 @@ def run_training_hr(configuration, training_data, validation_data, output, args)
 
     del training_data
     del validation_data
+    gc.collect()
+
     LOGGER.info(f"Training finished.")
