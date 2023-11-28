@@ -387,6 +387,7 @@ class PreprocessorFile:
         dataset.attrs["satellite"] = satellite
         dataset.attrs["sensor"] = sensor
         dataset.attrs["preprocessor"] = preprocessor
+        dataset.attrs["frequencies"] = self.orbit_header["frequencies"][0]
         return dataset
 
     def write_retrieval_results(self, path, results, ancillary_data=None, suffix=""):
@@ -717,7 +718,7 @@ def has_preprocessor():
 # Dictionary mapping sensor IDs to preprocessor executables.
 PREPROCESSOR_EXECUTABLES = {
     "GMI": "gprof2023pp_GMI_L1C",
-    "MHS": "gprof2021pp_MHS_L1C",
+    "MHS": "gprof2023pp_MHS_L1C",
     "TMIPR": "gprof2021pp_TMI_L1C",
     "TMIPO": "gprof2021pp_TMI_L1C",
     "SSMI": "gprof2021pp_SSMI_L1C",
