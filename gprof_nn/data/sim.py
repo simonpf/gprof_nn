@@ -803,13 +803,15 @@ def process_files(
 @click.argument("end_time")
 @click.argument("output_1d")
 @click.argument("output_3d")
+@click.option("-n" ,"--n_processes", default=1)
 def cli(
         sensor: Sensor,
         sim_file_path: Path,
         start_time: np.datetime64,
         end_time: np.datetime64,
         output_1d: Path,
-        output_3d: Path
+        output_3d: Path,
+        n_processes: int = 1
 ) -> None:
     """
     This function implements the command line interface for extracting
@@ -881,6 +883,7 @@ def cli(
         end_time,
         output_path_1d,
         output_path_3d,
+        n_processes=n_processes
     )
 
 
