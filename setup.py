@@ -24,8 +24,11 @@ setup(
     extras_require = {
         'development': [
             'pytest', 'pykdtree'
-            ]
-        },
+        ],
+        'validation': [
+            "pansat @ git+https://github.com/simonpf/pansat@5a661ff69eef8f8b8f95de39d0f492926f6ee13b"
+        ]
+    },
     entry_points = {
         'console_scripts': ['gprof_nn=gprof_nn.bin:gprof_nn'],
     },
