@@ -462,7 +462,7 @@ def get_mrms_file_record(n_chans, n_angles, kind):
                 ("n_snow3", "i4"),
                 ("n_snow4", "i4"),
                 ("fraction_missing", "f4"),
-                ("brightness_temperatures", f"15f4"),
+                ("brightness_temperatures", f"{n_chans}f4"),
             ]
         )
     else:
