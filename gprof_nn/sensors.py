@@ -2708,3 +2708,43 @@ ATMS = CrossTrackScanner(
     modeling_error=[3.0, 2.0, 2.0, 2.0, 2.0],
 )
 ATMS.mrms_sensor = MHS
+
+
+TMS_ANGLES = np.array(
+    [59.498, 53.311, 46.095, 39.222, 32.562, 26.043, 19.619, 13.257, 6.934, 0.0]
+)
+
+TMS_CHANNELS = [
+    (91.66, "none"),
+    (204.8, "none"),
+    (184.0, "none"),
+    (186.0, "none"),
+    (190.0, "none"),
+]
+
+TMS_NEDT = np.array([0.95, 0.6, 0.6, 0.6, 0.6])
+
+TMS_VIEWING_GEOMETRY = CrossTrack(
+    altitude=855e3,
+    scan_range=2.0 * 49.5,
+    pixels_per_scan=90,
+    scan_offset=17e3,
+    beam_width=1.1,
+)
+
+TMS_GMI_CHANNELS = [8, 11, 13, 13, 14]
+
+TMS = CrossTrackScanner(
+    "TMS",
+    TMS_CHANNELS,
+    TMS_NEDT,
+    TMS_ANGLES,
+    NOAA19,
+    TMS_VIEWING_GEOMETRY,
+    "/pdata4/veljko/TMS2MRMS_match2019/monthly_2021/",
+    "TMS.dbsatTb.??????{day}.??????.sim",
+    "/qdata1/pbrown/dbaseV7/simV7x_mhs",
+    TMS_GMI_CHANNELS,
+    correction=DATA_FOLDER / "corrections_mhs.nc",
+    modeling_error=[3.0, 2.0, 2.0, 2.0, 2.0],
+)
