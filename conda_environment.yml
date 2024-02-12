@@ -1,4 +1,4 @@
-name: gprof_nn
+name: gprof_v8
 channels:
   - pytorch
   - nvidia
@@ -6,13 +6,34 @@ channels:
   - defaults
 dependencies:
   - python=3.10
-  - pytorch
-  - torchvision
-  - torchaudio
-  - lightning
-  - pytorch-cuda=11.7
+  - pytorch::pytorch
+  - pytorch::pytorch-cuda=12.1
+  - pytorch::torchvision
+  - pytorch::torchaudio
+  - netcdf4
+  - pyyaml
+  - pooch
+  - zarr
+  - dask[version='>=0.17.1']
+  - pyorbital
+  - pyresample[version='>=1.10.3']
+  - trollimage[version='>=1.5.1']
+  - appdirs
   - h5py
-  - pyproj
-  - pyresample
-  - tensorboard
-  - xarray
+  - donfig
+  - pillow
+  - numpy[version='>=1.4.1']
+  - pyspectral
+  - trollsift
+  - xarray[version='>=0.10.1']
+  - satpy
+  - shapely[version='>2.0']
+  - cartopy
+  - llvm-openmp[version='14']
+  - ipywidgets
+  - lightning
+  - protobuf
+  - geopandas
+  - pip:
+    - "git+https://github.com/see-geo/pansat@refactoring"
+    - "git+https://github.com/simonpf/pytorch_retrieve"
