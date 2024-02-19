@@ -6,10 +6,10 @@ channels:
   - defaults
 dependencies:
   - python=3.10
-  - pytorch::pytorch
-  - pytorch::pytorch-cuda=12.1
-  - pytorch::torchvision
-  - pytorch::torchaudio
+  - pytorch::pytorch==2.01
+  - pytorch::torchvision==0.15.2
+  - pytorch::pytorch-cuda==11.7
+  - pytorch::torchaudio==2.02
   - netcdf4
   - pyyaml
   - pooch
