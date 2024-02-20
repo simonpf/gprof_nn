@@ -402,14 +402,27 @@ def process_match_files(
 @click.argument("output_3d")
 @click.option("--n_processes", default=4)
 def cli(
-    sensor,
-    match_path,
-        l1c_path,
-        output_1d,
-        output_3d,
-        n_processes: int = 4
-):
+    sensor: str,
+    match_path: str,
+    l1c_path: str,
+    output_1d: str,
+    output_3d: str,
+    n_processes: int = 4
+) -> int:
+    """
+    Extract training data from MRMS collocations.
 
+    Args:
+        sensor: Name of the sensor for which to extract the training data.
+        match_path: Path to the folder containing the MRMS match-ups.
+        l1c_path: Path to the L1C files of the sensor.
+        output_1d: Location to which to write the GPROF-NN 1D training data.
+        output_3d: Location to which to write the GPROF-NN 3D trainin data.
+        n_processes: The number of parallel process to use to extract the training data.
+
+    Return:
+        0 if data extraction was successful; 1 otherwise.
+    """
     sensor_obj = getattr(sensors, sensor.strip().upper(), None)
     if sensor_obj is None:
         LOGGER.error("The sensor '%s' is not known.", sensor)

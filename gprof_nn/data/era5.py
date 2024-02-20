@@ -300,8 +300,7 @@ def cli(
         n_processes: int = 4
 ) -> None:
     """
-    This function implements the command line interface for extracting
-    training data from L1C/ERA5 collocations.
+    Extract training data from L1C/ERA5 collocations.
 
     Args:
         sensor: A sensor object representing the sensor for which to extract

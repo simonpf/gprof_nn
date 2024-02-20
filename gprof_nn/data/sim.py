@@ -28,11 +28,12 @@ import xarray as xr
 import gprof_nn
 from gprof_nn import sensors
 from gprof_nn.config import CONFIG
-from gprof_nn.definitions import N_LAYERS
 from gprof_nn.definitions import (
     ALL_TARGETS,
-    LEVELS,
     DATABASE_MONTHS,
+    DATA_SPLIT,
+    LEVELS,
+    N_LAYERS,
     PROFILE_NAMES,
     SEAICE_YEARS,
 )
@@ -53,7 +54,6 @@ from gprof_nn.sensors import Sensor
 
 
 LOGGER = logging.getLogger(__name__)
-
 
 ###############################################################################
 # Data types
@@ -732,11 +732,12 @@ def process_sim_file(
 def process_files(
         sensor: Sensor,
         path: Path,
-        start_time: np.datetime64,
-        end_time: np.datetime64,
         output_path_1d: Path,
         output_path_3d: Path,
-        n_processes: int = 1
+        n_processes: int = 1,
+        start_time: Optional[np.datetime64] = None,
+        end_time: Optional[np.datetime64] = None,
+        split: Optional[str] = None
 ) -> None:
     """
     Parallel processing of all .sim files within a given time range.
@@ -744,28 +745,46 @@ def process_files(
     Args:
         sensor: A sensor object representing the sensor for which to extract
             the training data.
-        sim_file_path: Path to the folder containing the sim files from which to
+        path: Path to the folder containing the sim files from which to
             extract the training data.
-        start_time: Start time of the time interval limiting the sim files from
-            which training scenes will be extracted.
-        end_time: End time of the time interval limiting the sim files from
-            which training scenes will be extracted.
         output_path_1d: Path pointing to the folder to which the 1D training data
             should be written.
         output_path_3d: Path pointing to the folder to which the 3D training data
             should be written.
+        start_time: Start time of the time interval limiting the sim files from
+            which training scenes will be extracted.
+        end_time: End time of the time interval limiting the sim files from
+            which training scenes will be extracted.
+        split: Optional string specifying which split of the data to extract.
+            Must be one of 'training', 'validation', 'test'.
     """
     sim_files = sorted(list(path.glob("**/*.sim")))
     files = []
     for path in sim_files:
         date = path.stem.split(".")[-2]
         date = datetime.strptime(date, "%Y%m%d")
-        if (date >= start_time) and (date < end_time):
-            files.append(path)
+        if start_time is not None and date < start_time:
+            continue
+        if end_time is not None and date > end_time:
+            continue
+        if split is not None:
+            days = DATA_SPLIT[split.lower()]
+            if not date.day in days:
+                continue
+        files.append(path)
 
-    LOGGER.info(f"""
-    Found {len(files)} files to process in time range {start_time} - {end_time}.
-    """)
+    if start_time is None and split is None:
+        LOGGER.info("Found %s files to process.", len(files))
+    elif split is not None:
+        LOGGER.info("Found %s files to process for split '%s'.", len(files), split)
+    else:
+        LOGGER.info(
+            "Found  files to process for split '%s' in time range %s - %s.",
+            len(files),
+            split,
+            start_time,
+            end_time
+        )
 
     pool = futures.ProcessPoolExecutor(max_workers=n_processes)
     tasks = []
@@ -799,37 +818,39 @@ def process_files(
 
 @click.argument("sensor")
 @click.argument("sim_file_path")
-@click.argument("start_time")
-@click.argument("end_time")
+@click.argument("split")
 @click.argument("output_1d")
 @click.argument("output_3d")
+@click.option("--start_time", default=None)
+@click.option("--end_time", default=None)
 @click.option("-n" ,"--n_processes", default=1)
-def cli(
-        sensor: Sensor,
+def cli(sensor: Sensor,
         sim_file_path: Path,
-        start_time: np.datetime64,
-        end_time: np.datetime64,
+        split: str,
         output_1d: Path,
         output_3d: Path,
+        start_time: Optional[np.datetime64] = None,
+        end_time: Optional[np.datetime64] = None,
         n_processes: int = 1
 ) -> None:
     """
-    This function implements the command line interface for extracting
-    training data from sim files.
+    Extract training data from sim files.
 
     Args:
         sensor: A sensor object representing the sensor for which to extract
             the training data.
         sim_file_path: Path to the folder containing the sim files from which to
             extract the training data.
-        start_time: Start time of the time interval limiting the sim files from
-            which training scenes will be extracted.
-        end_time: End time of the time interval limiting the sim files from
-            which training scenes will be extracted.
+        split: A string specifying whether to extract 'training', 'validation' or
+             'test' data.
         output_1d: Path pointing to the folder to which the 1D training data
             should be written.
         output_3d: Path pointing to the folder to which the 3D training data
             should be written.
+        start_time: Start time of the time interval limiting the sim files from
+            which training scenes will be extracted.
+        end_time: End time of the time interval limiting the sim files from
+            which training scenes will be extracted.
     """
     from gprof_nn import sensors
     from gprof_nn.data.sim import process_files
@@ -856,34 +877,37 @@ def cli(
         LOGGER.error("The 'output_3d' argument must point to a directory.")
         return 1
 
-    try:
-        start_time = np.datetime64(start_time)
-    except ValueError:
-        LOGGER.error(
-            "Coud not parse 'start_time' argument as numpy.datetime64 object. "
-            "Please make sure that the start time is provided in the right "
-            "format."
-        )
-        return 1
+    if start_time is not None:
+        try:
+            start_time = np.datetime64(start_time)
+        except ValueError:
+            LOGGER.error(
+                "Coud not parse 'start_time' argument as numpy.datetime64 object. "
+                "Please make sure that the start time is provided in the right "
+                "format."
+            )
+            return 1
 
-    try:
-        end_time = np.datetime64(end_time)
-    except ValueError:
-        LOGGER.error(
-            "Coud not parse 'end_time' argument as numpy.datetime64 object. "
-            "Please make sure that the start time is provided in the right "
-            "format."
-        )
-        return 1
+    if end_time is not None:
+        try:
+            end_time = np.datetime64(end_time)
+        except ValueError:
+            LOGGER.error(
+                "Coud not parse 'end_time' argument as numpy.datetime64 object. "
+                "Please make sure that the start time is provided in the right "
+                "format."
+            )
+            return 1
 
     process_files(
         sensor,
         sim_file_path,
-        start_time,
-        end_time,
         output_path_1d,
         output_path_3d,
-        n_processes=n_processes
+        split=split,
+        start_time=start_time,
+        end_time=end_time,
+        n_processes=n_processes,
     )
 
 

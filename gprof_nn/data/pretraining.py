@@ -160,8 +160,7 @@ def cli(
         n_processes: int
 ) -> None:
     """
-    This function implements the command line interface for extracting
-    pretraining data from L1C files.
+    Extract pretraining data from L1C files.
 
     Args:
         sensor: A sensor object representing the sensor for which to extract
