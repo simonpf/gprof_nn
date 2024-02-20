@@ -6,30 +6,30 @@ channels:
   - defaults
 dependencies:
   - python=3.10
-  - pytorch::pytorch==2.01
+  - pytorch::pytorch==2.0.1
   - pytorch::torchvision==0.15.2
   - pytorch::pytorch-cuda==11.7
-  - pytorch::torchaudio==2.02
+  - pytorch::torchaudio==2.0.2
   - netcdf4
   - pyyaml
   - pooch
   - zarr
-  - dask[version='>=0.17.1']
+  - dask
   - pyorbital
-  - pyresample[version='>=1.10.3']
-  - trollimage[version='>=1.5.1']
+  - pyresample
+  - trollimage
   - appdirs
   - h5py
   - donfig
   - pillow
-  - numpy[version='>=1.4.1']
+  - numpy
   - pyspectral
   - trollsift
-  - xarray[version='>=0.10.1']
+  - xarray
   - satpy
-  - shapely[version='>2.0']
+  - shapely
   - cartopy
-  - llvm-openmp[version='14']
+  - llvm-openmp
   - ipywidgets
   - lightning
   - protobuf
