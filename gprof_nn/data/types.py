@@ -363,6 +363,8 @@ def get_sim_file_record(n_chans, n_angles, n_layers, kind):
                 ("elevation", "f4"),
                 ("scan_time", date_type),
                 ("surface_type", "i4"),
+                ("mirs_chi2", "f4"),
+                ("mirs_quality", "f4"),
                 ("surface_precip_source", "f4", (n_angles,)),
                 ("surface_precip_mirs", "f4", (n_angles,)),
                 ("surface_precip_cmb", "f4", (n_angles,)),
