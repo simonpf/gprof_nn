@@ -78,7 +78,7 @@ class DataConfig(ConfigBase):
     """
     era5_path : Path = Path("/qdata2/archive/ERA5")
     model_path : Path = Path(user_data_dir("gprof_nn", "gprof_nn")) / "models"
-    mrms_path : Path = Path("/pdata4/mrms/")
+    mrms_path : Path = Path("/pdata4/veljko/")
 
     def print(self):
         txt = "[data]\n"

@@ -150,14 +150,12 @@ def remap_scene(scene, coords, targets):
         "brightness_temperatures",
         "two_meter_temperature",
         "total_column_water_vapor",
-        "ocean_fraction",
         "land_fraction",
         "ice_fraction",
         "snow_depth",
         "leaf_area_index",
         "orographic_wind",
         "moisture_convergence",
-        "source",
     ] + targets
 
     data = {}
@@ -234,6 +232,7 @@ def save_scene(
     tbs = scene.brightness_temperatures.data
     tbs[tbs < 0] = np.nan
     tbs[tbs > 400] = np.nan
+
     if "simulated_brightness_temperatures" in scene:
         tbs = scene.simulated_brightness_temperatures.data
         tbs[tbs < 0] = np.nan
@@ -306,6 +305,8 @@ def save_scene(
             "ice_water_path",
             "cloud_water_path",
             "rain_water_path",
+            "surface_precip",
+            "convective_precip"
     ]:
         encoding[var] = {"dtype": "float32", "zlib": True}
 
@@ -415,6 +416,8 @@ def write_training_samples_1d(
     """
     dataset = dataset[{"pixels": slice(*compressed_pixel_range())}]
     mask = np.isfinite(dataset.surface_precip.data)
+    if mask.ndim > 2:
+        mask = mask.all(-1)
 
     valid = {}
     for var in dataset.variables:
@@ -424,8 +427,8 @@ def write_training_samples_1d(
         else:
             arr_data = arr.data
         valid[var] = ((("samples",) + arr.dims[2:]), arr_data[mask])
-    valid = xr.Dataset(valid)
 
+    valid = xr.Dataset(valid, attrs=dataset.attrs)
     start_time = pd.to_datetime(dataset.scan_time.data[0].item())
     start_time = start_time.strftime("%Y%m%d%H%M%S")
     end_time = pd.to_datetime(dataset.scan_time.data[-1].item())

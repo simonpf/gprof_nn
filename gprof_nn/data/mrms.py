@@ -15,15 +15,15 @@ from typing import Optional, List
 import click
 import numpy as np
 import xarray as xr
-import pandas as pd
 from pyresample import geometry, kd_tree
 from pykdtree.kdtree import KDTree
 from rich.progress import Progress
 from scipy.signal import convolve
 
 from gprof_nn import sensors
-from gprof_nn.logging import get_console, log_messages
 from gprof_nn.coordinates import latlon_to_ecef
+from gprof_nn.definitions import DATA_SPLIT
+from gprof_nn.logging import get_console, log_messages
 from gprof_nn.data.validation import unify_grid, calculate_angles
 from gprof_nn.data.preprocessor import run_preprocessor
 from gprof_nn.data.l1c import L1CFile
@@ -269,7 +269,7 @@ def extract_collocations(
 
         # Match targets
         match_file.match_targets(data_pp)
-        data_pp.attrs["source"] = 1
+        data_pp.attrs["source"] = "mrms"
 
         if output_path_1d is not None:
             write_training_samples_1d(
@@ -279,8 +279,8 @@ def extract_collocations(
             )
 
         if output_path_3d is not None:
-            n_pixels = data_pp.pixels.size
-            n_scans = max(n_pixels, 128)
+            n_pixels = 64
+            n_scans = 128
             write_training_samples_3d(
                 output_path_3d,
                 "mrms",
@@ -299,7 +299,8 @@ def process_match_file(
         l1c_path: Path,
         output_path_1d: Optional[Path] = None,
         output_path_3d: Optional[Path] = None,
-        n_processes: int = 4
+        n_processes: int = 4,
+        split: Optional[str] = None
 ):
     """
     Process a single MRMS match-up file.
@@ -311,20 +312,39 @@ def process_match_file(
         l1c_file: Path object pointing to the L1C file to collocate
              with the match ups.
         output_path_1d: Path pointing to the folder to which to write
-            the GPROF-NN 1D training data.
+            the
         output_path_3d: Path pointing to the folder to which to write
             the GPROF-NN 3D training data.
+        n_processes: The number of processes to use for the data
+            extraction.
+        split: An optional string 'train', 'validation', 'test' specifying
+            which split of the dataset to extract.
     """
+    match_file = Path(match_file)
     year_month = match_file.name[:4]
+    l1c_path = Path(l1c_path)
     l1c_files = (l1c_path / year_month).glob(
         f"**/{sensor.l1c_file_prefix}*.HDF5"
     )
     l1c_files = sorted(list(l1c_files))
 
+    if split is not None:
+        l1c_files_split = []
+        days = DATA_SPLIT[split]
+        for l1c_file in l1c_files:
+            time = L1CFile(l1c_file).start_time
+            day_of_month = int(
+                (time - time.astype("datetime64[M]")).astype("timedelta64[D]").astype("int64")
+            )
+            if day_of_month + 1 in days:
+                l1c_files_split.append(l1c_file)
+        l1c_files = l1c_files_split
+
     LOGGER.info(
         f"Found {len(l1c_files)} L1C files matching MRMS match-up file "
         f"{match_file}."
     )
+
 
     pool = ProcessPoolExecutor(max_workers=n_processes)
     tasks = []
@@ -369,6 +389,7 @@ def process_match_files(
         l1c_path: Path,
         output_path_1d: Path,
         output_path_3d: Path,
+        split: Optional[str] = None,
         n_processes: int = 4
 ):
     """
@@ -391,6 +412,7 @@ def process_match_files(
             l1c_path,
             output_path_1d,
             output_path_3d,
+            split=split,
             n_processes=n_processes
         )
 
@@ -455,6 +477,7 @@ def cli(
         l1c_path,
         output_path_1d,
         output_path_3d,
+        split=split,
         n_processes=n_processes
     )
 

@@ -23,6 +23,19 @@ NEEDS_SIM_DATA = pytest.mark.skipif(
     not SIM_DATA.exists(), reason="Needs sim files."
 )
 
+HAS_TEST_DATA = "GPROF_NN_TEST_DATA" in os.environ
+NEEDS_TEST_DATA = pytest.mark.skipif(
+    not HAS_TEST_DATA, reason="Test data not available."
+)
+
+@pytest.fixture()
+def test_data():
+    """
+    The test data path as set in the 'GPROF_NN_TEST_DATA' environment variable.
+    """
+    return Path(os.environ["GPROF_NN_TEST_DATA"])
+
+
 @pytest.fixture(scope="session")
 def sim_collocations_gmi() -> xr.Dataset:
     """

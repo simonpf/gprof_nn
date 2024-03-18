@@ -439,27 +439,6 @@ class Sensor(ABC):
         """
         return self._preprocessor_pixel_record
 
-    @abstractmethod
-    def load_training_data_1d(self, dataset, targets, augment, rng):
-        """
-        Load training data for GPROF-NN 1D algorithm from NetCDF file.
-
-        Args:
-            filename: Path of the file from which to load the data.
-            targets: List of target names to load.
-            augment: Flag indicating whether or not to augment the training
-                data.
-            rng: Numpy random number generator to use for the data
-                augmentation.
-
-        Return:
-            Tuple ``(x, y)`` consisting of rank-2 tensor ``x`` with input
-            features oriented along the last dimension and a dictionary
-            ``y`` containing the values of the retrieval targets for all
-            inputs in ``x``.
-        """
-        pass
-
     @property
     def latitude_ratios(self):
         """
@@ -511,12 +490,6 @@ class Sensor(ABC):
         Load viewing angle from the given dataset and replace invalid values.
         """
         return load_variable(data, "viewing_angle", mask=mask)
-
-    def load_ocean_fraction(self, data, mask=None):
-        """
-        Load ocean fraction from dataset and convert to 1-hot encoding.
-        """
-        return load_variable(data, "ocean_fraction", mask=mask)
 
     def load_land_fraction(self, data, mask=None):
         """
@@ -627,128 +600,7 @@ class ConicalScanner(Sensor):
             return load_variable(data, "simulated_brightness_temperatures", mask=mask)
         return load_variable(data, "brightness_temperatures", mask=mask)
 
-    def _load_scene_1d(self, scene, targets, augment, rng):
-        """
-        Helper function to parallelize loading of 1D training data.
-        """
-        if "surface_precip" not in targets:
-            ts = targets + ["surface_precip"]
-        else:
-            ts = targets
-        if self.use_simulated_tbs:
-            ts = targets + ["simulated_brightness_temperatures"]
-        scene = decompress_scene(scene, ts)
-
-        #
-        # Input data
-        #
-
-        # Select only samples that have a finite surface precip value.
-        sp = self.load_target(scene, "surface_precip")
-        valid = sp >= 0
-
-        tbs = self.load_brightness_temperatures(scene, mask=valid)
-        if self.use_simulated_tbs and self.delta_tbs is not None:
-            noise = np.array(self.delta_tbs) * rng.normal(size=tbs.shape)
-            tbs += noise
-
-        if augment:
-            r = rng.random(tbs.shape[0])
-            tbs[r > 0.9, 10:15] = np.nan
-        t2m = self.load_two_meter_temperature(scene, valid)[..., np.newaxis]
-        tcwv = self.load_total_column_water_vapor(scene, valid)
-        tcwv = tcwv[..., np.newaxis]
-        ocean_frac = self.load_ocean_fraction(scene, valid)[..., None]
-        land_frac = self.load_land_fraction(scene, valid)[..., None]
-        ice_frac = self.load_ice_fraction(scene, valid)[..., None]
-        snow_depth = self.load_snow_depth(scene, valid)[..., None]
-        leaf_area_index = self.load_leaf_area_index(scene, valid)[..., None]
-        orographic_wind = self.load_orographic_wind(scene, valid)[..., None]
-        moisture_conv = self.load_moisture_convergence(scene, valid)[..., None]
-
-        x = np.concatenate([
-            tbs,
-            t2m,
-            tcwv,
-            ocean_frac,
-            land_frac,
-            ice_frac,
-            snow_depth,
-            leaf_area_index,
-            orographic_wind,
-            moisture_conv
-        ], axis=1)
-
-        #
-        # Output data
-        #
-
-        y = {}
-        for t in targets:
-            y_t = self.load_target(scene, t, valid)
-            y_t = np.nan_to_num(y_t, nan=MASKED_OUTPUT)
-            y[t] = y_t
-
-        return x, y
-
-    def load_training_data_1d(
-        self, dataset, targets, augment, rng, drop_inputs=None
-    ):
-        """
-        Load training data for GPROF-NN 1D retrieval. This function will
-        only load pixels that with a finite surface precip value in order
-        to avoid training on samples that don't provide any information to
-        the 1D retrieval.
-
-        Output values that may be missing for a given pixel are masked using
-        the 'MASKED_OUTPUT' value.
-
-        Args:
-            filename: The filename of the NetCDF file containing the training
-                data.
-            targets: List of the targets to load.
-            augment: Whether or not to augment the training data.
-            rng: Numpy random number generator to use for augmentation.
-            drop_inputs: A probability with which to set all inputs randomly
-                to a missing value.
-
-        Return:
-            Tuple ``(x, y)`` containing the un-batched, un-shuffled training
-            data as it is contained in the given NetCDF file.
-        """
-        dataset.load()
-
-        x = []
-        y = {}
-
-        if isinstance(dataset, (str, Path)):
-            dataset = xr.open_dataset(dataset)
-            loaded = True
-        else:
-            loaded = False
-
-        n_scenes = dataset.samples.size
-
-        for i in range(n_scenes):
-            scene = dataset[{"samples": i}]
-            x_i, y_i = self._load_scene_1d(scene, targets, augment, rng)
-            x.append(x_i)
-            for target in targets:
-                y.setdefault(target, []).append(y_i[target])
-
-        x = np.concatenate(x, axis=0)
-        for k in targets:
-            y[k] = np.concatenate(y[k], axis=0)
-
-        if loaded:
-            dataset.close()
-
-        if drop_inputs is not None:
-            drop_inputs_from_sample(x, drop_inputs, self, rng)
-
-        return x, y
-
-    def _load_scene_3d(
+    def load_scene(
         self, scene, targets, augment, variables, rng, width, height, drop_inputs=None
     ):
         """
@@ -795,7 +647,6 @@ class ConicalScanner(Sensor):
 
         t2m = self.load_two_meter_temperature(scene)[np.newaxis]
         tcwv = self.load_total_column_water_vapor(scene)[np.newaxis]
-        ocean_frac = self.load_ocean_fraction(scene)[None]
         land_frac = self.load_land_fraction(scene)[None]
         ice_frac = self.load_ice_fraction(scene)[None]
         snow_depth = self.load_snow_depth(scene)[None]
@@ -807,7 +658,6 @@ class ConicalScanner(Sensor):
             tbs,
             t2m,
             tcwv,
-            ocean_frac,
             land_frac,
             ice_frac,
             snow_depth,
@@ -823,7 +673,6 @@ class ConicalScanner(Sensor):
 
         for t in targets:
             y_t = self.load_target(scene, t)
-            y_t = np.nan_to_num(y_t, nan=MASKED_OUTPUT)
 
             dims_sp = tuple(range(2))
             dims_t = tuple(range(2, y_t.ndim))
@@ -2061,12 +1910,12 @@ class Platform:
 
 
 TRMM = Platform("TRMM", "/pdata4/archive/GPM/1C_TMI_ITE/", "1C.TRMM.TMI")
-NOAA19 = Platform("NOAA19", "/pdata4/archive/GPM/1C_NOAA19_ITE/", "1C.NOAA19.MHS")
+NOAA19 = Platform("NOAA19", "/pdata4/archive/GPM/1C_NOAA19_V7/", "1C.NOAA19.MHS")
 NPP = Platform("NPP", "/pdata4/archive/GPM/1C_ATMS_ITE/", "1C.NPP.ATMS")
 GPM = Platform("GPM-CO", "/pdata4/archive/GPM/1CR_GMI_V7/", "1C-R.GPM.GMI")
 F15 = Platform("F15", "/pdata4/archive/GPM/1C_F15_ITE/", "1C.F15.SSMI")
 F17 = Platform("F17", "/pdata4/archive/GPM/1C_F17_ITE/", "1C.F17.SSMIS")
-GCOMW1 = Platform("GCOM-W1", "/pdata4/archive/GPM/1C_AMSR2_ITE/", "1C.GCOMW1.AMSR2")
+GCOMW1 = Platform("GCOM-W1", "/pdata4/archive/GPM/1C_AMSR2_V7/", "1C.GCOMW1.AMSR2")
 AQUA = Platform("AQUA", "/pdata4/archive/GPM/1C_AMSRE/", "1C.AQUA.AMSRE")
 
 ###############################################################################

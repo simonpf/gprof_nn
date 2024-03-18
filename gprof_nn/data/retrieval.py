@@ -11,7 +11,6 @@ import gzip
 from pathlib import Path
 
 import numpy as np
-from quantnn.normalizer import Normalizer
 import xarray
 
 from gprof_nn.definitions import MISSING

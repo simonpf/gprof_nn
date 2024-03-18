@@ -19,6 +19,7 @@ import xarray as xr
 
 from gprof_nn.config import CONFIG
 from gprof_nn import sensors
+from gprof_nn.definitions import DATA_SPLIT
 from gprof_nn.data.l1c import L1CFile
 from gprof_nn.data.preprocessor import run_preprocessor
 from gprof_nn.logging import get_console, log_messages
@@ -174,8 +175,6 @@ def process_l1c_file(
 
     # Drop unneeded variables.
     drop = ["sunglint_angle", "quality_flag", "wet_bulb_temperature", "lapse_rate"]
-    if not isinstance(sensor, sensors.CrossTrackScanner):
-        drop.append("earth_incidence_angle")
     data_pp = data_pp.drop_vars(drop)
 
     start_time = data_pp["scan_time"].data[0]
@@ -183,7 +182,7 @@ def process_l1c_file(
     era5_data = load_era5_data(start_time, end_time)
     add_era5_precip(data_pp, era5_data)
 
-    data_pp.attrs["source"] = 2
+    data_pp.attrs["source"] = "era5"
     if output_path_1d is not None:
         write_training_samples_1d(
             output_path_1d,
@@ -191,8 +190,8 @@ def process_l1c_file(
             data_pp,
         )
     if output_path_3d is not None:
-        n_pixels = data_pp.pixels.size
-        n_scans = max(n_pixels, 128)
+        n_pixels = 64
+        n_scans = 128
         write_training_samples_3d(
             output_path_3d,
             "mrms",
@@ -212,6 +211,7 @@ def process_l1c_files(
         end_time: np.datetime64,
         output_path_1d: Optional[Path] = None,
         output_path_3d: Optional[Path] = None,
+        split: str = None,
         n_processes: int = 4,
         log_queue: Optional[Queue] = None
 ):
@@ -226,6 +226,8 @@ def process_l1c_files(
             the training samples for the GPROF-NN 1D retrieval.
         output_path_3d: Path pointing to the folder to which to write
             the training samples for the GPROF-NN 3D retrieval.
+        split: An optional string specifying whether to extract only data from
+            one of the three data splits ['training', 'validation', 'test'].
         n_processes: The number of processes to use for parallel
             processing.
         log_queue: Queue to use for logging from sub-processes.
@@ -241,10 +243,25 @@ def process_l1c_files(
 
     LOGGER.info("Looking for files in %s.", l1c_path)
     while time < end_time:
-        l1c_files += L1CFile.find_files(time, l1c_path)
+
+        l1c_files_day = L1CFile.find_files(time, l1c_path, sensor=sensor)
+        # Check if day of month should be skipped.
+        if split is not None:
+            days = DATA_SPLIT[split]
+            l1c_files_split = []
+            for l1c_file in l1c_files:
+                time = L1CFile(l1c_file).start_time
+                day_of_month = int(
+                    (time - time.astype("datetime64[M]")).astype("timedelta64[D]").astype("int64")
+                )
+                if day_of_month + 1 in days:
+                    l1c_files_split.append(l1c_file)
+            l1c_files_day = l1c_files_split
+
+        l1c_files += l1c_files_day
         time += np.timedelta64(24 * 60 * 60, "s")
 
-    LOGGER.info("Found %s L1C fiels to process", len(l1c_files))
+    LOGGER.info("Found %s L1C files to process", len(l1c_files))
 
 
     pool = ProcessPoolExecutor(max_workers=n_processes)
@@ -263,7 +280,7 @@ def process_l1c_files(
 
     with Progress(console=get_console()) as progress:
         pbar = progress.add_task(
-            "Extracting pretraining data:",
+            "Extracting ERA5 collocations:",
             total=len(tasks)
         )
         for task in as_completed(tasks):

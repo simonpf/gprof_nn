@@ -24,11 +24,22 @@ ALL_TARGETS = [
     "cloud_water_path",
 ]
 
-PROFILE_NAMES = [
+PROFILE_TARGETS = [
     "rain_water_content",
     "cloud_water_content",
     "snow_water_content",
     "latent_heat",
+]
+
+ANCILLARY_VARIABLES = [
+    "land_fraction",
+    "ice_fraction",
+    "leaf_area_index",
+    "snow_depth",
+    "two_meter_temperature",
+    "total_column_water_vapor",
+    "orographic_wind",
+    "moisture_convergence",
 ]
 
 SURFACE_TYPE_NAMES = [
@@ -84,9 +95,11 @@ SEAICE_YEARS = {
     "AMSRE": 2004
 }
 
-TEST_DAYS = [1, 2, 3]
-VALIDATION_DAYS = [4, 5]
-TRAINING_DAYS = list(range(6, 32))
+DATA_SPLIT = {
+    "test": [1, 2, 3],
+    "validation": [4, 5],
+    "training": list(range(6, 32))
+}
 
 LIMITS = {
     "brightness_temperatures": (0, 400),
