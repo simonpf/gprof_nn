@@ -1350,3 +1350,98 @@ class GPROFNN3DDataset(Dataset):
             "Invalid sensor/scene combination in training file %s.",
             self.files[ind]
         )
+
+
+class SimulatorDataset(Dataset):
+    """
+    Dataset class for loading the training data for training GPROF-NN observation
+    emulators.
+    """
+    def __init__(
+        self,
+        path: Path,
+        transform_zeros: bool = True,
+        augment: bool = True,
+        validation: bool = False
+    ):
+        """
+        Create GPROF-NN 3D dataset.
+
+        The training data for the GPROF-NN 3D retrieval consists of 2D scenes
+        in separate files.
+
+        Args:
+            path: The path containing the training data files.
+            transform_zeros: Whether or not to replace zeros in the output
+                with small random values.
+            augment: Whether or not to apply data augmentation to the loaded
+                data.
+            validation: If set to 'True', data  loaded in consecutive iterations
+                over the dataset will be identical.
+        """
+        super().__init__()
+
+        self.transform_zeros = transform_zeros
+        self.validation = validation
+        self.augment = augment and not validation
+        self.validation = validation
+
+        self.path = Path(path)
+        if not self.path.exists():
+            raise RuntimeError(
+                "The provided path does not exists."
+            )
+
+        files = sorted(list(self.path.glob("sim_*_*.nc")))
+        if len(files) == 0:
+            raise RuntimeError(
+                "Could not find any GPROF-NN Simulator training data files "
+                f"in {self.path}."
+            )
+        self.files = files
+
+        self.init_rng()
+        self.files = self.rng.permutation(self.files)
+
+
+    def init_rng(self, w_id=0):
+        """
+        Initialize random number generator.
+
+        Args:
+            w_id: The worker ID which of the worker process..
+        """
+        if self.validation:
+            seed = 42
+        else:
+            seed = int.from_bytes(os.urandom(4), "big") + w_id
+        self.rng = np.random.default_rng(seed)
+
+    def worker_init_fn(self, w_id: int):
+        """
+        Pytorch retrieve interface.
+        """
+        self.init_rng(w_id)
+        winfo = torch.utils.data.get_worker_info()
+        n_workers = winfo.num_workers
+
+    def __repr__(self):
+        return f"SimulatorDataset(path={self.path})"
+
+    def __len__(self):
+        return len(self.files)
+
+    def __getitem__(self, ind):
+        with xr.open_dataset(self.files[ind]) as scene:
+            sensor = scene.attrs["sensor"]
+            sensor = getattr(sensors, sensor)
+
+            return load_training_data_3d_gmi(
+                scene,
+                targets=[
+                    "simulated_brightness_temperatures",
+                    "brightness_temperature_biases"
+                ],
+                augment=self.augment,
+                rng=self.rng
+            )
