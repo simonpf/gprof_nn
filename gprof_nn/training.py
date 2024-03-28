@@ -4,26 +4,94 @@ gprof_nn.training
 
 Interface for training of the GPROF-NN retrievals.
 """
+import os
+from pathlib import Path
+from typing import Optional, List
 
-def init(path: Path,
-         configuration: str,
-         training_data_path: Path,
-         validation_data_path: Optional[Path] = None,
-         targets: List[str] = ALL_TARGETS,
-         ancillary_data: bool = True,
+import click
+
+
+
+def init(
+        path: Path,
+        config: str,
+        training_data_path: Path,
+        validation_data_path: Optional[Path] = None,
+        targets: List[str] = None,
+        ancillary_data: bool = True,
 ) -> None:
+    """
+    Initialize a GPROF-NN model in a given location.
 
+    Args:
+        path: A path object pointing to the location in which to writhe
+            the model and training configuration files.
+        config: A string specifying the model configuration: '1d' or '3d'.
+        training_data_path: The path containing the training data.
+        validation_data_path: The path containing the validation data.
+        targets: If given, the model will only be trained to retrieve the
+             given subset of retrieval targets.
+        ancillary_data: Whether or not to include ancillary the model
+            should make use of ancillary data.
+    """
     config_path = Path(__file__).parent / "config_files"
 
     training_config = config_path / f"gprof_nn_{config.lower()}_training.toml"
     training_config = open(training_config, "r").read()
-    training.config = training_config.format({
-        "training_dataset_args": f"{{path = '{training_data_path}'}}",
-        "validation_dataset_args": f"{{path = '{validation_data_path}'}}",
+    training_config = training_config.format(**{
+        "training_data_path": str(training_data_path),
+        "validation_data_path": str(validation_data_path)
     })
-    with open(path / "training.toml") as output:
+    with open(path / "training.toml", "w") as output:
         output.write(training_config)
 
-    model_config = config_path / f"gprof_nn_{config.lower()}_training.toml"
-    model_config = open(training_config, "r").read()
-    for target in targets:
+    model_config = config_path / f"gprof_nn_{config.lower()}_model.toml"
+    model_config = open(model_config, "r").read()
+    with open(path / "model.toml", "w") as output:
+        output.write(model_config)
+
+
+@click.argument("configuration", type=str)
+@click.argument("training_data_path", type=str)
+@click.argument("validation_data_path", type=str)
+def init_cli(
+        configuration: str,
+        training_data_path: str,
+        validation_data_path: str,
+) -> int:
+    """
+    Initialize model directory.
+
+    This comand initializes a directory with default model and training
+    configuration files that can be used to train the GPROF-NN retrievals.
+    """
+
+    configuration = configuration.lower()
+    if not configuration in ["1d", "3d"]:
+        LOGGER.error(
+            "'configuration' must be one of ['1d', '3d']."
+        )
+        return 1
+
+    training_data_path = Path(training_data_path)
+    if not training_data_path.exists() or not training_data_path.is_dir():
+        LOGGER.error(
+            "'training_data_path' must point to an existing directory."
+        )
+        return 1
+
+    validation_data_path = Path(validation_data_path)
+    if not validation_data_path.exists() or not validation_data_path.is_dir():
+        LOGGER.error(
+            "'validation_data_path' must point to an existing directory."
+        )
+        return 1
+
+    init(
+        Path(os.getcwd()),
+        configuration,
+        training_data_path,
+        validation_data_path,
+        None,
+        None
+    )

@@ -1,0 +1,61 @@
+name = "gprof_nn_3d"
+
+[architecture]
+name = "EfficientNet-V2-Seq"
+
+[input.brightness_temperatures]
+n_features = 15
+normalize = "minmax"
+
+[input.viewing_angles]
+n_features = 15
+normalize = "minmax"
+
+[input.ancillary_data]
+n_features = 8
+normalize = "minmax"
+
+[output.surface_precip]
+kind = "Quantiles"
+quantiles = 32
+shape = 1
+
+[output.convective_precip]
+kind = "Quantiles"
+quantiles = 32
+shape = 1
+
+[output.rain_water_path]
+kind = "Quantiles"
+quantiles = 32
+shape = 1
+
+[output.ice_water_path]
+kind = "Quantiles"
+quantiles = 32
+shape = 1
+
+[output.cloud_water_path]
+kind = "Quantiles"
+quantiles = 32
+shape = 1
+
+[output.rain_water_content]
+kind = "Quantiles"
+quantiles = 32
+shape = 28
+
+[output.snow_water_content]
+kind = "Quantiles"
+quantiles = 32
+shape = 28
+
+[output.cloud_water_content]
+kind = "Quantiles"
+quantiles = 32
+shape = 28
+
+[output.latent_heat]
+kind = "Quantiles"
+quantiles = 32
+shape = 28

@@ -1,0 +1,38 @@
+[stage_1]
+dataset_module = "gprof_nn.data.training_data"
+training_dataset = "GPROFNN1DDataset"
+training_dataset_args = {{path="{training_data_path}"}}
+validation_dataset_args = {{path="{validation_data_path}"}}
+n_epochs = 20
+batch_size = 32
+optimizer = "AdamW"
+optimize_args = {{lr = 1e-3}}
+scheduler = "CosineAnnealingLR"
+scheduler_args = {{T_max = 20}}
+metrics = ["CorrelationCoef", "MSE", "Bias"]
+
+[stage_2]
+dataset_module = "gprof_nn.data.training_data"
+training_dataset = "GPROFNN1DDataset"
+training_dataset_args = {{path="{training_data_path}"}}
+validation_dataset_args = {{path="{validation_data_path}"}}
+n_epochs = 20
+batch_size = 32
+optimizer = "AdamW"
+optimize_args = {{lr = 1e-3}}
+scheduler = "CosineAnnealingLR"
+scheduler_args = {{T_max = 20}}
+metrics = ["CorrelationCoef", "MSE", "Bias"]
+
+[stage_3]
+dataset_module = "gprof_nn.data.training_data"
+training_dataset = "GPROFNN1DDataset"
+training_dataset_args = {{path="{training_data_path}"}}
+validation_dataset_args = {{path="{validation_data_path}"}}
+n_epochs = 20
+batch_size = 32
+optimizer = "AdamW"
+optimize_args = {{lr = 1e-3}}
+scheduler = "CosineAnnealingLR"
+scheduler_args = {{T_max = 20}}
+metrics = ["CorrelationCoef", "MSE", "Bias"]

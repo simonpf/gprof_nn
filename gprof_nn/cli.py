@@ -7,6 +7,7 @@ provided by the 'gprof_nn' package.
 """
 import click
 import gprof_nn.config as conf
+from gprof_nn import training
 from gprof_nn.data import sim, pretraining, mrms, era5
 
 @click.group()
@@ -33,3 +34,15 @@ def config():
 config.command(name="file")(conf.file)
 config.command(name="show")(conf.show_config)
 config.command(name="set")(conf.set_config)
+
+
+######################################################################
+# gprof_nn train
+######################################################################
+
+
+@gprof_nn.group(name="train")
+def train():
+    pass
+
+train.command(name="init")(training.init_cli)
