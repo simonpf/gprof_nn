@@ -10,6 +10,7 @@ corresponding simulated brightness temperatures.
 The module also provides functionality to extract the training data
  for the GPROF-NN algorithm from these files.
 """
+from copy import copy
 from concurrent import futures
 from dataclasses import dataclass
 from datetime import datetime
@@ -285,7 +286,11 @@ class SimFile:
                     path_name = target.replace("content", "path").replace("snow", "ice")
                     input_data[path_name] = (("scans", "pixels_center"), path)
             else:
-                if target in ["surface_precip", "convective_precip"]:
+                if target in [
+                        "surface_precip",
+                        "surface_precip_combined",
+                        "convective_precip"
+                ]:
                     dims = ("scans", "pixels")
                     if n_angles > 0:
                         dims = dims + ("angles",)
@@ -485,11 +490,12 @@ def _find_l1c_file(path, sim_file):
 
 
 def collocate_targets(
-        sim_filename,
-        sensor,
-        era5_path,
-        subset=None,
-        log_queue=None
+        sim_filename: Path,
+        sensor: sensors.Sensor,
+        era5_path: Path,
+        subset: Optional["SubsetConfig"] = None,
+        log_queue: Optional["Queue"] = None,
+        include_cmb_precip: bool = False
 ):
     """
     This method collocates retrieval input data from the preprocessor
@@ -557,7 +563,10 @@ def collocate_targets(
 
     # Match targets from sim file to preprocessor data.
     LOGGER.debug("Matching retrieval targets for file %s.", sim_filename)
-    sim_file.match_targets(data_pp)
+    targets = copy(ALL_TARGETS)
+    if include_cmb_precip:
+        targets.append("surface_precip_combined")
+    sim_file.match_targets(data_pp, targets=targets)
     l1c_data = l1c_file.to_xarray_dataset()
 
     # Orographic enhancement for types 17 and 18.
@@ -602,6 +611,7 @@ def process_sim_file(
         era5_path: Optional[Path],
         output_path_1d: Path,
         output_path_3d: Path,
+        include_cmb_precip: bool = False
 ) -> None:
     """
     Extract training data from a single .sim-file and write output to
@@ -617,8 +627,15 @@ def process_sim_file(
             should be written.
         output_path_3d: Path pointing to the folder to which the 3D training data
             should be written.
+        include_cmb_precip: Flag to trigger include of surface precip derived solely
+             from cmb.
     """
-    data = collocate_targets(sim_file, sensor, era5_path)
+    data = collocate_targets(
+        sim_file,
+        sensor,
+        era5_path,
+        include_cmb_precip=include_cmb_precip
+    )
     if output_path_1d is not None:
         write_training_samples_1d(output_path_1d, "sim", data)
     if output_path_3d is not None:
@@ -633,7 +650,8 @@ def process_files(
         n_processes: int = 1,
         start_time: Optional[np.datetime64] = None,
         end_time: Optional[np.datetime64] = None,
-        split: Optional[str] = None
+        split: Optional[str] = None,
+        include_cmb_precip: bool = False
 ) -> None:
     """
     Parallel processing of all .sim files within a given time range.
@@ -653,6 +671,8 @@ def process_files(
             which training scenes will be extracted.
         split: Optional string specifying which split of the data to extract.
             Must be one of 'training', 'validation', 'test'.
+        include_cmb_precip: Flag to trigger include of surface precip derived solely
+             from cmb.
     """
     sim_files = sorted(list(path.glob("**/*.sim")))
     files = []
@@ -699,7 +719,8 @@ def process_files(
                 path,
                 CONFIG.data.era5_path,
                 output_path_1d,
-                output_path_3d
+                output_path_3d,
+                include_cmb_precip=include_cmb_precip
             )
         )
         tasks[-1].file = path
@@ -727,6 +748,7 @@ def process_files(
 @click.option("--start_time", default=None)
 @click.option("--end_time", default=None)
 @click.option("-n" ,"--n_processes", default=1)
+@click.option("--include_cmb_precip", is_flag=True, default=False)
 def cli(sensor: Sensor,
         sim_file_path: Path,
         split: str,
@@ -734,7 +756,8 @@ def cli(sensor: Sensor,
         output_3d: Path,
         start_time: Optional[np.datetime64] = None,
         end_time: Optional[np.datetime64] = None,
-        n_processes: int = 1
+        n_processes: int = 1,
+        include_cmb_precip: bool = False
 ) -> None:
     """
     Extract training data from sim files.
@@ -811,6 +834,7 @@ def cli(sensor: Sensor,
         start_time=start_time,
         end_time=end_time,
         n_processes=n_processes,
+        include_cmb_precip=include_cmb_precip
     )
 
 
