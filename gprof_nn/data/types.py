@@ -45,8 +45,8 @@ def get_preprocessor_orbit_header(n_chans, kind):
                 ("satellite", "a12"),
                 ("sensor", "a12"),
                 ("preprocessor", "a12"),
-                ("profile_database_file", "a128"),
                 ("radiometer_file", "a128"),
+                ("profile_database_file", "a128"),
                 ("calibration_file", "a128"),
                 ("granule_number", "i4"),
                 ("number_of_scans", "i4"),
@@ -108,9 +108,9 @@ def get_preprocessor_pixel_record(n_chans, kind):
                 ("land_fraction", "i4"),
                 ("ice_fraction", "i4"),
                 ("quality_flag", "i4"),
-                ("sunglint_angle", "i1"),
+                ("sunglint_angle", "i2"),
                 ("surface_type", "i1"),
-                ("airlifting_index", "i2"),
+                ("airlifting_index", "i1"),
             ]
         )
     else:

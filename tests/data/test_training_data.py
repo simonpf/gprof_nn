@@ -331,6 +331,8 @@ def test_load_ancillary_data_mhs(training_files_1d_mhs_sim):
         "training_files_1d_mhs_mrms",
         "training_files_1d_mhs_era5"
     ])
+
+
 def test_gprof_nn_1d_dataset_mhs(training_files, request):
 
     training_files = request.getfixturevalue(training_files)
@@ -533,19 +535,19 @@ def test_gprof_nn_1d_dataset_amsr2(training_files_1d, request):
     training_files = request.getfixturevalue(training_files_1d)
     training_data = GPROFNN1DDataset(training_files[0].parent)
 
-    x, y = training_data[0]
+    x, y = next(iter(training_data))
     assert "brightness_temperatures" in x
     tbs = x["brightness_temperatures"]
-    assert tbs.ndim == 3
+    assert tbs.shape == (15,)
     assert (tbs[torch.isfinite(tbs)] > 0).all()
     assert "viewing_angles" in x
-    assert x["viewing_angles"].ndim == 3
+    assert x["viewing_angles"].shape == (15,)
     assert "ancillary_data" in x
-    assert x["ancillary_data"].ndim == 3
+    assert x["ancillary_data"].shape == (8,)
 
     assert "surface_precip" in y
     sp = y["surface_precip"]
-    assert sp.ndim == 2
+    assert sp.shape == (1,)
     assert (sp[torch.isfinite(sp)] >= 0.0).all()
 
 

@@ -554,12 +554,11 @@ def load_tbs_1d_conical_other(
         and corresponding earth incidence angles ``angs``.
     """
     tbs = training_data["brightness_temperatures"].data
-    tbs_full = np.nan * np.zeros((tbs.shape[0], 15), dtype=np.float32)
+    tbs_full = np.nan * np.ones(tbs.shape[:-1] + (15,), dtype="float32")
     tbs_full[:, sensor.gmi_channels] = tbs
     angles = training_data["earth_incidence_angle"].data
-    angles_full = np.nan * np.zeros((tbs.shape[0], 15), dtype=np.float32)
+    angles_full = np.nan * np.ones(tbs.shape[:-1] + (15,), dtype="float32")
     angles_full[:, sensor.gmi_channels] = angles
-
     tbs = torch.tensor(tbs_full.astype("float32"))
     angles = torch.tensor(angles_full.astype("float32"))
     return tbs, angles
@@ -779,13 +778,13 @@ class GPROFNN1DDataset(IterableDataset):
 
         elif isinstance(sensor, sensors.ConicalScanner):
 
-            if dataset.source == 0:
-                tbs = load_tbs_1d_conical_sim(dataset)
+            if dataset.source == "sim":
+                tbs = load_tbs_1d_conical_sim(dataset, sensor)
+                angs = torch.tensor(np.broadcast_to(EIA_GMI.astype("float32"), tbs.shape))
             else:
-                tbs = load_tbs_1d_conical_other(dataset)
-            angs = torch.tensor(np.broadcast_to(EIA_GMI.astype("float32"), tbs.shape))
+                tbs, angs = load_tbs_1d_conical_other(dataset, sensor)
             anc = load_ancillary_data_1d(dataset)
-            targets = load_targets_1d(dataset)
+            targets = load_targets_1d(dataset, self.targets)
 
         x = {
             "brightness_temperatures": tbs,
@@ -817,8 +816,8 @@ class GPROFNN1DDataset(IterableDataset):
                         targets.setdefault(name, []).append(tensor)
 
 
-            inputs = {name: np.concatenate(data) for name, data in inputs.items()}
-            targets = {name: np.concatenate(data) for name, data in targets.items()}
+            inputs = {name: torch.cat(data, 0) for name, data in inputs.items()}
+            targets = {name: torch.cat(data, 0) for name, data in targets.items()}
 
             n_samples = inputs["brightness_temperatures"].shape[0]
             for ind in self.rng.permutation(n_samples):
