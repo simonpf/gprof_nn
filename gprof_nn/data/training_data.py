@@ -1006,7 +1006,7 @@ def load_training_data_3d_xtrack_sim(
 
         data = scene[target].data.astype("float32")
 
-        if target in ["surface_precip", "convective_precip"]:
+        if "angles" in scene[target].dims:
             data = interpolate(data, weights)
 
         data = torch.tensor(data)

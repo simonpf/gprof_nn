@@ -306,6 +306,7 @@ def save_scene(
             "cloud_water_path",
             "rain_water_path",
             "surface_precip",
+            "surface_precip_combined",
             "convective_precip"
     ]:
         encoding[var] = {"dtype": "float32", "zlib": True}
