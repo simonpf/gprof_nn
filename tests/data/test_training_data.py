@@ -331,7 +331,7 @@ def test_load_ancillary_data_mhs(training_files_1d_mhs_sim):
         "training_files_1d_mhs_mrms",
         "training_files_1d_mhs_era5"
     ])
-def test_load_training_data_1d_mhs(training_files, request):
+def test_gprof_nn_1d_dataset_mhs(training_files, request):
 
     training_files = request.getfixturevalue(training_files)
 
@@ -518,6 +518,35 @@ def test_load_targets_amsr2_sim(training_files_1d_amsr2_sim):
     assert isinstance(targets, dict)
     assert "surface_precip" in targets
     assert np.isfinite(targets["surface_precip"].numpy()).all()
+
+@pytest.mark.parametrize(
+    "training_files_1d",
+    [
+        "training_files_1d_amsr2_sim",
+        "training_files_1d_amsr2_mrms",
+        "training_files_1d_amsr2_era5",
+    ])
+def test_gprof_nn_1d_dataset_amsr2(training_files_1d, request):
+    """
+    Ensure that the GPROFNN3DDataset correctly loads the GPROF-NN 3D training data.
+    """
+    training_files = request.getfixturevalue(training_files_1d)
+    training_data = GPROFNN1DDataset(training_files[0].parent)
+
+    x, y = training_data[0]
+    assert "brightness_temperatures" in x
+    tbs = x["brightness_temperatures"]
+    assert tbs.ndim == 3
+    assert (tbs[torch.isfinite(tbs)] > 0).all()
+    assert "viewing_angles" in x
+    assert x["viewing_angles"].ndim == 3
+    assert "ancillary_data" in x
+    assert x["ancillary_data"].ndim == 3
+
+    assert "surface_precip" in y
+    sp = y["surface_precip"]
+    assert sp.ndim == 2
+    assert (sp[torch.isfinite(sp)] >= 0.0).all()
 
 
 def test_load_training_data_3d_conical_sim(training_files_3d_amsr2_sim):
