@@ -363,7 +363,7 @@ def process_match_file(
 
     with Progress(console=get_console()) as progress:
         pbar = progress.add_task(
-            "Extracting pretraining data:",
+            "Extracting MRMS data:",
             total=len(tasks)
         )
         for task in as_completed(tasks):
