@@ -367,7 +367,7 @@ def get_sim_file_record(n_chans, n_angles, n_layers, kind):
                 ("mirs_quality", "f4"),
                 ("surface_precip_source", "f4", (n_angles,)),
                 ("surface_precip_mirs", "f4", (n_angles,)),
-                ("surface_precip_cmb", "f4", (n_angles,)),
+                ("surface_precip_combined", "f4", (n_angles,)),
                 ("surface_precip", "f4", (n_angles,)),
                 ("convective_precip", "f4", (n_angles,)),
                 ("emissivity", "f4", (n_angles, n_chans)),
