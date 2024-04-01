@@ -4,6 +4,7 @@ gprof_nn.training
 
 Interface for training of the GPROF-NN retrievals.
 """
+import logging
 import os
 from pathlib import Path
 from typing import Optional, List
@@ -11,8 +12,14 @@ from typing import Optional, List
 import click
 
 
+from gprof_nn import sensors
+
+
+LOGGER = logging.Logger(__name__)
+
 
 def init(
+        sensor: str,
         path: Path,
         config: str,
         training_data_path: Path,
@@ -24,9 +31,11 @@ def init(
     Initialize a GPROF-NN model in a given location.
 
     Args:
+        sensor: Name of the sensor for which the training is performed. Only relevant for
+            the 'sim' configuration.
         path: A path object pointing to the location in which to writhe
             the model and training configuration files.
-        config: A string specifying the model configuration: '1d' or '3d'.
+        config: A string specifying the model configuration: '1d', '3d' or 'sim'.
         training_data_path: The path containing the training data.
         validation_data_path: The path containing the validation data.
         targets: If given, the model will only be trained to retrieve the
@@ -47,14 +56,30 @@ def init(
 
     model_config = config_path / f"gprof_nn_{config.lower()}_model.toml"
     model_config = open(model_config, "r").read()
+    if config.lower() == "sim":
+        sensor = sensors.get_sensor(sensor)
+        n_chans = sensor.n_chans
+        if isinstance(sensor, sensors.CrossTrackScanner):
+            model_config = model_config.format(
+                tb_sim_shape=f"[{sensor.n_angles}, {n_chans}]",
+                tb_bias_shape=f"[{n_chans}]",
+            )
+        else:
+            model_config = model_config.format(
+                tb_sim_shape=f"[{n_chans}]",
+                tb_bias_shape=f"[{n_chans}]",
+            )
+
     with open(path / "model.toml", "w") as output:
         output.write(model_config)
 
 
+@click.argument("sensor", type=str)
 @click.argument("configuration", type=str)
 @click.argument("training_data_path", type=str)
 @click.argument("validation_data_path", type=str)
 def init_cli(
+        sensor: str,
         configuration: str,
         training_data_path: str,
         validation_data_path: str,
@@ -67,9 +92,9 @@ def init_cli(
     """
 
     configuration = configuration.lower()
-    if not configuration in ["1d", "3d"]:
+    if not configuration in ["1d", "3d", "sim"]:
         LOGGER.error(
-            "'configuration' must be one of ['1d', '3d']."
+            "'configuration' must be one of ['1d', '3d', 'sim']."
         )
         return 1
 
@@ -88,6 +113,7 @@ def init_cli(
         return 1
 
     init(
+        sensor,
         Path(os.getcwd()),
         configuration,
         training_data_path,

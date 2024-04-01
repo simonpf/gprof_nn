@@ -896,7 +896,7 @@ def load_training_data_3d_gmi(
 
         data = torch.tensor(scene[target].data.astype("float32"))
         dims = tuple(range(data.ndim))
-        data = torch.permute(data, dims[-2:] + dims[:-2])
+        data = torch.permute(data, dims[2:] + dims[:2])
         y[target] = data
 
     return x, y
@@ -1076,9 +1076,7 @@ def load_training_data_3d_conical_sim(
     tbs = torch.tensor(tbs_sim - tb_biases, dtype=torch.float32)
     tbs = torch.permute(tbs, (2, 0, 1))
 
-    angs_full = torch.tensor(
-        np.broadcast_to(EIA_GMI.astype("float32")[0][..., None, None], tbs.shape)
-    )
+    angs_full = np.broadcast_to(EIA_GMI.astype("float32")[0][..., None, None], tbs.shape)
     for ind in range(15):
         if ind not in sensor.gmi_channels:
             angs_full[ind] = np.nan
