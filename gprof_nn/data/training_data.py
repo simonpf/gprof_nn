@@ -1349,6 +1349,39 @@ class GPROFNN3DDataset(Dataset):
         )
 
 
+class GPROFNN3DInputLoader(GPROFNN3DDataset):
+    """
+    Input loader for running GPROF-NN simulator models on GPROF-NN training
+    files.
+    """
+    def __getitem__(self, ind) -> Tuple[Dict[str, torch.Tensor], Path]:
+        """
+        Return input data and name of input file.
+        """
+        return super().__getitem__(ind)[0], self.files[ind]
+
+    def save_results(self, results, input_file) -> None:
+        """
+        Save simulator results to training file.
+
+        Args:
+            results: A dictionary containing the results from the simulator.
+            input_file: A path object pointing to the file the input data
+                was loaded from.
+        """
+        with xr.load_dataset(input_file) as output_data:
+            tbs_sim = results["simulated_brightness_temperatures"].cpu().numpy()
+            output_data["simulated_brightness_temperatures"] = (
+                ("scans", "pixels", "channels"), tbs_sim.transpose((1, 2, 0))
+            )
+            tb_biases = results["brightness_temperature_biases"].cpu().numpy()
+            output_data["brightness_temperature_biases"] = (
+                (("scans", "pixels", "channels"), tb_biases.transpose(1, 2, 0))
+            )
+
+
+
+
 class SimulatorDataset(Dataset):
     """
     Dataset class for loading the training data for training GPROF-NN observation
