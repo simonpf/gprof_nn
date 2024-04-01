@@ -8,7 +8,7 @@ provided by the 'gprof_nn' package.
 import click
 import gprof_nn.config as conf
 from gprof_nn import training
-from gprof_nn.data import sim, pretraining, mrms, era5
+from gprof_nn.data import sim, pretraining, mrms, era5, finetuning
 
 @click.group()
 def gprof_nn():
@@ -22,6 +22,7 @@ extract_training_data.command(name="sim")(sim.cli)
 extract_training_data.command(name="pre")(pretraining.cli)
 extract_training_data.command(name="mrms")(mrms.cli)
 extract_training_data.command(name="era5")(era5.cli)
+extract_training_data.command(name="finetuning")(finetuning.cli)
 
 ######################################################################
 # gprof_nn config
