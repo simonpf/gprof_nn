@@ -909,12 +909,12 @@ def load_training_data_3d_gmi(
     if augment:
         prob = rng.random()
         if prob > 0.5:
-            x = {key: torch.flip(tensor, -2) for key, tensor in x.items()}
-            y = {key: torch.flip(tensor, -2) for key, tensor in y.items()}
+            x = {key: torch.flip(tensor, (-2,)) for key, tensor in x.items()}
+            y = {key: torch.flip(tensor, (-2,)) for key, tensor in y.items()}
         prob = rng.random()
-        if porb > 0.5:
-            x = {key: torch.flip(tensor, -1) for key, tensor in x.items()}
-            y = {key: torch.flip(tensor, -1) for key, tensor in y.items()}
+        if prob > 0.5:
+            x = {key: torch.flip(tensor, (-1,)) for key, tensor in x.items()}
+            y = {key: torch.flip(tensor, (-1,)) for key, tensor in y.items()}
 
     return x, y
 
