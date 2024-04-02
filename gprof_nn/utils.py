@@ -8,6 +8,7 @@ Collection of utility attributes and functions.
 from copy import copy
 
 import numpy as np
+import pandas as pd
 import xarray as xr
 
 from gprof_nn.definitions import SURFACE_TYPE_NAMES
@@ -370,3 +371,15 @@ def calculate_smoothing_kernel(
     k = np.exp(np.log(0.5) * (d_a ** 2 + d_x ** 2))
     k = k / k.sum()
     return k
+
+
+def to_datetime64(time):
+    """
+    Try to convert a given time to a numpy datetime64 object.
+    """
+    if isinstance(time, np.ndarray) and time.dtype == np.datetime64:
+        return time
+    try:
+        return pd.to_datetime(time).to_datetime64()
+    except ValueError:
+        raise ValueError("Could not convert '%s' to datetime object.")

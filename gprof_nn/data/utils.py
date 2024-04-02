@@ -406,6 +406,7 @@ def write_training_samples_1d(
         output_path: Path,
         prefix: str,
         dataset: xr.Dataset,
+        reference_var: str = "surface_precip"
 ) -> None:
     """
     Write training data in GPROF-NN 1D format.
@@ -415,8 +416,9 @@ def write_training_samples_1d(
             observations and reference data.
         output_path: Path to which the training data will be written.
     """
-    dataset = dataset[{"pixels": slice(*compressed_pixel_range())}]
-    mask = np.isfinite(dataset.surface_precip.data)
+    if "pixels_center" in dataset.dims:
+        dataset = dataset[{"pixels": slice(*compressed_pixel_range())}]
+    mask = np.isfinite(dataset[reference_var].data)
     if mask.ndim > 2:
         mask = mask.all(-1)
 
