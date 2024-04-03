@@ -646,7 +646,7 @@ class GPROFNN1DDataset(IterableDataset):
     """
     Dataset class for loading the training data for GPROF-NN 1D retrieval.
     """
-    combine_files = 4
+    combine_files = 16
 
     def __init__(
         self,
@@ -1270,20 +1270,28 @@ class GPROFNN3DDataset(Dataset):
         self.augment = augment and not validation
         self.validation = validation
 
-        self.path = Path(path)
-        if not self.path.exists():
-            raise RuntimeError(
-                "The provided path does not exists."
-            )
+        if isinstance(path, list):
+            paths = path
+        else:
+            paths = [path]
+        self.path = paths
 
-        files = sorted(list(self.path.glob("*_*_*.nc")))
+        files = []
+        for path in paths:
+            path = Path(path)
+            if not path.exists():
+                raise RuntimeError(
+                    "The provided path %s does not exists.",
+                    path
+                )
+            files += sorted(list(path.glob("*_*_*.nc")))
+
         if len(files) == 0:
             raise RuntimeError(
                 "Could not find any GPROF-NN 3D training data files "
                 f"in {self.path}."
             )
         self.files = files
-
 
         self.init_rng()
         self.files = self.rng.permutation(self.files)
