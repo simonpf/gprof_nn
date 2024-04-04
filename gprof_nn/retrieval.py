@@ -12,7 +12,7 @@ import subprocess
 from tempfile import TemporaryDirectory
 from pathlib import Path
 import re
-from typing import List, Union
+from typing import Dict, List, Union, Tuple
 
 import numpy as np
 import xarray as xr
@@ -23,7 +23,7 @@ from pansat import Granule
 import pandas as pd
 
 from gprof_nn import sensors
-from gprof_nn.definitions import PROFILE_TARGETS, ALL_TARGETS
+from gprof_nn.definitions import PROFILE_TARGETS, ALL_TARGETS, ANCILLARY_VARIABLES
 from gprof_nn.data import get_profile_clusters
 from gprof_nn.data.bin import BinFile
 from gprof_nn.data.training_data import (
@@ -1689,11 +1689,22 @@ class SimulatorLoader:
         return self.dataset
 
 
+GPROF_CHANNELS = {
+    ""
+}
+
+
+
 class L1CLoader:
     """
-    Loads retrieval input from a L1C file.
+    Loader object to load retrieval input from one or multiple L1C files.
     """
-    def __init__(self, inputs: Union[str, Path, List[str], List[Path], List[Granule]], config):
+    def __init__(
+            self,
+            inputs: Union[str, Path, List[str], List[Path], List[Granule]],
+            config: str,
+            ancillary_data: bool = True
+    ):
 
         if isinstance(inputs, Path) and path.is_dir():
             self.files = sorted(list(path.glob("**/*.HDF5")))
@@ -1702,44 +1713,64 @@ class L1CLoader:
                 self.files = inputs
             else:
                 self.files = [inputs]
+        self.config = config
+        self.ancillary_data = ancillary_data
 
 
-    def load_data(self, file):
+    def load_data(self, file: Union[Path, Granule]) -> Dict[str, torch.tensor]:
+        """
+        Load input data for a given file.
 
-        print(file)
+        Runs the preprocessor on the given L1C file and loads the retrieval input data
+        from the results.
+
+        Args:
+            file: A path (or granule object) identifying (a subset of) a L1C file.
+        """
+
         if isinstance(file, Granule):
             with TemporaryDirectory() as tmp:
                 input_file = Path(tmp) / file.file_record.local_path.name
                 l1c_file = L1CFile(file.file_record.local_path)
+                sensor = l1c_file.sensor
                 l1c_file.extract_scan_range(*file.primary_index_range, input_file)
-                data_pp = run_preprocessor(input_file, L1CFile(input_file).sensor)
+                input_data = run_preprocessor(input_file, sensor)
         else:
             input_file = file
-            data_pp = run_preprocessor(input_file, L1CFile(input_file).sensor)
+            l1c_file = L1CFile(file.file_record.local_path)
+            sensor = l1c_file.sensor
+            input_data = run_preprocessor(input_file, sensor)
 
-        tbs = data_pp.brightness_temperatures.data
+        filename = input_file.name
+
+        tbs = input_data.brightness_temperatures.data
         tbs[tbs < 0] = np.nan
+        tbs_full = np.nan * np.zeros((tbs.shape[:2] +(15,)), dtype=np.float32)
+        tbs_full[..., sensor.gprof_channels] = tbs
 
-        angs = data_pp.earth_incidence_angle.data
+        angs = input_data.earth_incidence_angle.data
         angs[angs < -100] = np.nan
+        angs_full = np.nan * np.zeros((angs.shape[:2] +(15,)), dtype=np.float32)
+        angs_full[..., sensor.gmi_channels] = angs
 
-        anc = np.stack([data_pp[var] for var in ANCILLARY_VARIABLES], -1)
+        anc = np.stack([input_data[var] for var in ANCILLARY_VARIABLES], -1)
 
         if self.config == "1d":
             return {
-                "brightness_temperatures": torch.tensor(tbs.reshape(-1, tbs.shape[-1])),
-                "viewing_angles": torch.tensor(angs.reshape(-1, angs.shape[-1])),
-                "ancillary_data": torch.tensor(anc.reshape(-1, anc.shape[-1])),
-            }
+                "brightness_temperatures": torch.tensor(tbs_full.reshape(-1, 15)),
+                "viewing_angles": torch.tensor(angs_full.reshape(-1, 15)),
+                "ancillary_data": torch.tensor(anc.reshape(-1, 8)),
+            }, filename, input_data
 
-        tbs = np.transpose(tbs, (2, 0, 1))
-        angs = np.transpose(angs, (2, 0, 1))
+        tbs_full = np.transpose(tbs_full, (2, 0, 1))
+        angs_full = np.transpose(angs_full, (2, 0, 1))
         anc = np.transpose(anc, (2, 0, 1))
+
         return {
-            "brightness_temperatures": torch.tensor(tbs),
-            "viewing_angles": torch.tensor(angs),
+            "brightness_temperatures": torch.tensor(tbs_full),
+            "viewing_angles": torch.tensor(angs_full),
             "ancillary_data": torch.tensor(anc),
-        }
+        }, filename, input_data
 
     def __len__(self):
         return len(self.files)
@@ -1747,3 +1778,20 @@ class L1CLoader:
     def __iter__(self):
         for file in self.files:
             yield self.load_data(file)
+
+    def finalize_results(
+            self,
+            results: xr.Dataset,
+            filename: Path,
+            preprocessor_data: xr.Dataset
+    ) -> xr.Dataset:
+        """
+
+
+        """
+        data = preprocessor_data.copy()
+        shape = (data.scans.size, data.pixels.size)
+        for var in results:
+            var_data = results[var].data
+            data[var] = (("scans", "pixels"), var_data.reshape(shape))
+        return data

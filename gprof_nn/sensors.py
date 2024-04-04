@@ -2465,6 +2465,7 @@ AMSR2 = ConstellationScanner(
     modeling_error=AMSR2_MODELING_ERROR,
     correction=DATA_FOLDER / "corrections_amsr2.nc",
 )
+AMSR2.gprof_channels = np.arange(10)
 
 
 ###############################################################################

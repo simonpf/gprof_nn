@@ -94,9 +94,15 @@ def extract_finetuning_samples(
                 surface_precip="surface_precip_combined"
             ).drop(["latitude", "longitude"])
 
+            for ref_var in reference_variables:
+                var_data = ref_data[ref_var].data
+                var_data[var_data < -1_000] = np.nan
+
+
         data = xr.merge(
             [input_data, ref_data]
         )
+        data.attrs["source"] = "collocs"
 
         write_training_samples_1d(
             output_path_1d,

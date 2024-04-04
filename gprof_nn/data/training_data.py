@@ -555,10 +555,10 @@ def load_tbs_1d_conical_other(
     """
     tbs = training_data["brightness_temperatures"].data
     tbs_full = np.nan * np.ones(tbs.shape[:-1] + (15,), dtype="float32")
-    tbs_full[:, sensor.gmi_channels] = tbs
+    tbs_full[:, sensor.gprof_channels] = tbs
     angles = training_data["earth_incidence_angle"].data
     angles_full = np.nan * np.ones(tbs.shape[:-1] + (15,), dtype="float32")
-    angles_full[:, sensor.gmi_channels] = angles
+    angles_full[:, sensor.gprof_channels] = angles
     tbs = torch.tensor(tbs_full.astype("float32"))
     angles = torch.tensor(angles_full.astype("float32"))
     return tbs, angles
@@ -785,6 +785,7 @@ class GPROFNN1DDataset(IterableDataset):
                 tbs, angs = load_tbs_1d_conical_other(dataset, sensor)
             anc = load_ancillary_data_1d(dataset)
             targets = load_targets_1d(dataset, self.targets)
+
 
         x = {
             "brightness_temperatures": tbs,
@@ -1399,7 +1400,7 @@ class GPROFNNSimInputLoader(GPROFNN3DDataset):
         }
         return inpt_data, self.files[ind]
 
-    def save_results(self, results, output_path, input_file) -> None:
+    def finalize_results(self, results, input_file) -> Tuple[xr.Dataset, str]:
         """
         Save simulator results to training file.
 
@@ -1431,7 +1432,7 @@ class GPROFNNSimInputLoader(GPROFNN3DDataset):
             "_FillValue":  2 ** 16 - 1,
             "zlib": True
         }
-        output_data.to_netcdf(input_file)
+        return output_data, input_file.name
 
 
 
