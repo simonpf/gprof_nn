@@ -1413,10 +1413,24 @@ class GPROFNNSimInputLoader(GPROFNN3DDataset):
         output_data["simulated_brightness_temperatures"] = (
             ("scans", "pixels", "channels"), tbs_sim.transpose((1, 2, 0))
         )
+        output_data.simulated_brightness_temperatures.encoding = {
+            "dtype": "uint16",
+            "scale_factor": 0.01,
+            "add_offset": 1,
+            "_FillValue":  2 ** 16 - 1,
+            "zlib": True
+        }
         tb_biases = results["brightness_temperature_biases"].cpu().numpy()[0]
         output_data["brightness_temperature_biases"] = (
             (("scans", "pixels", "channels"), tb_biases.transpose(1, 2, 0))
         )
+        output_data.brightness_temperature_biases.encoding = {
+            "dtype": "uint16",
+            "scale_factor": 0.01,
+            "add_offset": 1,
+            "_FillValue":  2 ** 16 - 1,
+            "zlib": True
+        }
         output_data.to_netcdf(input_file)
 
 
