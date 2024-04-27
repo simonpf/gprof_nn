@@ -611,7 +611,8 @@ def process_sim_file(
         era5_path: Optional[Path],
         output_path_1d: Path,
         output_path_3d: Path,
-        include_cmb_precip: bool = False
+        include_cmb_precip: bool = False,
+        lonlat_bounds: Optional[Tuple[float, float, float, float]] = None
 ) -> None:
     """
     Extract training data from a single .sim-file and write output to
@@ -629,6 +630,12 @@ def process_sim_file(
             should be written.
         include_cmb_precip: Flag to trigger include of surface precip derived solely
              from cmb.
+        lonlat_bounds: Optional coordinate tuple ``(lon_ll, lat_ll, lon_ur, lat_ur)``
+            containing the longitude and latitude coordinates of the lower-left corner
+            (``lon_ll`` and ``lat_ll``) followed by the longitude and latitude coordinates
+            of the upper right corner (``lon_ur``, ``lat_ur``).
+
+            a rectangular bounding box to constrain the training data extracted.
     """
     data = collocate_targets(
         sim_file,
@@ -636,6 +643,19 @@ def process_sim_file(
         era5_path,
         include_cmb_precip=include_cmb_precip
     )
+
+    if lonlat_bounds is not None:
+        lon_ll, lat_ll, lon_ur, lat_ur = lonlat_bounds
+        lons = data.longitude.data
+        lats = data.latitude.data
+        valid = ((lats >= lat_ll) * (lats <= lat_ur))
+        # Box expands across date line :(
+        if lon_ur < lon_ll:
+            valid *= ~((lon_ur < lons) * (lons < lon_ll))
+        else:
+            valid *= ((lon_ll <= lons) * (lons <= lon_ur))
+        data.surface_precip.data[~valid] = np.nan
+
     if output_path_1d is not None:
         write_training_samples_1d(output_path_1d, "sim", data)
     if output_path_3d is not None:
@@ -651,7 +671,8 @@ def process_files(
         start_time: Optional[np.datetime64] = None,
         end_time: Optional[np.datetime64] = None,
         split: Optional[str] = None,
-        include_cmb_precip: bool = False
+        include_cmb_precip: bool = False,
+        lonlat_bounds: Optional[Tuple[float, float, float, float]] = None
 ) -> None:
     """
     Parallel processing of all .sim files within a given time range.
@@ -720,7 +741,8 @@ def process_files(
                 CONFIG.data.era5_path,
                 output_path_1d,
                 output_path_3d,
-                include_cmb_precip=include_cmb_precip
+                include_cmb_precip=include_cmb_precip,
+                lonlat_bounds=lonlat_bounds
             )
         )
         tasks[-1].file = path
@@ -749,6 +771,7 @@ def process_files(
 @click.option("--end_time", default=None)
 @click.option("-n" ,"--n_processes", default=1)
 @click.option("--include_cmb_precip", is_flag=True, default=False)
+@click.option("--bounds", default=None)
 def cli(sensor: Sensor,
         sim_file_path: Path,
         split: str,
@@ -825,6 +848,23 @@ def cli(sensor: Sensor,
             )
             return 1
 
+    if bounds is not None:
+        bnds = bounds.split(",")
+        if not len(bnds) == 4:
+            LOGGER.error(
+                "If provided 'bounds' should be a string containing the longitude and latitude "
+                "coordinates of the lower-left corner followed by the coordinates of the upper "
+                "right corner separated by commas."
+            )
+        lon_ll = float(bnds[0])
+        lat_ll = float(bnds[1])
+        lon_ur = float(bnds[2])
+        lat_ur = float(bnds[3])
+        latlon_bounds = (lon_ll, lat_ll, lon_ur, lat_ur)
+    else:
+        latlon_bounds = None
+
+
     process_files(
         sensor,
         sim_file_path,
@@ -834,7 +874,8 @@ def cli(sensor: Sensor,
         start_time=start_time,
         end_time=end_time,
         n_processes=n_processes,
-        include_cmb_precip=include_cmb_precip
+        include_cmb_precip=include_cmb_precip,
+        latlon_bounds=latlon_bounds
     )
 
 

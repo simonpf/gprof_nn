@@ -13,11 +13,11 @@ from gprof_nn.data import get_test_data_path
 from gprof_nn.data.l1c import L1CFile
 from gprof_nn.data.sim import (
     SimFile,
-    SubsetConfig,
     apply_orographic_enhancement,
     collocate_targets,
     write_training_samples_1d,
     write_training_samples_3d,
+    process_sim_file
 )
 from gprof_nn.data.preprocessor import PreprocessorFile
 
@@ -95,7 +95,7 @@ def test_collocate_targets(tmp_path):
 
     output_path = tmp_path / "1d"
     output_path.mkdir()
-    write_training_samples_1d(data, output_path)
+    write_training_samples_1d(output_path, "sim", data)
     training_files = list(output_path.glob("*.nc"))
 
     assert len(training_files) == 1
@@ -104,8 +104,43 @@ def test_collocate_targets(tmp_path):
 
     output_path = tmp_path / "3d"
     output_path.mkdir()
-    write_training_samples_3d(data, output_path)
+    write_training_samples_3d(output_path, "sim", data)
     training_files = list(output_path.glob("*.nc"))
     assert len(training_files) > 1
     with xr.open_dataset(training_files[0]) as data:
         assert data.attrs["sensor"] == "GMI"
+
+
+def test_extract_scenes_bounded(tmp_path) -> xr.Dataset:
+    """
+    Ensure that extracting training data with given lon/lat bounds only contains valid
+    data within this domain.
+    """
+    input_file = SIM_DATA / "simV8/1810/GMI.dbsatTb.20181001.026082.sim"
+
+    path_1d = tmp_path / "1d"
+    path_1d.mkdir()
+    path_3d = tmp_path / "3d"
+    path_3d.mkdir()
+
+    process_sim_file(
+        sensors.GMI,
+        input_file,
+        None,
+        path_1d,
+        path_3d,
+        lonlat_bounds=(120, -25, -110, 25)
+    )
+
+    extracted = sorted(list(path_1d.glob("*.nc")))
+    assert len(extracted) == 1
+
+    td_1d = xr.load_dataset(extracted[0])
+
+    lons = td_1d.longitude.data
+    lats = td_1d.latitude.data
+
+    assert lons.size > 0
+    assert (lats >= -25).all()
+    assert (lats <= 25).all()
+    assert not ((lons > -110) * (lons < 120)).any()
