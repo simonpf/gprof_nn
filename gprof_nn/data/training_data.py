@@ -890,6 +890,7 @@ def load_training_data_3d_gmi(
         "ancillary_data": anc
     }
 
+    scene = scene.transpose("levels", "scans", "pixels", ...)
     y = {}
     for target in targets:
         # MRMS collocations don't contain all targets.
@@ -901,9 +902,8 @@ def load_training_data_3d_gmi(
             y[target] = empty
             continue
 
-        data = torch.tensor(scene[target].data.astype("float32"))
-        dims = tuple(range(data.ndim))
-        data = torch.permute(data, dims[2:] + dims[:2])
+        data_t = scene[target].data
+        data = torch.tensor(data_t.astype("float32"))
         y[target] = data
 
     # Also flip data if requested.
@@ -1020,16 +1020,28 @@ def load_training_data_3d_xtrack_sim(
             y[target] = empty
             continue
 
-
-        data = scene[target].data.astype("float32")
+        data = scene[target].permute(("levels", "scans", "pixels", "angles"))
+        data = data.data.astype("float32")
 
         if "angles" in scene[target].dims:
             data = interpolate(data, weights)
 
         data = torch.tensor(data)
+
         dims = tuple(range(data.ndim))
         data = torch.permute(data, dims[-2:] + dims[:-2])
         y[target] = data
+
+    # Also flip data if requested.
+    if augment:
+        prob = rng.random()
+        if prob > 0.5:
+            x = {key: torch.flip(tensor, (-2,)) for key, tensor in x.items()}
+            y = {key: torch.flip(tensor, (-2,)) for key, tensor in y.items()}
+        prob = rng.random()
+        if prob > 0.5:
+            x = {key: torch.flip(tensor, (-1,)) for key, tensor in x.items()}
+            y = {key: torch.flip(tensor, (-1,)) for key, tensor in y.items()}
 
     return x, y
 
@@ -1111,6 +1123,7 @@ def load_training_data_3d_conical_sim(
     }
 
     y = {}
+    scene = scene.transpose("levels", "scans", "pixels", ...)
     for target in targets:
         # MRMS collocations don't contain all targets.
         if target not in scene:
@@ -1121,13 +1134,19 @@ def load_training_data_3d_conical_sim(
             y[target] = empty
             continue
 
-
-        data = scene[target].data.astype("float32")
-
-        data = torch.tensor(data)
-        dims = tuple(range(data.ndim))
-        data = torch.permute(data, dims[-2:] + dims[:-2])
+        data = torch.tensor(scene[target].data.astype("float32"))
         y[target] = data
+
+    # Also flip data if requested.
+    if augment:
+        prob = rng.random()
+        if prob > 0.5:
+            x = {key: torch.flip(tensor, (-2,)) for key, tensor in x.items()}
+            y = {key: torch.flip(tensor, (-2,)) for key, tensor in y.items()}
+        prob = rng.random()
+        if prob > 0.5:
+            x = {key: torch.flip(tensor, (-1,)) for key, tensor in x.items()}
+            y = {key: torch.flip(tensor, (-1,)) for key, tensor in y.items()}
 
     return x, y
 
@@ -1228,6 +1247,17 @@ def load_training_data_3d_other(
         dims = tuple(range(data.ndim))
         data = torch.permute(data, dims[-2:] + dims[:-2])
         y[target] = data
+
+    # Also flip data if requested.
+    if augment:
+        prob = rng.random()
+        if prob > 0.5:
+            x = {key: torch.flip(tensor, (-2,)) for key, tensor in x.items()}
+            y = {key: torch.flip(tensor, (-2,)) for key, tensor in y.items()}
+        prob = rng.random()
+        if prob > 0.5:
+            x = {key: torch.flip(tensor, (-1,)) for key, tensor in x.items()}
+            y = {key: torch.flip(tensor, (-1,)) for key, tensor in y.items()}
 
     return x, y
 
@@ -1426,10 +1456,10 @@ class GPROFNNSimInputLoader(GPROFNN3DDataset):
             (("scans", "pixels", "channels"), tb_biases.transpose(1, 2, 0))
         )
         output_data.brightness_temperature_biases.encoding = {
-            "dtype": "uint16",
+            "dtype": "int16",
             "scale_factor": 0.01,
-            "add_offset": 1,
-            "_FillValue":  2 ** 16 - 1,
+            "add_offset": 0,
+            "_FillValue":  2 ** 15 - 1,
             "zlib": True
         }
         return output_data, input_file.name
