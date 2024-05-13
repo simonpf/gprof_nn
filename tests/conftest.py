@@ -8,7 +8,7 @@ import xarray as xr
 
 from gprof_nn import sensors
 from gprof_nn.data.preprocessor import run_preprocessor
-from gprof_nn.data import sim, mrms, era5
+from gprof_nn.data import sim, mrms, era5, l1c
 
 HAS_ARCHIVES = Path(sensors.GMI.l1c_file_path).exists()
 NEEDS_ARCHIVES = pytest.mark.skipif(
@@ -62,13 +62,23 @@ def sim_collocations_gmi() -> xr.Dataset:
     return xr.load_dataset(data_path / "collocations.nc")
 
 @pytest.fixture(scope="session")
-def l1c_file_gmi() -> Path:
+def l1c_file_gmi(tmpdir_factory) -> Path:
     l1c_path = Path(sensors.GMI.l1c_file_path) / "1801" / "180101"
     l1c_files = sorted(list(
         l1c_path.glob(f"**/{sensors.GMI.l1c_file_prefix}*.HDF5")
     ))
-    return l1c_files[0]
+    l1c_path_gmi = tmpdir_factory.mktemp("l1c_gmi")
+    l1c_file = l1c.L1CFile(l1c_files[0])
+    new_file = l1c_path_gmi / l1c_files[0].name
+    l1c_file.extract_scan_range(400, 700, new_file)
+    return Path(new_file)
 
+@pytest.fixture(scope="session")
+def preprocessor_file_gmi(tmpdir_factory, l1c_file_gmi) -> Path:
+    pp_path_gmi = tmpdir_factory.mktemp("pp_gmi")
+    pp_file = pp_path_gmi / Path(l1c_file_gmi).with_suffix(".pp").name
+    run_preprocessor(l1c_file_gmi, sensors.GMI, output_file=pp_file)
+    return pp_file
 
 @pytest.fixture(scope="session")
 def preprocessor_data_gmi(l1c_file_gmi) -> xr.Dataset:
@@ -250,6 +260,27 @@ def mrms_match_file_mhs() -> List[Path]:
 
 
 @pytest.fixture(scope="session")
+def l1c_file_mhs(tmpdir_factory) -> Path:
+    l1c_path = Path(sensors.MHS.l1c_file_path) / "1901" / "190101"
+    l1c_files = sorted(list(
+        l1c_path.glob(f"**/{sensors.MHS.l1c_file_prefix}*.HDF5")
+    ))
+    l1c_path_mhs = tmpdir_factory.mktemp("l1c_mhs")
+    l1c_file = l1c.L1CFile(l1c_files[0])
+    new_file = l1c_path_mhs / l1c_files[0].name
+    l1c_file.extract_scan_range(400, 700, new_file)
+    return Path(new_file)
+
+
+@pytest.fixture(scope="session")
+def preprocessor_file_mhs(tmpdir_factory, l1c_file_mhs) -> Path:
+    pp_path_mhs = tmpdir_factory.mktemp("pp_mhs")
+    pp_file = pp_path_mhs / Path(l1c_file_mhs).with_suffix(".pp").name
+    run_preprocessor(l1c_file_mhs, sensors.MHS, output_file=pp_file)
+    return pp_file
+
+
+@pytest.fixture(scope="session")
 def training_files_1d_mhs_era5() -> Path:
     """
     Provides a path containing trainig data for the GPROF-NN 1D retrieval for MHS
@@ -283,6 +314,28 @@ def training_files_3d_mhs_era5(training_files_1d_mhs_era5) -> Path:
     derived from collocations of MHS observations and ERA5 precip.
     """
     return sorted(list((training_files_1d_mhs_era5[0].parent.parent / "3d").glob("*.nc")))
+
+
+@pytest.fixture(scope="session")
+def l1c_file_amsr2(tmpdir_factory) -> Path:
+    l1c_path = Path(sensors.AMSR2.l1c_file_path) / "1812" / "181201"
+    l1c_files = sorted(list(
+        l1c_path.glob(f"**/{sensors.AMSR2.l1c_file_prefix}*.HDF5")
+    ))
+    l1c_path_amsr2 = tmpdir_factory.mktemp("l1c_amsr2")
+    l1c_file = l1c.L1CFile(l1c_files[0])
+    new_file = l1c_path_amsr2 / l1c_files[0].name
+    l1c_file.extract_scan_range(400, 700, new_file)
+    return Path(new_file)
+
+
+@pytest.fixture(scope="session")
+def preprocessor_file_amsr2(tmpdir_factory, l1c_file_amsr2) -> Path:
+    pp_path_amsr2 = tmpdir_factory.mktemp("pp_amsr2")
+    pp_file = pp_path_amsr2 / Path(l1c_file_amsr2).with_suffix(".pp").name
+    run_preprocessor(l1c_file_amsr2, sensors.AMSR2, output_file=pp_file)
+    return pp_file
+
 
 
 @pytest.fixture(scope="session")
@@ -407,3 +460,25 @@ def training_files_3d_amsr2_era5(training_files_1d_amsr2_era5) -> Path:
     derived from collocations of AMSR2 observations and ERA5 precip.
     """
     return sorted(list((training_files_1d_amsr2_era5[0].parent.parent / "3d").glob("*.nc")))
+
+
+@pytest.fixture(scope="session")
+def gprof_nn_1d(tmpdir_factory) -> Path:
+    """
+    An un-trained GPROF-NN 1D retrieval model.
+    """
+    model_path = tmpdir_factory.mktemp("gprof_nn_1d")
+    training.init("gmi", model_path, "1d", model_path, model_path)
+    model = load_and_compile_model(model_path / "model.toml")
+    return model
+
+
+@pytest.fixture(scope="session")
+def gprof_nn_3d(tmpdir_factory) -> Path:
+    """
+    An un-trained GPROF-NN 3D retrieval model.
+    """
+    model_path = tmpdir_factory.mktemp("gprof_nn_3d")
+    training.init("gmi", model_path, "3d", model_path, model_path)
+    model = load_and_compile_model(model_path / "model.toml")
+    return model

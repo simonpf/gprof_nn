@@ -470,8 +470,10 @@ def load_tbs_1d_xtrack_sim(
 
     biases = (
         biases_full /
-        np.cos(np.deg2rad(EIA_GMI))[None] *
-        np.cos(np.deg2rad(angles.data[..., None]))
+        (
+            np.cos(np.deg2rad(EIA_GMI)) *
+            np.cos(np.deg2rad(angles.data[..., None]))
+        )
     )
 
     return torch.tensor(tbs_full - biases)
@@ -529,7 +531,8 @@ def load_tbs_1d_xtrack_other(
     tbs_full = np.nan * np.zeros((tbs.shape[0], 15), dtype=np.float32)
     tbs_full[:, sensor.gmi_channels] = tbs
     angles = training_data["earth_incidence_angle"].data
-    angles_full = np.broadcast_to(angles[..., None], tbs_full.shape)
+    angles_full = np.nan * np.zeros_like(tbs_full)
+    angles_full[:, sensor.gprof_channels] = angles[..., None]
 
     tbs = torch.tensor(tbs_full.astype("float32"))
     angles = torch.tensor(angles_full.astype("float32"))
@@ -763,7 +766,7 @@ class GPROFNN1DDataset(IterableDataset):
                     size=dataset.samples.size,
                 ).astype(np.float32)
                 tbs = load_tbs_1d_xtrack_sim(dataset, angs, sensor)
-                angs = torch.tensor(angs)
+                angs = torch.tensor(np.broadcast_to(angs[..., None], tbs.shape))
             else:
                 tbs = dataset["brightness_temperatures"].data
                 y_t = dataset[ref_target].data
@@ -1193,7 +1196,7 @@ def load_training_data_3d_other(
         scn_start = rng.integers(0, scene.scans.size - height + 1)
     else:
         pix_start = (scene.pixels.size - width) // 2
-        scn_start = (scene.scns.size - height) // 2
+        scn_start = (scene.scans.size - height) // 2
     pix_end = pix_start + width
     scn_end = scn_start + height
     scene = scene[{"pixels": slice(pix_start, pix_end), "scans": slice(scn_start, scn_end)}]

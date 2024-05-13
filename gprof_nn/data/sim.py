@@ -694,6 +694,10 @@ def process_files(
             Must be one of 'training', 'validation', 'test'.
         include_cmb_precip: Flag to trigger include of surface precip derived solely
              from cmb.
+        lonlat_bounds: Optional coordinate tuple ``(lon_ll, lat_ll, lon_ur, lat_ur)``
+            containing the longitude and latitude coordinates of the lower-left corner
+            (``lon_ll`` and ``lat_ll``) followed by the longitude and latitude coordinates
+            of the upper right corner (``lon_ur``, ``lat_ur``).
     """
     sim_files = sorted(list(path.glob("**/*.sim")))
     files = []

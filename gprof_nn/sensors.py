@@ -20,6 +20,27 @@ GPM constellation. Most sensors exist in two or three variants:
   3. A specific variant named using the naming scheme
      sensor}_{platform}_C. This sensor also applies a
      quantile-matching correction to the training data.
+
+
+GMI canonical channel slots
+
+Channel index | Frequency
+---------------------------
+            0 |       10V
+            1 |       10H
+            2 |       19V
+            3 |       19H
+            4 |       22V
+            5 |       22H
+            6 |       37V
+            7 |       37H
+            8 |       89V
+            9 |       89H
+           10 |      150V
+           11 |      150H
+           12 |     183/1
+           13 |     183/3
+           14 |     183/7
 """
 from abc import ABC, abstractmethod, abstractproperty
 from concurrent.futures import ProcessPoolExecutor
@@ -1981,6 +2002,8 @@ GMI = ConicalScanner(
     "GMI.dbsatTb.??????{day}.??????.sim",
     "/qdata1/pbrown/dbaseV7/simV7",
 )
+GMI.gprof_channels = np.arange(15)
+
 
 ###############################################################################
 # MHS
@@ -2024,6 +2047,7 @@ MHS = CrossTrackScanner(
     correction=DATA_FOLDER / "corrections_mhs.nc",
     modeling_error=[3.0, 2.0, 2.0, 2.0, 2.0],
 )
+MHS.gprof_channels = np.array([8, 10, 12, 13, 14])
 
 MHS_GPROF = CrossTrackScanner(
     "MHS",
@@ -2067,6 +2091,7 @@ MHS_NOAA19 = CrossTrackScanner(
     correction=DATA_FOLDER / "corrections_mhs_noaa19.nc",
     modeling_error=[3.0, 2.0, 2.0, 2.0, 2.0],
 )
+MHS_NOAA19.gprof_channels = np.array([8, 10, 12, 13, 14])
 
 MHS_NOAA19_FULL = CrossTrackScanner(
     "MHS",

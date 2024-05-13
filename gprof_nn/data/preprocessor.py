@@ -227,8 +227,8 @@ class PreprocessorFile:
                 self.first_scan_time
             )
         except AttributeError as e:
-            raise e
-            #raise ValueError(f"The sensor '{sensor}' is not yet supported.")
+            raise ValueError(f"The sensor '{sensor}' is not yet supported.")
+
         # Reread full header.
         self.orbit_header = np.frombuffer(
             self.data, self.sensor.preprocessor_orbit_header, count=1

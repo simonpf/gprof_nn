@@ -347,19 +347,18 @@ def test_gprof_nn_1d_dataset_mhs(training_files, request):
         assert "ancillary_data" in x
 
         tbs = x["brightness_temperatures"]
-        tbs = tbs[torch.isfinite(tbs)]
-        assert tbs.min() > 0
-        assert tbs.max() < 350
+        mask = torch.isfinite(tbs)
+        assert tbs[mask].min() > 0
+        assert tbs[mask].max() < 350
 
         angs = x["viewing_angles"]
-        angs = angs[torch.isfinite(angs)]
-        assert angs.min() > -60
-        assert angs.max() < 60
+        assert angs.shape == tbs.shape
+        assert angs[mask].min() > -60
+        assert angs[mask].max() < 60
 
         anc = x["ancillary_data"]
-        anc = anc[torch.isfinite(anc)]
-        assert anc.min() > -999
-        assert anc.max() < 350
+        assert anc[mask.any(-1)].min() > -999
+        assert anc[mask.any(-1)].max() < 350
 
         for target in ALL_TARGETS:
             assert target in y
@@ -432,12 +431,15 @@ def test_gprof_nn_3d_dataset_mhs(training_files_3d, request):
     x, y = training_data[0]
     assert "brightness_temperatures" in x
     tbs = x["brightness_temperatures"]
+    assert tbs.shape == (15, 128, 64)
     assert tbs.ndim == 3
     assert (tbs[torch.isfinite(tbs)] > 0).all()
     assert "viewing_angles" in x
     assert x["viewing_angles"].ndim == 3
+    assert x["brightness_temperatures"].shape == (15, 128, 64)
     assert "ancillary_data" in x
     assert x["ancillary_data"].ndim == 3
+    assert x["ancillary_data"].shape == (8, 128, 64)
 
     assert "surface_precip" in y
     sp = y["surface_precip"]

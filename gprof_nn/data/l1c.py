@@ -492,17 +492,17 @@ class L1CFile:
                 eia.append(eia_s)
             if "S3" in input.keys():
                 tbs.append(input["S3/Tc"][:][indices])
-                eia_s = input[f"s2/incidenceangle"][:][indices]
+                eia_s = input[f"S2/incidenceAngle"][:][indices]
                 eia_s = np.broadcast_to(eia_s, tbs[-1].shape)
                 eia.append(eia_s)
             if "S4" in input.keys():
                 tbs.append(input["S4/Tc"][:][indices])
-                eia_s = input[f"s2/incidenceangle"][:][indices]
+                eia_s = input[f"S2/incidenceAngle"][:][indices]
                 eia_s = np.broadcast_to(eia_s, tbs[-1].shape)
                 eia.append(eia_s)
             if "S5" in input.keys():
                 tbs_s = input["S5/Tc"][:][indices]
-                eia_s = input[f"s2/incidenceangle"][:][indices]
+                eia_s = input[f"S2/incidenceAngle"][:][indices]
                 if tbs_s.shape[-2] > tbs[-1].shape[-2]:
                     tbs_s = tbs_s[..., ::2, :]
                     eia_s = eia_s[..., ::2]
@@ -511,12 +511,12 @@ class L1CFile:
                 eia.append(eia_s)
             if "S6" in input.keys():
                 tbs_s = input["S6/Tc"][:][indices]
-                eia_s = input[f"s2/incidenceangle"][:][indices]
+                eia_s = input[f"S2/incidenceAngle"][:][indices]
                 if tbs_s.shape[-2] > tbs[-1].shape[-2]:
                     tbs_s = tbs_s[..., ::2, :]
                     eia_s = eia_s[..., ::2]
                 tbs.append(tbs_s)
-                eia_s = input[f"s2/incidenceangle"][:][indices]
+                eia_s = input[f"S2/incidenceAngle"][:][indices]
                 eia_s = np.broadcast_to(eia_s, tbs[-1].shape)
                 eia.append(eia_s)
 
