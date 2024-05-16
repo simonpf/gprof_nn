@@ -424,6 +424,8 @@ def write_training_samples_1d(
 
     valid = {}
     for var in dataset.variables:
+        if var == "angles":
+            continue
         arr = dataset[var]
         if arr.data.ndim < 2:
             arr_data = np.broadcast_to(arr.data[..., None], mask.shape)
@@ -432,6 +434,8 @@ def write_training_samples_1d(
         valid[var] = ((("samples",) + arr.dims[2:]), arr_data[mask])
 
     valid = xr.Dataset(valid, attrs=dataset.attrs)
+    if "angles" in dataset:
+        valid["angles"] = (("angles",), dataset.angles.data)
     start_time = pd.to_datetime(dataset.scan_time.data[0].item())
     start_time = start_time.strftime("%Y%m%d%H%M%S")
     end_time = pd.to_datetime(dataset.scan_time.data[-1].item())

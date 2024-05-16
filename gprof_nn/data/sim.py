@@ -301,6 +301,9 @@ class SimFile:
                         matched_full[:, cmpr].astype(np.float32),
                     )
 
+        if n_angles > 0:
+            input_data["angles"] = (("angles",), self.header["viewing_angles"][0])
+
         return input_data
 
     def to_xarray_dataset(self):

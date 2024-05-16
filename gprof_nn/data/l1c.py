@@ -54,11 +54,11 @@ class L1CFile:
             month = date.month
             day = date.day
             path = Path(path) / f"{year:02}{month:02}" / f"{year:02}{month:02}{day:02}"
-            files = path.glob(sensor.l1c_file_prefix + f"*.{granule:06}.*{sensor.l1c_version}.HDF5")
+            files = path.glob(sensor.l1c_file_prefix + f"*.{granule:06}.*V07*.HDF5")
         else:
             path = Path(path)
             files = path.glob(
-                "**/" + sensor.l1c_file_prefix + f"*.{granule:06}.*{sensor.l1c_version}.HDF5"
+                "**/" + sensor.l1c_file_prefix + f"*.{granule:06}.*V07*.HDF5"
             )
 
         files = list(files)
@@ -96,7 +96,7 @@ class L1CFile:
         month = date.month
         day = date.day
         data_path = Path(path) / f"{year:02}{month:02}" / f"{year:02}{month:02}{day:02}"
-        files = list(data_path.glob(sensor.l1c_file_prefix + f"*{sensor.l1c_version}.HDF5"))
+        files = list(data_path.glob(sensor.l1c_file_prefix + f"*V07*.HDF5"))
 
         # Add files from following day.
         date_f = date + pd.DateOffset(1)
@@ -104,7 +104,7 @@ class L1CFile:
         month = date_f.month
         day = date_f.day
         data_path = Path(path) / f"{year:02}{month:02}" / f"{year:02}{month:02}{day:02}"
-        files += list(data_path.glob(sensor.l1c_file_prefix + f"*{sensor.l1c_version}.HDF5"))
+        files += list(data_path.glob(sensor.l1c_file_prefix + f"*V07*.HDF5"))
 
         # Add files from previous day.
         date_f = date - pd.DateOffset(1)
@@ -113,8 +113,8 @@ class L1CFile:
         day = date_f.day
         data_path = Path(path) / f"{year:02}{month:02}" / f"{year:02}{month:02}{day:02}"
 
-        files += list(data_path.glob(sensor.l1c_file_prefix + f"*{sensor.l1c_version}.HDF5"))
-        files += list(path.glob(sensor.l1c_file_prefix + f"*{sensor.l1c_version}.HDF5"))
+        files += list(data_path.glob(sensor.l1c_file_prefix + f"*V07*.HDF5"))
+        files += list(path.glob(sensor.l1c_file_prefix + f"*V07*.HDF5"))
         files = sorted(files)
 
         start_times = []
@@ -169,15 +169,15 @@ class L1CFile:
         day = date.day
         data_path = Path(path) / f"{year:02}{month:02}" / f"{year:02}{month:02}{day:02}"
         print("DATA PATH :: ", data_path)
-        print("PATTERN :: ", sensor.l1c_file_prefix + f"*{date.year:04}{month:02}{day:02}*{sensor.l1c_version}.HDF5")
+        print("PATTERN :: ", sensor.l1c_file_prefix + f"*{date.year:04}{month:02}{day:02}*V07*.HDF5")
         files = list(
             data_path.glob(
-                sensor.l1c_file_prefix + f"*{date.year:04}{month:02}{day:02}*{sensor.l1c_version}.HDF5"
+                sensor.l1c_file_prefix + f"*{date.year:04}{month:02}{day:02}*V07*.HDF5"
             )
         )
         files += list(
             path.glob(
-                sensor.l1c_file_prefix + f"*{date.year:04}{month:02}{day:02}*{sensor.l1c_version}.HDF5"
+                sensor.l1c_file_prefix + f"*{date.year:04}{month:02}{day:02}*V07*.HDF5"
             )
         )
         for l1c_file in files:
@@ -492,47 +492,66 @@ class L1CFile:
                 eia.append(eia_s)
             if "S3" in input.keys():
                 tbs.append(input["S3/Tc"][:][indices])
-                eia_s = input[f"S2/incidenceAngle"][:][indices]
+                eia_s = input[f"S3/incidenceAngle"][:][indices]
                 eia_s = np.broadcast_to(eia_s, tbs[-1].shape)
                 eia.append(eia_s)
             if "S4" in input.keys():
                 tbs.append(input["S4/Tc"][:][indices])
-                eia_s = input[f"S2/incidenceAngle"][:][indices]
+                eia_s = input[f"S4/incidenceAngle"][:][indices]
                 eia_s = np.broadcast_to(eia_s, tbs[-1].shape)
                 eia.append(eia_s)
             if "S5" in input.keys():
                 tbs_s = input["S5/Tc"][:][indices]
-                eia_s = input[f"S2/incidenceAngle"][:][indices]
-                if tbs_s.shape[-2] > tbs[-1].shape[-2]:
-                    tbs_s = tbs_s[..., ::2, :]
-                    eia_s = eia_s[..., ::2]
+                eia_s = input[f"S5/incidenceAngle"][:][indices]
                 tbs.append(tbs_s)
                 eia_s = np.broadcast_to(eia_s, tbs[-1].shape)
                 eia.append(eia_s)
             if "S6" in input.keys():
                 tbs_s = input["S6/Tc"][:][indices]
-                eia_s = input[f"S2/incidenceAngle"][:][indices]
-                if tbs_s.shape[-2] > tbs[-1].shape[-2]:
-                    tbs_s = tbs_s[..., ::2, :]
-                    eia_s = eia_s[..., ::2]
+                eia_s = input[f"S6/incidenceAngle"][:][indices]
                 tbs.append(tbs_s)
-                eia_s = input[f"S2/incidenceAngle"][:][indices]
+                eia_s = input[f"S6/incidenceAngle"][:][indices]
                 eia_s = np.broadcast_to(eia_s, tbs[-1].shape)
                 eia.append(eia_s)
 
             n_pixels = max([array.shape[1] for array in tbs])
             tbs_r = []
-            for array in tbs:
-                if array.shape[1] < n_pixels:
+            eia_r = []
+            for tbs_s, eia_s in zip(tbs, eia):
+                if tbs_s.shape[1] < n_pixels:
                     f = interp1d(
-                        np.linspace(0, n_pixels - 1, array.shape[1]),
-                        array,
+                        np.linspace(0, n_pixels - 1, tbs_s.shape[1]),
+                        tbs_s,
                         axis=1
                     )
                     x = np.arange(n_pixels)
-                    array = f(x)
-                tbs_r.append(array)
+                    tbs_s = f(x)
+                    f = interp1d(
+                        np.linspace(0, n_pixels - 1, eia_s.shape[1]),
+                        eia_s,
+                        axis=1
+                    )
+                    eia_s = f(x)
+                tbs_r.append(tbs_s)
+                eia_r.append(eia_s)
             tbs = np.concatenate(tbs_r, axis=-1)
+            eia = np.concatenate(eia_r, axis=-1)
+
+            if lats.shape != tbs.shape[:-1]:
+                n_pixels = tbs.shape[1]
+                x = np.arange(n_pixels)
+                f = interp1d(
+                    np.linspace(0, n_pixels - 1, lats.shape[1]),
+                    lats,
+                    axis=1
+                )
+                lats = f(x)
+                f = interp1d(
+                    np.linspace(0, n_pixels - 1, lons.shape[1]),
+                    lons,
+                    axis=1
+                )
+                lons = f(x)
 
             n_scans = lats.shape[0]
 
@@ -567,11 +586,9 @@ class L1CFile:
                 "spacecraft_longitude": (dims[:1], lons_sc),
                 "spacecraft_altitude": (dims[:1], alt_sc),
                 "brightness_temperatures": (dims + ("channels",), tbs),
+                "incidence_angle": (dims + ("channels",), eia),
                 "scan_time": (dims[:1], times),
             }
-
-            eia = np.concatenate(eia, axis=-1)
-            data["incidence_angle"] = (dims + ("channels",), eia)
 
             if "SCorientation" in input[f"{swath}/SCstatus"]:
                 data["sensor_orientation"] = (
