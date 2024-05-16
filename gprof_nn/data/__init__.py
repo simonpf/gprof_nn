@@ -117,21 +117,6 @@ def get_model_path(kind, sensor, configuration):
         )
 
 
-def get_profile_clusters():
-    """
-    Return local path to the directory containing the profile cluster
-    files.
-
-    Return:
-        Absolute path of directory containing the profile clusters.
-    """
-    path_raining = "profiles/GPM_profile_clustersV7.dat"
-    get_file(path_raining)
-    path_non_raining = "profiles/GPM_profile_clustersNRV7.dat"
-    path = get_file(path_non_raining)
-    return path.parent
-
-
 def get_test_data_path():
     """
     Return path to test data and download it if not alread
