@@ -1,0 +1,25 @@
+[platform]
+name = "NOAA19"
+l1c_file_path = "/pdata4/archive/GPM/1C_NOAA19_V7"
+l1c_file_prefix = "1C.NOAA19.MHS"
+
+[viewing_geometry]
+kind = "CrossTrack"
+altitude = 870e3
+scan_range = 99.0
+pixels_per_scan = 90
+scan_offset = 16e3
+beam_width = 1.1
+
+[sensor]
+kind = "CrossTrackScanner"
+frequencies = [89.0, 150.0, 183.31, 183.1, 190.311]
+offsets = [0.0, 0.0, 1.0, 3.0, 0.0]
+polarization = ["V", "V", "H", "H", "V"]
+
+[sensor.gprof_channels]
+8 = [0, 0]
+10 = [0, 1]
+12 = [0, 2]
+13 = [0, 3]
+14 = [0, 4]

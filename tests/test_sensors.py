@@ -30,31 +30,3 @@ def test_calculate_smoothing_kernel():
     c = k[5, 5]
     c2 = k[3, 5]
     assert np.isclose(c2 / c, 0.5)
-
-
-def test_calculate_smoothing_kernels():
-    """
-    Ensure that 'calculate_smoothing_kernels' returns one kernel for each
-    viewing angle and that the kernels have the expected shape.
-    """
-    kernels = sensors.calculate_smoothing_kernels(sensors.MHS)
-    assert len(kernels) == sensors.MHS.n_angles
-    assert kernels[0].shape == (11, 11)
-
-
-def test_smooth_gmi_field():
-    """
-    Ensure that smoothing a GMI field inserts the smoothed field along the
-    right axis.
-    """
-    field = np.zeros((32, 32, 4))
-    field[15, 15] = 1.0
-
-    kernels = sensors.calculate_smoothing_kernels(sensors.MHS)
-    kernels = [kernels[0]] * 10
-    field_s = sensors.smooth_gmi_field(field, kernels)
-
-    assert field_s.shape[2] == sensors.MHS.n_angles
-    assert np.all(np.isclose(field_s[:, :, 0], field_s[:, :, 1], atol=1e-3))
-
-

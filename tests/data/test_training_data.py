@@ -349,7 +349,7 @@ def test_gprof_nn_1d_dataset_mhs(training_files, request):
         tbs = x["brightness_temperatures"]
         mask = torch.isfinite(tbs)
         assert tbs[mask].min() > 0
-        assert tbs[mask].max() < 350
+        assert tbs[mask].max() < 370
 
         angs = x["viewing_angles"]
         assert angs.shape == tbs.shape

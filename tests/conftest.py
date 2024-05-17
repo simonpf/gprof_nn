@@ -86,6 +86,15 @@ def preprocessor_data_gmi(l1c_file_gmi) -> xr.Dataset:
     return data_pp
 
 @pytest.fixture(scope="session")
+def preprocessor_data_gmi_full() -> xr.Dataset:
+    l1c_path = Path(sensors.GMI.l1c_file_path) / "1801" / "180101"
+    l1c_files = sorted(list(
+        l1c_path.glob(f"**/{sensors.GMI.l1c_file_prefix}*.HDF5")
+    ))
+    data_pp = run_preprocessor(l1c_files[0], sensors.GMI)
+    return data_pp
+
+@pytest.fixture(scope="session")
 def training_files_1d_gmi_sim(
         tmp_path_factory,
         sim_collocations_gmi: xr.Dataset
