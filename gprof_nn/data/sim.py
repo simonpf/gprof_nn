@@ -312,7 +312,7 @@ class SimFile:
         """
         results = {}
         dim_dict = {
-            self.sensor.n_chans: "channels",
+            len(self.header["frequencies"][0]): "channels",
             N_LAYERS: "layers",
         }
         if isinstance(self.sensor, sensors.CrossTrackScanner):
@@ -368,7 +368,7 @@ ENHANCEMENT_FACTORS = {
 }
 
 
-def apply_orographic_enhancement(data, kind="ERA5"):
+def apply_orographic_enhancement(data, sensor, kind="ERA5"):
     """
     Applies orographic enhancement factors to 'surface_precip' and
     'convective_precip' targets.
@@ -390,14 +390,12 @@ def apply_orographic_enhancement(data, kind="ERA5"):
     convective_precip = data["convective_precip"].data
 
     enh = np.ones(surface_precip.shape, dtype=np.float32)
-    factors = ENHANCEMENT_FACTORS[kind]
-    for t_s in [17, 18]:
-        for t_a in range(4):
-            key = (t_s, t_a)
-            if key not in factors:
-                continue
-            indices = (surface_types == t_s) * (airlifting_index == t_a)
-            enh[indices] = factors[key]
+
+    factors = sensor.orographic_enhancement
+    types = ((17, 1), (17, 2), (17, 3), (17, 4), (18, 1))
+    for ind, (t_s, t_a) in enumerate(types):
+        indices = (surface_types == t_s) * (airlifting_index == t_a)
+        enh[indices] = factors[key]
 
     surface_precip *= enh
     convective_precip *= enh
@@ -573,7 +571,7 @@ def collocate_targets(
     l1c_data = l1c_file.to_xarray_dataset()
 
     # Orographic enhancement for types 17 and 18.
-    apply_orographic_enhancement(data_pp)
+    apply_orographic_enhancement(sensor, data_pp)
 
     # Set surface_precip and convective_precip over snow surfaces to missing
     # since these are handled separately.
@@ -771,14 +769,41 @@ def process_files(
 
 @click.argument("sensor")
 @click.argument("sim_file_path")
-@click.argument("split")
+@click.argument("split", type=click.Choice(['train', 'validation', 'test']))
 @click.argument("output_1d")
 @click.argument("output_3d")
-@click.option("--start_time", default=None)
-@click.option("--end_time", default=None)
+@click.option(
+    "--start_time",
+    default=None,
+    help="Optional start time to limit the .sim files from which training data will be extracted.",
+    metavar="YYYY-mm-ddTHH:MM:SS"
+)
+@click.option(
+    "--end_time",
+    default=None,
+    help="Optional end time to limit the .sim files from which training data will be extracted.",
+    metavar="YYYY-mm-ddTHH:MM:SS"
+)
 @click.option("-n" ,"--n_processes", default=1)
-@click.option("--include_cmb_precip", is_flag=True, default=False)
-@click.option("--bounds", default=None)
+@click.option(
+    "--include_cmb_precip",
+    is_flag=True,
+    default=False,
+    help="If set, non-MIRS-augmented CMB-only precipitation will be included in the training data."
+)
+@click.option(
+    "--bounds",
+    default=None,
+    help=(
+        "Optional bounds lon_min,lat_min,lon_max,lat_max consisting of four comma-separated floating "
+        "point values specifying the longitude and latitude coordinates of the lower left corner"
+        "(lon_min, lat_min) and upper right corner (lon_max, lat_max) of a rectangular bounding box "
+        "to which to restrict the training data. If lon_min > lon_max, the bounding box is chosen so"
+        " that it wraps around the date line."
+    ),
+    metavar="lon_min,lat_min,lon_max,lat_max"
+
+)
 def cli(sensor: Sensor,
         sim_file_path: Path,
         split: str,
@@ -787,26 +812,14 @@ def cli(sensor: Sensor,
         start_time: Optional[np.datetime64] = None,
         end_time: Optional[np.datetime64] = None,
         n_processes: int = 1,
-        include_cmb_precip: bool = False
+        include_cmb_precip: bool = False,
+        bounds: Tuple[float, float, float, float] = None
 ) -> None:
     """
-    Extract training data from sim files.
-
-    Args:
-        sensor: A sensor object representing the sensor for which to extract
-            the training data.
-        sim_file_path: Path to the folder containing the sim files from which to
-            extract the training data.
-        split: A string specifying whether to extract 'training', 'validation' or
-             'test' data.
-        output_1d: Path pointing to the folder to which the 1D training data
-            should be written.
-        output_3d: Path pointing to the folder to which the 3D training data
-            should be written.
-        start_time: Start time of the time interval limiting the sim files from
-            which training scenes will be extracted.
-        end_time: End time of the time interval limiting the sim files from
-            which training scenes will be extracted.
+    \b
+    Extract GPROF-NN training/validation/test data for the sensor SENSOR from sim
+    files located in SIM_FILE_PATH and store extracted data in OUTPUT_1D and
+    OUTPUT_3D
     """
     from gprof_nn import sensors
     from gprof_nn.data.sim import process_files
@@ -867,9 +880,9 @@ def cli(sensor: Sensor,
         lat_ll = float(bnds[1])
         lon_ur = float(bnds[2])
         lat_ur = float(bnds[3])
-        latlon_bounds = (lon_ll, lat_ll, lon_ur, lat_ur)
+        lonlat_bounds = (lon_ll, lat_ll, lon_ur, lat_ur)
     else:
-        latlon_bounds = None
+        lonlat_bounds = None
 
 
     process_files(
@@ -882,7 +895,7 @@ def cli(sensor: Sensor,
         end_time=end_time,
         n_processes=n_processes,
         include_cmb_precip=include_cmb_precip,
-        latlon_bounds=latlon_bounds
+        lonlat_bounds=lonlat_bounds
     )
 
 

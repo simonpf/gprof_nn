@@ -422,7 +422,11 @@ def process_match_files(
 @click.argument("l1c_path")
 @click.argument("output_1d")
 @click.argument("output_3d")
-@click.option("--n_processes", default=4)
+@click.option(
+    "--n_processes",
+    default=4,
+    help="The number of processes to use to parallelize the data extraction."
+)
 def cli(
     sensor: str,
     match_path: str,
@@ -432,15 +436,10 @@ def cli(
     n_processes: int = 4
 ) -> int:
     """
-    Extract training data from MRMS collocations.
+    Extract training/validation/test data for sensor SENSOR from MRMS collocations located in MATCH_PATH and L1C files
+    located in L1C_PATH. Write the training data for the GPROF-NN 1D and 3D data to the OUTPUT_1D and OUTPUT_3D,
+    respectively.
 
-    Args:
-        sensor: Name of the sensor for which to extract the training data.
-        match_path: Path to the folder containing the MRMS match-ups.
-        l1c_path: Path to the L1C files of the sensor.
-        output_1d: Location to which to write the GPROF-NN 1D training data.
-        output_3d: Location to which to write the GPROF-NN 3D trainin data.
-        n_processes: The number of parallel process to use to extract the training data.
 
     Return:
         0 if data extraction was successful; 1 otherwise.

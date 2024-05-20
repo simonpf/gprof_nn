@@ -302,11 +302,25 @@ def process_l1c_files(
 
 @click.argument("sensor")
 @click.argument("l1c_file_path")
-@click.argument("start_time")
-@click.argument("end_time")
+@click.option(
+    "--start_time",
+    default=None,
+    help="Optional start time to limit the .sim files from which training data will be extracted.",
+    metavar="YYYY-mm-ddTHH:MM:SS"
+)
+@click.option(
+    "--end_time",
+    default=None,
+    help="Optional end time to limit the .sim files from which training data will be extracted.",
+    metavar="YYYY-mm-ddTHH:MM:SS"
+)
 @click.argument("output_1d")
 @click.argument("output_3d")
-@click.option("--n_processes", default=4)
+@click.option(
+    "--n_processes",
+    default=4,
+    help="The number of processes to use to parallelize the data extraction."
+)
 def cli(
         sensor: sensors.Sensor,
         l1c_file_path: Path,
@@ -317,22 +331,9 @@ def cli(
         n_processes: int = 4
 ) -> None:
     """
-    Extract training data from L1C/ERA5 collocations.
-
-    Args:
-        sensor: A sensor object representing the sensor for which to extract
-            the training data.
-        l1c_file_path: Path to the folder containing the L1C files from which to
-            extract the training data.
-        start_time: Start time of the time interval limiting the l1c files from
-            which training scenes will be extracted.
-        end_time: End time of the time interval limiting the L1C files from
-            which training scenes will be extracted.
-        output_1d: Path pointing to the folder to which the 1D training data
-            should be written.
-        output_3d: Path pointing to the folder to which the 3D training data
-            should be written.
-        n_processes: The number of processes to use for data extraction.
+    Extract training/validation/test data for sensor SENSOR from ERA5 collocations and L1C files
+    located in L1C_PATH. Write the training data for the GPROF-NN 1D and 3D data to the OUTPUT_1D and OUTPUT_3D,
+    respectively.
     """
     # Check sensor
     sensor_obj = getattr(sensors, sensor.strip().upper(), None)

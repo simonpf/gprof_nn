@@ -6,6 +6,7 @@ This module implements the command line interfaces for the functionality
 provided by the 'gprof_nn' package.
 """
 import click
+import gprof_nn.logging
 import gprof_nn.config as conf
 from gprof_nn import training
 from gprof_nn.data import sim, pretraining, mrms, era5, finetuning
