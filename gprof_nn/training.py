@@ -13,6 +13,7 @@ import click
 
 
 from gprof_nn import sensors
+import gprof_nn.logging
 
 
 LOGGER = logging.Logger(__name__)

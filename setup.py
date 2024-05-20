@@ -19,13 +19,16 @@ setup(
     author_email="simon.pfreundschuh@chalmers.se",
     install_requires=[
         "numpy", "scipy", "xarray", "torch", "appdirs", "rich",
-        "quantnn>=0.0.5dev", "h5py", "netCDF4", "h5netcdf", "pandas"
+        "quantnn>=0.0.5dev", "h5py", "netCDF4", "h5netcdf", "pandas",
     ],
     extras_require = {
         'development': [
             'pytest', 'pykdtree'
-            ]
-        },
+            ],
+        'docs': [
+            "sphinx", "jupyter-book"
+        ]
+    },
     entry_points = {
         'console_scripts': ['gprof_nn=gprof_nn.cli:gprof_nn'],
     },
