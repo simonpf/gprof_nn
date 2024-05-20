@@ -734,6 +734,7 @@ PREPROCESSOR_EXECUTABLES = {
     ("GMI", "AMSR2"): "gprof2023pp_GMI_L1C",
     ("GMI", "AMSRE"): "gprof2021pp_GMI_AMSRE_L1C",
     ("GMI", "ATMS"): "gprof2021pp_GMI_ATMS_L1C",
+    ("GMI", "TMS"): "gprof2023pp_GMI_L1C",
 }
 
 

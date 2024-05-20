@@ -1,0 +1,7 @@
+format: jb-book
+root: intro
+chapters:
+- file: installation
+- file: training_data
+- file: training
+- file: retrieval
