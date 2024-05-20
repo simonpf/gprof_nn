@@ -15,9 +15,6 @@ python:
       extra_requirements:
         - sphinx
 
-conda:
-  environment: conda_environment.yml
-
 sphinx:
   builder: html
   fail_on_warning: true
