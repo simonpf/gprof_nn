@@ -77,6 +77,7 @@ def test_open_sim_file_mhs():
     assert np.all(data.latitude <= 90.0)
     assert np.all(data.longitude >= -180.0)
     assert np.all(data.longitude <= 180.0)
+    assert data.angles.data.max() > 50
 
 
 @NEEDS_SIM_DATA

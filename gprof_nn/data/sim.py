@@ -368,7 +368,7 @@ ENHANCEMENT_FACTORS = {
 }
 
 
-def apply_orographic_enhancement(data, sensor, kind="ERA5"):
+def apply_orographic_enhancement(sensor, data, kind="ERA5"):
     """
     Applies orographic enhancement factors to 'surface_precip' and
     'convective_precip' targets.
@@ -381,9 +381,6 @@ def apply_orographic_enhancement(data, sensor, kind="ERA5"):
     Returns:
         None; Correction is applied in place.
     """
-    kind = kind.upper()
-    if kind not in ["ERA5", "GANAL"]:
-        raise ValueError("The kind argument to  must be 'ERA5' or 'GANAL'.")
     surface_types = data["surface_type"].data
     airlifting_index = data["airlifting_index"].data
     surface_precip = data["surface_precip"].data
@@ -395,7 +392,7 @@ def apply_orographic_enhancement(data, sensor, kind="ERA5"):
     types = ((17, 1), (17, 2), (17, 3), (17, 4), (18, 1))
     for ind, (t_s, t_a) in enumerate(types):
         indices = (surface_types == t_s) * (airlifting_index == t_a)
-        enh[indices] = factors[key]
+        enh[indices] = sensor.orographic_enhancement[ind]
 
     surface_precip *= enh
     convective_precip *= enh
@@ -769,7 +766,7 @@ def process_files(
 
 @click.argument("sensor")
 @click.argument("sim_file_path")
-@click.argument("split", type=click.Choice(['train', 'validation', 'test']))
+@click.argument("split", type=click.Choice(['training', 'validation', 'test']))
 @click.argument("output_1d")
 @click.argument("output_3d")
 @click.option(

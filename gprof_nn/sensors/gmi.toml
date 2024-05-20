@@ -16,6 +16,7 @@ kind = "ConicalScanner"
 frequencies = [10.6, 10.6, 18.7, 18.7, 23.0, 37.0, 37.0, 89.0, 89.0, 166.0, 166.0, 183.0, 183.0]
 offsets = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 7]
 polarization = ["V", "H", "V", "H", "V", "V", "H", "V", "H", "V", "H", "V", "V"]
+orographic_enhancement = [1.13392, 1.69444, 1.44406, 1.68295, 2.89360]
 
 [sensor.gprof_channels]
 0 = [0, 0]

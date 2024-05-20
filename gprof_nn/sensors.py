@@ -45,6 +45,7 @@ Channel index | Frequency
 from abc import ABC, abstractmethod, abstractproperty
 from concurrent.futures import ProcessPoolExecutor
 from copy import copy
+import logging
 from pathlib import Path
 
 import numpy as np
@@ -74,6 +75,9 @@ from gprof_nn.augmentation import (
 
 
 DATA_FOLDER = Path(__file__).parent / "files"
+
+
+LOGGER = logging.getLogger(__file__)
 
 
 ###############################################################################
@@ -198,7 +202,8 @@ class Sensor(ABC):
             gprof_channels,
             frequencies,
             offsets,
-            polarization
+            polarization,
+            orographic_enhancement
     ):
         self.kind = kind
         self._name = name
@@ -208,6 +213,7 @@ class Sensor(ABC):
         self.frequencies = frequencies
         self.offsets = offsets
         self.polarization = polarization
+        self.orographic_enhancement = orographic_enhancement
 
         self.n_chans = len(self.gprof_channels)
         self.n_angles = 10 if isinstance(self, CrossTrackScanner) else 1
@@ -374,11 +380,12 @@ class ConicalScanner(Sensor):
             gprof_channels,
             frequencies,
             offsets,
-            polarization
+            polarization,
+            orographic_enhancement
     ):
         super().__init__(
             types.CONICAL, name, platform, viewing_geometry, gprof_channels,
-            frequencies, offsets, polarization
+            frequencies, offsets, polarization, orographic_enhancement
         )
         self._n_angles = 1
 
@@ -403,11 +410,12 @@ class CrossTrackScanner(Sensor):
             gprof_channels,
             frequencies,
             offsets,
-            polarization
+            polarization,
+            orographic_enhancement
     ):
         super().__init__(
             types.XTRACK, name, platform, viewing_geometry, gprof_channels,
-            frequencies, offsets, polarization
+            frequencies, offsets, polarization, orographic_enhancement
         )
 
     def __repr__(self):
@@ -429,7 +437,8 @@ class ConstellationScanner(ConicalScanner):
             gprof_channels,
             frequencies,
             offsets,
-            polarization
+            polarization,
+            orographic_enhancement
     ):
         super().__init__(
             name,
@@ -438,7 +447,8 @@ class ConstellationScanner(ConicalScanner):
             gprof_channels,
             frequencies,
             offsets,
-            polarization
+            polarization,
+            orographic_enhancement
         )
 
 
@@ -467,9 +477,16 @@ class Platform:
         return f"Platform(name={self.name})"
 
 
-sensor_files = (Path(__file__).parent / "sensors").glob("*toml")
-for sensor_file in sensor_files:
+def parse_sensor(sensor_file: Path) -> Sensor:
+    """
+    Parse sensor object from sensor config file.
 
+    Args:
+        sensor_file: A Path object pointing to the sensor file to parse.
+
+    Return:
+        A sensor object with the properties defined in 'sensor_file'.
+    """
     sensor_config = toml.loads(open(sensor_file).read())
     sensor_name = sensor_file.stem.upper()
 
@@ -518,12 +535,32 @@ for sensor_file in sensor_files:
         )
 
     name = sensor_file.stem.upper()
-    args = ["gprof_channels", "frequencies", "offsets", "polarization"]
+    args = [
+        "gprof_channels",
+        "frequencies",
+        "offsets",
+        "polarization",
+        "orographic_enhancement"
+    ]
     args = [sensor[arg] for arg in args]
-    print(sensor_class, args)
     sensor = sensor_class(name.split('_')[0], platform, viewing_geometry, *args)
+    return sensor
 
-    globals()[name] = sensor
+
+sensor_files = (Path(__file__).parent / "sensors").glob("*toml")
+for sensor_file in sensor_files:
+    sensor_config = toml.loads(open(sensor_file).read())
+    sensor_name = sensor_file.stem.upper()
+    try:
+        sensor = parse_sensor(sensor_file)
+        name = sensor_file.stem.upper()
+        globals()[name] = sensor
+    except Exception:
+        LOGGER.exception(
+            "The following error was encountered when trying to parse sensor "
+            "config file %s.",
+            sensor_file
+        )
 
 
 

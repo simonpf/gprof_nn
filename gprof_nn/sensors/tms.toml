@@ -1,0 +1,26 @@
+[platform]
+name = "TROPICS03"
+l1c_file_path = "/pdata4/archive/GPM/1C_TROPICS03_IT#"
+l1c_file_prefix = "1C.TROPICS03.TMS"
+
+[viewing_geometry]
+kind = "CrossTrack"
+altitude = 550e3
+scan_range = 120
+pixels_per_scan = 81
+scan_offset = 15.2
+beam_width = 2.4
+
+[sensor]
+kind = "CrossTrackScanner"
+frequencies = [91.655, 204.8, 184.41, 186.51, 190.31]
+offsets = [1.4, 0.0, 1.0, 3.0, 0.0]
+polarization = ["?", "?", "?", "?", "?"]
+orographic_enhancement = [1.06184, 1.69857, 1.47418, 1.74360, 2.74331]
+
+[sensor.gprof_channels]
+8 = [0, 0]
+10 = [2, 0]
+12 = [1, 0]
+13 = [1, 1]
+14 = [1, 2]
