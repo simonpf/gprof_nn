@@ -274,8 +274,9 @@ def test_load_tbs_1d_mhs_sim(training_files_1d_mhs_sim):
     """
     dataset = xr.load_dataset(training_files_1d_mhs_sim[0])
     angles = (2.0 * np.random.rand(dataset.samples.size) - 1.0) * 60.0
-    tbs = load_tbs_1d_xtrack_sim(dataset, angles, sensors.MHS)
+    tbs, _ = load_tbs_1d_xtrack_sim(dataset, angles, sensors.MHS, targets=ALL_TARGETS)
     assert isinstance(tbs, torch.Tensor)
+    assert tbs.dtype == torch.float32
     assert tbs.shape[-1] == 15
     assert (tbs[torch.isfinite(tbs)] > 0).all()
 
@@ -287,6 +288,7 @@ def test_load_tbs_1d_mhs_mrms(training_files_1d_mhs_mrms):
     dataset = xr.load_dataset(training_files_1d_mhs_mrms[0])
     tbs, angles = load_tbs_1d_xtrack_other(dataset, sensors.MHS)
     assert isinstance(tbs, torch.Tensor)
+    assert tbs.dtype == torch.float32
     assert tbs.shape[-1] == 15
     assert angles.shape[-1] == 15
     assert (tbs[torch.isfinite(tbs)] > 0).all()
@@ -297,6 +299,7 @@ def test_load_tbs_1d_mhs_era5(training_files_1d_mhs_era5):
     """
     dataset = xr.load_dataset(training_files_1d_mhs_era5[0])
     tbs, angles = load_tbs_1d_xtrack_other(dataset, sensors.MHS)
+    assert tbs.dtype == torch.float32
     assert isinstance(tbs, torch.Tensor)
     assert tbs.shape[-1] == 15
     assert angles.shape[-1] == 15
@@ -362,6 +365,8 @@ def test_gprof_nn_1d_dataset_mhs(training_files, request):
 
         for target in ALL_TARGETS:
             assert target in y
+
+        assert y["surface_precip"].shape[1] == 1
 
 
 def test_load_training_data_3d_xtrack_sim(training_files_3d_mhs_sim):

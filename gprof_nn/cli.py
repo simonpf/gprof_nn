@@ -9,6 +9,7 @@ import click
 import gprof_nn.logging
 import gprof_nn.config as conf
 from gprof_nn import training
+from gprof_nn import retrieval
 from gprof_nn.data import sim, pretraining, mrms, era5, finetuning
 
 @click.group()
@@ -39,12 +40,19 @@ config.command(name="set")(conf.set_config)
 
 
 ######################################################################
-# gprof_nn train
+# gprof_nn training
 ######################################################################
 
 
-@gprof_nn.group(name="train")
+@gprof_nn.group(name="training")
 def train():
     pass
 
 train.command(name="init")(training.init_cli)
+train.command(name="run")(training.run_cli)
+
+######################################################################
+# gprof_nn retrieve
+######################################################################
+
+gprof_nn.command(name="retrieve")(retrieval.cli)

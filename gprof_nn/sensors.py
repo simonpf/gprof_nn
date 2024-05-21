@@ -423,7 +423,7 @@ class CrossTrackScanner(Sensor):
 
 
 
-class ConstellationScanner(ConicalScanner):
+class ConstellationScanner(Sensor):
     """
     This class represents conically-scanning sensors that are for which
     observations can only be simulated.
@@ -441,6 +441,7 @@ class ConstellationScanner(ConicalScanner):
             orographic_enhancement
     ):
         super().__init__(
+            types.CONICAL_CONST,
             name,
             platform,
             viewing_geometry,
@@ -452,6 +453,8 @@ class ConstellationScanner(ConicalScanner):
         )
 
 
+    def __repr__(self):
+        return f"ConstellationScanner(name={self.name}, " f"platform={self.platform.name})"
 
 ###############################################################################
 # Platforms

@@ -1,7 +1,8 @@
 name = "gprof_nn_3d"
 
 [architecture]
-name = "EfficientNet-V2-Seq"
+name = "EncoderDecoder"
+preset = "EfficientNetV2-S"
 
 [input.brightness_temperatures]
 n_features = 15

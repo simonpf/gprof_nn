@@ -1,14 +1,36 @@
+"""
+Provides shared functionality for testing of the gprof_nn package.
+"""
+import logging
 import os
 from pathlib import Path
-from typing import List
+from typing import Any, Dict, List
 
 import pytest
 
 import xarray as xr
 
+from pytorch_retrieve.utils import (
+    read_model_config,
+    read_training_config,
+    read_compute_config,
+    find_most_recent_checkpoint
+)
+from pytorch_retrieve.training import parse_training_config, TrainingConfig
+from pytorch_retrieve.config import (
+    InputConfig,
+    OutputConfig,
+)
+
 from gprof_nn import sensors
+from gprof_nn import training
 from gprof_nn.data.preprocessor import run_preprocessor
 from gprof_nn.data import sim, mrms, era5, l1c
+from gprof_nn.training import load_inference_config
+
+
+LOGGER = logging.getLogger(__name__)
+
 
 HAS_ARCHIVES = Path(sensors.GMI.l1c_file_path).exists()
 NEEDS_ARCHIVES = pytest.mark.skipif(
@@ -471,14 +493,66 @@ def training_files_3d_amsr2_era5(training_files_1d_amsr2_era5) -> Path:
     return sorted(list((training_files_1d_amsr2_era5[0].parent.parent / "3d").glob("*.nc")))
 
 
+def run_eda(
+        model_config: Dict[str, Any],
+        training_schedule: Dict[str, TrainingConfig],
+        path: Path,
+) -> None:
+    """
+    Run EDA to create artifacts required for model compilation.
+
+    Args:
+        model_config: A dictionary containing the model configuration.
+        training_schedule: A dictionary containing the training schedule.
+
+    """
+    from pytorch_retrieve.eda import run_eda
+    input_configs = {
+        name: InputConfig.parse(name, cfg)
+        for name, cfg in model_config["input"].items()
+    }
+    output_configs = {
+        name: OutputConfig.parse(name, cfg)
+        for name, cfg in model_config["output"].items()
+    }
+    run_eda(
+        path,
+        input_configs,
+        output_configs,
+        training_schedule["stage_1"],
+    )
+
+
 @pytest.fixture(scope="session")
-def gprof_nn_1d(tmpdir_factory) -> Path:
+def gprof_nn_1d(tmpdir_factory, training_files_1d_gmi_sim) -> Path:
     """
     An un-trained GPROF-NN 1D retrieval model.
     """
+    from pytorch_retrieve.architectures import load_and_compile_model
+
     model_path = tmpdir_factory.mktemp("gprof_nn_1d")
-    training.init("gmi", model_path, "1d", model_path, model_path)
+    training_data_path = training_files_1d_gmi_sim[0].parent
+    training.init("gmi", model_path, "1d", training_data_path, training_data_path)
+    model_config = read_model_config(
+        LOGGER,
+        model_path,
+        model_path / "model.toml"
+    )
+    training_config = read_training_config(
+        LOGGER,
+        model_path,
+        model_path / "training.toml"
+    )
+    training_schedule = parse_training_config(training_config)
+    stats_path = model_path / "stats"
+    run_eda(model_config, training_schedule, stats_path)
+
+    os.chdir(model_path)
     model = load_and_compile_model(model_path / "model.toml")
+    inference_config = load_inference_config(
+        "1d", model.output_config, ancillary=True
+    )
+    model.inference_config = inference_config
     return model
 
 
@@ -487,7 +561,28 @@ def gprof_nn_3d(tmpdir_factory) -> Path:
     """
     An un-trained GPROF-NN 3D retrieval model.
     """
+    from pytorch_retrieve.architectures import load_and_compile_model
     model_path = tmpdir_factory.mktemp("gprof_nn_3d")
-    training.init("gmi", model_path, "3d", model_path, model_path)
+    training_data_path = training_files_1d_gmi_sim[0].parent
+    training.init("gmi", model_path, "3d", training_data_path, training_data_path)
+    model_config = read_model_config(
+        LOGGER,
+        model_path,
+        model_path / "model.toml"
+    )
+    training_config = read_training_config(
+        LOGGER,
+        model_path,
+        model_path / "training.toml"
+    )
+    training_schedule = parse_training_config(training_config)
+    stats_path = model_path / "stats"
+    run_eda(model_config, training_schedule, stats_path)
+
+    os.chdir(model_path)
     model = load_and_compile_model(model_path / "model.toml")
+    inference_config = load_inference_config(
+        "3d", model.output_config, ancillary=True
+    )
+    model.inference_config = inference_config
     return model

@@ -1,5 +1,11 @@
 name = "gprof_nn_1d"
 
+# The GPROF-NN 1D retrievals use a multi-layer perceptron (MLP),
+# aka fully-connected neural network, as underlying model.
+#
+# As defines below the model comprises 8 hidden layers with 512 neurons
+# each.
+#
 [architecture]
 name = "MLP"
 
@@ -7,6 +13,9 @@ name = "MLP"
 hidden_channels = 512
 n_layers = 8
 
+# The three sections below define the retrieval input data. The
+# default GPROF-NN retrieval uses brightness temperatures (15 canonical
+# GPROF channels), 15 corresponding viewing angles, and ancillary data.
 [input.brightness_temperatures]
 n_features = 15
 normalize = "minmax"
@@ -19,6 +28,7 @@ normalize = "minmax"
 n_features = 8
 normalize = "minmax"
 
+# The remaining sections define the retrieval outputs.
 [output.surface_precip]
 kind = "Quantiles"
 quantiles = 32

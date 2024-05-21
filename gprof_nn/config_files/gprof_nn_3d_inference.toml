@@ -1,0 +1,33 @@
+tile_size = [128, 64]
+spatial_overlap = 16
+input_loader = "gprof_nn.retrieval.GPROFNNInputLoader"
+input_loader_args = {{config="3d", needs_ancillary={ancillary}}}
+
+[retrieval_output.surface_precip]
+surface_precip = "ExpectedValue"
+surface_precip_terciles = {{retrieval_output="Quantiles", tau=[0.33, 0.66]}}
+probability_of_precipitation = {{retrieval_output="ExceedanceProbability", threshold=1e-3}}
+
+[retrieval_output.convective_precip]
+convective_precip = "ExpectedValue"
+
+[retrieval_output.rain_water_path]
+rain_water_path = "ExpectedValue"
+
+[retrieval_output.ice_water_path]
+ice_water_path = "ExpectedValue"
+
+[retrieval_output.cloud_water_path]
+cloud_water_path = "ExpectedValue"
+
+[retrieval_output.rain_water_content]
+rain_water_content = "ExpectedValue"
+
+[retrieval_output.snow_water_content]
+snow_water_content = "ExpectedValue"
+
+[retrieval_output.cloud_water_content]
+cloud_water_content = "ExpectedValue"
+
+[retrieval_output.latent_heat]
+latent_heating = "ExpectedValue"

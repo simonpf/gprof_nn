@@ -39,7 +39,7 @@ def get_preprocessor_orbit_header(n_chans, kind):
         binary preprocessor file format.
     """
     check_kind(kind)
-    if kind == CONICAL:
+    if kind in [CONICAL, CONICAL_CONST]:
         dtype = np.dtype(
             [
                 ("satellite", "a12"),
@@ -86,7 +86,7 @@ def get_preprocessor_pixel_record(n_chans, kind):
         binary preprocessor file format.
     """
     check_kind(kind)
-    if kind == CONICAL:
+    if kind in [CONICAL, CONICAL_CONST]:
         dtype = np.dtype(
             [
                 ("latitude", "f4"),

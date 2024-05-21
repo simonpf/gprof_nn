@@ -435,8 +435,9 @@ def load_tbs_1d_gmi(
 def load_tbs_1d_xtrack_sim(
         training_data: xr.Dataset,
         angles: np.ndarray,
-        sensor: sensors.Sensor
-) -> torch.Tensor:
+        sensor: sensors.Sensor,
+        targets: List[str]
+) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
     """
     Load brightness temperatures for cross-track scanning sensors from simulator
     collocations.
@@ -446,17 +447,19 @@ def load_tbs_1d_xtrack_sim(
             GPROF simulator files.
         angles: A np.ndarray cotaining the viewing angle of the tbs to load.
         sensor: The sensor from which the TBs are loaded
+        targets: A list of the targets to load along with the brightness temperatures.
 
     Return:
-        A torch tensor containing the loaded brightness temperatures.
-
+        A tuple containing the loaded brightness temperatures and a dictionary
+        containing the loaded targets.
     """
     samples = np.arange(training_data.samples.size)
     samples = xr.DataArray(samples, dims="samples")
     angles = xr.DataArray(np.abs(angles), dims="samples")
 
     training_data = training_data[
-        ["simulated_brightness_temperatures", "brightness_temperature_biases"]
+        ["simulated_brightness_temperatures", "brightness_temperature_biases"] +
+        targets
     ]
     training_data = training_data.interp(samples=samples, angles=angles)
     tbs = training_data.simulated_brightness_temperatures.data
@@ -475,8 +478,9 @@ def load_tbs_1d_xtrack_sim(
             np.cos(np.deg2rad(angles.data[..., None]))
         )
     )
+    targets = load_targets_1d(training_data, targets)
 
-    return torch.tensor(tbs_full + biases)
+    return torch.tensor((tbs_full + biases).astype(np.float32)), targets
 
 
 def load_tbs_1d_conical_sim(
@@ -765,8 +769,14 @@ class GPROFNN1DDataset(IterableDataset):
                     angles.max(),
                     size=dataset.samples.size,
                 ).astype(np.float32)
-                tbs = load_tbs_1d_xtrack_sim(dataset, angs, sensor)
+                tbs, targets = load_tbs_1d_xtrack_sim(
+                    dataset,
+                    angs,
+                    sensor,
+                    targets
+                )
                 angs = torch.tensor(np.broadcast_to(angs[..., None], tbs.shape))
+
             else:
                 tbs = dataset["brightness_temperatures"].data
                 y_t = dataset[ref_target].data
@@ -775,9 +785,9 @@ class GPROFNN1DDataset(IterableDataset):
                 mask = valid_input * valid_target
                 dataset = dataset[{"samples": mask}]
                 tbs, angs = load_tbs_1d_xtrack_other(dataset, sensor)
+                targets = load_targets_1d(dataset, self.targets)
 
             anc = load_ancillary_data_1d(dataset)
-            targets = load_targets_1d(dataset, self.targets)
 
         elif isinstance(sensor, sensors.ConicalScanner):
 
@@ -791,9 +801,9 @@ class GPROFNN1DDataset(IterableDataset):
 
 
         x = {
-            "brightness_temperatures": tbs,
-            "ancillary_data": anc,
-            "viewing_angles": angs
+            "brightness_temperatures": tbs.to(torch.float32),
+            "ancillary_data": anc.to(torch.float32),
+            "viewing_angles": angs.to(torch.float32)
         }
         return x, targets
 
@@ -1221,7 +1231,7 @@ def load_training_data_3d_other(
         tbs_full = np.nan * np.ones(full_shape, dtype="float32")
         tbs_full[:, :, sensor.gprof_channel_indices] = tbs
     else:
-        tbs_full = tbs
+        tbs_full = tbs.astype(np.float32)
     tbs_full = torch.permute(torch.tensor(tbs_full), (2, 0, 1))
 
     angs = scene.earth_incidence_angle.data

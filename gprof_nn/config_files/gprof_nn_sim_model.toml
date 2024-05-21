@@ -1,0 +1,62 @@
+name = "gprof_nn_sim"
+
+[architecture.encoder]
+channels = [24, 48, 64, 128, 256]
+downsampling_factors = [[1, 1], [2, 2], [2, 2], [2, 1]]
+stage_depths = [2, 4, 4, 5, 8]
+block_factory = [
+    "InvertedBottleneck",
+    "InvertedBottleneck",
+    "InvertedBottleneck",
+    "InvertedBottleneck",
+    "InvertedBottleneck",
+    "InvertedBottleneck",
+]
+block_factory_args = [
+    {{expansion_factor=1, excitation_ratio=0.0, fused=true, anti_aliasing=true}},
+    {{expansion_factor=4, excitation_ratio=0.0, fused=true, anti_aliasing=true}},
+    {{expansion_factor=4, excitation_ratio=0.25, fused=true, anti_aliasing=true}},
+    {{expansion_factor=4, excitation_ratio=0.25, anti_aliasing=true}},
+    {{expansion_factor=6, excitation_ratio=0.25, anti_aliasing=true}},
+]
+
+[architecture.decoder]
+channels = [128, 64, 48, 24]
+upsampling_factors = [[2, 1], [2, 2], [2, 2], [1, 1]]
+stage_depths = [8, 5, 4, 4, 2]
+block_factory = [
+    "InvertedBottleneck",
+    "InvertedBottleneck",
+    "InvertedBottleneck",
+    "InvertedBottleneck",
+    "InvertedBottleneck",
+]
+block_factory_args = [
+    {{expansion_factor=4, excitation_ratio=0.25, anti_aliasing=true}},
+    {{expansion_factor=4, excitation_ratio=0.25, fused=true, anti_aliasing=true}},
+    {{expansion_factor=4, excitation_ratio=0.0, fused=true, anti_aliasing=true}},
+    {{expansion_factor=1, excitation_ratio=0.0, fused=true, anti_aliasing=true}},
+]
+skip_connections=true
+
+[input.brightness_temperatures]
+n_features = 15
+normalize = "minmax"
+
+[input.viewing_angles]
+n_features = 15
+normalize = "minmax"
+
+[input.ancillary_data]
+n_features = 8
+normalize = "minmax"
+
+[output.simulated_brightness_temperatures]
+kind = "Quantiles"
+quantiles = 32
+shape = {tb_sim_shape}
+
+[output.brightness_temperatures_biases]
+kind = "Quantiles"
+quantiles = 32
+shape = {tb_bias_shape}

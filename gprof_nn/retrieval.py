@@ -14,6 +14,7 @@ from pathlib import Path
 import re
 from typing import Dict, List, Optional, Union, Tuple
 
+import click
 import numpy as np
 import xarray as xr
 
@@ -22,7 +23,11 @@ from torch import nn
 import numpy as np
 from pansat import Granule
 import pandas as pd
+from pytorch_retrieve import load_model
+from pytorch_retrieve.architectures import MLP
+from pytorch_retrieve.inference import run_inference
 
+import gprof_nn.logging
 from gprof_nn import sensors
 from gprof_nn.data.l1c import L1CFile
 from gprof_nn.data.preprocessor import PreprocessorFile, run_preprocessor
@@ -65,15 +70,22 @@ def load_input_data_preprocessor(
 
     tbs = data_pp.brightness_temperatures.data.astype(np.float32)
     tbs[tbs < 0] = np.nan
-    tbs_full = np.nan * np.zeros((tbs.shape[:2] + (15,)), dtype=np.float32)
-    tbs_full[..., file_pp.sensor.gprof_channels] = tbs
+    if tbs.shape[-1] < 15:
+        tbs_full = np.nan * np.zeros((tbs.shape[:2] + (15,)), dtype=np.float32)
+        tbs_full[..., file_pp.sensor.gprof_channel_indices] = tbs
+    else:
+        tbs_full = tbs.astype(np.float32)
     tbs_full = np.transpose(tbs_full, (2, 0, 1))
 
     viewing_angles = data_pp.earth_incidence_angle.data.astype(np.float32)
-    angs_full = np.nan * np.zeros(viewing_angles.shape[:2] + (15,), dtype=np.float32)
     if viewing_angles.ndim == 2:
         viewing_angles = viewing_angles[..., None]
-    angs_full[..., file_pp.sensor.gprof_channels] = viewing_angles
+
+    if viewing_angles.shape[-1] < 15:
+        angs_full = np.nan * np.zeros(viewing_angles.shape[:2] + (15,), dtype=np.float32)
+        angs_full[..., file_pp.sensor.gprof_channel_indices] = viewing_angles
+    else:
+        angs_full = viewing_angles.astype(np.float32)
     angs_full = np.transpose(angs_full, (2, 0, 1))
 
     anc = torch.tensor(np.stack(
@@ -150,7 +162,6 @@ def load_input_data_training_1d(
             tbs = load_tbs_1d_gmi(data)
             anc = load_ancillary_data_1d(data)
             angs = torch.tensor(np.broadcast_to(EIA_GMI.astype("float32"), tbs.shape))
-
         elif isinstance(sensor, sensors.CrossTrackScanner):
             if data.attrs["source"] == "sim":
                 angles = data["angles"].data
@@ -159,26 +170,26 @@ def load_input_data_training_1d(
                     angles.max(),
                     size=data.samples.size,
                 ).astype(np.float32)
-                tbs = load_tbs_1d_xtrack_sim(data, angs, sensor)
+                tbs, _ = load_tbs_1d_xtrack_sim(data, angs, sensor, targets=[])
                 angs = torch.tensor(angs)
                 angs = torch.tensor(np.broadcast_to(angs[..., None], tbs.shape))
             else:
                 tbs, angs = load_tbs_1d_xtrack_other(data, sensor)
             anc = load_ancillary_data_1d(data)
-
-        elif isinstance(sensor, sensors.ConicalScanner):
-
+        elif isinstance(sensor, sensors.ConstellationScanner):
             if data.source == "sim":
                 tbs = load_tbs_1d_conical_sim(data, sensor)
-                angs = torch.tensor(np.broadcast_to(EIA_GMI.astype("float32"), tbs.shape))
+                angs = torch.tensor(
+                    np.broadcast_to(EIA_GMI.astype("float32"), tbs.shape)
+                )
             else:
                 tbs, angs = load_tbs_1d_conical_other(data, sensor)
             anc = load_ancillary_data_1d(data)
 
         input_data = {
             "brightness_temperatures": tbs,
+            "viewing_angles": angs,
             "ancillary_data": anc,
-            "viewing_angles": angs
         }
         aux = {
             "longitude": data.longitude.data,
@@ -207,10 +218,12 @@ def load_input_data_training_3d(
         sensor = scene.attrs["sensor"]
         sensor = getattr(sensors, sensor)
 
+        targets_aux = ALL_TARGETS + ["longitude", "latitude"]
+
         if sensor == sensors.GMI:
             input_data, targets = load_training_data_3d_gmi(
                 scene,
-                targets=ALL_TARGETS,
+                targets=targets_aux,
                 augment=None,
                 rng=rng
             )
@@ -219,7 +232,7 @@ def load_input_data_training_3d(
                 input_data, targets = load_training_data_3d_xtrack_sim(
                     sensor,
                     scene,
-                    targets=ALL_TARGETS,
+                    targets=targets_aux,
                     augment=None,
                     rng=rng
                 )
@@ -227,16 +240,16 @@ def load_input_data_training_3d(
                 input_data, targets = load_training_data_3d_other(
                     sensor,
                     scene,
-                    targets=ALL_TARGETS,
+                    targets=targets_aux,
                     augment=None,
                     rng=rng
                 )
-        elif isinstance(sensor, sensors.ConicalScanner):
+        elif isinstance(sensor, sensors.ConstellationScanner):
             if scene.source == "sim":
                 input_data, targets = load_training_data_3d_conical_sim(
                     sensor,
                     scene,
-                    targets=ALL_TARGETS,
+                    targets=targets_aux,
                     augment=None,
                     rng=rng
                 )
@@ -244,18 +257,19 @@ def load_input_data_training_3d(
                 input_data, targets = load_training_data_3d_other(
                     sensor,
                     scene,
-                    targets=ALL_TARGETS,
+                    targets=targets_aux,
                     augment=None,
                     rng=rng
                 )
 
         aux = {
-            "longitude": scene.longitude.data,
-            "latitude": scene.latitude.data,
+            "longitude": targets.pop("longitude"),
+            "latitude": targets.pop("latitude"),
         }
         for name, target_data in targets.items():
             aux[name + "_ref"] = target_data
         return input_data, aux
+
     raise RuntimeError(
         "Invalid sensor/scene combination in training file %s.",
         training_file
@@ -354,9 +368,12 @@ class GPROFNNInputLoader:
                 f"Encountered unknown input format '{input_format}'."
             )
 
+        input_data = {
+            name: torch.tensor(data) for name, data in input_data.items()
+        }
         if self.config == "1d":
             input_data = {
-                name: torch.permute(tensor, (1, 2, 0)).reshape((-1, 15)) if tensor.ndim == 3 else tensor
+                name: torch.permute(tensor, (1, 2, 0)).reshape((-1, tensor.shape[0])) if tensor.ndim == 3 else tensor
                 for name, tensor in input_data.items()
             }
 
@@ -373,45 +390,159 @@ class GPROFNNInputLoader:
             aux: Dict[str, np.ndarray],
             filename: str
     ) -> Tuple[xr.Dataset, str]:
+        """
+        Combines retrieval results with auxiliary data into orbit-based retrieval
+        result files. This method does is called as part of the inference method
+        provided by pytorch_retrieve.
 
-        shape = (data.scans.size, data.pixels.size)
-        dims = ("levels", "scans", "pixels")
+        Args:
+            results: A dictionary mapping retrieval output names to tensor containing
+                corresponding results.
+            aux: A dictionary containing auxiliary data passed along from the
+                retrieval input.
+            filename: The filename of the input file.
 
-        results = xr.Dataset()
-        for name, data in aux:
-            results[var] = (dims_v, tensor.numpy())
+        Return:
+            A tuple ``(results, filename)`` containing the retrieval results as
+            xarray.Dataset in ``results`` and the filename to use to store the
+            results in ``filename``.
+        """
 
+        lons = aux["longitude"]
+        lats = aux["latitude"]
+        shape = lons.shape
+
+        if lons.ndim == 2:
+            dims = ("scans", "pixels", "levels")
+        else:
+            dims = ("samples", "levels")
+
+        output = xr.Dataset()
+        for name, data in aux.items():
+            data = data.squeeze()
+            if data.ndim > 2:
+                data = data.transpose((1, 2, 0))
+            dims_v = dims[:data.ndim]
+            output[name] = (dims_v, data)
+
+        if lons.ndim == 2:
+            dims = ("scans", "pixels", "levels")
+        else:
+            dims = ("samples", "levels")
         for var, tensor in results.items():
 
             # Discard dummy dimensions.
             tensor = tensor.squeeze()
             if self.config.lower() == "1d":
                 tensor = tensor.reshape(shape + tensor.shape[1:])
-                if tensor.dim() > 2:
-                    tensor = torch.permute(tensor, (2, 0, 1))
 
             if var == "surface_precip_terciles":
-                results["surface_precip_1st_tercile"] = (
-                    ("scans", "pixels"), tensor[0].numpy()
+                if self.config == "3d":
+                    tensor = torch.permute(tensor, (1, 2, 0))
+                if lons.ndim < 2:
+                    dims_v = ("samples",)
+                else:
+                    dims_v = ("scans", "pixels")
+                output["surface_precip_1st_tercile"] = (
+                    dims_v, tensor[..., 0].numpy()
                 )
-                results["surface_precip_1st_tercile"].encoding = {"dtype": "float32", "zlib": True}
-                results["surface_precip_2nd_tercile"] = (
-                    ("scans", "pixels"),
-                    tensor[1].numpy()
+                output["surface_precip_1st_tercile"].encoding = {"dtype": "float32", "zlib": True}
+                output["surface_precip_2nd_tercile"] = (
+                    dims_v,
+                    tensor[..., 1].numpy()
                 )
-                results["surface_precip_2nd_tercile"].encoding = {"dtype": "float32", "zlib": True}
+                output["surface_precip_2nd_tercile"].encoding = {"dtype": "float32", "zlib": True}
             else:
-                dims_v = dims[-tensor.dim():]
-                results[var] = (dims_v, tensor.numpy())
+                if self.config == "3d" and tensor.dim() > 2:
+                    tensor = torch.permute(tensor, (1, 2, 0))
+                dims_v = dims[:tensor.dim()]
+                output[var] = (dims_v, tensor.numpy())
                 # Use compressiong to keep file size reasonable.
-                results[var].encoding = {"dtype": "float32", "zlib": True}
+                output[var].encoding = {"dtype": "float32", "zlib": True}
+
 
         # Quick and dirty way to transform 1C filename to 2A filename
         output_filename = (
             filename.replace("1C-R", "2A")
             .replace("1C", "2A")
+            .replace("pp", "nc")
             .replace("HDF5", "nc")
         )
 
-        # Return results as xr.Dataset and filename to use to save data.
-        return data, output_filename
+        # Return outputs as xr.Dataset and filename to use to save data.
+        return output, output_filename
+
+
+@click.argument("retrieval_model", type=str,)
+@click.argument("input_path", type=str)
+@click.option(
+    "--output_path",
+    type=str,
+    metavar="PATH",
+    default=None,
+    help=(
+        "An optional destination to which to write the inference results."
+    )
+)
+@click.option(
+    "--device",
+    type=str,
+    default="cpu",
+    help=(
+        "The device on which to perform inference."
+    )
+)
+@click.option(
+    "--dtype",
+    type=str,
+    default="float32",
+    help=(
+        "The floating point type to use for inference."
+    )
+)
+def cli(
+        retrieval_model: str,
+        input_path: Path,
+        output_path: Optional[Path] = None,
+        device: str = "cpu",
+        dtype: str = "float32",
+) -> None:
+    """
+    Run GPROF-NN retrieval using the retrieval model RETRIEVAL_MODEL on all input
+    files located in INPUT_PATH.
+    """
+    try:
+        model = load_model(retrieval_model).eval()
+    except Exception:
+        LOGGER.exception(
+            "Encountered the following error when trying to load the model from "
+            " file '%s'.",
+            model
+        )
+        return 1
+
+    inference_config = model.inference_config
+
+    if isinstance(model, MLP):
+        config = "1d"
+    else:
+        config = "3d"
+
+    input_loader = GPROFNNInputLoader(input_path, config=config)
+
+    if output_path is None:
+        output_path = Path(".")
+    else:
+        output_path = Path(output_path)
+
+    device = torch.device(device)
+    dtype = getattr(torch, dtype)
+
+    run_inference(
+        model,
+        input_loader,
+        inference_config=inference_config,
+        output_path=output_path,
+        device=device,
+        dtype=dtype,
+    )
