@@ -263,11 +263,11 @@ def load_input_data_training_3d(
                 )
 
         aux = {
-            "longitude": targets.pop("longitude"),
-            "latitude": targets.pop("latitude"),
+            "longitude": targets.pop("longitude").numpy(),
+            "latitude": targets.pop("latitude").numpy(),
         }
         for name, target_data in targets.items():
-            aux[name + "_ref"] = target_data
+            aux[name + "_ref"] = target_data.numpy()
         return input_data, aux
 
     raise RuntimeError(
@@ -420,7 +420,7 @@ class GPROFNNInputLoader:
         output = xr.Dataset()
         for name, data in aux.items():
             data = data.squeeze()
-            if data.ndim > 2:
+            if data.ndim > 2 and data.shape[-1] != 28:
                 data = data.transpose((1, 2, 0))
             dims_v = dims[:data.ndim]
             output[name] = (dims_v, data)
