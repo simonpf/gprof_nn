@@ -407,7 +407,6 @@ class GPROFNNInputLoader:
             xarray.Dataset in ``results`` and the filename to use to store the
             results in ``filename``.
         """
-
         lons = aux["longitude"]
         lats = aux["latitude"]
         shape = lons.shape
@@ -469,6 +468,7 @@ class GPROFNNInputLoader:
             .replace("HDF5", "nc")
         )
 
+<<<<<<< Updated upstream
         # Return outputs as xr.Dataset and filename to use to save data.
         return output, output_filename
 
@@ -546,3 +546,9 @@ def cli(
         device=device,
         dtype=dtype,
     )
+=======
+        raise Exception()
+
+        # Return results as xr.Dataset and filename to use to save data.
+        return data, output_filename
+>>>>>>> Stashed changes
