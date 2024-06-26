@@ -1,0 +1,26 @@
+[platform]
+name = "NOAA20"
+l1c_file_path = "/pdata4/archive/GPM/1C_NOAA20_V7"
+l1c_file_prefix = "1C.NOAA20.ATMS"
+
+[viewing_geometry]
+kind = "CrossTrack"
+altitude = 834e3
+scan_range = 99.0
+pixels_per_scan = 96
+scan_offset = 16e3
+beam_width = 2.2
+
+[sensor]
+kind = "CrossTrackScanner"
+frequencies = [88.2, 165.5, 183.31, 183.31, 183.31]
+offsets = [0, 0, 1.0, 3.0, 7.0]
+polarization = ["QV", "QH", "QH", "QH", "QH"]
+orographic_enhancement = [1.06241, 1.69921, 1.47471, 1.74373, 3.2]
+
+[sensor.gprof_channels]
+8 = [0, 0]
+10 = [0, 1]
+12 = [0, 2]
+13 = [0, 3]
+14 = [0, 4]
