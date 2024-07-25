@@ -6,7 +6,7 @@
 The first step in installing ``gprof_nn`` consists of cloning the source code from GitHub.
 
 ```
-git clone -b gprof_v8 git@github.com/simonpf/gprof_nn
+git clone -b gprof_v8 git@github.com:simonpf/gprof_nn
 ```
 
 This will clone the source code for the V8 version of GPROF-NN into a new folder named ``gprof_nn``.
