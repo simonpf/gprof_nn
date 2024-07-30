@@ -468,7 +468,6 @@ class GPROFNNInputLoader:
             .replace("HDF5", "nc")
         )
 
-<<<<<<< Updated upstream
         # Return outputs as xr.Dataset and filename to use to save data.
         return output, output_filename
 
@@ -546,9 +545,3 @@ def cli(
         device=device,
         dtype=dtype,
     )
-=======
-        raise Exception()
-
-        # Return results as xr.Dataset and filename to use to save data.
-        return data, output_filename
->>>>>>> Stashed changes

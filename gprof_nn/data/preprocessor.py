@@ -725,7 +725,7 @@ PREPROCESSOR_EXECUTABLES = {
     "SSMIS": "gprof2021pp_SSMIS_L1C",
     "AMSR2": "gprof2023pp_AMSR2_L1C",
     "AMSRE": "gprof2021pp_AMSRE_L1C",
-    "ATMS": "gprof2021pp_ATMS_L1C",
+    "ATMS": "gprof2023pp_ATMS_L1C",
     "TMS": "gprof2023pp_TMS_L1C",
     ("GMI", "MHS"): "gprof2023pp_GMI_L1C",
     ("GMI", "TMIPR"): "gprof2021pp_GMI_TMI_L1C",

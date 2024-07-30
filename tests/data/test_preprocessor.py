@@ -55,6 +55,7 @@ def test_preprocessor_gmi(tmp_path):
     assert tbs.max() < 320
 
 
+
 @NEEDS_GPM_DATA
 def test_preprocessor_amsr2(tmp_path):
     """
@@ -74,6 +75,34 @@ def test_preprocessor_amsr2(tmp_path):
 
     assert np.all(
         pp_data.scan_time > np.datetime64("2015-01-01T00:00:00")
+    )
+    tbs = pp_data.brightness_temperatures.data
+    valid = tbs >= 0.0
+    tbs = tbs[valid]
+
+    assert tbs.size > 0
+    assert tbs.max() < 320
+
+
+@NEEDS_GPM_DATA
+def test_preprocessor_atms(tmp_path):
+    """
+    Test running the preprocessor for ATMS and loading the
+    results.
+    """
+    l1c_file = L1CFile(
+        GPM_DATA /
+        "1C_ATMS_V7/2304/230412/1C.NPP.ATMS.XCAL2019-"
+        "V.20230412-S003820-E021949.059355.V07A.HDF5"
+    )
+    l1c_file.extract_scan_range(1000, 1005, tmp_path / "atms_l1c.HDF5")
+    pp_data = run_preprocessor(
+        tmp_path / "atms_l1c.HDF5",
+        sensors.ATMS
+    )
+
+    assert np.all(
+        pp_data.scan_time > np.datetime64("2023-01-01T00:00:00")
     )
     tbs = pp_data.brightness_temperatures.data
     valid = tbs >= 0.0

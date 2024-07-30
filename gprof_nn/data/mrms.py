@@ -420,6 +420,7 @@ def process_match_files(
 @click.argument("sensor")
 @click.argument("match_path")
 @click.argument("l1c_path")
+@click.argument("split", type=click.Choice(['training', 'validation', 'test']))
 @click.argument("output_1d")
 @click.argument("output_3d")
 @click.option(
@@ -431,6 +432,7 @@ def cli(
     sensor: str,
     match_path: str,
     l1c_path: str,
+    split: str,
     output_1d: str,
     output_3d: str,
     n_processes: int = 4
