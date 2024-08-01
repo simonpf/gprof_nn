@@ -697,7 +697,7 @@ def process_files(
             (``lon_ll`` and ``lat_ll``) followed by the longitude and latitude coordinates
             of the upper right corner (``lon_ur``, ``lat_ur``).
     """
-    sim_files = sorted(list(path.glob("**/*.sim")))
+    sim_files = sorted(list(path.glob(f"**/{sensor.sim_file_pattern}")))
     files = []
     for path in sim_files:
         date = path.stem.split(".")[-2]

@@ -17,6 +17,7 @@ frequencies = [89.0, 150.0, 183.31, 183.1, 190.311]
 offsets = [0.0, 0.0, 1.0, 3.0, 0.0]
 polarization = ["V", "V", "H", "H", "V"]
 orographic_enhancement = [1.14927, 1.67389, 1.51995, 1.63020, 3.19961]
+sim_file_pattern = "MHS.dbsatTB.???????.?????.sim"
 
 [sensor.gprof_channels]
 8 = [0, 0]

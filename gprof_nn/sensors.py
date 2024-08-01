@@ -47,6 +47,7 @@ from concurrent.futures import ProcessPoolExecutor
 from copy import copy
 import logging
 from pathlib import Path
+from typing import List
 
 import numpy as np
 import toml
@@ -195,15 +196,16 @@ class Sensor(ABC):
 
     def __init__(
             self,
-            kind,
-            name,
+            kind: str,
+            name: str,
             platform,
             viewing_geometry,
-            gprof_channels,
-            frequencies,
-            offsets,
-            polarization,
-            orographic_enhancement
+            gprof_channels: List[int],
+            frequencies: List[float],
+            offsets: List[float],
+            polarization: List[str],
+            orographic_enhancement: List[float],
+            sim_file_pattern: str = "*.sim"
     ):
         self.kind = kind
         self._name = name
@@ -214,6 +216,7 @@ class Sensor(ABC):
         self.offsets = offsets
         self.polarization = polarization
         self.orographic_enhancement = orographic_enhancement
+        self.sim_file_pattern = sim_file_pattern
 
         self.n_chans = len(self.gprof_channels)
         self.n_angles = 10 if isinstance(self, CrossTrackScanner) else 1
@@ -374,18 +377,20 @@ class ConicalScanner(Sensor):
 
     def __init__(
             self,
-            name,
+            name: str,
             platform,
             viewing_geometry,
-            gprof_channels,
-            frequencies,
-            offsets,
-            polarization,
-            orographic_enhancement
+            gprof_channels: List[int],
+            frequencies: List[float],
+            offsets: List[float],
+            polarization: List[float],
+            orographic_enhancement: List[float],
+            sim_file_pattern: str = "*.sim"
     ):
         super().__init__(
             types.CONICAL, name, platform, viewing_geometry, gprof_channels,
-            frequencies, offsets, polarization, orographic_enhancement
+            frequencies, offsets, polarization, orographic_enhancement,
+            sim_file_pattern=sim_file_pattern
         )
         self._n_angles = 1
 
@@ -404,18 +409,20 @@ class CrossTrackScanner(Sensor):
     """
     def __init__(
             self,
-            name,
+            name: str,
             platform,
             viewing_geometry,
-            gprof_channels,
-            frequencies,
-            offsets,
-            polarization,
-            orographic_enhancement
+            gprof_channels: List[int],
+            frequencies: List[float],
+            offsets: List[float],
+            polarization: List[str],
+            orographic_enhancement: List[float],
+            sim_file_pattern: str = "*.sim"
     ):
         super().__init__(
             types.XTRACK, name, platform, viewing_geometry, gprof_channels,
-            frequencies, offsets, polarization, orographic_enhancement
+            frequencies, offsets, polarization, orographic_enhancement,
+            sim_file_pattern=sim_file_pattern
         )
 
     def __repr__(self):
@@ -431,14 +438,15 @@ class ConstellationScanner(Sensor):
 
     def __init__(
             self,
-            name,
+            name: str,
             platform,
             viewing_geometry,
-            gprof_channels,
-            frequencies,
-            offsets,
-            polarization,
-            orographic_enhancement
+            gprof_channels: List[int],
+            frequencies: List[float],
+            offsets: List[float],
+            polarization: List[str],
+            orographic_enhancement: List[float],
+            sim_file_pattern: str = "*.sim"
     ):
         super().__init__(
             types.CONICAL_CONST,
@@ -543,10 +551,14 @@ def parse_sensor(sensor_file: Path) -> Sensor:
         "frequencies",
         "offsets",
         "polarization",
-        "orographic_enhancement"
+        "orographic_enhancement",
     ]
     args = [sensor[arg] for arg in args]
-    sensor = sensor_class(name.split('_')[0], platform, viewing_geometry, *args)
+    kwargs = {
+        "sim_file_pattern": "*.sim"
+    }
+    kwargs = {key: sensor.get(key, value) for key, value in kwargs.items()}
+    sensor = sensor_class(name.split('_')[0], platform, viewing_geometry, *args, **kwargs)
     return sensor
 
 
