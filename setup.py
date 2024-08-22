@@ -18,7 +18,7 @@ setup(
     author="Simon Pfreundschuh",
     author_email="simon.pfreundschuh@chalmers.se",
     install_requires=[
-        "numpy", "scipy", "xarray", "torch", "appdirs", "rich",
+        "click", "numpy", "scipy", "xarray", "torch", "appdirs", "rich",
         "quantnn>=0.0.5dev", "h5py", "netCDF4", "h5netcdf", "pandas",
     ],
     extras_require = {

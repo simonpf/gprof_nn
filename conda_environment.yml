@@ -5,11 +5,11 @@ channels:
   - conda-forge
   - defaults
 dependencies:
-  - python=3.10
-  - pytorch::pytorch==2.0.1
-  - pytorch::torchvision==0.15.2
-  - pytorch::pytorch-cuda==11.7
-  - pytorch::torchaudio==2.0.2
+  - python
+  - pytorch::pytorch
+  - pytorch::torchvision
+  - pytorch::pytorch-cuda=11.8
+  - pytorch::torchaudio
   - netcdf4
   - pyyaml
   - pooch
