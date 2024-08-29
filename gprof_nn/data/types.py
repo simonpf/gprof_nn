@@ -289,7 +289,7 @@ def get_sim_file_header(n_chans, n_angles, kind):
                 ("satellite_code", "a5"),
                 ("sensor", "a5"),
                 ("frequencies", f"f4", (n_chans,)),
-                ("viewing_angles", f"f4", (n_chans,)),
+                ("viewing_angles", f"f4", (n_angles,)),
                 ("start_pixel", "i4"),
                 ("end_pixel", "i4"),
                 ("start_scan", "i4"),
