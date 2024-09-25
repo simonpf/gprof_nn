@@ -14,7 +14,7 @@ import pandas as pd
 import xarray as xr
 
 from gprof_nn.augmentation import extract_domain
-from gprof_nn.definitions import LIMITS
+from gprof_nn.definitions import LIMITS, ANCILLARY_VARIABLES
 from gprof_nn.utils import apply_limits
 
 CENTER = 110
@@ -105,19 +105,11 @@ def decompress_scene(scene, targets):
     Returns:
         New 'xarray.Dataset' with all compressed variables decompressed.
     """
-    variables = [
-        "brightness_temperatures",
-        "two_meter_temperature",
-        "total_column_water_vapor",
-        "ocean_fraction",
-        "land_fraction",
-        "ice_fraction",
-        "snow_depth",
-        "leaf_area_index",
-        "orographic_wind",
-        "moisture_convergence",
-        "source",
-    ] + targets
+    variables = (
+        ANCILLARY_VARIABLES +
+        targets +
+        ["brightness_temperatures", "source"]
+    )
     variables = [var for var in variables if var in scene]
 
     data = {}
@@ -146,17 +138,11 @@ def remap_scene(scene, coords, targets):
     Returns:
         New 'xarray.Dataset' containing the remapped data.
     """
-    variables = [
-        "brightness_temperatures",
-        "two_meter_temperature",
-        "total_column_water_vapor",
-        "land_fraction",
-        "ice_fraction",
-        "snow_depth",
-        "leaf_area_index",
-        "orographic_wind",
-        "moisture_convergence",
-    ] + targets
+    variables = (
+        ["brightness_temperatures"] +
+        ANCILLARY_VARIABLES +
+        targets
+    )
 
     data = {}
     dims = ("scans", "pixels")
@@ -350,7 +336,12 @@ def extract_scenes(
     n_pixels_tot = data.pixels.size
 
     def get_valid(dataset):
-        valid = np.isfinite(dataset[reference_var])
+        if isinstance(reference_var, (list, tuple)):
+            valid = np.isfinite(dataset[reference_var[0]])
+            for ref_var in reference_var[1:]:
+                valid *= np.isfinite(dataset[ref_var])
+        else:
+            valid = np.isfinite(dataset[reference_var])
         if valid.ndim > 2:
             valid = valid.any([dim for dim in valid.dims if not dim in ["scans", "pixels"]])
         return valid

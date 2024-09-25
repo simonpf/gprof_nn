@@ -659,7 +659,6 @@ class GPROFNN1DDataset(IterableDataset):
         self,
         path: Path,
         targets: Optional[List[str]] = None,
-        transform_zeros: bool = True,
         augment: bool = True,
         validation: bool = False,
     ):
@@ -673,8 +672,6 @@ class GPROFNN1DDataset(IterableDataset):
         Args:
             path: The path containing the training data files.
             targets: A list of the target variables to load.
-            transform_zeros: Whether or not to replace zeros in the output
-                with small random values.
             augment: Whether or not to apply data augmentation to the loaded
                 data.
             validation: If set to 'True', data  loaded in consecutive iterations
@@ -686,7 +683,6 @@ class GPROFNN1DDataset(IterableDataset):
             targets = ALL_TARGETS
 
         self.targets = targets
-        self.transform_zeros = transform_zeros
         self.validation = validation
         self.augment = augment
 
@@ -865,6 +861,7 @@ def load_training_data_3d_gmi(
         name for name in targets + ["latitude", "longitude"]
         if name in scene
     ]
+    source = scene.source
     scene = decompress_scene(scene, variables)
 
     if augment:
@@ -878,10 +875,12 @@ def load_training_data_3d_gmi(
 
     lats = scene.latitude.data
     lons = scene.longitude.data
-    coords = get_transformation_coordinates(
-        lats, lons, sensors.GMI.viewing_geometry, 64, 128, p_x_i, p_x_o, p_y
-    )
-    scene = remap_scene(scene, coords, variables)
+
+    if source == "sim":
+        coords = get_transformation_coordinates(
+            lats, lons, sensors.GMI.viewing_geometry, 64, 128, p_x_i, p_x_o, p_y
+        )
+        scene = remap_scene(scene, coords, variables)
 
     tbs = torch.tensor(scene.brightness_temperatures.data)
     angs = torch.tensor(np.broadcast_to(EIA_GMI.astype("float32"), tbs.shape))
@@ -919,6 +918,8 @@ def load_training_data_3d_gmi(
             continue
 
         data_t = scene[target].data
+        if data_t.ndim < 3:
+            data_t = data_t[None]
         data = torch.tensor(data_t.astype("float32"))
         y[target] = data
 
@@ -932,6 +933,9 @@ def load_training_data_3d_gmi(
         if prob > 0.5:
             x = {key: torch.flip(tensor, (-1,)) for key, tensor in x.items()}
             y = {key: torch.flip(tensor, (-1,)) for key, tensor in y.items()}
+
+    for key, tensor in y.items():
+        y[key] = tensor.squeeze()
 
     return x, y
 
@@ -1050,6 +1054,8 @@ def load_training_data_3d_xtrack_sim(
         if "angles" in scene[target].dims:
             data = interpolate(data, weights)
 
+        if data.ndim < 3:
+            data = data[..., None]
         data = torch.tensor(data)
 
         dims = tuple(range(data.ndim))
@@ -1159,6 +1165,9 @@ def load_training_data_3d_conical_sim(
             y[target] = empty
             continue
 
+        data = scene[target].data
+        if data.ndim < 3:
+            data = data[None]
         data = torch.tensor(scene[target].data.astype("float32"))
         y[target] = data
 
@@ -1267,6 +1276,8 @@ def load_training_data_3d_other(
 
 
         data = scene[target].data.astype("float32")
+        if data.ndim < 3:
+            data = data[..., None]
 
         data = torch.tensor(data)
         dims = tuple(range(data.ndim))
@@ -1296,7 +1307,6 @@ class GPROFNN3DDataset(Dataset):
         self,
         path: Path,
         targets: Optional[List[str]] = None,
-        transform_zeros: bool = True,
         augment: bool = True,
         validation: bool = False
     ):
@@ -1309,8 +1319,6 @@ class GPROFNN3DDataset(Dataset):
         Args:
             path: The path containing the training data files.
             targets: A list of the target variables to load.
-            transform_zeros: Whether or not to replace zeros in the output
-                with small random values.
             augment: Whether or not to apply data augmentation to the loaded
                 data.
             validation: If set to 'True', data  loaded in consecutive iterations
@@ -1321,7 +1329,6 @@ class GPROFNN3DDataset(Dataset):
         if targets is None:
             targets = ALL_TARGETS
         self.targets = targets
-        self.transform_zeros = transform_zeros
         self.validation = validation
         self.augment = augment and not validation
         self.validation = validation
@@ -1499,7 +1506,6 @@ class SimulatorDataset(Dataset):
     def __init__(
         self,
         path: Path,
-        transform_zeros: bool = True,
         augment: bool = True,
         validation: bool = False
     ):
@@ -1520,7 +1526,6 @@ class SimulatorDataset(Dataset):
         """
         super().__init__()
 
-        self.transform_zeros = transform_zeros
         self.validation = validation
         self.augment = augment and not validation
         self.validation = validation
@@ -1584,3 +1589,97 @@ class SimulatorDataset(Dataset):
                 augment=self.augment,
                 rng=self.rng
             )
+
+
+
+
+class SatformerDataset:
+    def __init__(
+            self,
+            path: Path,
+            seq_len_in: int = 13,
+            seq_len_out: int = 4,
+            validation: bool = False
+    ):
+        self.input_files = np.array(sorted(list(Path(path).glob("*.nc"))))
+        self.seq_len_in = seq_len_in
+        self.seq_len_out = seq_len_out
+        self.validation = validation
+        self.init_rng()
+
+    def init_rng(self, w_id=0):
+        """
+        Initialize random number generator.
+
+        Args:
+            w_id: The worker ID which of the worker process..
+        """
+        if self.validation:
+            seed = 42
+        else:
+            seed = int.from_bytes(os.urandom(4), "big") + w_id
+        self.rng = np.random.default_rng(seed)
+
+    def worker_init_fn(self, w_id: int):
+        """
+        Pytorch retrieve interface.
+        """
+        self.init_rng(w_id)
+        winfo = torch.utils.data.get_worker_info()
+        n_workers = winfo.num_workers
+
+
+    def __len__(self):
+        return len(self.input_files)
+
+    def __getitem__(self, ind: int):
+
+        try:
+            data = xr.open_dataset(self.input_files[ind])
+        except Exception:
+            return self[self.rng.integers(0, len(self))]
+
+
+        n_chans_in = data.input_channels.size
+        n_chans_out = data.target_channels.size
+        chans_in = self.rng.permutation(n_chans_in)
+        chans_out = self.rng.permutation(n_chans_out)
+
+        input_observations = data.input_observations.data.astype("float32")
+        input_meta = data.input_meta_data.data.astype("float32")
+        target_observations = data.target_observations.data.astype("float32")
+        target_meta = data.target_meta_data.data.astype("float32")
+
+        obs_in = []
+        meta_in = []
+
+        for input_ind in range(self.seq_len_in):
+            if input_ind < len(chans_in):
+                obs_in.append(torch.tensor(input_observations[[chans_in[input_ind]]]))
+                meta_in.append(torch.tensor(input_meta[chans_in[input_ind]]))
+            else:
+                obs_in.append(torch.nan * torch.zeros_like(obs_in[-1]))
+                meta_in.append(torch.nan * torch.zeros_like(meta_in[-1]))
+
+        obs_out = []
+        meta_out = []
+        for output_ind in range(self.seq_len_out):
+            if output_ind < len(chans_out):
+                obs_out.append(torch.tensor(target_observations[[chans_out[output_ind]]]))
+                meta_out.append(torch.tensor(target_meta[chans_out[output_ind]]))
+            else:
+                obs_out.append(torch.nan * torch.zeros_like(obs_out[-1]))
+                meta_out.append(torch.nan * torch.zeros_like(meta_out[-1]))
+
+        inpt = {
+            "input_observations": torch.stack(obs_in, 1),
+            "input_meta": torch.stack(meta_in, 1),
+            "output_meta": torch.stack(meta_out, 1),
+        }
+        mask = torch.isnan(inpt["input_observations"]).all(0).all(-1).all(-1)
+        inpt["mask"] = mask
+        target = torch.stack(obs_out, 1)
+
+        data.close()
+
+        return inpt, obs_out

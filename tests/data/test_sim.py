@@ -80,6 +80,36 @@ def test_open_sim_file_mhs():
     assert data.angles.data.max() > 50
 
 
+TMS_SIM_DATA = Path("/edata1/josh/sim_stuff/simf/V8xdata/new_TROPICS")
+NEEDS_TMS_SIM_DATA = pytest.mark.skipif(
+    not TMS_SIM_DATA.exists(), reason="Needs TMS sim files."
+)
+
+@NEEDS_TMS_SIM_DATA
+def test_open_sim_file_tms():
+    """
+    Tests reading simulator output file for TMS.
+    """
+    input_file = TMS_SIM_DATA / "1810/TMS.dbsatTb.20181031.026560.sim"
+
+    sim_file = SimFile(input_file)
+    data = sim_file.to_xarray_dataset()
+
+    assert "surface_precip" in data.variables.keys()
+    assert "latent_heat" in data.variables.keys()
+    assert "snow_water_content" in data.variables.keys()
+    assert "rain_water_content" in data.variables.keys()
+
+    valid = data.surface_precip.data > -9999
+    assert valid.sum() > 0
+    assert np.all(data.surface_precip.data[valid] >= 0.0)
+    assert np.all(data.surface_precip.data[valid] <= 1000.0)
+    assert np.all(data.latitude >= -90.0)
+    assert np.all(data.latitude <= 90.0)
+    assert np.all(data.longitude >= -180.0)
+    assert np.all(data.longitude <= 180.0)
+
+
 @NEEDS_SIM_DATA
 def test_collocate_targets(tmp_path):
     """

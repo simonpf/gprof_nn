@@ -33,13 +33,14 @@ PROFILE_TARGETS = [
 
 ANCILLARY_VARIABLES = [
     "land_fraction",
-    "ice_fraction",
-    "leaf_area_index",
-    "snow_depth",
-    "two_meter_temperature",
-    "total_column_water_vapor",
-    "orographic_wind",
-    "moisture_convergence",
+    #"ice_fraction",
+    #"leaf_area_index",
+    #"snow_depth",
+    #"two_meter_temperature",
+    #"total_column_water_vapor",
+    #"orographic_wind",
+    #"moisture_convergence",
+    "elevation"
 ]
 
 SURFACE_TYPE_NAMES = [

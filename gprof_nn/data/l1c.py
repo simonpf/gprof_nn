@@ -362,10 +362,11 @@ class L1CFile:
                     shape = input[f"{group_name}/Latitude"].shape
                     n_scans = shape[0]
                     scaling = n_scans // n_scans_total
-                    n_scans = (scan_end - scan_start) * scaling
+                    scan_end_s = min(n_scans, scan_end)
+                    n_scans = (scan_end_s - scan_start) * scaling
                     scan_range = slice(
                         scan_start * scaling,
-                        scan_end * scaling
+                        scan_end_s * scaling
                     )
                     g = output.create_group(group_name)
                     for name, item in input[group_name].items():

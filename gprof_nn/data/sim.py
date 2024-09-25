@@ -881,7 +881,6 @@ def cli(sensor: Sensor,
     else:
         lonlat_bounds = None
 
-
     process_files(
         sensor,
         sim_file_path,

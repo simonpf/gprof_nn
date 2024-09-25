@@ -1970,3 +1970,140 @@ class GPROFNet3D(nn.Module):
         y = self.decoder(self.encoder(x_in, return_skips=True))
         y = {name: head(y) for name, head in self.heads.items()}
         return y
+
+
+
+class MetaEncoding(nn.Sequential):
+    def __init__(self, n_features_in, n_features_out):
+        super().__init__(
+            nn.Conv2d(n_features_in, n_features_out, kernel_size=1),
+            LayerNormFirst(),
+            nn.GELU(),
+            nn.Conv2d(n_features_out, n_features_out, kernel_size=1),
+            LayerNormFirst(),
+            nn.GELU(),
+            nn.Conv2d(n_features_out, n_features_out, kernel_size=1),
+        )
+
+class Stage(nn.Sequential):
+    def __init__(self, *modules):
+        super().__init__(*modules)
+
+    def forward(self, x, mask=mask):
+        y = x
+        for mod in self:
+            y = mod(y, mask=mask)
+        return y
+
+
+class SatformerEncoder(nn.Module):
+    def __init__(self):
+
+        self.meta_encoding = MetaEncoding(7, 28)
+
+        self.head = Stage(
+            SatformerBlock(1, 28, activation_factory=act, normalization_factory=norm, fused=True, attention=False),
+        )
+        self.stage_down_2 = Stage(
+            SatformerBlock(32, 48, activation_factory=act, normalization_factory=norm, downsample=2),
+            SatformerBlock(48, 48, activation_factory=act, normalization_factory=norm),
+        )
+        self.stage_down_3 = Stage(
+            SatformerBlock(48, 64, activation_factory=act, normalization_factory=norm, downsample=2),
+            SatformerBlock(64, 64, activation_factory=act, normalization_factory=norm),
+        )
+        self.stage_down_4 = Stage(
+            SatformerBlock(64, 128, activation_factory=act, normalization_factory=norm, downsample=2),
+            SatformerBlock(128, 128, activation_factory=act, normalization_factory=norm),
+            SatformerBlock(128, 128, activation_factory=act, normalization_factory=norm),
+        )
+        self.stage_up_1 = Stage(
+            SatformerBlock(128 + 64, 64, activation_factory=act, normalization_factory=norm),
+            SatformerBlock(64, 64, activation_factory=act, normalization_factory=norm),
+        )
+        self.stage_up_2 = Stage(
+            SatformerBlock(64 + 48, 48, activation_factory=act, normalization_factory=norm),
+            SatformerBlock(48, 48, activation_factory=act, normalization_factory=norm),
+        )
+        self.stage_up_3 = Stage(
+            SatformerBlock(48 + 32, 32, activation_factory=act, normalization_factory=norm),
+            SatformerBlock(32, 32, activation_factory=act, normalization_factory=norm),
+        )
+        self.up = nn.Upsample(scale_factor=2, mode="Upsample")
+
+    def forward(self, token: torch.Tensor, obs: torch.Tensor, meta: torch.Tensor, mask: torch.Tensor):
+
+        meta = self.meta_encoding(meta)
+        x_enc = torch.cat([token, self.head(x) + meta], 2)
+        x_d_2 = self.stage_down_2(x_enc, mask=mask)
+        x_d_3 = self.stage_down_3(x_d_2, mask=mask)
+        x_d_4 = self.stage_down_4(x_d_3, mask=mask)
+        x_u_3 = self.stage_up_1(torch.cat([self.up(x_d_4), x_d_3]), mask)
+        x_u_2 = self.stage_up_2(torch.cat([self.up(x_u_3), x_d_2]), mask)
+        x_u_1 = self.stage_up_3(torch.cat([self.up(x_u_2), x_d_1]), mask)
+
+    return [x_u_1, x_u_2, x_u_3, x_d_4]
+
+
+class SatformerDecoder(nn.Module):
+    def __init__(
+            self,
+            meta_encoding: nn.Module,
+    ):
+        super.__init__()
+        self.meta_encoding = self.meta_encoding
+
+        act = nn.GELU
+        norm = LayerNormFirst
+
+        self.stage_down_2 = Stage(
+            SatformerBlock(32 + 32, 48, activation_factory=act, normalization_factory=norm, downsample=2, attention=False),
+        )
+        self.stage_down_3 = Stage(
+            SatformerBlock(48 + 48, 64, activation_factory=act, normalization_factory=norm, downsample=2, attention=False),
+        )
+        self.stage_down_4 = Stage(
+            SatformerBlock(64 + 64, 128, activation_factory=act, normalization_factory=norm, downsample=2, attention=False),
+        )
+        self.stage_up_1 = Stage(
+            SatformerBlock(128 + 128, 48, activation_factory=act, normalization_factory=norm),
+            SatformerBlock(48, 48, activation_factory=act, normalization_factory=norm),
+        )
+        self.stage_up_2 = Stage(
+            SatformerBlock(64 + 48, 48, activation_factory=act, normalization_factory=norm),
+            SatformerBlock(48, 48, activation_factory=act, normalization_factory=norm),
+        )
+        self.stage_up_3 = Stage(
+            SatformerBlock(48 + 32, 32, activation_factory=act, normalization_factory=norm),
+            SatformerBlock(32, 32, activation_factory=act, normalization_factory=norm),
+        )
+        self.up = nn.Upsample(scale_factor=2, mode="Upsample")
+        self.head = nn.Conv2d(32, 1, k=1)
+
+    def forward(self, enc: List[torch.Tensor], meta: torch.Tensor, mask: torch.Tensor):
+        x_enc = self.meta(meta)
+        x_d_2 = self.stage_down_2(x_enc)
+        x_d_3 = self.stage_down_3(x_d_2)
+        x_d_4 = self.stage_down_4(x_d_3, mask=mask, source_seq=enc[3])
+        x_u_3 = self.stage_up_1(torch.cat([self.up(x_d_4), x_d_3]), mask=mask, source_seq=enc[2])
+        x_u_2 = self.stage_up_2(torch.cat([self.up(x_u_3), x_d_2]), mask=mask, source_seq=enc[1])
+        x_u_1 = self.stage_up_3(torch.cat([self.up(x_u_2), x_enc]), mask=mask, source_seq=enc[0])
+        return self.head(x_u_1)
+
+
+
+
+
+class Satformer(nn.Module, ParamCount):
+    def __init__(self):
+        super.__init__()
+        self.encoder = SatformerEncoder()
+        self.decoder = SatformerDecoder(self.encoder.meta_encoding)
+
+    def forward(self, x: Dict[str, torch.Tensor]): torch.Tensor:
+
+        obs = x["input_observations"]
+        meta = x["input_meta"]
+
+
+        x_enc = self.encoder(obs, meta, mask=key_mask)
