@@ -14,7 +14,7 @@ import multiprocessing
 from pathlib import Path
 import re
 from tempfile import TemporaryDirectory
-from typing import Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 import os
 
 import click
@@ -33,6 +33,7 @@ from pansat.products.satellite.gpm import (
 from pansat.utils import resample_data
 from pyresample.geometry import SwathDefinition
 from rich.progress import Progress, track
+import torch
 import xarray as xr
 
 from gprof_nn.sensors import Sensor
@@ -380,7 +381,7 @@ class InputLoader:
 
     def load_data(self, ind: int) -> Tuple[Dict[str, torch.Tensor], str, xr.Dataset]:
 
-        input_granule, target_granules = self.inputs
+        input_granule, target_granules = self.inputs[ind]
         target_granule = sorted(list(target_granules))[0]
 
         input_data = run_preprocessor(input_granule)
