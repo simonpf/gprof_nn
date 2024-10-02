@@ -1594,17 +1594,23 @@ class SimulatorDataset(Dataset):
 
 
 class SatformerDataset:
+    """
+    Dataset for training a Satformer to produce simulated brightness temperatures.
+    """
     def __init__(
             self,
             path: Path,
             seq_len_in: int = 13,
             seq_len_out: int = 4,
-            validation: bool = False
+            validation: bool = False,
+            channel_dropout: float = 0.1
     ):
         self.input_files = np.array(sorted(list(Path(path).glob("*.nc"))))
+        self.drop_inputs = 1
         self.seq_len_in = seq_len_in
         self.seq_len_out = seq_len_out
         self.validation = validation
+        self.channel_dropout = channel_dropout
         self.init_rng()
 
     def init_rng(self, w_id=0):
@@ -1639,7 +1645,6 @@ class SatformerDataset:
         except Exception:
             return self[self.rng.integers(0, len(self))]
 
-
         n_chans_in = data.input_channels.size
         n_chans_out = data.target_channels.size
         chans_in = self.rng.permutation(n_chans_in)
@@ -1647,19 +1652,28 @@ class SatformerDataset:
 
         input_observations = data.input_observations.data.astype("float32")
         input_meta = data.input_meta_data.data.astype("float32")
+        dropped_observations = data.target_observations.data.astype("float32")
+        dropped_meta = data.target_meta_data.data.astype("float32")
         target_observations = data.target_observations.data.astype("float32")
         target_meta = data.target_meta_data.data.astype("float32")
 
         obs_in = []
         meta_in = []
+        obs_dropped = []
+        meta_dropped = []
 
         for input_ind in range(self.seq_len_in):
-            if input_ind < len(chans_in):
-                obs_in.append(torch.tensor(input_observations[[chans_in[input_ind]]]))
-                meta_in.append(torch.tensor(input_meta[chans_in[input_ind]]))
+            if input_ind < self.drop_inputs:
+                obs_dropped.append(torch.tensor(input_observations[[chans_in[input_ind]]]))
+                meta_dropped.append(torch.tensor(input_meta[chans_in[input_ind]]))
             else:
-                obs_in.append(torch.nan * torch.zeros_like(obs_in[-1]))
-                meta_in.append(torch.nan * torch.zeros_like(meta_in[-1]))
+                rand = self.rng.random()
+                if (rand > self.channel_dropout) and input_ind < len(chans_in):
+                    obs_in.append(torch.tensor(input_observations[[chans_in[input_ind]]]))
+                    meta_in.append(torch.tensor(input_meta[chans_in[input_ind]]))
+                else:
+                    obs_in.append(torch.nan * torch.zeros_like(torch.tensor(input_observations[:1])))
+                    meta_in.append(torch.nan * torch.zeros_like(torch.tensor(input_meta[0])))
 
         obs_out = []
         meta_out = []
@@ -1672,14 +1686,18 @@ class SatformerDataset:
                 meta_out.append(torch.nan * torch.zeros_like(meta_out[-1]))
 
         inpt = {
-            "input_observations": torch.stack(obs_in, 1),
-            "input_meta": torch.stack(meta_in, 1),
-            "output_meta": torch.stack(meta_out, 1),
+            "observations": torch.stack(obs_in, 1),
+            "input_observation_props": torch.stack(meta_in, 1),
+            "output_observation_props": torch.stack(meta_out, 1),
+            "dropped_observation_props": torch.stack(meta_dropped, 1),
         }
-        mask = torch.isnan(inpt["input_observations"]).all(0).all(-1).all(-1)
-        inpt["mask"] = mask
-        target = torch.stack(obs_out, 1)
+        mask = torch.isnan(inpt["observations"]).all(0).all(-1).all(-1)
+        inpt["input_observation_mask"] = mask
 
+        target = {
+            "dropped_observations": obs_dropped,
+            "output_observations": obs_out,
+        }
         data.close()
 
-        return inpt, obs_out
+        return inpt, target

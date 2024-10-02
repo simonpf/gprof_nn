@@ -65,7 +65,14 @@ POLARIZATIONS = {
 }
 
 
-CHANNEL_REGEXP = re.compile("([\d\.\+-]*)\s*GHz\s*(\w*)-Pol")
+BEAM_WIDTHS = {
+    "gmi": [1.75, 1.75, 1.0, 1.0, 0.9, 0.9, 0.9, 0.4, 0.4, 0.4, 0.4, 0.4, 0.4],
+    "atms": [5.2, 5.2, 2.2, 1.1, 1.1, 1.1, 1.1, 1.1],
+    "amsr2": [1.2, 1.2, 0.65, 0.65, 0.75, 0.75, 0.35, 0.35, 0.15, 0.15, 0.15, 0.15],
+}
+
+
+CHANNEL_REGEXP = re.compile("([\d\.\s\+\/-]*)\s*GHz\s*(\w*)-Pol")
 
 
 SEM_A = 6_378_137.0
@@ -212,7 +219,6 @@ def calculate_obs_properties(
         preprocessor_data: xr.Dataset,
         granule: Granule,
         radius_of_influence: float = 5e3,
-        beam_width: float = 1.0
 ) -> xr.Dataset:
     """
     Extract observations and corresponding meta data from granule.
@@ -224,13 +230,15 @@ def calculate_obs_properties(
 
 
     """
-
     lons = preprocessor_data.longitude.data
     lats = preprocessor_data.latitude.data
     swath = SwathDefinition(lats=lats, lons=lons)
 
     observations = []
     meta_data = []
+
+    l1c_file = L1CFile(granule.file_record.local_path)
+    sensor = l1c_file.sensor.name.lower()
 
     granule_data = granule.open()
     if "latitude" in granule_data:
@@ -243,8 +251,10 @@ def calculate_obs_properties(
             freqs = []
             offsets = []
             pols = []
+
             for match in CHANNEL_REGEXP.findall(granule_data[f"tbs_s{swath_ind}"].attrs["LongName"]):
                 freq, pol = match
+                freq = freq.replace("/", "")
                 if freq.find("+-") > 0:
                     freq, offs = freq.split("+-")
                     freqs.append(float(freq))
@@ -292,7 +302,7 @@ def calculate_obs_properties(
                     freqs[chan_ind] * np.ones_like(observations[-1]),
                     offsets[chan_ind] * np.ones_like(observations[-1]),
                     pols[chan_ind] * np.ones_like(observations[-1]),
-                    beam_width * np.ones_like(observations[-1]),
+                    BEAM_WIDTHS[sensor][chan_ind] * np.ones_like(observations[-1]),
                     sensor_alt,
                     zenith,
                     azimuth
@@ -376,8 +386,15 @@ def extract_pretraining_scenes(
 
 
 class InputLoader:
-    def __init__(self, inputs: List[Any]):
+    def __init__(self, inputs: List[Any], radius_of_influence: float = 100e3):
         self.inputs = inputs
+        self.radius_of_influence = radius_of_influence
+
+    def __len__(self) -> int:
+        return len(self.inputs)
+
+    def __getitem__(self, index: int) -> int:
+        return self.load_data(index)
 
     def load_data(self, ind: int) -> Tuple[Dict[str, torch.Tensor], str, xr.Dataset]:
 
@@ -385,10 +402,12 @@ class InputLoader:
         target_granule = sorted(list(target_granules))[0]
 
         input_data = run_preprocessor(input_granule)
-        input_obs = calculate_obs_properties(input_data, input_granule, radius_of_influence=radius_of_influence)
-        target_obs = calculate_obs_properties(input_data, target_granule, radius_of_influence=radius_of_influence)
+        input_obs = calculate_obs_properties(input_data, input_granule, radius_of_influence=self.radius_of_influence)
+        target_obs = calculate_obs_properties(input_data, target_granule, radius_of_influence=self.radius_of_influence)
 
         training_data = xr.Dataset({
+            "latitude": input_data.latitude,
+            "longitude": input_data.longitude,
             "input_observations": input_obs.observations.rename(channels="input_channels"),
             "input_meta_data": input_obs.meta_data.rename(channels="input_channels"),
             "target_observations": target_obs.observations.rename(channels="target_channels"),
@@ -396,13 +415,15 @@ class InputLoader:
         })
         tbs = training_data.input_observations.data
         tbs[tbs < 0] = np.nan
+        n_seq_in = tbs.shape[0]
         tbs = training_data.target_observations.data
         tbs[tbs < 0] = np.nan
+        n_seq_out = tbs.shape[0]
 
         input_data = {
-            "input_observations": torch.tensor(training_data.input_observations)[None, None],
-            "input_meta": torch.tensor(training_data.input_meta_data)[None, None],
-            "output_meta": torch.tensor(training_data.target_meta_data)[None, None],
+            "input_observations": torch.tensor(training_data.input_observations.data)[None, None],
+            "input_meta": torch.tensor(training_data.input_meta_data.data)[None].transpose(1, 2),
+            "output_meta": torch.tensor(training_data.target_meta_data.data)[None].transpose(1, 2),
         }
 
         filename = "match_" + target_granule.time_range.start.strftime("%Y%m%d%H%M%s") + ".nc"
