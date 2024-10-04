@@ -483,7 +483,7 @@ def extract_pretraining_scenes(
             n_scans=128,
             n_pixels=128,
             overlapping=False,
-            min_valid=50,
+            min_valid=(128 * 128) / 0.5,
             reference_var="valid",
         )
         LOGGER.info(
