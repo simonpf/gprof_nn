@@ -1636,17 +1636,16 @@ class SatformerDataset:
 
 
     def __len__(self):
-        return len(self.input_files) // 100
+        return len(self.input_files) // 10
 
     def __getitem__(self, ind: int):
 
-        ind_r = ind * 100 + self.rng.integers(0, 100)
+        ind = min(ind * 10 + self.rng.integers(0, 10), len(self) * 10 - 1)
 
         try:
-            data = xr.open_dataset(self.input_files[ind_r])
+            data = xr.open_dataset(self.input_files[ind])
         except Exception:
             return self[self.rng.integers(0, len(self))]
-        ind = ind_r
 
         n_chans_in = data.input_channels.size
         n_chans_out = data.target_channels.size
@@ -1694,6 +1693,26 @@ class SatformerDataset:
             "output_observation_props": torch.stack(meta_out, 1),
             "dropped_observation_props": torch.stack(meta_dropped, 1),
         }
+
+        obs = inpt["observations"]
+        if torch.isfinite(obs).to(dtype=torch.float32).mean() < 0.2:
+            LOGGER.info(
+                "Less than 10 percent valid input observations in sample %s. Falling back to another, "
+                "randomly chosen sample.",
+                self.input_files[ind]
+            )
+            return self[self.rng.integers(0, len(self))]
+
+        props = inpt["output_observation_props"]
+        if torch.isfinite(props[0]).to(dtype=torch.float32).mean() < 0.2:
+            LOGGER.info(
+                "Less than 10 percent valid output observations in sample %s. Falling back to another, "
+                "randomly chosen sample.",
+                self.input_files[ind]
+            )
+            return self[self.rng.integers(0, len(self))]
+
+
         mask = torch.isnan(inpt["observations"]).all(0).all(-1).all(-1)
         inpt["input_observation_mask"] = mask
 
