@@ -1636,14 +1636,17 @@ class SatformerDataset:
 
 
     def __len__(self):
-        return len(self.input_files)
+        return len(self.input_files) // 100
 
     def __getitem__(self, ind: int):
 
+        ind_r = ind * 100 + self.rng.integers(0, 100)
+
         try:
-            data = xr.open_dataset(self.input_files[ind])
+            data = xr.open_dataset(self.input_files[ind_r])
         except Exception:
             return self[self.rng.integers(0, len(self))]
+        ind = ind_r
 
         n_chans_in = data.input_channels.size
         n_chans_out = data.target_channels.size

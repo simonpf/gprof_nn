@@ -29,6 +29,7 @@ from pansat.products import Product
 from pansat.products.satellite.gpm import (
     l1c_gpm_gmi,
     l1c_npp_atms,
+    l1c_noaa20_atms,
     l1c_gcomw1_amsr2,
     merged_ir
 )
@@ -56,7 +57,7 @@ LOGGER = logging.getLogger(__name__)
 # pansat products for each sensor.
 PRODUCTS = {
     "gmi": (l1c_gpm_gmi,),
-    "atms": (l1c_npp_atms,),
+    "atms": (l1c_npp_atms, l1c_noaa20_atms),
     "amsr2": (l1c_gcomw1_amsr2,)
 }
 
