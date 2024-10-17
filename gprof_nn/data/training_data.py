@@ -1603,7 +1603,7 @@ class SatformerDataset:
             seq_len_in: int = 13,
             seq_len_out: int = 4,
             validation: bool = False,
-            channel_dropout: float = 0.1
+            channel_dropout: float = 0.1,
     ):
         self.input_files = np.array(sorted(list(Path(path).glob("*.nc"))))
         self.drop_inputs = 1
@@ -1636,11 +1636,11 @@ class SatformerDataset:
 
 
     def __len__(self):
-        return len(self.input_files) // 10
+        return len(self.input_files)
 
     def __getitem__(self, ind: int):
 
-        ind = min(ind * 10 + self.rng.integers(0, 10), len(self) * 10 - 1)
+        #ind = min(ind * 10 + self.rng.integers(0, 10), len(self) * 10 - 1)
 
         try:
             data = xr.open_dataset(self.input_files[ind])
@@ -1694,8 +1694,31 @@ class SatformerDataset:
             "dropped_observation_props": torch.stack(meta_dropped, 1),
         }
 
+        anc_vars = [
+            "two_meter_temperature",
+            "total_column_water_vapor",
+            "leaf_area_index",
+            "land_fraction",
+            "ice_fraction",
+            "elevation",
+            "ir_observations",
+        ]
+        for anc_var in anc_vars:
+            anc_data = torch.tensor(data[anc_var].data).to(dtype=torch.float32)
+            if self.rng.random() > 0.5:
+                anc_data = np.nan * torch.tensor(data[anc_var].data).to(dtype=torch.float32)
+            if anc_data.ndim < 3:
+                anc_data = anc_data[None]
+            if anc_data.ndim < 4:
+                anc_data = anc_data[:, None]
+
+            n_chans, n_seq, n_y, n_x = anc_data.shape
+            anc_mask = torch.isnan(anc_data).all()[None]
+            inpt[anc_var] = anc_data
+            inpt[anc_var + "_mask"] = anc_mask
+
         obs = inpt["observations"]
-        if torch.isfinite(obs).to(dtype=torch.float32).mean() < 0.2:
+        if torch.isfinite(obs).to(dtype=torch.float32).mean() < 0.5:
             LOGGER.info(
                 "Less than 10 percent valid input observations in sample %s. Falling back to another, "
                 "randomly chosen sample.",
@@ -1704,7 +1727,7 @@ class SatformerDataset:
             return self[self.rng.integers(0, len(self))]
 
         props = inpt["output_observation_props"]
-        if torch.isfinite(props[0]).to(dtype=torch.float32).mean() < 0.2:
+        if torch.isfinite(props[0]).to(dtype=torch.float32).mean() < 0.5:
             LOGGER.info(
                 "Less than 10 percent valid output observations in sample %s. Falling back to another, "
                 "randomly chosen sample.",
@@ -1715,11 +1738,184 @@ class SatformerDataset:
 
         mask = torch.isnan(inpt["observations"]).all(0).all(-1).all(-1)
         inpt["input_observation_mask"] = mask
-
         target = {
             "dropped_observations": obs_dropped,
             "output_observations": obs_out,
         }
         data.close()
+
+        # Flip vertically
+        if not self.validation and self.rng.random() > 0.5:
+            for key in inpt:
+                if not key.endswith("mask"):
+                    inpt[key] = torch.flip(inpt[key], (-2,))
+            for key in target:
+                if isinstance(target[key], list):
+                    target[key] = [torch.flip(targ, (-2,)) for targ in target[key]]
+                else:
+                    target[key] = torch.flip(target[key], (-2,))
+
+        # Flip horizontall
+        if not self.validation and self.rng.random() > 0.5:
+            for key in inpt:
+                if not key.endswith("mask"):
+                    inpt[key] = torch.flip(inpt[key], (-1,))
+            for key in target:
+                if isinstance(target[key], list):
+                    target[key] = [torch.flip(targ, (-1,)) for targ in target[key]]
+                else:
+                    target[key] = torch.flip(target[key], (-1,))
+
+        return inpt, target
+
+
+class SatformerRetrievalDataset:
+    """
+    Dataset for training a Satformer to retrieve surface precipitation and
+    hydrometeor profiles.
+    """
+    def __init__(
+            self,
+            path: Path,
+            seq_len_in: int = 13,
+            seq_len_out: int = 4,
+            validation: bool = False,
+            channel_dropout: float = 0.1,
+    ):
+        self.input_files = np.array(sorted(list(Path(path).glob("*.nc"))))
+        self.drop_inputs = 1
+        self.seq_len_in = seq_len_in
+        self.seq_len_out = seq_len_out
+        self.validation = validation
+        self.channel_dropout = channel_dropout
+        self.init_rng()
+
+    def init_rng(self, w_id=0):
+        """
+        Initialize random number generator.
+
+        Args:
+            w_id: The worker ID which of the worker process..
+        """
+        if self.validation:
+            seed = 42
+        else:
+            seed = int.from_bytes(os.urandom(4), "big") + w_id
+        self.rng = np.random.default_rng(seed)
+
+    def worker_init_fn(self, w_id: int):
+        """
+        Pytorch retrieve interface.
+        """
+        self.init_rng(w_id)
+        winfo = torch.utils.data.get_worker_info()
+        n_workers = winfo.num_workers
+
+
+    def __len__(self):
+        return len(self.input_files)
+
+    def __getitem__(self, ind: int):
+
+        #ind = min(ind * 10 + self.rng.integers(0, 10), len(self) * 10 - 1)
+
+        try:
+            data = xr.open_dataset(self.input_files[ind])
+        except Exception:
+            return self[self.rng.integers(0, len(self))]
+
+        n_chans_in = data.all_channels.size
+        chans_in = self.rng.permutation(n_chans_in)
+
+        input_observations = data.input_observations.data.astype("float32")
+        input_meta = data.input_meta_data.data.astype("float32")
+
+        obs_in = []
+        meta_in = []
+
+        for input_ind in range(self.seq_len_in):
+            rand = self.rng.random()
+            if (rand > self.channel_dropout) and input_ind < len(chans_in):
+                obs_in.append(torch.tensor(input_observations[[chans_in[input_ind]]]))
+                meta_in.append(torch.tensor(input_meta[chans_in[input_ind]]))
+            else:
+                obs_in.append(torch.nan * torch.zeros_like(torch.tensor(input_observations[:1])))
+                meta_in.append(torch.nan * torch.zeros_like(torch.tensor(input_meta[0])))
+
+        inpt = {
+            "observations": torch.stack(obs_in, 1),
+            "input_observation_props": torch.stack(meta_in, 1),
+        }
+        inpt["input_observation_props"][4] *= 100e3
+
+        anc_vars = [
+            "two_meter_temperature",
+            "total_column_water_vapor",
+            "leaf_area_index",
+            "land_fraction",
+            "ice_fraction",
+            "elevation",
+            "ir_observations",
+        ]
+        for anc_var in anc_vars:
+            anc_data = torch.tensor(data[anc_var].data).to(dtype=torch.float32)
+            if self.rng.random() > 0.5:
+                anc_data = np.nan * torch.tensor(data[anc_var].data).to(dtype=torch.float32)
+            if anc_data.ndim < 3:
+                anc_data = anc_data[None]
+            if anc_data.ndim < 4:
+                anc_data = anc_data[:, None]
+
+            n_chans, n_seq, n_y, n_x = anc_data.shape
+            anc_mask = torch.isnan(anc_data).all()[None]
+            inpt[anc_var] = anc_data
+            inpt[anc_var + "_mask"] = anc_mask
+
+        obs = inpt["observations"]
+        mask = torch.isnan(inpt["observations"]).all(0).all(-1).all(-1)
+        inpt["input_observation_mask"] = mask
+        if torch.isfinite(obs[0, ~mask]).to(dtype=torch.float32).mean() < 0.5:
+            LOGGER.info(
+                "Less than 50 percent valid input observations in sample %s. Falling back to another, "
+                "randomly chosen sample.",
+                self.input_files[ind]
+            )
+            return self[self.rng.integers(0, len(self))]
+
+        surface_precip = torch.tensor(data.surface_precip.data)
+        if torch.isfinite(surface_precip).to(dtype=torch.float32).sum() < 100:
+            LOGGER.info(
+                "Less than 10 percent valid output observations in sample %s. Falling back to another, "
+                "randomly chosen sample.",
+                self.input_files[ind]
+            )
+            return self[self.rng.integers(0, len(self))]
+
+        target = {
+            "surface_precip": [surface_precip]
+        }
+        data.close()
+
+        # Flip vertically
+        if not self.validation and self.rng.random() > 0.5:
+            for key in inpt:
+                if not key.endswith("mask"):
+                    inpt[key] = torch.flip(inpt[key], (-2,))
+            for key in target:
+                if isinstance(target[key], list):
+                    target[key] = [torch.flip(targ, (-2,)) for targ in target[key]]
+                else:
+                    target[key] = torch.flip(target[key], (-2,))
+
+        # Flip horizontall
+        if not self.validation and self.rng.random() > 0.5:
+            for key in inpt:
+                if not key.endswith("mask"):
+                    inpt[key] = torch.flip(inpt[key], (-1,))
+            for key in target:
+                if isinstance(target[key], list):
+                    target[key] = [torch.flip(targ, (-1,)) for targ in target[key]]
+                else:
+                    target[key] = torch.flip(target[key], (-1,))
 
         return inpt, target

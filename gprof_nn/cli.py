@@ -10,7 +10,15 @@ import gprof_nn.logging
 import gprof_nn.config as conf
 from gprof_nn import training
 from gprof_nn import retrieval, testing
-from gprof_nn.data import sim, pretraining, mrms, era5, finetuning
+from gprof_nn.data import (
+    sim,
+    pretraining,
+    mrms,
+    era5,
+    finetuning,
+    cloudsat,
+    combined
+)
 
 @click.group()
 def gprof_nn():
@@ -25,6 +33,8 @@ extract_training_data.command(name="pre")(pretraining.cli)
 extract_training_data.command(name="mrms")(mrms.cli)
 extract_training_data.command(name="era5")(era5.cli)
 extract_training_data.command(name="finetuning")(finetuning.cli)
+extract_training_data.command(name="cloudsat")(cloudsat.cli)
+extract_training_data.command(name="combined")(combined.cli)
 
 ######################################################################
 # gprof_nn config
