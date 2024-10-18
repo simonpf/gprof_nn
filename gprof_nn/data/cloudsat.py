@@ -7,6 +7,7 @@ This module provides functionality to extract collocations between GPM sensors
 and CloudSat.
 """
 from calendar import monthrange
+from concurrent.futures import ProcessPoolExecutor
 from datetime import datetime
 import logging
 from pathlib import Path
@@ -29,7 +30,7 @@ from pansat.products.satellite.cloudsat import (
 )
 from pyresample.geometry import SwathDefinition
 from pansat.utils import resample_data
-from rich.progress import track
+from rich.progress import track, Progress
 
 from gprof_nn.sensors import Sensor
 from gprof_nn.data.utils import (
@@ -340,6 +341,7 @@ def cli(
             tasks.append(
                 pool.submit(
                     extract_samples,
+                    sensor,
                     start_time,
                     end_time,
                     output_path=output_path,
