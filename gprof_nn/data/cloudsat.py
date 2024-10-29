@@ -157,6 +157,10 @@ def extract_cloudsat_scenes(
         )
         sp = input_data.surface_precip_snow.data
         sp[sp < 0] = np.nan
+        input_data["precip_flag"] = (
+            ("scans", "pixels"),
+            cs_data_r["precip_flag"].data
+        )
 
         for profile in profiles:
             input_data[profile] = (

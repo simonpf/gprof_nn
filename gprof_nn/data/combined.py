@@ -83,6 +83,7 @@ def extract_cmb_scenes(
 
     for target_granule in target_granules:
         input_data = run_preprocessor(input_granule)
+        mask_invalid_values(input_data)
         for var in input_data:
             if np.issubdtype(input_data[var].data.dtype, np.floating):
                 invalid = input_data[var].data < -1_000
@@ -175,7 +176,6 @@ def extract_cmb_scenes(
 
         input_data["input_observations"] = input_obs.observations.rename({"channels": "all_channels"})
         input_data["input_meta_data"] = input_obs.meta_data.rename({"channels": "all_channels"})
-        mask_invalid_values(input_data)
 
         scenes = extract_scenes(
             input_data,
@@ -193,12 +193,14 @@ def extract_cmb_scenes(
         )
 
         uint16_max = 2 ** 16 - 1
+        int16_max = 2 ** 15 - 1
+
         encodings = {
             "scan_time": {"zlib": True},
             "scan_time_cmb": {"zlib": True},
             "brightness_temperatures": {"dtype": "uint16", "zlib": True, "scale_factor": 0.01, "_FillValue": uint16_max},
             "input_observations": {"dtype": "uint16", "zlib": True, "scale_factor": 0.01, "_FillValue": uint16_max},
-            "input_meta_data": {"dtype": "uint16", "zlib": True, "scale_factor": 0.01, "_FillValue": uint16_max},
+            "input_meta_data": {"dtype": "int16", "zlib": True, "scale_factor": 0.01, "_FillValue": int16_max},
             "two_meter_temperature": {"dtype": "uint16", "zlib": True, "scale_factor": 0.1, "_FillValue": uint16_max},
             "total_column_water_vapor": {"dtype": "float32", "zlib": True},
             "leaf_area_index": {"dtype": "float32", "zlib": True},
