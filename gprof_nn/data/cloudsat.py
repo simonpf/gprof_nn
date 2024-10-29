@@ -336,7 +336,7 @@ def cli(
         tasks = []
         for day in days:
             start_time = datetime(year, month, day)
-            end_time = datetime(year, month, day)
+            end_time = datetime(year, month, day + 1)
             tasks.append(
                 pool.submit(
                     extract_samples,

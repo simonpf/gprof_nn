@@ -24,7 +24,7 @@ from gprof_nn.definitions import LIMITS, ANCILLARY_VARIABLES
 from gprof_nn.utils import apply_limits
 from gprof_nn.data import preprocessor
 from pansat.products.satellite.gpm import (
-    l1c_gpm_gmi,
+    l1c_r_gpm_gmi,
     l1c_npp_atms,
     l1c_noaa20_atms,
     l1c_gcomw1_amsr2,
@@ -33,7 +33,7 @@ from pansat.products.satellite.gpm import (
 
 
 PANSAT_PRODUCTS = {
-    "gmi": (l1c_gpm_gmi,),
+    "gmi": (l1c_r_gpm_gmi,),
     "atms": (l1c_npp_atms, l1c_noaa20_atms),
     "amsr2": (l1c_gcomw1_amsr2,)
 }
@@ -349,7 +349,7 @@ def extract_scenes(
         min_valid: int = 20,
         overlapping: bool = False,
         reference_var: str = "surface_precip",
-        offset: int = Optional[None]
+        offset: Optional[int] = None
 ) -> List[xr.Dataset]:
     """
     Extract scenes from an xr.Dataset containing satellite
@@ -610,6 +610,7 @@ def upsample_data(
     float_vars = [
         "latitude", "longitude", "brightness_temperatures", "total_column_water_vapor", "two_meter_temperature",
         "moisture_convergence", "leaf_area_index", "snow_depth", "land_fraction", "ice_fraction", "elevation",
+        "earth_incidence_angle"
     ]
     scan_time = data["scan_time"]
     data = data[float_vars]
@@ -634,6 +635,15 @@ def mask_invalid_values(preprocessor_data: xr.Dataset):
     """
     Mask unphysical values in preprocessor data.
     """
+    # Longitude
+    data = preprocessor_data.longitude.data
+    invalid = (data < -180) * (data > 180)
+    data[invalid] = np.nan
+
+    data = preprocessor_data.latitude.data
+    invalid = (data < -90) * (data > 90)
+    data[invalid] = np.nan
+
     # Two meter temperature
     data = preprocessor_data.two_meter_temperature.data
     invalid = (data < 0) * (data > 1_000)
@@ -865,8 +875,9 @@ def calculate_obs_properties(
                 f"longitude_s{swath_ind}",
                 f"latitude_s{swath_ind}",
                 f"tbs_s{swath_ind}",
-                f"channels_s{swath_ind}"
-            ]]
+                f"channels_s{swath_ind}",
+                "scan_time"
+            ]].reset_coords("scan_time")
 
             fp_lons = swath_data[f"longitude_s{swath_ind}"].data
             fp_lats = swath_data[f"latitude_s{swath_ind}"].data
@@ -913,5 +924,6 @@ def calculate_obs_properties(
         meta_data = np.stack(meta_data)
         return xr.Dataset({
             "observations": (("channels", "scans", "pixels"), observations),
-            "meta_data": (("channels", "meta", "scans", "pixels"), meta_data)
+            "meta_data": (("channels", "meta", "scans", "pixels"), meta_data),
+            "scan_time": (("scans", "pixels"), swath_data_r.scan_time.data)
         })
