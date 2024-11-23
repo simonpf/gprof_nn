@@ -778,11 +778,13 @@ def calculate_angles(
         sensor_alts: The altitude coordinates of the sensor.
 
     Return:
-        A tuple ``zenith, azimuth`` containing the zenith and azimuth coordinates
-        of all lines of sights.
+        A tuple ``zenith, azimuth, viewing_angle`` containing the zenith, azimuth, and
+        sensor viewing angles in degree for all lines of sights.
     """
     sensor_lla = np.stack((sensor_lons, sensor_lats, sensor_alts), -1)
     sensor_ecef = lla_to_ecef(sensor_lla)
+    sensor_down = np.stack((sensor_lons, sensor_lats, np.zeros_like(sensor_lons)), -1) - sensor_ecef
+    sensor_down /= np.linalg.norm(sensor_down, axis=-1, keepdims=True)
 
     fp_lla = np.stack((fp_lons, fp_lats, np.zeros_like(fp_lons)), -1)
     fp_ecef = lla_to_ecef(fp_lla)
@@ -798,13 +800,18 @@ def calculate_angles(
 
     if sensor_ecef.ndim < fp_lla.ndim:
         sensor_ecef = np.broadcast_to(sensor_ecef[..., None, :], fp_lla.shape)
+        sensor_down = np.broadcast_to(sensor_down[..., None, :], fp_lla.shape)
+
     los = sensor_ecef - fp_ecef
-    zenith = np.arccos((local_up * los).sum(-1) / np.linalg.norm(los, axis=-1))
+    los /= np.linalg.norm(los, axis=-1, keepdims=True)
+
+    zenith = np.arccos((local_up * los).sum(-1))
+    viewing_angle = np.arccos(-(los * sensor_down).sum(-1))
 
     azimuth = np.arctan2((los * fp_west).sum(-1), (los * fp_north).sum(-1))
     azimuth = np.nan_to_num(azimuth, nan=0.0)
 
-    return np.rad2deg(zenith), np.rad2deg(azimuth)
+    return np.rad2deg(zenith), np.rad2deg(azimuth), np.rad2deg(viewing_angle)
 
 
 CHANNEL_REGEXP = re.compile("([\d\.\s\+\/-]*)\s*GHz\s*(\w*)-Pol")
@@ -821,6 +828,23 @@ BEAM_WIDTHS = {
     "atms": [5.2, 5.2, 2.2, 1.1, 1.1, 1.1, 1.1, 1.1],
     "amsr2": [1.2, 1.2, 0.65, 0.65, 0.75, 0.75, 0.35, 0.35, 0.15, 0.15, 0.15, 0.15],
 }
+
+
+def calculate_polarization_weights(polarization, viewing_angles):
+    """
+    Calculate floating point representation of the sensor polarization.
+
+    """
+    if polarization == "V":
+        return np.ones_like(viewing_angles)
+    if polarization == "H":
+        return np.zeros_like(viewing_angles)
+    if polarization == "QV":
+        return np.sin(np.deg2rad(viewing_angles)) ** 2
+    if polarization == "QH":
+        return np.cos(np.deg2rad(viewing_angles)) ** 2
+    raise ValueError("Encountered unknown polarization %s.", polarization)
+
 
 def calculate_obs_properties(
         preprocessor_data: xr.Dataset,
@@ -869,7 +893,7 @@ def calculate_obs_properties(
                 else:
                     freqs.append(float(freq))
                     offsets.append(0.0)
-                pols.append(POLARIZATIONS[pol])
+                pols.append(pol)
 
             swath_data = granule_data[[
                 f"longitude_s{swath_ind}",
@@ -884,7 +908,13 @@ def calculate_obs_properties(
             sensor_lons = granule_data["spacecraft_longitude"].data
             sensor_lats = granule_data["spacecraft_latitude"].data
             sensor_alt = granule_data["spacecraft_altitude"].data * 1e3
-            zenith, azimuth = calculate_angles(fp_lons, fp_lats, sensor_lons, sensor_lats, sensor_alt)
+            zenith, azimuth, viewing_angle = calculate_angles(
+                fp_lons,
+                fp_lats,
+                sensor_lons,
+                sensor_lats,
+                sensor_alt
+            )
             sensor_alt = np.broadcast_to(sensor_alt[..., None], zenith.shape) / 100e3
 
             swath_data = swath_data.rename({
@@ -894,6 +924,7 @@ def calculate_obs_properties(
             swath_data["sensor_alt"] = (("scans", "pixels"), sensor_alt)
             swath_data["zenith"] = (("scans", "pixels"), zenith)
             swath_data["azimuth"] = (("scans", "pixels"), azimuth)
+            swath_data["viewing_angle"] = (("scans", "pixels"), viewing_angle)
 
             swath_data_r = resample_data(
                 swath_data,
@@ -903,18 +934,19 @@ def calculate_obs_properties(
             sensor_alt = swath_data_r.sensor_alt.data
             zenith = swath_data_r.zenith.data
             azimuth = swath_data_r.azimuth.data
+            viewing_angle = swath_data_r.viewing_angle.data
 
             for chan_ind in range(swath_data_r[f"channels_s{swath_ind}"].size):
                 observations.append(swath_data_r[f"tbs_s{swath_ind}"].data[..., chan_ind])
                 meta = np.stack((
                     freqs[chan_ind] * np.ones_like(observations[-1]),
                     offsets[chan_ind] * np.ones_like(observations[-1]),
-                    pols[chan_ind] * np.ones_like(observations[-1]),
+                    calculate_polarization_weights(pols[chan_ind], viewing_angle),
                     BEAM_WIDTHS[sensor][chan_ind] * np.ones_like(observations[-1]),
                     sensor_alt,
                     zenith,
-                    np.sin(np.deg2rad(azimuth)),
-                    np.cos(np.deg2rad(azimuth))
+                    1.0 + np.sin(np.deg2rad(azimuth)),
+                    1.0 + np.cos(np.deg2rad(azimuth))
                 ))
                 meta_data.append(meta)
 

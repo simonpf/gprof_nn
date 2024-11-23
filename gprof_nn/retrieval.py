@@ -45,6 +45,7 @@ from gprof_nn.data.training_data import (
     load_training_data_3d_conical_sim,
     load_training_data_3d_other,
 )
+from gprof_nn.data.utils import UPSAMPLING_FACTORS, upsample_data
 
 
 LOGGER = logging.getLogger(__name__)
@@ -67,12 +68,17 @@ def load_input_data_preprocessor(
     """
     file_pp = PreprocessorFile(preprocessor_file)
     data_pp = file_pp.to_xarray_dataset()
+    sensor = file_pp.sensor
+
+    upsampling_factors = UPSAMPLING_FACTORS[sensor.name.lower()]
+    if max(upsampling_factors) > 1:
+        data_pp = upsample_data(data_pp, upsampling_factors)
 
     tbs = data_pp.brightness_temperatures.data.astype(np.float32)
     tbs[tbs < 0] = np.nan
     if tbs.shape[-1] < 15:
         tbs_full = np.nan * np.zeros((tbs.shape[:2] + (15,)), dtype=np.float32)
-        tbs_full[..., file_pp.sensor.gprof_channel_indices] = tbs
+        tbs_full[..., sensor.gprof_channel_indices] = tbs
     else:
         tbs_full = tbs.astype(np.float32)
     tbs_full = np.transpose(tbs_full, (2, 0, 1))
@@ -83,7 +89,7 @@ def load_input_data_preprocessor(
 
     if viewing_angles.shape[-1] < 15:
         angs_full = np.nan * np.zeros(viewing_angles.shape[:2] + (15,), dtype=np.float32)
-        angs_full[..., file_pp.sensor.gprof_channel_indices] = viewing_angles
+        angs_full[..., sensor.gprof_channel_indices] = viewing_angles
     else:
         angs_full = viewing_angles.astype(np.float32)
     angs_full = np.transpose(angs_full, (2, 0, 1))
@@ -91,6 +97,9 @@ def load_input_data_preprocessor(
     anc = torch.tensor(np.stack(
         [data_pp[anc_var].data.astype("float32") for anc_var in ANCILLARY_VARIABLES]
     ))
+    anc[anc < -1000] = np.nan
+
+    tbs_full[tbs_full < 0] = np.nan
 
     input_data = {
         "brightness_temperatures": tbs_full,
@@ -125,7 +134,8 @@ def load_input_data_l1c(
             tmp_path = Path(tmp)
             pp_path = tmp_path / l1c_file.with_suffix(".pp").name
             run_preprocessor(l1c_file, sensor, output_file=pp_path)
-            return load_input_data_preprocessor(pp_path)
+            pp_data = load_input_data_preprocessor(pp_path)
+            return pp_data
 
     l1c_data = L1CFile(l1c_file).to_xarray_dataset()
     tbs = torch.tensor(
@@ -369,8 +379,9 @@ class GPROFNNInputLoader:
             )
 
         input_data = {
-            name: torch.tensor(data) for name, data in input_data.items()
+            name: torch.tensor(data)[None] for name, data in input_data.items()
         }
+
         if self.config == "1d":
             input_data = {
                 name: torch.permute(tensor, (1, 2, 0)).reshape((-1, tensor.shape[0])) if tensor.ndim == 3 else tensor

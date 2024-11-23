@@ -8,7 +8,7 @@ translator model.
 """
 from calendar import monthrange
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from datetime import datetime
+from datetime import datetime, timedelta
 import logging
 import multiprocessing
 from pathlib import Path
@@ -107,8 +107,7 @@ def extract_pretraining_scenes(
                 input_data[var].data[invalid] = np.nan
 
         upsampling_factors = UPSAMPLING_FACTORS[input_sensor.name.lower()]
-        if max(upsampling_factors) > 1:
-            input_data = upsample_data(input_data, upsampling_factors)
+        input_data = upsample_data(input_data, upsampling_factors)
         input_data = add_cpcir_data(input_data)
 
         rof_in = RADIUS_OF_INFLUENCE[input_sensor.name.lower()]
@@ -138,6 +137,12 @@ def extract_pretraining_scenes(
         tbs[tbs < 0] = np.nan
         valid *= np.isfinite(tbs).any(0)
         training_data["valid"] = (("scans", "pixels"), np.zeros_like(valid, dtype="float32"))
+
+        scan_time_input = input_obs.scan_time
+        scan_time_target = input_obs.scan_time
+        time_diff = scan_time_input - scan_time_target
+        valid *= np.abs(time_diff.data) < np.timedelta64(15, "m")
+
         training_data.valid.data[~valid] = np.nan
 
         scenes = extract_scenes(
@@ -163,15 +168,22 @@ def extract_pretraining_scenes(
             "two_meter_temperature": {"dtype": "uint16", "zlib": True, "scale_factor": 0.1, "_FillValue": uint16_max},
             "total_column_water_vapor": {"dtype": "float32", "zlib": True},
             "leaf_area_index": {"dtype": "float32", "zlib": True},
-            "land_fraction": {"dtype": "int8", "zlib": True},
-            "ice_fraction": {"dtype": "int8", "zlib": True},
+            "land_fraction": {"dtype": "int8", "zlib": True, "_FillValue": -1},
+            "ice_fraction": {"dtype": "int8", "zlib": True, "_FillValue": -1},
             "elevation": {"dtype": "uint16", "zlib": True, "scale_factor": 0.5, "_FillValue": uint16_max},
             "ir_observations": {"dtype": "uint16", "zlib": True, "scale_factor": 0.01, "_FillValue": uint16_max},
         }
 
+        for var in training_data:
+            print(var, training_data[var].dtype)
+
         scene_ind = 0
         for scene in scenes:
             scene = scene.drop_vars(["valid"])
+            meta = scene["input_meta_data"].data
+            meta[meta < 0] = np.nan
+            meta = scene["target_meta_data"].data
+            meta[meta < 0] = np.nan
             start_time = target_granule.time_range.start
             start_str = start_time.strftime("%Y%m%d%H%M%S")
             end_time = target_granule.time_range.end
@@ -261,14 +273,19 @@ def extract_samples(
             target_index = Index.index(target_product, target_recs)
             matches = find_matches(input_index, target_index, np.timedelta64(15, "m"))
             for match in matches:
-                extract_pretraining_scenes(
-                    input_sensor,
-                    target_sensor,
-                    match,
-                    output_path,
-                    scene_size=scene_size,
-                )
-
+                try:
+                    extract_pretraining_scenes(
+                        input_sensor,
+                        target_sensor,
+                        match,
+                        output_path,
+                        scene_size=scene_size,
+                    )
+                except Exception:
+                    LOGGER.exception(
+                        "Encountered an error when extracting training data for match %s",
+                        match[0]
+                        )
 
 
 def process_l1c_file(
@@ -441,7 +458,7 @@ def cli(
     if n_processes is None:
         for day in track(days):
             start_time = datetime(year, month, day)
-            end_time = datetime(year, month, day + 1)
+            end_time = start_time + timedelta(days=1)
             extract_samples(
                 input_sensor,
                 target_sensor,
@@ -455,7 +472,7 @@ def cli(
         tasks = []
         for day in days:
             start_time = datetime(year, month, day)
-            end_time = datetime(year, month, day)
+            end_time = start_time + timedelta(days=1)
             tasks.append(
                 pool.submit(
                     extract_samples,

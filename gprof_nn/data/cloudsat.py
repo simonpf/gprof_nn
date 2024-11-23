@@ -8,7 +8,7 @@ and CloudSat.
 """
 from calendar import monthrange
 from concurrent.futures import ProcessPoolExecutor
-from datetime import datetime
+from datetime import datetime, timedelta
 import logging
 from pathlib import Path
 from typing import Tuple
@@ -32,6 +32,7 @@ from pyresample.geometry import SwathDefinition
 from pansat.utils import resample_data
 from rich.progress import track, Progress
 
+from gprof_nn.statistics import TrainingDataStats
 from gprof_nn.sensors import Sensor
 from gprof_nn.data.utils import (
     run_preprocessor,
@@ -39,18 +40,13 @@ from gprof_nn.data.utils import (
     add_cpcir_data,
     calculate_obs_properties,
     extract_scenes,
-    mask_invalid_values
+    mask_invalid_values,
+    PANSAT_PRODUCTS
 )
 
 
 LOGGER = logging.getLogger(__name__)
 
-# pansat products for each sensor.
-PRODUCTS = {
-    "gmi": (l1c_gpm_gmi,),
-    "atms": (l1c_npp_atms, l1c_noaa20_atms),
-    "amsr2": (l1c_gcomw1_amsr2,)
-}
 
 UPSAMPLING_FACTORS = {
     "gmi": (3, 1),
@@ -184,6 +180,15 @@ def extract_cloudsat_scenes(
         valid_field[~valid] = np.nan
         input_data["valid"] = (("scans", "pixels"), valid_field)
 
+        pflag = input_data["precip_flag"].data
+        surface_precip = input_data["surface_precip"].data
+        surface_precip_snow = input_data["surface_precip_snow"].data
+        total_precip = np.nan * np.zeros_like(surface_precip)
+        total_precip[pflag == 0] = 0.0
+        total_precip[surface_precip > 0] = surface_precip[surface_precip > 0]
+        total_precip[surface_precip_snow > 0] = surface_precip[surface_precip_snow > 0]
+        input_data["total_precip"] = (("scans", "pixels"), total_precip)
+
         input_data["input_observations"] = input_obs.observations.rename({"channels": "all_channels"})
         input_data["input_meta_data"] = input_obs.meta_data.rename({"channels": "all_channels"})
         mask_invalid_values(input_data)
@@ -226,11 +231,15 @@ def extract_cloudsat_scenes(
                 "snow_water_path",
                 "cloud_liquid_water_path",
                 "surface_precip",
+                "total_precip",
         ]:
             encodings[var] = {"dtype": "float32", "zlib": True}
 
+        stats = TrainingDataStats(output_path)
+
         scene_ind = 0
         for scene in scenes:
+            stats.track(scene, valid_var="total_precip")
             scene = scene.drop_vars("valid")
             start_time = target_granule.time_range.start
             start_str = start_time.strftime("%Y%m%d%H%M%S")
@@ -258,7 +267,7 @@ def extract_samples(
         output_path: The path to which to write the extracted training scenes.
         scene_size: The size of the training scenes to extract.
     """
-    input_products = PRODUCTS[sensor.name.lower()]
+    input_products = PANSAT_PRODUCTS[sensor.name.lower()]
     target_product = l2c_rain_profile
     for input_product in input_products:
             input_recs = input_product.get(TimeRange(start_time, end_time))
@@ -328,7 +337,7 @@ def cli(
     if n_processes is None:
         for day in track(days):
             start_time = datetime(year, month, day)
-            end_time = datetime(year, month, day + 1)
+            end_time = datetime(year, month, day) + timedelta(days=1)
             extract_samples(
                 sensor,
                 start_time,
@@ -341,7 +350,7 @@ def cli(
         tasks = []
         for day in days:
             start_time = datetime(year, month, day)
-            end_time = datetime(year, month, day + 1)
+            end_time = datetime(year, month, day) + timedelta(days=1)
             tasks.append(
                 pool.submit(
                     extract_samples,

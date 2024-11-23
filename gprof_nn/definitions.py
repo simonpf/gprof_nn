@@ -19,25 +19,25 @@ ALL_TARGETS = [
     "rain_water_content",
     "snow_water_content",
     "latent_heat",
-    "ice_water_path",
+    #"ice_water_path",
     "rain_water_path",
     "cloud_water_path",
 ]
 
 PROFILE_TARGETS = [
     "rain_water_content",
-    "cloud_water_content",
+    "cloud_liquid_water_content",
     "snow_water_content",
-    "latent_heat",
+    #"latent_heat",
 ]
 
 ANCILLARY_VARIABLES = [
     "land_fraction",
-    #"ice_fraction",
-    #"leaf_area_index",
-    #"snow_depth",
-    #"two_meter_temperature",
-    #"total_column_water_vapor",
+    "ice_fraction",
+    "leaf_area_index",
+    "snow_depth",
+    "two_meter_temperature",
+    "total_column_water_vapor",
     #"orographic_wind",
     #"moisture_convergence",
     "elevation"

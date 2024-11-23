@@ -14,7 +14,7 @@ import os
 from pathlib import Path
 import subprocess
 from tempfile import TemporaryDirectory
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Union, Tuple
 
 import numpy as np
 from scipy.ndimage import rotate
@@ -1603,14 +1603,23 @@ class SatformerDataset:
             seq_len_in: int = 13,
             seq_len_out: int = 4,
             validation: bool = False,
+            drop_inputs: int = 4,
             channel_dropout: float = 0.1,
     ):
+        """
+        Args:
+            path: Path pointing to the training data folder.
+            seq_len_in: The number of input observations.
+            seq_len_out: The number of output observations.
+            validation: If 'True' data loading will be deterministic.
+            channel_dropout: The number of input observations to drop and reproduce
+        """
         self.input_files = np.array(sorted(list(Path(path).glob("*.nc"))))
-        self.drop_inputs = 1
         self.seq_len_in = seq_len_in
         self.seq_len_out = seq_len_out
         self.validation = validation
         self.channel_dropout = channel_dropout
+        self.drop_inputs = drop_inputs
         self.init_rng()
 
     def init_rng(self, w_id=0):
@@ -1644,13 +1653,14 @@ class SatformerDataset:
 
         try:
             data = xr.open_dataset(self.input_files[ind])
+            n_chans_in = data.input_channels.size
+            n_chans_out = data.target_channels.size
+            chans_in = self.rng.permutation(n_chans_in)
+            chans_out = self.rng.permutation(n_chans_out)
+            valid = np.isfinite(data.lon.data)
         except Exception:
             return self[self.rng.integers(0, len(self))]
 
-        n_chans_in = data.input_channels.size
-        n_chans_out = data.target_channels.size
-        chans_in = self.rng.permutation(n_chans_in)
-        chans_out = self.rng.permutation(n_chans_out)
 
         input_observations = data.input_observations.data.astype("float32")
         input_meta = data.input_meta_data.data.astype("float32")
@@ -1670,12 +1680,25 @@ class SatformerDataset:
                 meta_dropped.append(torch.tensor(input_meta[chans_in[input_ind]]))
             else:
                 rand = self.rng.random()
-                if (rand > self.channel_dropout) and input_ind < len(chans_in):
-                    obs_in.append(torch.tensor(input_observations[[chans_in[input_ind]]]))
+                if (rand >= self.channel_dropout) and input_ind < len(chans_in):
+                    obs = input_observations[chans_in[input_ind]]
+                    obs[..., ~valid] = np.nan
+                    valid = np.isfinite(obs)
+                    mean = np.mean(obs[valid])
+                    std = np.std(obs[valid])
+                    obs_n = (obs - mean) / std
+                    obs = np.stack([
+                        np.ones_like(obs_n) * mean,
+                        np.ones_like(obs_n) * std,
+                        obs_n
+                    ])
+                    obs_in.append(torch.tensor(obs))
+                    meta = input_meta[chans_in[input_ind]]
+                    meta[..., ~valid] = np.nan
                     meta_in.append(torch.tensor(input_meta[chans_in[input_ind]]))
                 else:
-                    obs_in.append(torch.nan * torch.zeros_like(torch.tensor(input_observations[:1])))
-                    meta_in.append(torch.nan * torch.zeros_like(torch.tensor(input_meta[0])))
+                    obs_in.append(torch.nan * torch.zeros((3, 128, 128)))
+                    meta_in.append(torch.nan * torch.zeros((8, 128, 128)))
 
         obs_out = []
         meta_out = []
@@ -1691,8 +1714,9 @@ class SatformerDataset:
             "observations": torch.stack(obs_in, 1),
             "input_observation_props": torch.stack(meta_in, 1),
             "output_observation_props": torch.stack(meta_out, 1),
-            "dropped_observation_props": torch.stack(meta_dropped, 1),
         }
+        if self.drop_inputs > 0:
+            inpt["dropped_observation_props"] = torch.stack(meta_dropped, 1)
 
         anc_vars = [
             "two_meter_temperature",
@@ -1739,9 +1763,11 @@ class SatformerDataset:
         mask = torch.isnan(inpt["observations"]).all(0).all(-1).all(-1)
         inpt["input_observation_mask"] = mask
         target = {
-            "dropped_observations": obs_dropped,
             "output_observations": obs_out,
         }
+        if self.drop_inputs > 0:
+            target["dropped_observations"] = obs_dropped
+
         data.close()
 
         # Flip vertically
@@ -1778,14 +1804,12 @@ class SatformerRetrievalDataset:
             self,
             path: Path,
             seq_len_in: int = 13,
-            seq_len_out: int = 4,
             validation: bool = False,
-            channel_dropout: float = 0.1,
+            channel_dropout: float = 0.0,
     ):
         self.input_files = np.array(sorted(list(Path(path).glob("*.nc"))))
         self.drop_inputs = 1
         self.seq_len_in = seq_len_in
-        self.seq_len_out = seq_len_out
         self.validation = validation
         self.channel_dropout = channel_dropout
         self.init_rng()
@@ -1824,6 +1848,8 @@ class SatformerRetrievalDataset:
         except Exception:
             return self[self.rng.integers(0, len(self))]
 
+        valid = np.isfinite(data.longitude.data)
+
         n_chans_in = data.all_channels.size
         chans_in = self.rng.permutation(n_chans_in)
 
@@ -1835,18 +1861,31 @@ class SatformerRetrievalDataset:
 
         for input_ind in range(self.seq_len_in):
             rand = self.rng.random()
-            if (rand > self.channel_dropout) and input_ind < len(chans_in):
-                obs_in.append(torch.tensor(input_observations[[chans_in[input_ind]]]))
+            if (rand >= self.channel_dropout) and input_ind < len(chans_in):
+                obs = input_observations[chans_in[input_ind]]
+                obs[..., ~valid] = np.nan
+                valid = np.isfinite(obs)
+                mean = np.mean(obs[valid])
+                std = np.std(obs[valid])
+                obs_n = (obs - mean) / std
+                obs = np.stack([
+                    np.ones_like(obs_n) * mean,
+                    np.ones_like(obs_n) * std,
+                    obs_n
+                ])
+                obs_in.append(torch.tensor(obs))
+                meta = input_meta[chans_in[input_ind]]
+                meta[..., ~valid] = np.nan
                 meta_in.append(torch.tensor(input_meta[chans_in[input_ind]]))
             else:
-                obs_in.append(torch.nan * torch.zeros_like(torch.tensor(input_observations[:1])))
-                meta_in.append(torch.nan * torch.zeros_like(torch.tensor(input_meta[0])))
+                obs_in.append(torch.nan * torch.zeros((3, 128, 128)))
+                meta_in.append(torch.nan * torch.zeros((8, 128, 128)))
 
         inpt = {
             "observations": torch.stack(obs_in, 1),
             "input_observation_props": torch.stack(meta_in, 1),
         }
-        inpt["input_observation_props"][4] *= 100e3
+        #inpt["input_observation_props"][4] *= 100e3
 
         anc_vars = [
             "two_meter_temperature",
@@ -1858,7 +1897,10 @@ class SatformerRetrievalDataset:
             "ir_observations",
         ]
         for anc_var in anc_vars:
-            anc_data = torch.tensor(data[anc_var].data).to(dtype=torch.float32)
+            anc_data = data[anc_var].data
+            anc_data[..., ~valid] = np.nan
+            anc_data = torch.tensor(anc_data).to(dtype=torch.float32)
+
             if self.rng.random() > 0.5:
                 anc_data = np.nan * torch.tensor(data[anc_var].data).to(dtype=torch.float32)
             if anc_data.ndim < 3:
@@ -1919,3 +1961,210 @@ class SatformerRetrievalDataset:
                     target[key] = torch.flip(target[key], (-1,))
 
         return inpt, target
+
+
+class RetrievalDataset:
+    """
+    Dataset for training a Satformer to retrieve surface precipitation and
+    hydrometeor profiles.
+    """
+    def __init__(
+            self,
+            paths: Union[Path, List[Path]],
+            seq_len_in: int = 13,
+            seq_len_out: int = 4,
+            validation: bool = False,
+            channel_dropout: float = 0.1,
+            augment: bool = True,
+            precip_threshold: Optional[float] = -1.0,
+            subsample: float = 1.0
+
+    ):
+        if isinstance(paths, list):
+            self.input_files = np.concatenate([np.array(sorted(list(Path(path).glob("*.nc")))) for path in paths])
+        else:
+            self.input_files = np.array(sorted(list(Path(paths).glob("*.nc"))))
+
+        cloudsat_files = [path for path in self.input_files if "_cloudsat_" in path.name]
+        cmb_files = [path for path in self.input_files if "_cmb_" in path.name]
+        n_cmb_files = len(cmb_files)
+        if (len(paths) > 1) and (n_cmb_files > 0) and (len(cloudsat_files) > 0):
+            cloudsat_files = list(np.random.choice(cloudsat_files, int(22.89 * n_cmb_files)))
+
+        self.input_files = np.array(cloudsat_files + cmb_files)
+
+
+        self.drop_inputs = 1
+        self.seq_len_in = seq_len_in
+        self.seq_len_out = seq_len_out
+        self.validation = validation
+        self.channel_dropout = channel_dropout
+        self.augment = augment
+        self.precip_threshold = precip_threshold
+        self.subsample = subsample
+        self.init_rng()
+
+    def init_rng(self, w_id=0):
+        """
+        Initialize random number generator.
+
+        Args:
+            w_id: The worker ID which of the worker process..
+        """
+        if self.validation:
+            seed = 42
+        else:
+            seed = int.from_bytes(os.urandom(4), "big") + w_id
+        self.rng = np.random.default_rng(seed)
+
+    def worker_init_fn(self, w_id: int):
+        """
+        Pytorch retrieve interface.
+        """
+        self.init_rng(w_id)
+        winfo = torch.utils.data.get_worker_info()
+        n_workers = winfo.num_workers
+
+
+    def __len__(self):
+        return int(len(self.input_files) / self.subsample)
+
+    def __getitem__(self, ind: int):
+
+        ind = min(self.input_files.size - 1, int(self.subsample * ind) + self.rng.integers(0, self.subsample))
+
+        try:
+            scene = xr.open_dataset(self.input_files[ind])
+        except Exception:
+            return self[self.rng.integers(0, len(self))]
+
+        scan_start = self.rng.integers(0, 32)
+        pixel_start = self.rng.integers(0, 32)
+        scene = scene[{
+            "scans": slice(scan_start, scan_start + 96),
+            "pixels": slice(pixel_start, pixel_start + 96)
+        }]
+
+        land_frac = scene.land_fraction.data
+        if "cmb" in self.input_files[ind].name:
+            surface_precip = scene.surface_precip.data
+            valid_ref = (
+                (surface_precip > self.precip_threshold) +
+                ((land_frac > 0) * (surface_precip > 0))
+            )
+        else:
+            precip_flag = scene.precip_flag.data
+            surface_precip = (
+                np.nan_to_num(scene.surface_precip.data, nan=0.0, copy=True) +
+                scene.surface_precip_snow.data
+            )
+
+            if self.precip_threshold >= 0.0:
+                valid_ref = (
+                    ((surface_precip < self.precip_threshold) * (land_frac == 0)) +
+                    (precip_flag == 0) +
+                    ((4 <= precip_flag) * (precip_flag <= 5)) +
+                    ((6 <= precip_flag) * (precip_flag <= 7))
+                )
+            else:
+                valid_ref = (
+                    (land_frac == 0) +
+                    (precip_flag == 0) +
+                    ((4 <= precip_flag) * (precip_flag <= 5)) +
+                    ((6 <= precip_flag) * (precip_flag <= 7))
+                )
+
+
+        valid = np.isfinite(scene.longitude.data) * np.isfinite(scene.latitude.data)
+
+        if (valid * valid_ref).sum() < 5:
+            #self.input_files = np.delete(self.input_files, ind)
+            LOGGER.info(
+                "No valid samples in scene %s.",
+                self.input_files[ind].name
+            )
+            return self[self.rng.integers(0, len(self))]
+
+        tbs = scene.brightness_temperatures.data
+        tbs[~valid] = np.nan
+        full_shape = tbs.shape[:2] + (15,)
+        if tbs.shape != full_shape:
+            sensor = sensors.get_sensor(self.input_files[ind].name.split("_")[0])
+            tbs_full = np.nan * np.ones(full_shape, dtype="float32")
+            tbs_full[:, :, sensor.gprof_channel_indices] = tbs
+        else:
+            tbs_full = tbs.astype(np.float32)
+        tbs_full = torch.permute(torch.tensor(tbs_full), (2, 0, 1))
+
+        if "cmb" in self.input_files[ind].name and "gmi" in self.input_files[ind].name:
+            if self.rng.random() > 0.1:
+                n_pixels = self.rng.integers(10, 32)
+                if self.rng.random() > 0.5:
+                    tbs_full[-5:, :, :n_pixels] = torch.nan
+                else:
+                    tbs_full[-5:, :, -n_pixels:] = torch.nan
+
+        #angs = data.earth_incidence_angle.data
+        #if angs.ndim == 2:
+        #    angs = angs[..., None]
+        #if tbs.shape != full_shape:
+        #    angs_full = np.nan * np.ones(full_shape, dtype="float32")
+        #    angs_full[:, :, sensor.gprof_channel_indices] = angs
+        #else:
+        #    angs_full = angs
+        #angs_full = torch.permute(torch.tensor(angs_full), (2, 0, 1))
+
+        anc = np.stack(
+            [scene[anc_var].data.astype("float32") for anc_var in ANCILLARY_VARIABLES]
+        )
+        anc[..., ~valid] = np.nan
+        anc = torch.tensor(anc)
+
+        x = {
+            "brightness_temperatures": tbs_full,
+            "ancillary_data": anc
+        }
+
+        y = {}
+        for target in ALL_TARGETS:
+
+            if target == "surface_precip":
+                surface_precip[~valid_ref] = np.nan
+                y["surface_precip"] = torch.tensor(surface_precip[None])
+                continue
+
+            # MRMS collocations don't contain all targets.
+            if target not in scene:
+                if target in PROFILE_TARGETS:
+                    empty = torch.nan * torch.zeros((28, 128, 128))
+                else:
+                    empty = torch.nan * torch.zeros((1, 128, 128))
+                y[target] = empty
+                continue
+
+            data = scene[target].data.astype("float32")
+            data[~valid] = np.nan
+            data[~valid_ref] = np.nan
+            if data.ndim < 3:
+                data = data[..., None]
+
+            data = torch.tensor(data)
+            dims = tuple(range(data.ndim))
+            data = torch.permute(data, (2, 0, 1))
+            y[target] = data
+
+        # Also flip data if requested.
+        if self.augment:
+            prob = self.rng.random()
+            if prob > 0.5:
+                x = {key: torch.flip(tensor, (-2,)) for key, tensor in x.items()}
+                y = {key: torch.flip(tensor, (-2,)) for key, tensor in y.items()}
+            prob = self.rng.random()
+            if prob > 0.5:
+                x = {key: torch.flip(tensor, (-1,)) for key, tensor in x.items()}
+                y = {key: torch.flip(tensor, (-1,)) for key, tensor in y.items()}
+            prob = self.rng.random()
+            if prob > 0.5:
+                x = {key: torch.transpose(tensor, -2, -1) for key, tensor in x.items()}
+                y = {key: torch.transpose(tensor, -2, -1) for key, tensor in y.items()}
+        return x, y
