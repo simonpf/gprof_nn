@@ -26,9 +26,9 @@ ALL_TARGETS = [
 
 PROFILE_TARGETS = [
     "rain_water_content",
-    "cloud_liquid_water_content",
+    "cloud_water_content",
     "snow_water_content",
-    #"latent_heat",
+    "latent_heat",
 ]
 
 ANCILLARY_VARIABLES = [
