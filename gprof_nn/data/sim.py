@@ -1107,14 +1107,14 @@ def process_files(
         " that it wraps around the date line."
     ),
     metavar="lon_min,lat_min,lon_max,lat_max"
+)
 @click.option(
-    "--satformer",
+    "--satformer_model",
     default=None,
     help=(
         "Optional path pointing to a satformer model to use to simulated Tbs."
     ),
     metavar="path"
-
 )
 def cli(sensor: Sensor,
         sim_file_path: Path,
