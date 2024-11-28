@@ -22,9 +22,19 @@ from typing import Optional, Tuple
 import click
 import numpy as np
 import pandas as pd
+from pansat import TimeRange, Granule
+from pansat.products.satellite.gpm import l1c_r_gpm_gmi
 from pykdtree.kdtree import KDTree
 from rich.progress import Progress
+from scipy.signal import convolve
+import torch
 import xarray as xr
+
+from pytorch_retrieve.architectures import load_and_compile_model, load_model
+from pytorch_retrieve import InferenceConfig
+from pytorch_retrieve.config import RetrievalOutputConfig
+from pytorch_retrieve.inference import run_inference
+from pytorch_retrieve.retrieval_output import ExpectedValue
 
 import gprof_nn
 from gprof_nn import sensors
@@ -49,8 +59,26 @@ from gprof_nn.data.utils import (
     N_PIXELS_CENTER,
     save_scene,
     write_training_samples_1d,
-    write_training_samples_3d
+    write_training_samples_3d,
+    UPSAMPLING_FACTORS,
+    upsample_data,
+    add_cpcir_data,
+    calculate_obs_properties,
+    RADIUS_OF_INFLUENCE,
+    calculate_polarization_weights,
 )
+
+BEAM_WIDTHS = {
+    "gmi": [1.75, 1.75, 1.0, 1.0, 0.9, 0.9, 0.9, 0.4, 0.4, 0.4, 0.4, 0.4, 0.4],
+    "atms": [5.5, 5.5, 1.1, 1.1, 5.2],
+    "amsr2": [1.2, 1.2, 1.2, 1.2, 1.2, 1.2, 1.2, 1.2, 1.2, 1.2],
+}
+
+EIA = {
+    "amsr2": [55.33, 55.3, 55.3, 55.28, 55.28, 55.28, 55.28, 55.3, 54.78, 54.78]
+}
+
+from gprof_nn.geometry import incidence_angle_to_viewing_angle
 from gprof_nn.logging import get_console
 from gprof_nn.utils import CONUS
 from gprof_nn.sensors import Sensor
@@ -213,7 +241,7 @@ class SimFile:
 
             tbs = self.data["tbs_simulated"]
 
-            matched[indices, ...] = tbs
+            matched[indices, ...] = tbs[..., :n_chans]
             matched[indices, ...][dists > 10e3] = np.nan
             matched = matched.reshape(shape)
 
@@ -234,7 +262,7 @@ class SimFile:
             matched[:] = np.nan
 
             biases = self.data["tbs_bias"]
-            matched[indices, ...] = biases
+            matched[indices, ...] = biases[..., :n_chans]
 
             matched[indices, ...][dists > 10e3] = np.nan
             matched = matched.reshape(shape)
@@ -302,7 +330,7 @@ class SimFile:
                     )
 
         if n_angles > 0:
-            input_data["angles"] = (("angles",), self.header["viewing_angles"][0])
+            input_data["angles"] = (("angles",), self.header["earth_incidence_angles"][0])
 
         return input_data
 
@@ -315,6 +343,8 @@ class SimFile:
             len(self.header["frequencies"][0]): "channels",
             N_LAYERS: "layers",
         }
+        if 15 not in dim_dict:
+            dim_dict[15] = "gmi_channels"
         if isinstance(self.sensor, sensors.CrossTrackScanner):
             dim_dict[self.sensor.n_angles] = "angles"
 
@@ -329,7 +359,7 @@ class SimFile:
             results[key] = dims, data
 
         if isinstance(self.sensor, sensors.CrossTrackScanner):
-            results["angles"] = (("angles",), self.header["viewing_angles"][0])
+            results["angles"] = (("angles",), self.header["earth_incidence_angles"][0])
 
         dataset = xr.Dataset(results)
 
@@ -603,6 +633,266 @@ def collocate_targets(
     return data_pp
 
 
+class SimulatorInput():
+    def __init__(self, data: xr.Dataset, target_sensor: Sensor):
+        self.data = data
+        self.target_sensor = target_sensor
+
+    def __len__(self):
+        return 1
+
+    def __iter__(self):
+        if self.target_sensor.kind in ["CONICAL", "CONICAL_CONSTELLATION"]:
+            yield self.load_input_data_conical()
+        elif self.target_sensor.kind in ["XTRACK"]:
+            yield self.load_input_data_conical()
+        else:
+            raise ValueError(f"Encountered sensor with unsupported kind {self.target_sensor.kind}.")
+
+    def load_input_data_xtrack(self):
+
+        upsampling_factors = UPSAMPLING_FACTORS["gmi"]
+        input_data = upsample_data(self.data, upsampling_factors)
+        input_data = add_cpcir_data(input_data)
+
+        central_time = input_data.scan_time.data[0] + (input_data.scan_time.data[-1] - input_data.scan_time.data[0]) // 2
+        recs = l1c_r_gpm_gmi.get(TimeRange(central_time))
+        granule = Granule(recs[0], recs[0].temporal_coverage, None)
+        rof_in = RADIUS_OF_INFLUENCE["gmi"]
+        input_obs = calculate_obs_properties(input_data, granule, radius_of_influence=rof_in)
+        observations = torch.tensor(input_obs.observations.data)
+        input_observation_props = torch.tensor(input_obs.meta_data.data).transpose(0, 1)[None]
+
+        output_observation_props = []
+        n_chans = len(self.target_sensor.frequencies)
+        shape = observations.shape[-2:]
+
+        sensor = self.target_sensor
+        for eia in self.data.angles.data:
+            vang = incidence_angle_to_viewing_angle(eia, sensor.viewing_geometry.altitude)
+            for chan in range(n_chans):
+                freq = sensor.frequencies[chan] * torch.ones(shape)
+                offset = sensor.offsets[chan] * torch.ones(shape)
+                pol = calculate_polarization_weights(sensor.polarization[chan], vang).item() * torch.ones(shape)
+                beam_width = BEAM_WIDTHS[self.target_sensor.name.lower()][chan] * torch.ones(shape)
+                alt = sensor.viewing_geometry.altitude / 100e3 * torch.ones(shape)
+                zenith = eia.item() * torch.ones(shape)
+                direction = 1.0 if np.random.rand() < 0.5 else -1.0
+                #sin_az = 1.0 + np.sin(np.arcsin(input_observation_props[0, -2, chan] - 1) + direction * np.pi / 2.0)
+                #cos_az = 1.0 + np.cos(np.arccos(input_observation_props[0, -1, chan] - 1) + direction * np.pi / 2.0)
+                sin_az = input_observation_props[0, -2, chan]
+                cos_az = input_observation_props[0, -1, chan]
+
+                output_observation_props.append(
+                    torch.stack([
+                        freq,
+                        offset,
+                        pol,
+                        beam_width,
+                        alt,
+                        zenith,
+                        sin_az,
+                        cos_az
+                    ])
+                )
+
+        output_observation_props = torch.stack(output_observation_props, 1)[None]
+
+        obs_in = []
+        for ind, obs in enumerate(input_obs.observations.data):
+            valid = np.isfinite(obs)
+            obs[..., ~valid] = np.nan
+            mean = np.mean(obs[valid])
+            std = np.std(obs[valid])
+            obs_n = (obs - mean) / std
+            obs = np.stack([
+                np.ones_like(obs_n) * mean,
+                np.ones_like(obs_n) * std,
+                obs_n
+            ])
+            obs_in.append(torch.tensor(obs))
+
+            input_observation_props[..., ind, torch.tensor(~valid)] = np.nan
+
+        obs_in = torch.stack(obs_in, 1)[None]
+        obs_in_mask = torch.isnan(obs_in).all(1).all(-1).all(-1)
+
+        inpt = {
+            "observations": obs_in,
+            "input_observation_props": input_observation_props,
+            "input_observation_mask": obs_in_mask,
+        }
+
+        anc_vars = [
+            "two_meter_temperature",
+            "total_column_water_vapor",
+            "leaf_area_index",
+            "land_fraction",
+            "ice_fraction",
+            "elevation",
+            "ir_observations",
+        ]
+        for anc_var in anc_vars:
+            anc_data = torch.tensor(input_data[anc_var].data).to(dtype=torch.float32)
+            if anc_data.dim() < 3:
+                anc_data = anc_data[None]
+            anc_data = anc_data[None, :, None]
+            anc_mask = torch.isnan(anc_data).all()[None, None]
+            inpt[anc_var] = anc_data
+            inpt[anc_var + "_mask"] = anc_mask
+
+        inpt["output_observation_props"] = output_observation_props
+        return inpt, "None", {}
+
+
+    def load_input_data_conical(self):
+
+        upsampling_factors = UPSAMPLING_FACTORS["gmi"]
+        input_data = upsample_data(self.data, upsampling_factors)
+        input_data = add_cpcir_data(input_data)
+
+        central_time = input_data.scan_time.data[0] + (input_data.scan_time.data[-1] - input_data.scan_time.data[0]) // 2
+        recs = l1c_r_gpm_gmi.get(TimeRange(central_time))
+        granule = Granule(recs[0], recs[0].temporal_coverage, None)
+        rof_in = RADIUS_OF_INFLUENCE["gmi"]
+        input_obs = calculate_obs_properties(input_data, granule, radius_of_influence=rof_in)
+        observations = torch.tensor(input_obs.observations.data)
+        input_observation_props = torch.tensor(input_obs.meta_data.data).transpose(0, 1)[None]
+
+        output_observation_props = []
+        n_chans = len(self.target_sensor.frequencies)
+        shape = observations.shape[-2:]
+
+        sensor = self.target_sensor
+        for chan in range(n_chans):
+            freq = sensor.frequencies[chan] * torch.ones(shape)
+            offset = sensor.offsets[chan] * torch.ones(shape)
+            pol = calculate_polarization_weights(sensor.polarization[chan], 0.0).item() * torch.ones(shape)
+            beam_width = BEAM_WIDTHS[self.target_sensor.name.lower()][chan] * torch.ones(shape)
+            alt = sensor.viewing_geometry.altitude / 100e3 * torch.ones(shape)
+            zenith = EIA[self.target_sensor.name.lower()][chan] * torch.ones(shape)
+            #sin_az = 1.0 + np.sin(np.arcsin(input_observation_props[0, -2, chan] - 1) + direction * np.pi / 2.0)
+            #cos_az = 1.0 + np.cos(np.arccos(input_observation_props[0, -1, chan] - 1) + direction * np.pi / 2.0)
+            sin_az = input_observation_props[0, -2, chan]
+            cos_az = input_observation_props[0, -1, chan]
+
+            output_observation_props.append(
+                torch.stack([
+                    freq,
+                    offset,
+                    pol,
+                    beam_width,
+                    alt,
+                    zenith,
+                    sin_az,
+                    cos_az
+                ])
+            )
+
+        output_observation_props = torch.stack(output_observation_props, 1)[None]
+
+        obs_in = []
+        for ind, obs in enumerate(input_obs.observations.data):
+            valid = np.isfinite(obs)
+            obs[..., ~valid] = np.nan
+            mean = np.mean(obs[valid])
+            std = np.std(obs[valid])
+            obs_n = (obs - mean) / std
+            obs = np.stack([
+                np.ones_like(obs_n) * mean,
+                np.ones_like(obs_n) * std,
+                obs_n
+            ])
+            obs_in.append(torch.tensor(obs))
+
+            input_observation_props[..., ind, torch.tensor(~valid)] = np.nan
+
+        obs_in = torch.stack(obs_in, 1)[None]
+        obs_in_mask = torch.isnan(obs_in).all(1).all(-1).all(-1)
+
+        inpt = {
+            "observations": obs_in,
+            "input_observation_props": input_observation_props,
+            "input_observation_mask": obs_in_mask,
+        }
+
+        anc_vars = [
+            "two_meter_temperature",
+            "total_column_water_vapor",
+            "leaf_area_index",
+            "land_fraction",
+            "ice_fraction",
+            "elevation",
+            "ir_observations",
+        ]
+        for anc_var in anc_vars:
+            anc_data = torch.tensor(input_data[anc_var].data).to(dtype=torch.float32)
+            if anc_data.dim() < 3:
+                anc_data = anc_data[None]
+            anc_data = anc_data[None, :, None]
+            anc_mask = torch.isnan(anc_data).all()[None, None]
+            inpt[anc_var] = anc_data
+            inpt[anc_var + "_mask"] = anc_mask
+
+        inpt["output_observation_props"] = output_observation_props
+        return inpt, "None", {}
+
+
+def simulate_tbs_satformer(
+        model_path: Path,
+        data: xr.Dataset,
+        sensor: Sensor
+):
+    input_loader = SimulatorInput(data, sensor)
+    model = load_model(model_path).eval()
+
+    output_config = RetrievalOutputConfig(model.output_config["output_observations"], "ExpectedValue", {})
+    retrieval_output = {"output_observations": {"output_observations": output_config}}
+    inference_config = InferenceConfig(
+        tile_size=128,
+        spatial_overlap=32,
+        retrieval_output=retrieval_output,
+        batch_size=1
+    )
+
+    results = run_inference(
+        model,
+        input_loader,
+        inference_config,
+        exclude_from_tiling=[
+            "input_observation_mask",
+            "two_meter_temperature_mask",
+            "total_column_water_vapor_mask",
+            "land_fraction_mask",
+            "ice_fraction_mask",
+            "leaf_area_index_mask",
+            "elevation_mask",
+            "ir_observations_mask",
+        ],
+        device="cuda"
+    )
+    results = results[0]
+
+    obs = results.output_observations.data
+    k = np.exp(np.log(0.5) * (np.linspace(-3, 3, 7) / 1.5) ** 2)
+    k /= k
+
+    valid = np.isfinite(obs)
+    k = k[None, None]
+    obs = convolve(obs, k, mode='same')
+    cts = convolve(valid.astype(np.float32), k, mode='same')
+    obs /= cts
+
+    if "angles" in data:
+        obs = obs.reshape((data.angles.size, len(sensor.frequencies)) + obs.shape[1:])
+        obs = np.transpose(obs, (2, 3, 0, 1))
+        data["satformer_tbs"] = (("scans", "pixels", "angles", "channels"), obs[1::3])
+    else:
+        obs = obs.reshape((len(sensor.frequencies),) + obs.shape[1:])
+        obs = np.transpose(obs, (1, 2, 0))
+        data["satformer_tbs"] = (("scans", "pixels", "channels"), obs[1::3])
+
+
 def process_sim_file(
         sensor: Sensor,
         sim_file: Path,
@@ -610,7 +900,8 @@ def process_sim_file(
         output_path_1d: Path,
         output_path_3d: Path,
         include_cmb_precip: bool = False,
-        lonlat_bounds: Optional[Tuple[float, float, float, float]] = None
+        lonlat_bounds: Optional[Tuple[float, float, float, float]] = None,
+        satformer_model: Optional[Path] = None
 ) -> None:
     """
     Extract training data from a single .sim-file and write output to
@@ -632,8 +923,8 @@ def process_sim_file(
             containing the longitude and latitude coordinates of the lower-left corner
             (``lon_ll`` and ``lat_ll``) followed by the longitude and latitude coordinates
             of the upper right corner (``lon_ur``, ``lat_ur``).
-
             a rectangular bounding box to constrain the training data extracted.
+        satformer_model: A satformer model to use to simulate brightness temperatures.
     """
     data = collocate_targets(
         sim_file,
@@ -641,6 +932,19 @@ def process_sim_file(
         era5_path,
         include_cmb_precip=include_cmb_precip
     )
+
+    vars = list(data.variables) + list(data.dims)
+    data = decompress_scene(data, vars)
+
+    if satformer_model is not None:
+        simulate_tbs_satformer(satformer_model, sim_data, sensors.AMSR2)
+
+    if sensor.name != "GMI":
+        data = simulate_tbs_satformer(
+            model_path,
+            data,
+            sensor,
+        )
 
     if lonlat_bounds is not None:
         lon_ll, lat_ll, lon_ur, lat_ur = lonlat_bounds
@@ -670,7 +974,8 @@ def process_files(
         end_time: Optional[np.datetime64] = None,
         split: Optional[str] = None,
         include_cmb_precip: bool = False,
-        lonlat_bounds: Optional[Tuple[float, float, float, float]] = None
+        lonlat_bounds: Optional[Tuple[float, float, float, float]] = None,
+        satformer_model: Optional[Path] = None
 ) -> None:
     """
     Parallel processing of all .sim files within a given time range.
@@ -696,6 +1001,8 @@ def process_files(
             containing the longitude and latitude coordinates of the lower-left corner
             (``lon_ll`` and ``lat_ll``) followed by the longitude and latitude coordinates
             of the upper right corner (``lon_ur``, ``lat_ur``).
+        satformer_model: An optional Path pointing to a satformer model to use to simulate
+            brightness temperatures.
     """
     sim_files = sorted(list(path.glob(f"**/{sensor.sim_file_pattern}")))
     files = []
@@ -744,7 +1051,8 @@ def process_files(
                 output_path_1d,
                 output_path_3d,
                 include_cmb_precip=include_cmb_precip,
-                lonlat_bounds=lonlat_bounds
+                lonlat_bounds=lonlat_bounds,
+                satformer_model=satformer_model
             )
         )
         tasks[-1].file = path
@@ -799,6 +1107,13 @@ def process_files(
         " that it wraps around the date line."
     ),
     metavar="lon_min,lat_min,lon_max,lat_max"
+@click.option(
+    "--satformer",
+    default=None,
+    help=(
+        "Optional path pointing to a satformer model to use to simulated Tbs."
+    ),
+    metavar="path"
 
 )
 def cli(sensor: Sensor,
@@ -810,7 +1125,8 @@ def cli(sensor: Sensor,
         end_time: Optional[np.datetime64] = None,
         n_processes: int = 1,
         include_cmb_precip: bool = False,
-        bounds: Tuple[float, float, float, float] = None
+        bounds: Tuple[float, float, float, float] = None,
+        satformer_model: Optional[Path] = None
 ) -> None:
     """
     \b
@@ -891,8 +1207,6 @@ def cli(sensor: Sensor,
         end_time=end_time,
         n_processes=n_processes,
         include_cmb_precip=include_cmb_precip,
-        lonlat_bounds=lonlat_bounds
+        lonlat_bounds=lonlat_bounds,
+        satformer_model=satformer_model
     )
-
-
-

@@ -608,10 +608,13 @@ def upsample_data(
         The preprocessor data upsampled by the given factors along scans and pixels.
     """
     float_vars = [
-        "latitude", "longitude", "brightness_temperatures", "total_column_water_vapor", "two_meter_temperature",
-        "moisture_convergence", "leaf_area_index", "snow_depth", "land_fraction", "ice_fraction", "elevation",
-        "earth_incidence_angle"
+        name for name in [
+            "latitude", "longitude", "brightness_temperatures", "total_column_water_vapor", "two_meter_temperature",
+            "moisture_convergence", "leaf_area_index", "snow_depth", "land_fraction", "ice_fraction", "elevation",
+            "earth_incidence_angle"
+        ] if name in data
     ]
+
     scan_time = data["scan_time"]
     data = data[float_vars]
 

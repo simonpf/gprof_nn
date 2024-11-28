@@ -270,7 +270,7 @@ def get_sim_file_header(n_chans, n_angles, kind):
         Numpy dtype that can be used to read the header of a *.sim file.
     """
     check_kind(kind)
-    if kind == CONICAL:
+    if kind in [CONICAL, CONICAL_CONST]:
         dtype = np.dtype(
             [
                 ("satellite_code", "a5"),
@@ -289,7 +289,7 @@ def get_sim_file_header(n_chans, n_angles, kind):
                 ("satellite_code", "a5"),
                 ("sensor", "a5"),
                 ("frequencies", f"f4", (n_chans,)),
-                ("viewing_angles", f"f4", (n_angles,)),
+                ("earth_incidence_angles", f"f4", (n_angles,)),
                 ("start_pixel", "i4"),
                 ("end_pixel", "i4"),
                 ("start_scan", "i4"),
@@ -326,8 +326,7 @@ def get_sim_file_record(n_chans, n_angles, n_layers, kind):
         ]
     )
 
-
-    if kind == CONICAL:
+    if kind in [CONICAL, CONICAL_CONST]:
         dtype = np.dtype(
             [
                 ("pixel_index", "i4"),
