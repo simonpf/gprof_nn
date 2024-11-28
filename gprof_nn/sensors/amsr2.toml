@@ -5,17 +5,17 @@ l1c_file_prefix = "1C.GCOMW1.AMSR2"
 
 [viewing_geometry]
 kind = "Conical"
-altitude = 700e3
-earth_incidence_angle = 53.1
+altitude = 726.9e3
+earth_incidence_angle = 55.0
 scan_range = 140.0
 pixels_per_scan = 492
 scan_offset = 5e3
 
 [sensor]
 kind = "ConstellationScanner"
-frequencies = [10.6, 10.6, 18.7, 18.7, 23.0, 37.0, 37.0, 89.0, 89.0, 166.0, 166.0, 183.0, 183.0]
-offsets = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 7]
-polarization = ["V", "H", "V", "H", "V", "V", "H", "V", "H", "V", "H", "V", "V"]
+frequencies = [10.65, 10.65, 18.7, 18.7, 23.8, 23.8, 36.5, 36.5, 89.0, 89.0]
+offsets = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+polarization = ["V", "H", "V", "H", "V", "H", "V", "H", "V", "H"]
 orographic_enhancement = [1.14100, 1.71287, 1.46721, 1.71271, 2.96671]
 
 [sensor.gprof_channels]
