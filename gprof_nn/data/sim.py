@@ -20,6 +20,7 @@ import tempfile
 from typing import Optional, Tuple
 
 import click
+from filelock import FileLock
 import numpy as np
 import pandas as pd
 from pansat import TimeRange, Granule
@@ -66,6 +67,7 @@ from gprof_nn.data.utils import (
     calculate_obs_properties,
     RADIUS_OF_INFLUENCE,
     calculate_polarization_weights,
+    decompress_scene
 )
 
 BEAM_WIDTHS = {
@@ -645,7 +647,7 @@ class SimulatorInput():
         if self.target_sensor.kind in ["CONICAL", "CONICAL_CONSTELLATION"]:
             yield self.load_input_data_conical()
         elif self.target_sensor.kind in ["XTRACK"]:
-            yield self.load_input_data_conical()
+            yield self.load_input_data_xtrack()
         else:
             raise ValueError(f"Encountered sensor with unsupported kind {self.target_sensor.kind}.")
 
@@ -937,14 +939,16 @@ def process_sim_file(
     data = decompress_scene(data, vars)
 
     if satformer_model is not None:
-        simulate_tbs_satformer(satformer_model, sim_data, sensors.AMSR2)
+        simulate_tbs_satformer(satformer_model, data, sensor)
 
     if sensor.name != "GMI":
-        data = simulate_tbs_satformer(
-            model_path,
-            data,
-            sensor,
-        )
+        lock = FileLock("cuda.lock")
+        with lock:
+            simulate_tbs_satformer(
+                satformer_model,
+                data,
+                sensor,
+            )
 
     if lonlat_bounds is not None:
         lon_ll, lat_ll, lon_ur, lat_ur = lonlat_bounds

@@ -290,6 +290,13 @@ def save_scene(
             "_FillValue":  2 ** 16 - 1,
             "zlib": True
         },
+        "satformer_tbs": {
+            "dtype": "uint16",
+            "scale_factor": 0.01,
+            "add_offset": 1,
+            "_FillValue":  2 ** 16 - 1,
+            "zlib": True
+        },
         "brightness_temperature_biases": {
             "dtype": "int16",
             "scale_factor": 0.01,
@@ -828,7 +835,7 @@ POLARIZATIONS = {
 
 BEAM_WIDTHS = {
     "gmi": [1.75, 1.75, 1.0, 1.0, 0.9, 0.9, 0.9, 0.4, 0.4, 0.4, 0.4, 0.4, 0.4],
-    "atms": [5.2, 5.2, 2.2, 1.1, 1.1, 1.1, 1.1, 1.1],
+    "atms": [5.2, 5.2, 2.2, 1.1, 1.1, 1.1, 1.1, 1.1, 1.1],
     "amsr2": [1.2, 1.2, 0.65, 0.65, 0.75, 0.75, 0.35, 0.35, 0.15, 0.15, 0.15, 0.15],
 }
 
@@ -874,10 +881,11 @@ def calculate_obs_properties(
     l1c_file = L1CFile(granule.file_record.local_path)
     sensor = l1c_file.sensor.name.lower()
 
+    tot_chan_ind = 0
+
     granule_data = granule.open()
     if "latitude" in granule_data:
         pass
-
     else:
         swath_ind = 1
         while f"latitude_s{swath_ind}" in granule_data:
@@ -945,13 +953,14 @@ def calculate_obs_properties(
                     freqs[chan_ind] * np.ones_like(observations[-1]),
                     offsets[chan_ind] * np.ones_like(observations[-1]),
                     calculate_polarization_weights(pols[chan_ind], viewing_angle),
-                    BEAM_WIDTHS[sensor][chan_ind] * np.ones_like(observations[-1]),
+                    BEAM_WIDTHS[sensor][tot_chan_ind] * np.ones_like(observations[-1]),
                     sensor_alt,
                     zenith,
                     1.0 + np.sin(np.deg2rad(azimuth)),
                     1.0 + np.cos(np.deg2rad(azimuth))
                 ))
                 meta_data.append(meta)
+                tot_chan_ind += 1
 
             swath_ind += 1
 
