@@ -717,7 +717,7 @@ def has_preprocessor():
 
 # Dictionary mapping sensor IDs to preprocessor executables.
 PREPROCESSOR_EXECUTABLES = {
-    "GMI": "gprof2024pp_GMI_L1C",
+    "GMI": "gprof2023pp_GMI_L1C",
     "MHS": "gprof2023pp_MHS_L1C",
     "TMIPR": "gprof2021pp_TMI_L1C",
     "TMIPO": "gprof2021pp_TMI_L1C",
@@ -734,7 +734,7 @@ PREPROCESSOR_EXECUTABLES = {
     ("GMI", "SSMIS"): "gprof2021pp_GMI_SSMIS_L1C",
     ("GMI", "AMSR2"): "gprof2023pp_GMI_L1C",
     ("GMI", "AMSRE"): "gprof2021pp_GMI_AMSRE_L1C",
-    ("GMI", "ATMS"): "gprof2021pp_GMI_ATMS_L1C",
+    ("GMI", "ATMS"): "gprof2023pp_GMI_L1C",
     ("GMI", "TMS"): "gprof2023pp_GMI_L1C",
 }
 

@@ -41,6 +41,7 @@ from gprof_nn.data.utils import (
     calculate_obs_properties,
     extract_scenes,
     mask_invalid_values,
+    RADIUS_OF_INFLUENCE,
     PANSAT_PRODUCTS
 )
 
@@ -66,6 +67,7 @@ def extract_cloudsat_scenes(
         match: Tuple[Granule, Tuple[Granule]],
         output_path: Path,
         scene_size: Tuple[int, int],
+        high_res: bool = False
 ) -> None:
     """
     Extract training scenes between a GPM sensor and CloudSat observations.
@@ -76,6 +78,7 @@ def extract_cloudsat_scenes(
             retrievals.
         output_path: The path to which to write the extracted training scenes.
         scene_size: The size of the training scenes to extract.
+        high_res: Whether to upsample data to ~ 5 km resolution.
     """
     input_granule, target_granules = match
     target_granules = merge_granules(sorted(list(target_granules)))
@@ -87,9 +90,10 @@ def extract_cloudsat_scenes(
                 invalid = input_data[var].data < -1_000
                 input_data[var].data[invalid] = np.nan
 
-        upsampling_factors = UPSAMPLING_FACTORS[sensor.name.lower()]
-        if max(upsampling_factors) > 1:
-            input_data = upsample_data(input_data, upsampling_factors)
+        if high_res:
+            upsampling_factors = UPSAMPLING_FACTORS[sensor.name.lower()]
+            if max(upsampling_factors) > 1:
+                input_data = upsample_data(input_data, upsampling_factors)
         input_data = add_cpcir_data(input_data)
 
         lons = input_data.longitude.data
@@ -138,7 +142,13 @@ def extract_cloudsat_scenes(
         cs_data["levels"] = (("levels",), levels)
         cs_data = cs_data.drop_dims("bins")
 
-        cs_data_r = resample_data(cs_data.transpose("rays", "levels"), swath, new_dims=(("scans", "pixels")))
+        cs_data_r = resample_data(
+            cs_data.transpose("rays", "levels"),
+            swath,
+            new_dims=(("scans", "pixels")),
+            unique=True,
+            radius_of_influence=rof_in / 3 if high_res else rof_in
+        )
 
         input_data["surface_precip"] = (
             ("scans", "pixels"),
@@ -195,10 +205,10 @@ def extract_cloudsat_scenes(
 
         scenes = extract_scenes(
             input_data,
-            n_scans=128,
-            n_pixels=128,
+            n_scans=scene_size[0],
+            n_pixels=scene_size[1],
             overlapping=True,
-            min_valid=100,
+            min_valid=scene_size[0] // 2,
             reference_var="valid",
             offset=50
         )
@@ -256,6 +266,7 @@ def extract_samples(
         end_time: np.datetime64,
         output_path: Path,
         scene_size: Tuple[int, int] = (64, 64),
+        high_res: bool = False
 ) -> None:
     """
     Extract GPM-CloudSat training scenes.
@@ -266,6 +277,7 @@ def extract_samples(
         end_time: The end of the time period for which to extract training data.
         output_path: The path to which to write the extracted training scenes.
         scene_size: The size of the training scenes to extract.
+        high_res: Whether to extract samples at high resolution.
     """
     input_products = PANSAT_PRODUCTS[sensor.name.lower()]
     target_product = l2c_rain_profile
@@ -282,6 +294,7 @@ def extract_samples(
                         match,
                         output_path,
                         scene_size=scene_size,
+                        high_res=high_res
                     )
                 except Exception:
                     LOGGER.exception(
@@ -295,7 +308,8 @@ def extract_samples(
 @click.argument("days", nargs=-1, type=int)
 @click.argument("output_path")
 @click.option("--n_processes", default=None, type=int)
-@click.option("--scene_size", type=tuple, default=(64, 64))
+@click.option("--scene_size", type=str, default=(64, 64))
+@click.option("--high_res", type=bool, default=False)
 def cli(
         sensor: Sensor,
         year: int,
@@ -304,9 +318,10 @@ def cli(
         output_path: Path,
         n_processes: int,
         scene_size: Tuple[int, int] = (64, 64),
+        high_res: bool = False
 ) -> None:
     """
-    Extract CloudSat scenes data for SATFORMER training.
+    Extract CloudSat scenes data for GPROF-NN and GPROF-NN HR training.
 
     Args:
         sensor: The name of the GPM sensor.
@@ -315,6 +330,7 @@ def cli(
         days: A list of the days of the month for which to extract the training data.
         output_path: The path to which to write the training data.
         n_processes: The number of processes to use for parallel processing
+        high_res: Whether to extract samples at high resolution.
     """
     from gprof_nn import sensors
 
@@ -334,6 +350,11 @@ def cli(
         LOGGER.error("The 'output' argument must point to a directory.")
         return 1
 
+    scene_size = tuple(list(map(int, scene_size.split(","))))
+    if len(scene_size) == 1:
+        scene_size = (scene_size[0],) * 2
+    print(scene_size)
+
     if n_processes is None:
         for day in track(days):
             start_time = datetime(year, month, day)
@@ -344,6 +365,7 @@ def cli(
                 end_time,
                 output_path=output_path,
                 scene_size=scene_size,
+                high_res=high_res
             )
     else:
         pool = ProcessPoolExecutor(max_workers=n_processes)
@@ -359,6 +381,7 @@ def cli(
                     end_time,
                     output_path=output_path,
                     scene_size=scene_size,
+                    high_res=high_res
                 )
             )
 

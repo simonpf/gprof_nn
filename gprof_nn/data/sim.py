@@ -24,6 +24,7 @@ from filelock import FileLock
 import numpy as np
 import pandas as pd
 from pansat import TimeRange, Granule
+from pansat.time import to_datetime
 from pansat.products.satellite.gpm import l1c_r_gpm_gmi
 from pykdtree.kdtree import KDTree
 from rich.progress import Progress
@@ -67,7 +68,6 @@ from gprof_nn.data.utils import (
     calculate_obs_properties,
     RADIUS_OF_INFLUENCE,
     calculate_polarization_weights,
-    decompress_scene
 )
 
 BEAM_WIDTHS = {
@@ -750,7 +750,11 @@ class SimulatorInput():
     def load_input_data_conical(self):
 
         upsampling_factors = UPSAMPLING_FACTORS["gmi"]
-        input_data = upsample_data(self.data, upsampling_factors)
+        restrict_vars = [
+            name for name in list(self.data.variables.keys()) + list(self.data.dims)
+            if "pixels_center" not in self.data[name].dims
+        ]
+        input_data = upsample_data(self.data[restrict_vars], upsampling_factors)
         input_data = add_cpcir_data(input_data)
 
         central_time = input_data.scan_time.data[0] + (input_data.scan_time.data[-1] - input_data.scan_time.data[0]) // 2
@@ -936,12 +940,8 @@ def process_sim_file(
     )
 
     vars = list(data.variables) + list(data.dims)
-    data = decompress_scene(data, vars)
 
-    if satformer_model is not None:
-        simulate_tbs_satformer(satformer_model, data, sensor)
-
-    if sensor.name != "GMI":
+    if sensor.name.lower() != "gmi" and satformer_model is not None:
         lock = FileLock("cuda.lock")
         with lock:
             simulate_tbs_satformer(
@@ -949,6 +949,9 @@ def process_sim_file(
                 data,
                 sensor,
             )
+            torch.cuda.synchronize()
+            torch.cuda.empty_cache()
+
 
     if lonlat_bounds is not None:
         lon_ll, lat_ll, lon_ur, lat_ur = lonlat_bounds
@@ -974,8 +977,8 @@ def process_files(
         output_path_1d: Path,
         output_path_3d: Path,
         n_processes: int = 1,
-        start_time: Optional[np.datetime64] = None,
-        end_time: Optional[np.datetime64] = None,
+        start_time: Optional[datetime] = None,
+        end_time: Optional[datetime] = None,
         split: Optional[str] = None,
         include_cmb_precip: bool = False,
         lonlat_bounds: Optional[Tuple[float, float, float, float]] = None,
@@ -1165,7 +1168,7 @@ def cli(sensor: Sensor,
 
     if start_time is not None:
         try:
-            start_time = np.datetime64(start_time)
+            start_time = to_datetime(np.datetime64(start_time))
         except ValueError:
             LOGGER.error(
                 "Coud not parse 'start_time' argument as numpy.datetime64 object. "
@@ -1176,7 +1179,7 @@ def cli(sensor: Sensor,
 
     if end_time is not None:
         try:
-            end_time = np.datetime64(end_time)
+            end_time = to_datetime(np.datetime64(end_time))
         except ValueError:
             LOGGER.error(
                 "Coud not parse 'end_time' argument as numpy.datetime64 object. "

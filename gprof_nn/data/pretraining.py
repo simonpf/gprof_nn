@@ -44,7 +44,8 @@ from gprof_nn.data.utils import (
     upsample_data,
     add_cpcir_data,
     calculate_obs_properties,
-    mask_invalid_values
+    mask_invalid_values,
+    RADIUS_OF_INFLUENCE
 )
 from gprof_nn.data.l1c import L1CFile
 from gprof_nn.logging import (
@@ -69,11 +70,6 @@ UPSAMPLING_FACTORS = {
     "gmi": (3, 1),
     "atms": (3, 3,),
     "amsr2": (1, 1)
-}
-RADIUS_OF_INFLUENCE = {
-    "gmi": 20e3,
-    "atms": 100e3,
-    "amsr2": 10e3
 }
 
 
@@ -206,40 +202,101 @@ class InputLoader:
 
     def load_data(self, ind: int) -> Tuple[Dict[str, torch.Tensor], str, xr.Dataset]:
 
-        input_granule, target_granules = self.inputs[ind]
+        inpt_granule, target_granules = self.inputs[ind]
         target_granule = sorted(list(target_granules))[0]
 
-        input_data = run_preprocessor(input_granule)
-        input_obs = calculate_obs_properties(input_data, input_granule, radius_of_influence=self.radius_of_influence)
-        target_obs = calculate_obs_properties(input_data, target_granule, radius_of_influence=self.radius_of_influence)
+        inpt_file = L1CFile(inpt_granule.file_record.local_path)
+        inpt_sensor = inpt_file.sensor
+        targ_file = L1CFile(target_granule.file_record.local_path)
+        targ_sensor = targ_file.sensor
+
+        inpt_data = run_preprocessor(inpt_granule)
+        upsampling_factors = UPSAMPLING_FACTORS[inpt_sensor.name.lower()]
+        inpt_data = upsample_data(inpt_data, upsampling_factors)
+        inpt_data = add_cpcir_data(inpt_data)
+        roi_inpt = RADIUS_OF_INFLUENCE[inpt_sensor.name.lower()]
+        inpt_observations = calculate_obs_properties(
+            inpt_data,
+            inpt_granule,
+            radius_of_influence=roi_inpt
+        )
+        roi_targ = RADIUS_OF_INFLUENCE[targ_sensor.name.lower()]
+        target_observations = calculate_obs_properties(
+            inpt_data,
+            target_granule,
+            radius_of_influence=roi_targ
+        )
+
+        lons = inpt_data.longitude.data
+        valid = np.isfinite(inpt_data.longitude.data)
+
+        inpt_obs = inpt_observations.observations.data
+        inpt_meta = inpt_observations.meta_data.data
+
+        obs_in = []
+        meta_in = []
+        for ind, obs in enumerate(inpt_obs):
+            obs[..., ~valid] = np.nan
+            valid = np.isfinite(obs)
+            mean = np.mean(obs[valid])
+            std = np.std(obs[valid])
+            obs_n = (obs - mean) / std
+            obs = np.stack([
+                np.ones_like(obs_n) * mean,
+                np.ones_like(obs_n) * std,
+                obs_n
+            ])
+            obs_in.append(torch.tensor(obs))
+            meta = inpt_meta[ind]
+            meta[..., ~valid] = np.nan
+            meta_in.append(torch.tensor(inpt_meta[ind]))
+
+
+        obs_in = torch.stack(obs_in, 1)[None]
+        meta_in = torch.stack(meta_in, 1)[None]
+        obs_in_mask = torch.isnan(obs_in).all(1).all(-1).all(-1)
+
+        inpt = {
+            "observations": obs_in,
+            "input_observation_props": meta_in,
+            "input_observation_mask": obs_in_mask,
+        }
+
+        anc_vars = [
+            "two_meter_temperature",
+            "total_column_water_vapor",
+            "leaf_area_index",
+            "land_fraction",
+            "ice_fraction",
+            "elevation",
+            "ir_observations",
+        ]
+        for anc_var in anc_vars:
+            anc_data = torch.tensor(inpt_data[anc_var].data).to(dtype=torch.float32)
+            if anc_data.dim() < 3:
+                anc_data = anc_data[None]
+            anc_data = anc_data[None, :, None]
+            anc_mask = torch.isnan(anc_data).all()[None, None]
+            inpt[anc_var] = anc_data
+            inpt[anc_var + "_mask"] = anc_mask
+
+        props = torch.tensor(target_observations["meta_data"].data)[None]
+        inpt["output_observation_props"] = props.transpose(1, 2)
 
         training_data = xr.Dataset({
-            "latitude": input_data.latitude,
-            "longitude": input_data.longitude,
-            "input_observations": input_obs.observations.rename(channels="input_channels"),
-            "input_meta_data": input_obs.meta_data.rename(channels="input_channels"),
-            "target_observations": target_obs.observations.rename(channels="target_channels"),
-            "target_meta_data": target_obs.meta_data.rename(channels="target_channels"),
+            "latitude": inpt_data.latitude,
+            "longitude": inpt_data.longitude,
+            "input_observations": inpt_observations.observations.rename(channels="input_channels"),
+            "input_meta_data": inpt_observations.meta_data.rename(channels="input_channels"),
+            "target_observations": target_observations.observations.rename(channels="target_channels"),
+            "target_meta_data": target_observations.meta_data.rename(channels="target_channels"),
         })
-        tbs = training_data.input_observations.data
-        tbs[tbs < 0] = np.nan
-        n_seq_in = tbs.shape[0]
-        mask = np.all(np.isnan(tbs), axis=(1, 2))
-        tbs = training_data.target_observations.data
-        tbs[tbs < 0] = np.nan
-        n_seq_out = tbs.shape[0]
-
-        input_data = {
-            "observations": torch.tensor(training_data.input_observations.data)[None, None],
-            "input_observation_mask": torch.tensor(mask, dtype=torch.bool)[None],
-            "input_observation_props": torch.tensor(training_data.input_meta_data.data)[None].transpose(1, 2),
-            "dropped_observation_props": torch.tensor(training_data.input_meta_data.data)[11:][None].transpose(1, 2),
-            "output_observation_props": torch.tensor(training_data.target_meta_data.data)[None].transpose(1, 2),
-        }
 
         filename = "match_" + target_granule.time_range.start.strftime("%Y%m%d%H%M%s") + ".nc"
 
-        return input_data, filename, training_data
+        print({key: tensor.shape for key,tensor in inpt.items()})
+
+        return inpt, filename, training_data
 
 
 def extract_samples(

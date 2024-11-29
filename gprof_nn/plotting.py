@@ -6,12 +6,14 @@ gprof_nn.plotting
 Utility functions for plotting.
 """
 import pathlib
+from typing import List
 
 import cartopy.crs as ccrs
 from matplotlib import rc
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
+from matplotlib.ticker import FixedLocator
 from matplotlib.colors import to_rgba, to_hex, LogNorm
 from matplotlib.cm import ScalarMappable
 import numpy as np
@@ -477,3 +479,30 @@ def add_swath_edges(
         coords = np.stack([x, y, z], axis=-1)
         line_r = pv.Spline(coords)
         scene.add_mesh(line_r, color="k", line_width=2)
+
+
+def add_ticks(
+        ax: plt.Axes,
+        lons: List[float],
+        lats: list[float],
+        left=True,
+        bottom=True
+) -> None:
+    import cartopy.crs as ccrs
+    """
+    Add tick to cartopy Axes object.
+
+    Args:
+        ax: The Axes object to which to add the ticks.
+        lons: The longitude coordinate at which to add ticks.
+        lats: The latitude coordinate at which to add ticks.
+        left: Whether or not to draw ticks on the y-axis.
+        bottom: Whether or not to draw ticks on the x-axis.
+    """
+    gl = ax.gridlines(crs=ccrs.PlateCarree(), draw_labels=True, linewidth=0, color='none')
+    gl.top_labels = False
+    gl.right_labels = False
+    gl.left_labels = left
+    gl.bottom_labels = bottom
+    gl.xlocator = FixedLocator(lons)
+    gl.ylocator = FixedLocator(lats)
