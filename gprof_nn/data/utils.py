@@ -297,6 +297,13 @@ def save_scene(
             "_FillValue":  2 ** 16 - 1,
             "zlib": True
         },
+        "satformer_tbs_rand": {
+            "dtype": "uint16",
+            "scale_factor": 0.01,
+            "add_offset": 1,
+            "_FillValue":  2 ** 16 - 1,
+            "zlib": True
+        },
         "brightness_temperature_biases": {
             "dtype": "int16",
             "scale_factor": 0.01,
@@ -404,14 +411,17 @@ def extract_scenes(
         scan_cntr, pixel_cntr = valid[ind]
 
         if offset is not None:
-            lower_bound = max(scan_cntr - offset, n_scans // 2)
-            upper_bound = min(scan_cntr + offset, n_scans_tot - n_scans // 2)
+            lower_bound = scan_cntr - offset
+            upper_bound = scan_cntr + offset
             if lower_bound < upper_bound:
-                scan_cntr = np.random.randint(lower_bound, upper_bound)
-            lower_bound = max(pixel_cntr - offset, n_pixels // 2)
-            upper_bound = min(pixel_cntr + offset, n_pixels_tot - n_scans // 2)
+                scan_cntr = max(np.random.randint(lower_bound, upper_bound), n_scans // 2)
+                scan_cntr = min(scan_cntr, n_scans_tot - n_scans // 2)
+
+            lower_bound = pixel_cntr - offset
+            upper_bound = pixel_cntr + offset
             if lower_bound < upper_bound:
-                pixel_cntr = np.random.randint(lower_bound, upper_bound)
+                pixel_cntr = max(np.random.randint(lower_bound, upper_bound), n_pixels // 2)
+                pixel_cntr = min(pixel_cntr, n_pixels_tot - n_pixels // 2)
 
         scan_start = min(max(scan_cntr - n_scans // 2, 0), n_scans_tot - n_scans)
         scan_end = scan_start + n_scans
@@ -429,20 +439,19 @@ def extract_scenes(
             scenes.append(subscene)
             if overlapping:
                 covered = (
-                    (valid[..., 0] >= scan_start) *
-                    (valid[..., 0] < scan_end) *
-                    (valid[..., 1] >= pixel_start) *
-                    (valid[..., 1] < pixel_end)
-                )
-            else:
-                covered = (
                     (valid[..., 0] >= scan_start - n_scans // 2) *
                     (valid[..., 0] < scan_end + n_scans // 2) *
                     (valid[..., 1] >= pixel_start - n_pixels // 2) *
                     (valid[..., 1] < pixel_end + n_pixels // 2)
                 )
-
-            covered = {ind for ind in valid_inds if covered[ind]}
+            else:
+                covered = (
+                    (valid[..., 0] >= scan_start) *
+                    (valid[..., 0] < scan_end) *
+                    (valid[..., 1] >= pixel_start) *
+                    (valid[..., 1] < pixel_end)
+                )
+            covered = np.where(covered)[0]
             valid_inds = [ind for ind in valid_inds if not ind in covered]
         else:
             valid_inds.remove(ind)

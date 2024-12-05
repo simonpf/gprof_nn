@@ -72,7 +72,7 @@ from gprof_nn.data.utils import (
 
 BEAM_WIDTHS = {
     "gmi": [1.75, 1.75, 1.0, 1.0, 0.9, 0.9, 0.9, 0.4, 0.4, 0.4, 0.4, 0.4, 0.4],
-    "atms": [5.5, 5.5, 1.1, 1.1, 5.2],
+    "atms": [2.2, 1.1, 1.1, 1.1, 1.1],
     "amsr2": [1.2, 1.2, 1.2, 1.2, 1.2, 1.2, 1.2, 1.2, 1.2, 1.2],
 }
 
@@ -852,8 +852,14 @@ def simulate_tbs_satformer(
     input_loader = SimulatorInput(data, sensor)
     model = load_model(model_path).eval()
 
-    output_config = RetrievalOutputConfig(model.output_config["output_observations"], "ExpectedValue", {})
-    retrieval_output = {"output_observations": {"output_observations": output_config}}
+    expected_value = RetrievalOutputConfig(model.output_config["output_observations"], "ExpectedValue", {})
+    random_sample = RetrievalOutputConfig(model.output_config["output_observations"], "RandomSample", {"n_samples": 1})
+    retrieval_output = {
+        "output_observations": {
+            "output_observations": expected_value,
+            "output_observations_rand": random_sample
+        }
+    }
     inference_config = InferenceConfig(
         tile_size=128,
         spatial_overlap=32,
@@ -879,24 +885,26 @@ def simulate_tbs_satformer(
     )
     results = results[0]
 
-    obs = results.output_observations.data
-    k = np.exp(np.log(0.5) * (np.linspace(-3, 3, 7) / 1.5) ** 2)
-    k /= k
 
-    valid = np.isfinite(obs)
-    k = k[None, None]
-    obs = convolve(obs, k, mode='same')
-    cts = convolve(valid.astype(np.float32), k, mode='same')
-    obs /= cts
+    obs = results.output_observations.data
+    obs_rand = results.output_observations_rand.data
 
     if "angles" in data:
         obs = obs.reshape((data.angles.size, len(sensor.frequencies)) + obs.shape[1:])
         obs = np.transpose(obs, (2, 3, 0, 1))
         data["satformer_tbs"] = (("scans", "pixels", "angles", "channels"), obs[1::3])
+
+        obs_rand = obs_rand.reshape((data.angles.size, len(sensor.frequencies)) + obs_rand.shape[1:])
+        obs_rand = np.transpose(obs_rand, (2, 3, 0, 1))
+        data["satformer_tbs_rand"] = (("scans", "pixels", "angles", "channels"), obs_rand[1::3])
     else:
         obs = obs.reshape((len(sensor.frequencies),) + obs.shape[1:])
         obs = np.transpose(obs, (1, 2, 0))
         data["satformer_tbs"] = (("scans", "pixels", "channels"), obs[1::3])
+
+        obs_rand = obs_rand.reshape((len(sensor.frequencies),) + obs_rand.shape[1:])
+        obs_rand = np.transpose(obs_rand, (1, 2, 0))
+        data["satformer_tbs_rand"] = (("scans", "pixels", "channels"), obs_rand[1::3])
 
 
 def process_sim_file(
