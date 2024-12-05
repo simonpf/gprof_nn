@@ -19,7 +19,7 @@ ALL_TARGETS = [
     "rain_water_content",
     "snow_water_content",
     "latent_heat",
-    #"ice_water_path",
+    "ice_water_path",
     "rain_water_path",
     "cloud_water_path",
 ]
@@ -33,14 +33,16 @@ PROFILE_TARGETS = [
 
 ANCILLARY_VARIABLES = [
     "land_fraction",
-    "ice_fraction",
-    "leaf_area_index",
-    "snow_depth",
+    "mountain_type",
+    "elevation",
     "two_meter_temperature",
     "total_column_water_vapor",
-    #"orographic_wind",
-    #"moisture_convergence",
-    "elevation"
+    "orographic_wind",
+    "10m_wind",
+    "moisture_convergence",
+    "convective_precipitation",
+    "leaf_area_index",
+    "ice_fraction",
 ]
 
 SURFACE_TYPE_NAMES = [

@@ -431,12 +431,12 @@ def load_tbs_1d_gmi(
     return torch.tensor(tbs)
 
 
-
 def load_tbs_1d_xtrack_sim(
         training_data: xr.Dataset,
         angles: np.ndarray,
         sensor: sensors.Sensor,
-        targets: List[str]
+        targets: List[str],
+        satformer: bool = False
 ) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
     """
     Load brightness temperatures for cross-track scanning sensors from simulator
@@ -457,30 +457,39 @@ def load_tbs_1d_xtrack_sim(
     samples = xr.DataArray(samples, dims="samples")
     angles = xr.DataArray(np.abs(angles), dims="samples")
 
-    training_data = training_data[
-        ["simulated_brightness_temperatures", "brightness_temperature_biases"] +
-        targets
-    ]
-    training_data = training_data.interp(samples=samples, angles=angles)
-    tbs = training_data.simulated_brightness_temperatures.data
-
-    tbs_full = np.nan * np.zeros((tbs.shape[0], 15), dtype=np.float32)
-    tbs_full[:, sensor.gprof_channel_indices] = tbs
-
-    biases = training_data.brightness_temperature_biases.data
-    biases_full = np.nan * np.zeros((tbs.shape[0], 15), dtype=np.float32)
-    biases_full[:, sensor.gprof_channel_indices] = biases
-
-    biases = (
-        biases_full /
-        (
-            np.cos(np.deg2rad(EIA_GMI)) *
-            np.cos(np.deg2rad(angles.data[..., None]))
+    if not satformer:
+        training_data = training_data[
+            ["simulated_brightness_temperatures", "brightness_temperature_biases"] +
+            targets
+        ]
+        training_data = training_data.interp(samples=samples, angles=angles)
+        tbs = training_data.simulated_brightness_temperatures.data
+        tbs_full = np.nan * np.zeros((tbs.shape[0], 15), dtype=np.float32)
+        tbs_full[:, sensor.gprof_channel_indices] = tbs
+        biases = training_data.brightness_temperature_biases.data
+        biases_full = np.nan * np.zeros((tbs.shape[0], 15), dtype=np.float32)
+        biases_full[:, sensor.gprof_channel_indices] = biases
+        biases = (
+            biases_full /
+            (
+                np.cos(np.deg2rad(EIA_GMI)) *
+                np.cos(np.deg2rad(angles.data[..., None]))
+            )
         )
-    )
+        tbs_full = tbs_full - biases
+    else:
+        training_data = training_data[
+            ["satformer_tbs"] +
+            targets
+        ]
+        training_data = training_data.interp(samples=samples, angles=angles)
+        tbs = training_data.satformer_tbs.data
+        tbs_full = np.nan * np.zeros((tbs.shape[0], 15), dtype=np.float32)
+        tbs_full[:, sensor.gprof_channel_indices] = tbs
+
     targets = load_targets_1d(training_data, targets)
 
-    return torch.tensor((tbs_full + biases).astype(np.float32)), targets
+    return torch.tensor((tbs_full).astype(np.float32)), targets
 
 
 def load_tbs_1d_conical_sim(
@@ -661,6 +670,7 @@ class GPROFNN1DDataset(IterableDataset):
         targets: Optional[List[str]] = None,
         augment: bool = True,
         validation: bool = False,
+        satformer: bool = False
     ):
         """
         Create GPROF-NN 1D dataset.
@@ -684,6 +694,7 @@ class GPROFNN1DDataset(IterableDataset):
 
         self.targets = targets
         self.validation = validation
+        self.satformer = satformer
         self.augment = augment
 
         self.path = Path(path)
@@ -752,6 +763,8 @@ class GPROFNN1DDataset(IterableDataset):
 
         elif isinstance(sensor, sensors.CrossTrackScanner):
 
+            dataset = dataset.sortby("angles")
+
             if dataset.attrs["source"] == "sim":
                 tbs = dataset["brightness_temperatures"].data
                 y_t = dataset[ref_target].data
@@ -769,7 +782,8 @@ class GPROFNN1DDataset(IterableDataset):
                     dataset,
                     angs,
                     sensor,
-                    targets
+                    targets,
+                    satformer=self.satformer
                 )
                 angs = torch.tensor(np.broadcast_to(angs[..., None], tbs.shape))
 
@@ -824,7 +838,6 @@ class GPROFNN1DDataset(IterableDataset):
                         inputs.setdefault(name, []).append(tensor)
                     for name, tensor in targets_f.items():
                         targets.setdefault(name, []).append(tensor)
-
 
             inputs = {name: torch.cat(data, 0) for name, data in inputs.items()}
             targets = {name: torch.cat(data, 0) for name, data in targets.items()}

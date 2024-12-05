@@ -89,9 +89,10 @@ def extract_cmb_scenes(
                 invalid = input_data[var].data < -1_000
                 input_data[var].data[invalid] = np.nan
 
-        upsampling_factors = UPSAMPLING_FACTORS[sensor.name.lower()]
-        if max(upsampling_factors) > 1:
-            input_data = upsample_data(input_data, upsampling_factors)
+        if high_res:
+            upsampling_factors = UPSAMPLING_FACTORS[sensor.name.lower()]
+            if max(upsampling_factors) > 1:
+                input_data = upsample_data(input_data, upsampling_factors)
         input_data = add_cpcir_data(input_data)
 
         lons = input_data.longitude.data

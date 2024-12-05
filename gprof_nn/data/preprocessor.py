@@ -727,14 +727,14 @@ PREPROCESSOR_EXECUTABLES = {
     "AMSRE": "gprof2021pp_AMSRE_L1C",
     "ATMS": "gprof2023pp_ATMS_L1C",
     "TMS": "gprof2023pp_TMS_L1C",
-    ("GMI", "MHS"): "gprof2023pp_GMI_L1C",
+    ("GMI", "MHS"): "gprof2024pp_GMI_L1C",
     ("GMI", "TMIPR"): "gprof2021pp_GMI_TMI_L1C",
     ("GMI", "TMIPO"): "gprof2021pp_GMI_TMI_L1C",
     ("GMI", "SSMI"): "gprof2021pp_GMI_SSMI_L1C",
     ("GMI", "SSMIS"): "gprof2021pp_GMI_SSMIS_L1C",
     ("GMI", "AMSR2"): "gprof2023pp_GMI_L1C",
     ("GMI", "AMSRE"): "gprof2021pp_GMI_AMSRE_L1C",
-    ("GMI", "ATMS"): "gprof2023pp_GMI_L1C",
+    ("GMI", "ATMS"): "gprof2024pp_GMI_L1C",
     ("GMI", "TMS"): "gprof2023pp_GMI_L1C",
 }
 
