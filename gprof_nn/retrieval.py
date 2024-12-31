@@ -15,6 +15,7 @@ import re
 from typing import Dict, List, Optional, Union, Tuple
 
 import click
+import hdf5plugin
 import numpy as np
 import xarray as xr
 
@@ -107,6 +108,7 @@ def load_input_data_preprocessor(
         "ancillary_data": anc
     }
     aux = {
+        "valid_input": (np.isfinite(tbs)).any(-1),
         "scan_time": data_pp.scan_time.data,
         "longitude": data_pp.longitude.data,
         "latitude": data_pp.latitude.data,
@@ -141,7 +143,10 @@ def load_input_data_l1c(
     tbs = torch.tensor(
         np.transpose(l1c_data.brightness_temperatures.data.astype(np.float32), (2, 0, 1))
     )
+    tbs[tbs < 0] = np.nan
+    valid = torch.isfinite(tbs).any(0).numpy()
     aux = {
+        "valid_input": valid,
         "scan_time": l1c_data.scan_time.data,
         "latitude": l1c_data.latitude.data,
         "longitude": l1c_data.longitude.data,
@@ -201,7 +206,9 @@ def load_input_data_training_1d(
             "viewing_angles": angs,
             "ancillary_data": anc,
         }
+        valid  = torch.isfinite(tbs).any(0).numpy()
         aux = {
+            "valid_input": valid,
             "longitude": data.longitude.data,
             "latitude": data.latitude.data,
         }
@@ -272,7 +279,10 @@ def load_input_data_training_3d(
                     rng=rng
                 )
 
+        tbs = input_data["brightness_temperatures"].numpy()
+        valid = torch.isfinit(tbs).any(0).numpy()
         aux = {
+            "valid_input": valid,
             "longitude": targets.pop("longitude").numpy(),
             "latitude": targets.pop("latitude").numpy(),
         }
@@ -284,6 +294,56 @@ def load_input_data_training_3d(
         "Invalid sensor/scene combination in training file %s.",
         training_file
     )
+
+
+def load_input_data_collocations(
+        collocation_file: Path
+) -> Dict[str, torch.Tensor]:
+    """
+    Load retrieval input data from a SPEED collocation file.
+
+    Args:
+        collocation_file: A path object pointing to the training file from which
+            to load the input data.
+
+    Return:
+        A dictionary containing the input tensors 'brightness_temperatures',
+        'viewing_angles', and 'ancillary_data'.
+    """
+    sensor = sensors.get_sensor(collocation_file.name.split("_")[-2].upper())
+
+    with xr.open_dataset(collocation_file, group="input_data") as scene:
+
+        tbs = torch.tensor(np.transpose(scene.observations_gprof.data.astype(np.float32), (2, 0, 1)))
+        tbs_full = torch.nan * torch.zeros((15,) + tbs.shape[1:])
+        tbs_full[sensor.gprof_channel_indices] = tbs
+        tbs_full[tbs_full < 0] = np.nan
+
+        valid = torch.isfinite(tbs_full).any(0)
+
+        anc = []
+        for anc_var in ANCILLARY_VARIABLES:
+            anc.append(torch.tensor(scene[anc_var].data.astype(np.float32)))
+        anc = torch.stack(anc)
+        valid = valid * (anc > -9_000).all(0)
+
+        eia = torch.tensor(scene.earth_incidence_angle_gprof.data.astype(np.float32))
+        if eia.ndim == 2:
+            eia = eia[None]
+        eia_full = torch.nan * torch.zeros((15,) + tbs.shape[1:])
+        eia_full[:] = eia
+
+        input_data = {
+            "brightness_temperatures": tbs_full,
+            "ancillary_data": anc,
+            "viewing_angles": eia_full
+        }
+        aux = {
+            "valid_input": valid,
+            "longitude": scene.longitude.data,
+            "latitude": scene.latitude.data
+        }
+        return input_data, aux
 
 
 def determine_input_format(path: Path) -> str:
@@ -302,6 +362,8 @@ def determine_input_format(path: Path) -> str:
     if path.suffix == ".HDF5":
         return "l1c"
     if path.suffix == ".nc":
+        if path.name.startswith("cmb_") or path.name.startswith("mrms_"):
+            return "collocations"
         with xr.open_dataset(path) as input_data:
             if "scans" in input_data.dims:
                 return "training_3d"
@@ -373,6 +435,8 @@ class GPROFNNInputLoader:
             input_data, aux = load_input_data_training_1d(path)
         elif input_format == "training_3d":
             input_data, aux = load_input_data_training_3d(path)
+        elif input_format == "collocations":
+            input_data, aux = load_input_data_collocations(path)
         else:
             raise ValueError(
                 f"Encountered unknown input format '{input_format}'."
@@ -384,7 +448,8 @@ class GPROFNNInputLoader:
 
         if self.config == "1d":
             input_data = {
-                name: torch.permute(tensor, (1, 2, 0)).reshape((-1, tensor.shape[0])) if tensor.ndim == 3 else tensor
+                name: torch.permute(tensor, (0, 2, 3, 1)).reshape((-1, tensor.shape[1]))
+                if tensor.ndim == 4 else tensor
                 for name, tensor in input_data.items()
             }
 
@@ -433,6 +498,7 @@ class GPROFNNInputLoader:
             if data.ndim > 2 and data.shape[-1] != 28:
                 data = data.transpose((1, 2, 0))
             dims_v = dims[:data.ndim]
+
             output[name] = (dims_v, data)
 
         if lons.ndim == 2:
@@ -445,6 +511,7 @@ class GPROFNNInputLoader:
             tensor = tensor.squeeze()
             if self.config.lower() == "1d":
                 tensor = tensor.reshape(shape + tensor.shape[1:])
+
 
             if var == "surface_precip_terciles":
                 if self.config == "3d":
@@ -462,11 +529,17 @@ class GPROFNNInputLoader:
                     tensor[..., 1].numpy()
                 )
                 output["surface_precip_2nd_tercile"].encoding = {"dtype": "float32", "zlib": True}
+
             else:
                 if self.config == "3d" and tensor.dim() > 2:
                     tensor = torch.permute(tensor, (1, 2, 0))
                 dims_v = dims[:tensor.dim()]
-                output[var] = (dims_v, tensor.numpy())
+
+                tensor = tensor.numpy()
+                if "valid_input" in aux:
+                    tensor[..., ~aux["valid_input"]] = np.nan
+
+                output[var] = (dims_v, tensor)
                 # Use compressiong to keep file size reasonable.
                 output[var].encoding = {"dtype": "float32", "zlib": True}
 

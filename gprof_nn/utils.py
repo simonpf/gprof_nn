@@ -159,6 +159,29 @@ def calculate_interpolation_weights(angles, angle_grid):
     return weights
 
 
+def calculate_interpolation_indices(angles, angle_grid):
+    """
+    Calculate angle indices for nearest-neighbor interpolation of angle-gridded
+    observations.
+
+    Args:
+        args: The angles to which to interpolate the variables.
+        angle_grid: Array containing the angle grid on which the
+            variables are calculated.
+
+    Return:
+        An array containing the angle indices identifying the angle grid
+        coordinates for the given angles.
+    """
+    angle_bins = np.zeros(angle_grid.size + 1)
+    angle_bins[1:-1] = 0.5 * (angle_grid[1:] + angle_grid[:-1])
+    angle_bins[0] = angle_grid[0] - 0.5 * (angle_grid[1] - angle_grid[0])
+    angle_bins[-1] = angle_grid[-1] + 0.5 * (angle_grid[-1] - angle_grid[-2])
+
+    indices = np.clip(np.digitize(angles, angle_bins) - 1, 0, angle_grid.size - 1)
+    return indices
+
+
 def interpolate(variable, weights):
     """
     Interpolate variable using precalculated weights.

@@ -149,6 +149,7 @@ def extract_cloudsat_scenes(
             unique=True,
             radius_of_influence=rof_in / 3 if high_res else rof_in
         )
+        print("SHAPE :: ", cs_data_r.scans.size, cs_data_r.pixels.size)
 
         input_data["surface_precip"] = (
             ("scans", "pixels"),

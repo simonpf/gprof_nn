@@ -194,7 +194,7 @@ def remap_scene(scene, coords, targets):
             else:
                 if v in LIMITS:
                     data_v = apply_limits(data_v, *LIMITS[v])
-                data_r = extract_domain(data_v, coords, order=1)
+                data_r = extract_domain(data_v, coords, order=0)
                 data_r = data_r.astype(np.float32)
             data[v] = (dims + scene[v].dims[2:], data_r)
         else:

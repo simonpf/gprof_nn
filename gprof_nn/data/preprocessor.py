@@ -717,25 +717,16 @@ def has_preprocessor():
 
 # Dictionary mapping sensor IDs to preprocessor executables.
 PREPROCESSOR_EXECUTABLES = {
-    "GMI": "gprof2023pp_GMI_L1C",
+    "GMI": "gprof2024pp_GMI_L1C",
     "MHS": "gprof2023pp_MHS_L1C",
     "TMIPR": "gprof2021pp_TMI_L1C",
     "TMIPO": "gprof2021pp_TMI_L1C",
     "SSMI": "gprof2021pp_SSMI_L1C",
     "SSMIS": "gprof2021pp_SSMIS_L1C",
-    "AMSR2": "gprof2023pp_AMSR2_L1C",
+    "AMSR2": "gprof2024pp_AMSR2_L1C",
     "AMSRE": "gprof2021pp_AMSRE_L1C",
-    "ATMS": "gprof2023pp_ATMS_L1C",
+    "ATMS": "gprof2024pp_ATMS_L1C",
     "TMS": "gprof2023pp_TMS_L1C",
-    ("GMI", "MHS"): "gprof2024pp_GMI_L1C",
-    ("GMI", "TMIPR"): "gprof2021pp_GMI_TMI_L1C",
-    ("GMI", "TMIPO"): "gprof2021pp_GMI_TMI_L1C",
-    ("GMI", "SSMI"): "gprof2021pp_GMI_SSMI_L1C",
-    ("GMI", "SSMIS"): "gprof2021pp_GMI_SSMIS_L1C",
-    ("GMI", "AMSR2"): "gprof2023pp_GMI_L1C",
-    ("GMI", "AMSRE"): "gprof2021pp_GMI_AMSRE_L1C",
-    ("GMI", "ATMS"): "gprof2024pp_GMI_L1C",
-    ("GMI", "TMS"): "gprof2023pp_GMI_L1C",
 }
 
 
@@ -775,10 +766,7 @@ def run_preprocessor(
         output_file = file.name
     try:
         sensor_l1c = L1CFile(l1c_file).sensor
-        if sensor_l1c.sensor_id == sensor.sensor_id:
-            key = sensor.sensor_id
-        else:
-            key = (sensor_l1c.sensor_id, sensor.sensor_id)
+        key = sensor_l1c.sensor_id
         executable = PREPROCESSOR_EXECUTABLES.get(key, None)
 
         if executable is None:

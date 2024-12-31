@@ -107,6 +107,11 @@ def add_era5_precip(input_data, era5_data):
     surface_types = input_data["surface_type"].data
     indices = (surface_types == 2) + (surface_types == 16)
 
+    t2m = input_data.two_meter_temperature.data
+    tcwv = input_data.total_column_water_vapor.data
+    cold_and_dry = (t2m < 260.0) * (tcwv < 6.0)
+    indices += cold_and_dry
+
     lats = xr.DataArray(input_data["latitude"].data[indices], dims="samples")
     lons = input_data["longitude"].data[indices]
     lons = np.where(lons < 0.0, lons + 360, lons)
@@ -186,7 +191,7 @@ def process_l1c_file(
     if output_path_1d is not None:
         write_training_samples_1d(
             output_path_1d,
-            "mrms",
+            "era5",
             data_pp,
         )
     if output_path_3d is not None:
@@ -194,7 +199,7 @@ def process_l1c_file(
         n_scans = 128
         write_training_samples_3d(
             output_path_3d,
-            "mrms",
+            "era5",
             data_pp,
             n_scans=n_scans,
             n_pixels=n_pixels,

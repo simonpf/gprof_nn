@@ -35,15 +35,24 @@ ANCILLARY_VARIABLES = [
     "land_fraction",
     "mountain_type",
     "elevation",
+    "leaf_area_index",
+    "leaf_area_index_climatology",
     "two_meter_temperature",
     "total_column_water_vapor",
     "orographic_wind",
     "10m_wind",
     "moisture_convergence",
     "convective_precipitation",
-    "leaf_area_index",
     "ice_fraction",
+    "snow_depth",
 ]
+
+ANCILLARY_CFGS = {
+    "NONE": [],
+    "NRT": [0, 1, 2, 4],
+    "STD": [0, 1, 2, 4, 5, 6, 7, 8, 9, 11, 12],
+    "CLI": [0, 1, 2, 3, 5, 6, 7, 8, 9, 10, 11, 12],
+}
 
 SURFACE_TYPE_NAMES = [
     "Ocean",

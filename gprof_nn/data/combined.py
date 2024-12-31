@@ -33,6 +33,7 @@ from pansat.utils import resample_data
 from rich.progress import track, Progress
 
 from gprof_nn.sensors import Sensor
+from gprof_nn.statistics import TrainingDataStats
 from gprof_nn.data.utils import (
     PANSAT_PRODUCTS,
     UPSAMPLING_FACTORS,
@@ -67,6 +68,7 @@ def extract_cmb_scenes(
         match: Tuple[Granule, Tuple[Granule]],
         output_path: Path,
         scene_size: Tuple[int, int],
+        high_res: bool = False
 ) -> None:
     """
     Extract training scenes between a GPM sensor and GPM CMB retrievals.
@@ -77,6 +79,7 @@ def extract_cmb_scenes(
             retrievals.
         output_path: The path to which to write the extracted training scenes.
         scene_size: The size of the training scenes to extract.
+        high_res: Whether to extract observations at high resolution.
     """
     input_granule, target_granules = match
     target_granules = merge_granules(sorted(list(target_granules)))
@@ -93,6 +96,7 @@ def extract_cmb_scenes(
             upsampling_factors = UPSAMPLING_FACTORS[sensor.name.lower()]
             if max(upsampling_factors) > 1:
                 input_data = upsample_data(input_data, upsampling_factors)
+
         input_data = add_cpcir_data(input_data)
 
         lons = input_data.longitude.data
@@ -147,7 +151,8 @@ def extract_cmb_scenes(
         cmb_data_r = resample_data(
             cmb_data,
             swath,
-            radius_of_influence=5e3,
+            radius_of_influence=rof_in / 3 if high_res else rof_in,
+            unique=True,
             new_dims=(("scans", "pixels"))
         )
         cmb_data_r["scan_time_cmb"] = cmb_data_r["scan_time_cmb"].astype("datetime64[ns]")
@@ -178,10 +183,13 @@ def extract_cmb_scenes(
         input_data["input_observations"] = input_obs.observations.rename({"channels": "all_channels"})
         input_data["input_meta_data"] = input_obs.meta_data.rename({"channels": "all_channels"})
 
+        input_data["elevation"] = input_data["elevation"].astype(np.float32)
+
+
         scenes = extract_scenes(
             input_data,
-            n_scans=128,
-            n_pixels=128,
+            n_scans=scene_size[0],
+            n_pixels=scene_size[1],
             overlapping=True,
             min_valid=100,
             reference_var="surface_precip",
@@ -224,6 +232,7 @@ def extract_cmb_scenes(
         ]:
             encodings[var] = {"dtype": "float32", "zlib": True}
 
+        stats = TrainingDataStats(output_path)
         scene_ind = 0
         for scene in scenes:
             start_time = target_granule.time_range.start
@@ -231,6 +240,7 @@ def extract_cmb_scenes(
             end_time = target_granule.time_range.end
             end_str = end_time.strftime("%Y%m%d%H%M%S")
             output_filename = f"{sensor.name.lower()}_cmb_{start_str}_{end_str}_{scene_ind:04}.nc"
+            stats.track(scene, valid_var="surface_precip")
             scene.to_netcdf(output_path / output_filename, encoding=encodings)
             scene_ind += 1
 
@@ -241,6 +251,7 @@ def extract_samples(
         end_time: np.datetime64,
         output_path: Path,
         scene_size: Tuple[int, int] = (64, 64),
+        high_res: bool = False
 ) -> None:
     """
     Extract GPM-CMB training scenes.
@@ -251,6 +262,7 @@ def extract_samples(
         end_time: The end of the time period for which to extract training data.
         output_path: The path to which to write the extracted training scenes.
         scene_size: The size of the training scenes to extract.
+        high_res: Whether to extract training data at high resolution (5 km).
     """
     input_products = PANSAT_PRODUCTS[sensor.name.lower()]
     target_product = l2b_corra2022_gpm_dprgmi_v07a
@@ -266,6 +278,7 @@ def extract_samples(
                     match,
                     output_path,
                     scene_size=scene_size,
+                    high_res=high_res
                 )
 
 @click.argument("sensor")
@@ -274,7 +287,8 @@ def extract_samples(
 @click.argument("days", nargs=-1, type=int)
 @click.argument("output_path")
 @click.option("--n_processes", default=None, type=int)
-@click.option("--scene_size", type=tuple, default=(64, 64))
+@click.option("--scene_size", type=str, default="64, 64")
+@click.option("--high_res", type=bool, default=False)
 def cli(
         sensor: Sensor,
         year: int,
@@ -282,7 +296,8 @@ def cli(
         days: int,
         output_path: Path,
         n_processes: int,
-        scene_size: Tuple[int, int] = (64, 64),
+        scene_size: str = "64,64",
+        high_res: bool = False
 ) -> None:
     """
     Extract CMB scenes data for SATFORMER training.
@@ -294,6 +309,8 @@ def cli(
         days: A list of the days of the month for which to extract the training data.
         output_path: The path to which to write the training data.
         n_processes: The number of processes to use for parallel processing
+        scene_size: The size of the scenes to extract.
+        high_res: Whether to extract samples at high resolution.
     """
     from gprof_nn import sensors
 
@@ -313,17 +330,28 @@ def cli(
         LOGGER.error("The 'output' argument must point to a directory.")
         return 1
 
+    scene_size = tuple(list(map(int, scene_size.split(","))))
+    if len(scene_size) == 1:
+        scene_size = (scene_size[0],) * 2
+
     if n_processes is None:
         for day in track(days):
             start_time = datetime(year, month, day)
             end_time = datetime(year, month, day + 1)
-            extract_samples(
-                sensor,
-                start_time,
-                end_time,
-                output_path=output_path,
-                scene_size=scene_size,
-            )
+            try:
+                extract_samples(
+                    sensor,
+                    start_time,
+                    end_time,
+                    output_path=output_path,
+                    scene_size=scene_size,
+                    high_res=high_res
+                )
+            except Exception:
+                LOGGER.exception(
+                    "Encountered an error when extracting samples for start time %s",
+                    start_time
+                )
     else:
         pool = ProcessPoolExecutor(max_workers=n_processes)
         tasks = []
@@ -338,6 +366,7 @@ def cli(
                     end_time,
                     output_path=output_path,
                     scene_size=scene_size,
+                    high_res=high_res
                 )
             )
 
@@ -348,4 +377,7 @@ def cli(
                 total=len(days)
             )
             for task in tasks:
-                task.result()
+                try:
+                    task.result()
+                except Exception:
+                    LOGGER.exception("Encountered an error when extracting samples.")
