@@ -345,7 +345,6 @@ def process_match_file(
         f"{match_file}."
     )
 
-
     pool = ProcessPoolExecutor(max_workers=n_processes)
     tasks = []
     for l1c_file in l1c_files:

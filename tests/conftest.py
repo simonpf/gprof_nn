@@ -193,19 +193,19 @@ def training_files_3d_gmi_mrms(training_files_1d_gmi_mrms) -> Path:
     return sorted(list((training_files_1d_gmi_mrms[0].parent.parent / "3d").glob("*.nc")))
 
 @pytest.fixture(scope="session")
-def sim_collocations_mhs() -> xr.Dataset:
+def sim_collocations_atms() -> xr.Dataset:
     """
     Provides an xarray.Dataset of a .sim file collocated with input
     data from the preprocessor.
     """
-    input_file = SIM_DATA / "simV8x_mhs/1810/MHS.dbsatTb.20181031.026559.sim"
+    input_file = SIM_DATA / "simV8x_atms/1810/ATMS.dbsatTb.20181031.026559.sim"
 
-    data_path = TEST_DATA_PATH / "mhs" / "sim"
+    data_path = TEST_DATA_PATH / "atms" / "sim"
     if not (data_path / "collocations.nc").exists():
         data_path.mkdir(parents=True, exist_ok=True)
         data = sim.collocate_targets(
             input_file,
-            sensors.MHS,
+            sensors.ATMS,
             None,
         )
         data.to_netcdf(data_path / "collocations.nc")
@@ -213,22 +213,22 @@ def sim_collocations_mhs() -> xr.Dataset:
 
 
 @pytest.fixture(scope="session")
-def training_files_1d_mhs_sim(
+def training_files_1d_atms_sim(
         tmp_path_factory,
-        sim_collocations_mhs: xr.Dataset
+        sim_collocations_atms: xr.Dataset
 ) -> List[Path]:
     """
-    Provides GPROF-NN 3D training data for MHS.
+    Provides GPROF-NN 3D training data for ATMS.
     """
     output_path = tmp_path_factory.mktemp("1d")
-    sim.write_training_samples_1d(output_path, "sim", sim_collocations_mhs)
+    sim.write_training_samples_1d(output_path, "sim", sim_collocations_atms)
     return sorted(list(output_path.glob("*.nc")))
 
 
 @pytest.fixture(scope="session")
-def training_files_3d_mhs_sim(
+def training_files_3d_atms_sim(
         tmp_path_factory,
-        sim_collocations_mhs: xr.Dataset
+        sim_collocations_atms: xr.Dataset
 ) -> List[Path]:
     """
     Provides GPROF-NN 3D training data for gmi.
@@ -237,7 +237,7 @@ def training_files_3d_mhs_sim(
     sim.write_training_samples_3d(
         output_path,
         "sim",
-        sim_collocations_mhs,
+        sim_collocations_atms,
         n_scans=221,
         n_pixels=221
     )
@@ -245,10 +245,10 @@ def training_files_3d_mhs_sim(
 
 
 @pytest.fixture(scope="session")
-def training_files_1d_mhs_mrms() -> Path:
+def training_files_1d_atms_mrms() -> Path:
     """
-    Provides a path containing trainig data for the GPROF-NN 1D retrieval for MHS
-    derived from collocations of MRMS and MHS.
+    Provides a path containing trainig data for the GPROF-NN 1D retrieval for ATMS
+    derived from collocations of MRMS and ATMS.
     """
     match_file = MRMS_DATA / "MHS2MRMS_match2019" / "monthly_2021" / "1901_MRMS2MHS_DB1_01.bin.gz"
     l1c_file = (
@@ -256,14 +256,14 @@ def training_files_1d_mhs_mrms() -> Path:
         "1901/190101/1C.NOAA19.MHS.XCAL2021-V.20190101-S082007-E100207.051014.V07A.HDF5"
     )
 
-    data_path_1d = TEST_DATA_PATH / "mhs" / "mrms" / "1d"
-    data_path_3d = TEST_DATA_PATH / "mhs" / "mrms" / "3d"
+    data_path_1d = TEST_DATA_PATH / "atms" / "mrms" / "1d"
+    data_path_3d = TEST_DATA_PATH / "atms" / "mrms" / "3d"
     files = list(data_path_1d.glob("*.nc"))
     if len(files) == 0:
         data_path_1d.mkdir(parents=True, exist_ok=True)
         data_path_3d.mkdir(parents=True, exist_ok=True)
         data = mrms.extract_collocations(
-            sensors.MHS,
+            sensors.ATMS,
             match_file,
             l1c_file,
             data_path_1d,
@@ -273,63 +273,63 @@ def training_files_1d_mhs_mrms() -> Path:
 
 
 @pytest.fixture(scope="session")
-def training_files_3d_mhs_mrms(training_files_1d_mhs_mrms) -> Path:
+def training_files_3d_atms_mrms(training_files_1d_atms_mrms) -> Path:
     """
-    Provides a path containing trainig data for the GPROF-NN 3D retrieval for MHS
-    derived from collocations of MRMS and MHS.
+    Provides a path containing trainig data for the GPROF-NN 3D retrieval for ATMS
+    derived from collocations of MRMS and ATMS.
     """
-    return sorted(list((training_files_1d_mhs_mrms[0].parent.parent / "3d").glob("*.nc")))
+    return sorted(list((training_files_1d_atms_mrms[0].parent.parent / "3d").glob("*.nc")))
 
 @pytest.fixture(scope="session")
-def mrms_match_file_mhs() -> List[Path]:
+def mrms_match_file_atms() -> List[Path]:
     """
     Provides a list containing trainig data files for the GPROF-NN 1D retrieval
     for GMI derived from collocations of MRMS and GMI.
     """
-    match_file = MRMS_DATA / "MHS2MRMS_match2019" / "monthly_2021" / "1901_MRMS2MHS_DB1_01.bin.gz"
+    match_file = MRMS_DATA / "ATMS2MRMS_match2019" / "monthly_2021" / "1901_MRMS2ATMS_DB1_01.bin.gz"
     return match_file
 
 
 @pytest.fixture(scope="session")
-def l1c_file_mhs(tmpdir_factory) -> Path:
-    l1c_path = Path(sensors.MHS.l1c_file_path) / "1901" / "190101"
+def l1c_file_atms(tmpdir_factory) -> Path:
+    l1c_path = Path(sensors.ATMS.l1c_file_path) / "1901" / "190101"
     l1c_files = sorted(list(
-        l1c_path.glob(f"**/{sensors.MHS.l1c_file_prefix}*.HDF5")
+        l1c_path.glob(f"**/{sensors.ATMS.l1c_file_prefix}*.HDF5")
     ))
-    l1c_path_mhs = tmpdir_factory.mktemp("l1c_mhs")
+    l1c_path_atms = tmpdir_factory.mktemp("l1c_atms")
     l1c_file = l1c.L1CFile(l1c_files[0])
-    new_file = l1c_path_mhs / l1c_files[0].name
+    new_file = l1c_path_atms / l1c_files[0].name
     l1c_file.extract_scan_range(400, 700, new_file)
     return Path(new_file)
 
 
 @pytest.fixture(scope="session")
-def preprocessor_file_mhs(tmpdir_factory, l1c_file_mhs) -> Path:
-    pp_path_mhs = tmpdir_factory.mktemp("pp_mhs")
-    pp_file = pp_path_mhs / Path(l1c_file_mhs).with_suffix(".pp").name
-    run_preprocessor(l1c_file_mhs, sensors.MHS, output_file=pp_file)
+def preprocessor_file_atms(tmpdir_factory, l1c_file_atms) -> Path:
+    pp_path_atms = tmpdir_factory.mktemp("pp_atms")
+    pp_file = pp_path_atms / Path(l1c_file_atms).with_suffix(".pp").name
+    run_preprocessor(l1c_file_atms, sensors.ATMS, output_file=pp_file)
     return pp_file
 
 
 @pytest.fixture(scope="session")
-def training_files_1d_mhs_era5() -> Path:
+def training_files_1d_atms_era5() -> Path:
     """
-    Provides a path containing trainig data for the GPROF-NN 1D retrieval for MHS
-    derived from collocations of MHS observations and ERA5 precip.
+    Provides a path containing trainig data for the GPROF-NN 1D retrieval for ATMS
+    derived from collocations of ATMS observations and ERA5 precip.
     """
     l1c_file = (
-        Path(sensors.MHS.l1c_file_path) /
-        "1901/190101/1C.NOAA19.MHS.XCAL2021-V.20190101-S082007-E100207.051014.V07A.HDF5"
+        Path(sensors.ATMS.l1c_file_path) /
+        "1901/190101/1C.NOAA20.ATMS.XCAL2019-V.20190101-S011343-E025512.005799.V07A.HDF5"
     )
 
-    data_path_1d = TEST_DATA_PATH / "mhs" / "era5" / "1d"
-    data_path_3d = TEST_DATA_PATH / "mhs" / "era5" / "3d"
+    data_path_1d = TEST_DATA_PATH / "atms" / "era5" / "1d"
+    data_path_3d = TEST_DATA_PATH / "atms" / "era5" / "3d"
     files = list(data_path_1d.glob("*.nc"))
     if len(files) == 0:
         data_path_1d.mkdir(parents=True, exist_ok=True)
         data_path_3d.mkdir(parents=True, exist_ok=True)
         data = era5.process_l1c_file(
-            sensors.MHS,
+            sensors.ATMS,
             l1c_file,
             data_path_1d,
             data_path_3d
@@ -339,12 +339,12 @@ def training_files_1d_mhs_era5() -> Path:
 
 
 @pytest.fixture(scope="session")
-def training_files_3d_mhs_era5(training_files_1d_mhs_era5) -> Path:
+def training_files_3d_atms_era5(training_files_1d_atms_era5) -> Path:
     """
-    Provides a path containing trainig data for the GPROF-NN 3D retrieval for MHS
-    derived from collocations of MHS observations and ERA5 precip.
+    Provides a path containing trainig data for the GPROF-NN 3D retrieval for ATMS
+    derived from collocations of ATMS observations and ERA5 precip.
     """
-    return sorted(list((training_files_1d_mhs_era5[0].parent.parent / "3d").glob("*.nc")))
+    return sorted(list((training_files_1d_atms_era5[0].parent.parent / "3d").glob("*.nc")))
 
 
 @pytest.fixture(scope="session")
@@ -450,12 +450,12 @@ def training_files_1d_amsr2_mrms() -> Path:
 
 
 @pytest.fixture(scope="session")
-def training_files_3d_amsr2_mrms(training_files_1d_gmi_mrms) -> Path:
+def training_files_3d_amsr2_mrms(training_files_1d_amsr2_mrms) -> Path:
     """
-    Provides a path containing trainig data for the GPROF-NN 3D retrieval for GMI
-    derived from collocations of MRMS and GMI.
+    Provides a path containing trainig data for the GPROF-NN 3D retrieval for AMSR2
+    derived from collocations of MRMS and AMSR2.
     """
-    return sorted(list((training_files_1d_gmi_mrms[0].parent.parent / "3d").glob("*.nc")))
+    return sorted(list((training_files_1d_amsr2_mrms[0].parent.parent / "3d").glob("*.nc")))
 
 
 @pytest.fixture(scope="session")

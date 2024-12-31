@@ -6,6 +6,7 @@ gprof_nn.data.training_data
 This module defines the dataset classes that provide access to
 the training data for the GPROF-NN retrievals.
 """
+from concurrent.futures import ThreadPoolExecutor
 import io
 import itertools
 import math
@@ -27,6 +28,7 @@ from quantnn.normalizer import MinMaxNormalizer
 from gprof_nn import sensors
 from gprof_nn.utils import (
     calculate_interpolation_weights,
+    calculate_interpolation_indices,
     interpolate
 )
 from gprof_nn.data.utils import (
@@ -40,6 +42,7 @@ from gprof_nn.data.utils import (
 from gprof_nn.utils import expand_tbs
 from gprof_nn.definitions import (
     ANCILLARY_VARIABLES,
+    ANCILLARY_CFGS,
     MASKED_OUTPUT,
     LAT_BINS,
     TIME_BINS,
@@ -411,6 +414,34 @@ def write_preprocessor_file(input_data, output_file):
     PreprocessorFile.write(output_file, new_data, sensor, template=template)
 
 
+def interpolate_angles(tbs: np.ndarray, ang_grid: np.ndarray, angs: np.ndarray):
+    """
+    Interpolate brightness temperatures along angles.
+
+    Args:
+        tbs: A 3D array of shape [samples, angles, channels].
+        ang_grid: The angles corresponding to the angles dimensions.
+        angs: The angles to which to interpolate each sample in tbs.
+    """
+    if not np.all(np.diff(ang_grid) > 0):
+        raise ValueError("Angles must be sorted in ascending order.")
+
+    indices = np.searchsorted(ang_grid, angs) - 1
+    indices = np.clip(indices, 0, len(ang_grid) - 2)
+
+    inds_0 = np.arange(tbs.shape[0])
+
+    x_0 = ang_grid[indices]
+    x_1 = ang_grid[indices + 1]
+    y_0 = tbs[inds_0, indices]
+    y_1 = tbs[inds_0, indices + 1]
+
+    w_0 = (x_1 - angs) / (x_1 - x_0)
+    w_1 = (angs - x_0) / (x_1 - x_0)
+
+    tbs_i = w_0[..., None] * y_0 + w_1[..., None] * y_1
+    return tbs_i
+
 
 def load_tbs_1d_gmi(
         training_data: xr.Dataset,
@@ -436,6 +467,7 @@ def load_tbs_1d_xtrack_sim(
         angles: np.ndarray,
         sensor: sensors.Sensor,
         targets: List[str],
+        rng,
         satformer: bool = False
 ) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
     """
@@ -462,7 +494,11 @@ def load_tbs_1d_xtrack_sim(
             ["simulated_brightness_temperatures", "brightness_temperature_biases"] +
             targets
         ]
-        training_data = training_data.interp(samples=samples, angles=angles)
+        training_data = training_data.interp(
+            samples=samples,
+            angles=angles,
+            method="nearest"
+        )
         tbs = training_data.simulated_brightness_temperatures.data
         tbs_full = np.nan * np.zeros((tbs.shape[0], 15), dtype=np.float32)
         tbs_full[:, sensor.gprof_channel_indices] = tbs
@@ -479,11 +515,16 @@ def load_tbs_1d_xtrack_sim(
         tbs_full = tbs_full - biases
     else:
         training_data = training_data[
-            ["satformer_tbs"] +
+            ["satformer_tbs_rand"] +
             targets
         ]
-        training_data = training_data.interp(samples=samples, angles=angles)
-        tbs = training_data.satformer_tbs.data
+        training_data = training_data.interp(
+            samples=samples,
+            angles=angles,
+            method="nearest"
+        )
+        tbs = training_data.satformer_tbs_rand.data
+        #tbs += rng.normal(0.0, 2.0, size=tbs.shape)
         tbs_full = np.nan * np.zeros((tbs.shape[0], 15), dtype=np.float32)
         tbs_full[:, sensor.gprof_channel_indices] = tbs
 
@@ -516,11 +557,17 @@ def load_tbs_1d_conical_sim(
             "brightness_temperature_biases",
         ]
     ]
+
     tbs = training_data.simulated_brightness_temperatures.data
     biases = training_data.brightness_temperature_biases.data
-
-    tbs = tbs + biases
-    return torch.tensor(tbs)
+    gmi_inds = list(sensor.gprof_channels.keys())
+    gmi_angs = sensors.GMI.earth_incidence_angle[gmi_inds]
+    angs = sensor.earth_incidence_angle
+    corr = np.cos(np.deg2rad(gmi_angs)) / np.cos(np.deg2rad(angs)) * biases
+    tbs = tbs - biases
+    tbs_full = np.nan * np.zeros((tbs.shape[0], 15), dtype=np.float32)
+    tbs_full[:, gmi_inds] = tbs
+    return torch.tensor(tbs_full)
 
 
 def load_tbs_1d_xtrack_other(
@@ -580,23 +627,35 @@ def load_tbs_1d_conical_other(
     return tbs, angles
 
 
-
-def load_ancillary_data_1d(training_data: xr.Dataset,) -> torch.Tensor:
+def load_ancillary_data(
+        training_data: xr.Dataset,
+        configuration: str,
+        stack_dim: 0
+) -> torch.Tensor:
     """
-    Load brightness temperatures for GMI training data.
+    Load ancillary data from training sample.
 
     Args:
         training_data: The xarray.Dataset containing the training data.
+        configuration: The name of the ancillary data configuration.
+        stack_dim: Along which dimension to stack the ancillary variables.
 
     Return:
-        A torch tensor containign the ancillary data concatenated along the
-        last dimension.
+        A torch tensor containign the ancillary data stacked along the
+        'stack_dim'.
     """
     data = []
-    for var in ANCILLARY_VARIABLES:
-        data.append(training_data[var].data)
-    data = np.stack(data, -1)
-    return torch.tensor(data)
+    for ind, var in enumerate(ANCILLARY_VARIABLES):
+            data.append(training_data[var].data)
+    data = np.stack(data, axis=stack_dim)
+
+    var_inds = ANCILLARY_CFGS.get(configuration, [])
+    for ind, _ in enumerate(ANCILLARY_VARIABLES):
+        if ind not in var_inds:
+            slc = np.take(data, indices=ind, axis=stack_dim)
+            slc[:] = np.nan
+
+    return torch.tensor(data.astype(np.float32))
 
 
 def load_targets_1d(
@@ -662,7 +721,8 @@ class GPROFNN1DDataset(IterableDataset):
     """
     Dataset class for loading the training data for GPROF-NN 1D retrieval.
     """
-    combine_files = 16
+    merge = 8
+    resample_datasets = 2
 
     def __init__(
         self,
@@ -670,7 +730,9 @@ class GPROFNN1DDataset(IterableDataset):
         targets: Optional[List[str]] = None,
         augment: bool = True,
         validation: bool = False,
-        satformer: bool = False
+        satformer: bool = False,
+        batch_size: int = 2048
+
     ):
         """
         Create GPROF-NN 1D dataset.
@@ -713,6 +775,10 @@ class GPROFNN1DDataset(IterableDataset):
 
         self.init_rng()
         self.files = self.rng.permutation(self.files)
+        self.batch_size = batch_size
+        self.training_data = None
+        self.indices = None
+        self.pool = ThreadPoolExecutor(max_workers=1)
 
 
     def init_rng(self, w_id=0):
@@ -728,6 +794,7 @@ class GPROFNN1DDataset(IterableDataset):
             seed = int.from_bytes(os.urandom(4), "big") + w_id
 
         self.rng = np.random.default_rng(seed)
+        self.n_workers = 1
 
     def worker_init_fn(self, w_id: int) -> None:
         """
@@ -739,8 +806,9 @@ class GPROFNN1DDataset(IterableDataset):
         self.init_rng(w_id)
         winfo = torch.utils.data.get_worker_info()
         n_workers = winfo.num_workers
-
+        self.n_workers = n_workers
         self.files = self.files[w_id::n_workers]
+        self.pool = ThreadPoolExecutor(max_workers=1)
 
     def load_training_data(self, dataset: xr.Dataset) -> Dict[str, torch.Tensor]:
 
@@ -757,21 +825,35 @@ class GPROFNN1DDataset(IterableDataset):
             dataset = dataset[{"samples": mask}]
 
             tbs = load_tbs_1d_gmi(dataset)
-            anc = load_ancillary_data_1d(dataset)
+
+            if self.validation:
+                cfg = "CLI"
+            else:
+                cfg = self.rng.choice(["None", "NRT", "STD", "CLI"])
+            anc = load_ancillary_data(dataset, configuration=cfg, stack_dim=1)
+
             targets = load_targets_1d(dataset, self.targets)
             angs = torch.tensor(np.broadcast_to(EIA_GMI.astype("float32"), tbs.shape))
 
         elif isinstance(sensor, sensors.CrossTrackScanner):
 
-            dataset = dataset.sortby("angles")
+            dataset = dataset.compute()
 
             if dataset.attrs["source"] == "sim":
-                tbs = dataset["brightness_temperatures"].data
+
+                dataset = dataset.sortby("angles").compute()
+                dataset.simulated_brightness_temperatures.compute()
+                dataset.brightness_temperature_biases.compute()
+                tbs = dataset["simulated_brightness_temperatures"].data
+                tb_biases = dataset["brightness_temperature_biases"].data
                 y_t = dataset[ref_target].data
-                valid_input = np.any(tbs > 0, -1)
+                if self.satformer:
+                    valid_input = np.any(tbs > 0, (-2, -1))
+                else:
+                    valid_input = np.all(tbs > 0, (-2, -1)) * np.all(np.abs(tb_biases) < 50, -1)
                 valid_target = np.isfinite(y_t).any(tuple(range(1, y_t.ndim)))
                 mask = valid_input * valid_target
-                dataset = dataset[{"samples": mask}]
+                dataset = dataset[{"samples": mask}].compute()
                 angles = dataset["angles"].data
                 angs = self.rng.uniform(
                     angles.min(),
@@ -783,6 +865,7 @@ class GPROFNN1DDataset(IterableDataset):
                     angs,
                     sensor,
                     targets,
+                    rng=self.rng,
                     satformer=self.satformer
                 )
                 angs = torch.tensor(np.broadcast_to(angs[..., None], tbs.shape))
@@ -797,57 +880,132 @@ class GPROFNN1DDataset(IterableDataset):
                 tbs, angs = load_tbs_1d_xtrack_other(dataset, sensor)
                 targets = load_targets_1d(dataset, self.targets)
 
-            anc = load_ancillary_data_1d(dataset)
+            if self.validation:
+                cfg = "CLI"
+            else:
+                cfg = self.rng.choice(["None", "NRT", "STD", "CLI"])
+            anc = load_ancillary_data(dataset, configuration=cfg, stack_dim=1)
 
-        elif isinstance(sensor, sensors.ConicalScanner):
+        elif isinstance(sensor, sensors.ConstellationScanner):
 
             if dataset.source == "sim":
                 tbs = load_tbs_1d_conical_sim(dataset, sensor)
-                angs = torch.tensor(np.broadcast_to(EIA_GMI.astype("float32"), tbs.shape))
+                angs = torch.nan * torch.zeros_like(tbs)
+                inds = list(sensor.gprof_channels.keys())
+                angs[:, inds] = torch.tensor(
+                    sensor.earth_incidence_angle,
+                    dtype=torch.float32
+                )
             else:
                 tbs, angs = load_tbs_1d_conical_other(dataset, sensor)
-            anc = load_ancillary_data_1d(dataset)
+            if self.validation:
+                cfg = "CLI"
+            else:
+                cfg = self.rng.choice(["None", "NRT", "STD", "CLI"])
+            anc = load_ancillary_data(dataset, configuration=cfg, stack_dim=1)
             targets = load_targets_1d(dataset, self.targets)
 
 
         x = {
             "brightness_temperatures": tbs.to(torch.float32),
             "ancillary_data": anc.to(torch.float32),
-            "viewing_angles": angs.to(torch.float32)
+            "earth_incidence_angles": angs.to(torch.float32)
         }
         return x, targets
 
+    def load_data(self, files):
+        """
+        Sets
+        """
+        all_files = self.rng.permutation(files)
+        inputs = {}
+        targets = {}
+
+        for ind, path in enumerate(all_files):
+
+            with xr.open_dataset(path) as input_file:
+                try:
+                    inputs_f, targets_f = self.load_training_data(input_file)
+                except Exception as exc:
+                    raise exc
+                    LOGGER.exception("Failed loading training data from file %s", path)
+                    continue
+                for name, tensor in inputs_f.items():
+                    inputs.setdefault(name, []).append(tensor)
+                for name, tensor in targets_f.items():
+                    targets.setdefault(name, []).append(tensor)
+
+        inputs = {name: torch.cat(data, 0) for name, data in inputs.items()}
+        targets = {name: torch.cat(data, 0) for name, data in targets.items()}
+        n_samples = inputs["brightness_temperatures"].shape[0]
+        inds = torch.tensor(self.rng.permutation(n_samples))
+        inputs = {name: data[inds] for name, data in inputs.items()}
+        targets = {name: data[inds] for name, data in targets.items()}
+        return inputs, targets
+
+
+    def __iter__(self):
+
+        tasks = []
+        all_files = self.rng.permutation(self.files)
+        for ind in range(math.ceil(len(all_files) / self.merge)):
+            files = all_files[self.merge * ind : self.merge * (ind + 1)]
+            tasks.append(self.pool.submit(self.load_data, files))
+
+        for task in tasks:
+            inputs, targets = task.result()
+            start_ind = 0
+            n_samples = inputs["brightness_temperatures"].shape[0]
+            for _ in range(self.resample_datasets):
+                perm_inds = self.rng.permutation(n_samples)
+                while start_ind < n_samples:
+                    inds = np.arange(start_ind, start_ind + self.batch_size) % n_samples
+                    inds = perm_inds[inds]
+                    batch_inputs = {name: data[inds] for name, data in inputs.items()}
+                    batch_targets = {name: data[inds] for name, data in targets.items()}
+                    start_ind += self.batch_size
+                    yield batch_inputs, batch_targets
 
     def __repr__(self):
         return f"GPROFNN1DDataset(path={self.path}, targets={self.targets})"
 
-    def __iter__(self):
+    #def __len__(self):
+    #    """
+    #    The number of samples in the training dataset.
+    #    """
+    #    tot_samples = 0
+    #    for path in self.files:
+    #        with xr.open_dataset(path) as data:
+    #            tot_samples += data.samples.size
+    #    return tot_samples // self.batch_size
 
-        all_files = self.rng.permutation(self.files)
-        for ind in range(0, len(self.files), self.combine_files):
-            files = all_files[ind:ind + self.combine_files]
+    #def __getitem__(self, ind):
+    #    """
+    #    Return batch from training dataset.
 
-            inputs = {}
-            targets = {}
+    #    Args:
+    #        ind: The index of the batch to return.
+    #    """
+    #    if self.training_data is None:
+    #        self.load_data()
 
-            for path in files:
-                with xr.open_dataset(path) as input_file:
+    #    if ind < self.n_workers or self.indices is None:
+    #        self.indices = np.random.permutation(
+    #            self.training_data[0]["brightness_temperatures"].shape[0]
+    #        )
 
-                    inputs_f, targets_f = self.load_training_data(input_file)
-                    for name, tensor in inputs_f.items():
-                        inputs.setdefault(name, []).append(tensor)
-                    for name, tensor in targets_f.items():
-                        targets.setdefault(name, []).append(tensor)
+    #    n_samples = self.training_data[0]["brightness_temperatures"].shape[0]
 
-            inputs = {name: torch.cat(data, 0) for name, data in inputs.items()}
-            targets = {name: torch.cat(data, 0) for name, data in targets.items()}
+    #    inputs, targets = self.training_data
+    #    inds = self.indices[ind * self.batch_size: (ind + 1) * self.batch_size]
+    #    inputs = {
+    #        name: tensor[inds % n_samples] for name, tensor in inputs.items()
+    #    }
+    #    targets = {
+    #        name: tensor[inds % n_samples] for name, tensor in targets.items()
+    #    }
+    #    return inputs, targets
 
-            n_samples = inputs["brightness_temperatures"].shape[0]
-            for ind in self.rng.permutation(n_samples):
-                yield (
-                    {name: data[ind] for name, data in inputs.items()},
-                    {name: data[ind] for name, data in targets.items()}
-                )
 
 
 def load_training_data_3d_gmi(
@@ -895,11 +1053,20 @@ def load_training_data_3d_gmi(
         )
         scene = remap_scene(scene, coords, variables)
 
-    tbs = torch.tensor(scene.brightness_temperatures.data)
-    angs = torch.tensor(np.broadcast_to(EIA_GMI.astype("float32"), tbs.shape))
-    anc = torch.tensor(np.stack(
-        [scene[anc_var].data.astype("float32") for anc_var in ANCILLARY_VARIABLES]
-    ))
+    tbs = torch.tensor(scene.brightness_temperatures.data, dtype=torch.float32)
+    angs = torch.nan * torch.zeros_like(tbs)
+    inds = list(sensors.GMI.gprof_channels.keys())
+    angs[..., inds] = torch.tensor(
+        sensors.GMI.earth_incidence_angle,
+        dtype=torch.float32
+    )
+
+    if augment:
+        cfg = rng.choice(["None", "NRT", "STD", "CLI"])
+    else:
+        cfg = "CLI"
+    anc = load_ancillary_data(scene, configuration=cfg, stack_dim=0)
+
     tbs = torch.permute(tbs, (2, 0, 1))
     angs = torch.permute(angs, (2, 0, 1))
 
@@ -911,7 +1078,7 @@ def load_training_data_3d_gmi(
 
     x = {
         "brightness_temperatures": tbs,
-        "viewing_angles": angs,
+        "earth_incidence_angles": angs,
         "ancillary_data": anc
     }
 
@@ -919,6 +1086,7 @@ def load_training_data_3d_gmi(
     if "levels" in scene.dims:
         dims = ("levels",) + dims
     scene = scene.transpose(*dims, ...)
+
     y = {}
     for target in targets:
         # MRMS collocations don't contain all targets.
@@ -979,13 +1147,13 @@ def load_training_data_3d_xtrack_sim(
     required = [
         "latitude",
         "longitude",
-        "simulated_brightness_temperatures",
-        "brightness_temperature_biases"
+        "satformer_tbs_rand"
     ]
     variables = [
         name for name in targets + required
         if name in scene
     ]
+    angle_grid = scene.angles.data
     scene = decompress_scene(scene, variables)
 
     if augment:
@@ -1005,6 +1173,10 @@ def load_training_data_3d_xtrack_sim(
     coords = get_transformation_coordinates(
         lats, lons, sensor.viewing_geometry, width, height, p_x_i, p_x_o, p_y
     )
+
+    if rng.random() < 0.5:
+        coords = np.flip(coords, 0)
+
     scene = remap_scene(scene, coords, variables)
 
     center = sensor.viewing_geometry.get_window_center(p_x_o, width)
@@ -1014,33 +1186,31 @@ def load_training_data_3d_xtrack_sim(
     angs = angs[j_start:j_end]
     angs = np.repeat(angs.reshape(1, -1), height, axis=0)
 
-    angles = scene.angles.data
-    weights = calculate_interpolation_weights(np.abs(angs), angles)
-    weights = np.repeat(weights.reshape(1, -1, sensor.n_angles), height, axis=0)
-    weights = calculate_interpolation_weights(np.abs(angs), angles)
-
+    weights = calculate_interpolation_weights(np.abs(angs), angle_grid)
      # Calculate brightness temperatures
-    tbs_sim = scene.simulated_brightness_temperatures.data
-    tbs_sim = interpolate(tbs_sim, weights)
-    tb_biases = scene.brightness_temperature_biases.data
-    tbs = tbs_sim + tb_biases
+    tbs_sim = scene.satformer_tbs_rand
+    tbs_sim = interpolate(tbs_sim, np.round(weights))
 
     full_shape = tbs_sim.shape[:2] + (15,)
     tbs_full = np.nan * np.ones(full_shape, dtype="float32")
-    tbs_full[:, :, sensor.gprof_channel_indices] = tbs
+    tbs_full[:, :, sensor.gprof_channel_indices] = tbs_sim
     tbs_full = torch.permute(torch.tensor(tbs_full), (2, 0, 1))
+    tbs_full[tbs_full < 20] = torch.nan
 
+    chan_inds = list(sensor.gprof_channels.keys())
     angs_full = np.nan * np.ones(full_shape, dtype="float32")
-    angs_full[:, :, sensor.gprof_channel_indices] = angs[..., None]
+    angs_full[:, :, chan_inds] = np.abs(angs[..., None])
     angs_full = torch.permute(torch.tensor(angs_full), (2, 0, 1))
 
-    anc = torch.tensor(np.stack(
-        [scene[anc_var].data.astype("float32") for anc_var in ANCILLARY_VARIABLES]
-    ))
+    if augment:
+        cfg = rng.choice(["None", "NRT", "STD", "CLI"])
+    else:
+        cfg = "CLI"
+    anc = load_ancillary_data(scene, configuration=cfg, stack_dim=0)
 
     x = {
         "brightness_temperatures": tbs_full,
-        "viewing_angles": angs_full,
+        "earth_incidence_angles": angs_full,
         "ancillary_data": anc
     }
 
@@ -1072,7 +1242,7 @@ def load_training_data_3d_xtrack_sim(
         data = torch.tensor(data)
 
         dims = tuple(range(data.ndim))
-        data = torch.permute(data, dims[-2:] + dims[:-2])
+        data = torch.permute(data, dims[2:] + dims[:2])
         y[target] = data
 
     # Also flip data if requested.
@@ -1146,23 +1316,33 @@ def load_training_data_3d_conical_sim(
     # Calculate brightness temperatures
     tbs_sim = scene.simulated_brightness_temperatures.data
     tb_biases = scene.brightness_temperature_biases.data
-    tbs = torch.tensor(tbs_sim + tb_biases, dtype=torch.float32)
+    gprof_inds = list(sensor.gprof_channels)
+    gmi_angs = sensors.GMI.earth_incidence_angle[gprof_inds]
+    angs = sensor.earth_incidence_angle
+    corr = np.cos(np.deg2rad(gmi_angs)) / np.cos(np.deg2rad(angs))
+    tbs = tbs_sim - corr * tb_biases
+
+    tbs_full = np.nan * np.zeros(tbs.shape[:2] + (15,))
+    tbs_full[..., gprof_inds] = tbs
+
+    tbs = torch.tensor(tbs_full, dtype=torch.float32)
     tbs = torch.permute(tbs, (2, 0, 1))
 
-    angs_full = np.broadcast_to(EIA_GMI.astype("float32")[0][..., None, None], tbs.shape).copy()
-    gprof_indices = sensor.gprof_channel_indices
-    for ind in range(15):
-        if ind not in gprof_indices:
-            angs_full[ind] = np.nan
-    angs_full = torch.tensor(angs_full)
+    angs_full = torch.nan * torch.zeros_like(tbs)
+    angs_full[gprof_inds] = torch.tensor(
+        sensor.earth_incidence_angle[..., None, None],
+        dtype=torch.float32
+    )
 
-    anc = torch.tensor(np.stack(
-        [scene[anc_var].data.astype("float32") for anc_var in ANCILLARY_VARIABLES]
-    ))
+    if augment:
+        cfg = rng.choice(["None", "NRT", "STD", "CLI"])
+    else:
+        cfg = "CLI"
+    anc = load_ancillary_data(scene, configuration=cfg, stack_dim=0)
 
     x = {
         "brightness_temperatures": tbs,
-        "viewing_angles": angs_full,
+        "earth_incidence_angles": angs_full,
         "ancillary_data": anc
     }
 
@@ -1245,7 +1425,6 @@ def load_training_data_3d_other(
     scn_end = scn_start + height
     scene = scene[{"pixels": slice(pix_start, pix_end), "scans": slice(scn_start, scn_end)}]
 
-
     # Calculate brightness temperatures
     tbs = scene.brightness_temperatures.data
     full_shape = tbs.shape[:2] + (15,)
@@ -1256,15 +1435,16 @@ def load_training_data_3d_other(
         tbs_full = tbs.astype(np.float32)
     tbs_full = torch.permute(torch.tensor(tbs_full), (2, 0, 1))
 
-    angs = scene.earth_incidence_angle.data
-    if angs.ndim == 2:
-        angs = angs[..., None]
-    if tbs.shape != full_shape:
-        angs_full = np.nan * np.ones(full_shape, dtype="float32")
-        angs_full[:, :, sensor.gprof_channel_indices] = angs
+    angs_full = torch.nan * torch.zeros_like(tbs_full)
+    eia = scene.earth_incidence_angle.data
+    chan_inds = list(sensor.gprof_channels.keys())
+    if eia.ndim == 2:
+        angs_full[chan_inds] = torch.tensor(eia[None], dtype=torch.float32)
     else:
-        angs_full = angs
-    angs_full = torch.permute(torch.tensor(angs_full), (2, 0, 1))
+        angs_full[chan_inds] = torch.tensor(
+            sensor.earth_incidence_angle[..., None, None],
+            dtype=torch.float32
+        )
 
     anc = torch.tensor(np.stack(
         [scene[anc_var].data.astype("float32") for anc_var in ANCILLARY_VARIABLES]
@@ -1272,9 +1452,14 @@ def load_training_data_3d_other(
 
     x = {
         "brightness_temperatures": tbs_full,
-        "viewing_angles": angs_full,
+        "earth_incidence_angles": angs_full,
         "ancillary_data": anc
     }
+
+    dims = ("scans", "pixels")
+    if "levels" in scene.dims:
+        dims = ("levels",) + dims
+    scene = scene.transpose(*dims, ...)
 
     y = {}
     for target in targets:
@@ -1290,12 +1475,11 @@ def load_training_data_3d_other(
 
         data = scene[target].data.astype("float32")
         if data.ndim < 3:
-            data = data[..., None]
+            data = data[None]
 
         data = torch.tensor(data)
         dims = tuple(range(data.ndim))
-        data = torch.permute(data, dims[-2:] + dims[:-2])
-        y[target] = data
+        y[target] = data.squeeze()
 
     # Also flip data if requested.
     if augment:
@@ -1406,7 +1590,7 @@ class GPROFNN3DDataset(Dataset):
             sensor = getattr(sensors, sensor)
 
             if sensor == sensors.GMI:
-                return load_training_data_3d_gmi(
+                x, y = load_training_data_3d_gmi(
                     scene,
                     targets=self.targets,
                     augment=self.augment,
@@ -1414,40 +1598,49 @@ class GPROFNN3DDataset(Dataset):
                 )
             elif isinstance(sensor, sensors.CrossTrackScanner):
                 if scene.source == "sim":
-                    return load_training_data_3d_xtrack_sim(
+                    x, y = load_training_data_3d_xtrack_sim(
                         sensor,
                         scene,
                         targets=self.targets,
                         augment=self.augment,
                         rng=self.rng
                     )
-                return load_training_data_3d_other(
-                    sensor,
-                    scene,
-                    targets=self.targets,
-                    augment=self.augment,
-                    rng=self.rng
-                )
-            elif isinstance(sensor, sensors.ConicalScanner):
+                else:
+                    x, y = load_training_data_3d_other(
+                        sensor,
+                        scene,
+                        targets=self.targets,
+                        augment=self.augment,
+                        rng=self.rng
+                    )
+            elif isinstance(sensor, sensors.ConstellationScanner):
                 if scene.source == "sim":
-                    return load_training_data_3d_conical_sim(
+                    x, y = load_training_data_3d_conical_sim(
                         sensor,
                         scene,
                         targets=self.targets,
                         augment=self.augment,
                         rng=self.rng
                     )
-                return load_training_data_3d_other(
-                    sensor,
-                    scene,
-                    targets=self.targets,
-                    augment=self.augment,
-                    rng=self.rng
-                )
-        raise RuntimeError(
-            "Invalid sensor/scene combination in training file %s.",
-            self.files[ind]
-        )
+                else:
+                    x, y = load_training_data_3d_other(
+                        sensor,
+                        scene,
+                        targets=self.targets,
+                        augment=self.augment,
+                        rng=self.rng
+                    )
+
+        sp = y["surface_precip"]
+        if torch.isfinite(sp).sum() < 10:
+            new_ind = self.rng.integers(0, len(self))
+            LOGGER.warning(
+                "Less than 10 valid pixels in file %s. Falling back to another "
+                " randomly-chosen sample.",
+                self.files[ind]
+            )
+            return self[new_ind]
+        return x, y
 
 
 class GPROFNNSimInputLoader(GPROFNN3DDataset):
@@ -1470,7 +1663,7 @@ class GPROFNNSimInputLoader(GPROFNN3DDataset):
 
         inpt_data = {
             "brightness_temperatures": tbs[None],
-            "viewing_angles": angs[None],
+            "earth_incidence_angles": angs[None],
             "ancillary_data": anc[None]
         }
         return inpt_data, self.files[ind]

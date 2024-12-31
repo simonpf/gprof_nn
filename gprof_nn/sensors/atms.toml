@@ -6,8 +6,8 @@ l1c_file_prefix = "1C.NOAA20.ATMS"
 [viewing_geometry]
 kind = "CrossTrack"
 altitude = 834e3
-scan_range = 99.0
-pixels_per_scan = 96
+scan_range = 108
+pixels_per_scan = 90
 scan_offset = 16e3
 beam_width = 2.2
 

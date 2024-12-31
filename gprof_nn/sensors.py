@@ -47,7 +47,7 @@ from concurrent.futures import ProcessPoolExecutor
 from copy import copy
 import logging
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 import numpy as np
 import toml
@@ -205,17 +205,25 @@ class Sensor(ABC):
             offsets: List[float],
             polarization: List[str],
             orographic_enhancement: List[float],
+            earth_incidence_angle: Optional[List[float]],
             sim_file_pattern: str = "*.sim"
     ):
         self.kind = kind
         self._name = name
         self.platform = platform
         self.viewing_geometry = viewing_geometry
+
+        gprof_channels = {int(key) : val for key,val in gprof_channels.items()}
         self.gprof_channels = gprof_channels
         self.frequencies = frequencies
         self.offsets = offsets
         self.polarization = polarization
         self.orographic_enhancement = orographic_enhancement
+
+        if earth_incidence_angle is not None:
+            earth_incidence_angle = np.array(earth_incidence_angle)
+        self.earth_incidence_angle = earth_incidence_angle
+
         self.sim_file_pattern = sim_file_pattern
 
         self.n_chans = len(self.gprof_channels)
@@ -385,12 +393,13 @@ class ConicalScanner(Sensor):
             offsets: List[float],
             polarization: List[float],
             orographic_enhancement: List[float],
+            earth_incidence_angle: Optional[List[float]],
             sim_file_pattern: str = "*.sim"
     ):
         super().__init__(
             types.CONICAL, name, platform, viewing_geometry, gprof_channels,
             frequencies, offsets, polarization, orographic_enhancement,
-            sim_file_pattern=sim_file_pattern
+            earth_incidence_angle, sim_file_pattern=sim_file_pattern
         )
         self._n_angles = 1
 
@@ -417,11 +426,13 @@ class CrossTrackScanner(Sensor):
             offsets: List[float],
             polarization: List[str],
             orographic_enhancement: List[float],
+            earth_incidence_angle: Optional[List[float]] = None,
             sim_file_pattern: str = "*.sim"
     ):
         super().__init__(
             types.XTRACK, name, platform, viewing_geometry, gprof_channels,
             frequencies, offsets, polarization, orographic_enhancement,
+            earth_incidence_angle=earth_incidence_angle,
             sim_file_pattern=sim_file_pattern
         )
 
@@ -446,6 +457,7 @@ class ConstellationScanner(Sensor):
             offsets: List[float],
             polarization: List[str],
             orographic_enhancement: List[float],
+            earth_incidence_angle: Optional[List[float]] = None,
             sim_file_pattern: str = "*.sim"
     ):
         super().__init__(
@@ -457,7 +469,9 @@ class ConstellationScanner(Sensor):
             frequencies,
             offsets,
             polarization,
-            orographic_enhancement
+            orographic_enhancement,
+            earth_incidence_angle=earth_incidence_angle,
+            sim_file_pattern=sim_file_pattern
         )
 
 
@@ -552,8 +566,9 @@ def parse_sensor(sensor_file: Path) -> Sensor:
         "offsets",
         "polarization",
         "orographic_enhancement",
+        "earth_incidence_angle"
     ]
-    args = [sensor[arg] for arg in args]
+    args = [sensor.get(arg, None) for arg in args]
     kwargs = {
         "sim_file_pattern": "*.sim"
     }

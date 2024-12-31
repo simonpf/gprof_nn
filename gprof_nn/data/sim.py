@@ -73,7 +73,7 @@ from gprof_nn.data.utils import (
 BEAM_WIDTHS = {
     "gmi": [1.75, 1.75, 1.0, 1.0, 0.9, 0.9, 0.9, 0.4, 0.4, 0.4, 0.4, 0.4, 0.4],
     "atms": [2.2, 1.1, 1.1, 1.1, 1.1],
-    "amsr2": [1.2, 1.2, 1.2, 1.2, 1.2, 1.2, 1.2, 1.2, 1.2, 1.2],
+    "amsr2": [1.75, 1.75, 1., 1., 0.9, 0.9, 0.9, 0.4, 0.4, 0.4, 0.4, 0.4 , 0.4]
 }
 
 EIA = {
@@ -223,8 +223,12 @@ class SimFile:
             n_angles = self.sensor.n_angles
 
         n_chans = self.sensor.n_chans
+        chan_inds = np.arange(n_chans)
         if isinstance(self.sensor, sensors.ConicalScanner):
             n_chans = 15
+            chan_inds = np.arange(n_chans)
+        elif isinstance(self.sensor, sensors.ConstellationScanner):
+            chan_inds = list(map(int, self.sensor.gprof_channels.keys()))
 
         if "tbs_simulated" in self.data.dtype.fields:
             if n_angles > 0:
@@ -243,7 +247,7 @@ class SimFile:
 
             tbs = self.data["tbs_simulated"]
 
-            matched[indices, ...] = tbs[..., :n_chans]
+            matched[indices, ...] = tbs[..., chan_inds]
             matched[indices, ...][dists > 10e3] = np.nan
             matched = matched.reshape(shape)
 
@@ -605,6 +609,8 @@ def collocate_targets(
     # Set surface_precip and convective_precip over snow surfaces to missing
     # since these are handled separately.
     surface_type = data_pp.variables["surface_type"].data
+    t2m = data_pp["two_meter_temperature"].data
+    tcwv = data_pp["total_column_water_vapor"].data
     snow = (surface_type >= 8) * (surface_type <= 11)
     for var in data_pp.variables:
         if var in ["surface_precip", "convective_precip"]:
@@ -623,8 +629,9 @@ def collocate_targets(
     # Else set to missing.
     else:
         sea_ice = (surface_type == 2) + (surface_type == 16)
+        cold_and_dry = (t2m < 260.0) * (tcwv < 6.0)
         for var in ["surface_precip", "convective_precip"]:
-            data_pp[var].data[sea_ice] = np.nan
+            data_pp[var].data[sea_ice + cold_and_dry] = np.nan
 
     if subset is not None:
         subset.mask_surface_precip(data_pp)
@@ -847,7 +854,9 @@ class SimulatorInput():
 def simulate_tbs_satformer(
         model_path: Path,
         data: xr.Dataset,
-        sensor: Sensor
+        sensor: Sensor,
+        device: Optional[str] = None
+
 ):
     input_loader = SimulatorInput(data, sensor)
     model = load_model(model_path).eval()
@@ -867,6 +876,9 @@ def simulate_tbs_satformer(
         batch_size=1
     )
 
+    if device is None:
+        device = "cuda:0"
+
     results = run_inference(
         model,
         input_loader,
@@ -881,7 +893,7 @@ def simulate_tbs_satformer(
             "elevation_mask",
             "ir_observations_mask",
         ],
-        device="cuda"
+        device=device
     )
     results = results[0]
 
