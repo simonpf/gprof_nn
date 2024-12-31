@@ -40,7 +40,7 @@ from gprof_nn.data.training_data import (
     load_tbs_1d_conical_sim,
     load_tbs_1d_xtrack_other,
     load_tbs_1d_conical_other,
-    load_ancillary_data_1d,
+    load_ancillary_data,
     load_training_data_3d_gmi,
     load_training_data_3d_xtrack_sim,
     load_training_data_3d_conical_sim,
@@ -175,7 +175,7 @@ def load_input_data_training_1d(
 
         if sensor == sensors.GMI:
             tbs = load_tbs_1d_gmi(data)
-            anc = load_ancillary_data_1d(data)
+            anc = load_ancillary_data(data, configuration="CLI", stack_dim=1)
             angs = torch.tensor(np.broadcast_to(EIA_GMI.astype("float32"), tbs.shape))
         elif isinstance(sensor, sensors.CrossTrackScanner):
             if data.attrs["source"] == "sim":
@@ -190,7 +190,7 @@ def load_input_data_training_1d(
                 angs = torch.tensor(np.broadcast_to(angs[..., None], tbs.shape))
             else:
                 tbs, angs = load_tbs_1d_xtrack_other(data, sensor)
-            anc = load_ancillary_data_1d(data)
+            anc = load_ancillary_data(data, configuration="CLI", stack_dim=1)
         elif isinstance(sensor, sensors.ConstellationScanner):
             if data.source == "sim":
                 tbs = load_tbs_1d_conical_sim(data, sensor)
@@ -199,7 +199,7 @@ def load_input_data_training_1d(
                 )
             else:
                 tbs, angs = load_tbs_1d_conical_other(data, sensor)
-            anc = load_ancillary_data_1d(data)
+            anc = load_ancillary_data(data, configuration="CLI", stack_dim=1)
 
         input_data = {
             "brightness_temperatures": tbs,
