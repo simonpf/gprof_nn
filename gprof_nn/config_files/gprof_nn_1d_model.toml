@@ -25,7 +25,7 @@ n_features = 15
 normalize = "minmax"
 
 [input.ancillary_data]
-n_features = 11
+n_features = 13
 normalize = "minmax"
 
 # The remaining sections define the retrieval outputs.
