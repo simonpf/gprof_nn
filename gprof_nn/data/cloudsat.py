@@ -112,7 +112,7 @@ def extract_cloudsat_scenes(
             )
         precip_column_data = l2c_precip_column.open(precip_column_rec[0])[{
             "rays": slice(*target_granule.primary_index_range)
-        }].reset_index("rays").reset_coords("time")
+        }].reset_coords("time")
         cs_data["precip_flag"] = precip_column_data["precip_flag"]
 
         snow_profile_rec = l2c_snow_profile.get(target_granule.time_range)
@@ -122,7 +122,7 @@ def extract_cloudsat_scenes(
             )
         snow_profile_data = l2c_snow_profile.open(snow_profile_rec[0])[{
             "rays": slice(*target_granule.primary_index_range)
-        }].reset_index("rays").reset_coords("time")
+        }].reset_coords("time")
         cs_data["surface_precip_snow"] = snow_profile_data["surface_precip"]
 
         levels = np.concatenate([0.5 + np.arange(20) * 0.5, np.arange(10.5, 18.0)])
@@ -149,7 +149,6 @@ def extract_cloudsat_scenes(
             unique=True,
             radius_of_influence=rof_in / 3 if high_res else rof_in
         )
-        print("SHAPE :: ", cs_data_r.scans.size, cs_data_r.pixels.size)
 
         input_data["surface_precip"] = (
             ("scans", "pixels"),
@@ -197,7 +196,7 @@ def extract_cloudsat_scenes(
         total_precip = np.nan * np.zeros_like(surface_precip)
         total_precip[pflag == 0] = 0.0
         total_precip[surface_precip > 0] = surface_precip[surface_precip > 0]
-        total_precip[surface_precip_snow > 0] = surface_precip[surface_precip_snow > 0]
+        total_precip[surface_precip_snow > 0] = surface_precip_snow[surface_precip_snow > 0]
         input_data["total_precip"] = (("scans", "pixels"), total_precip)
 
         input_data["input_observations"] = input_obs.observations.rename({"channels": "all_channels"})
@@ -209,7 +208,7 @@ def extract_cloudsat_scenes(
             n_scans=scene_size[0],
             n_pixels=scene_size[1],
             overlapping=True,
-            min_valid=scene_size[0] // 2,
+            min_valid=10,
             reference_var="valid",
             offset=50
         )
@@ -354,7 +353,6 @@ def cli(
     scene_size = tuple(list(map(int, scene_size.split(","))))
     if len(scene_size) == 1:
         scene_size = (scene_size[0],) * 2
-    print(scene_size)
 
     if n_processes is None:
         for day in track(days):
