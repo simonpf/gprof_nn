@@ -73,7 +73,7 @@ from gprof_nn.data.utils import (
 BEAM_WIDTHS = {
     "gmi": [1.75, 1.75, 1.0, 1.0, 0.9, 0.9, 0.9, 0.4, 0.4, 0.4, 0.4, 0.4, 0.4],
     "atms": [2.2, 1.1, 1.1, 1.1, 1.1],
-    "amsr2": [1.75, 1.75, 1., 1., 0.9, 0.9, 0.9, 0.4, 0.4, 0.4, 0.4, 0.4 , 0.4]
+    "amsr2": [1.2, 1.2, 0.65, 0.65, 0.75, 0.75, 0.35, 0.35, 0.15, 0.15]
 }
 
 EIA = {
@@ -425,10 +425,14 @@ def apply_orographic_enhancement(sensor, data, kind="ERA5"):
     enh = np.ones(surface_precip.shape, dtype=np.float32)
 
     factors = sensor.orographic_enhancement
-    types = ((17, 1), (17, 2), (17, 3), (17, 4), (18, 1))
-    for ind, (t_s, t_a) in enumerate(types):
-        indices = (surface_types == t_s) * (airlifting_index == t_a)
-        enh[indices] = sensor.orographic_enhancement[ind]
+
+    # Snow-free mountains:
+    for ind in range(4):
+        mask = (surface_types == 17) * (airlifting_index == ind)
+        enh[mask] = sensor.orographic_enhancement[ind]
+    # Snow-covered mountains:
+    mask = (surface_types == 18)
+    enh[mask] = sensor.orographic_enhancement[ind]
 
     surface_precip *= enh
     convective_precip *= enh
@@ -789,6 +793,16 @@ class SimulatorInput():
             sin_az = input_observation_props[0, -2, chan]
             cos_az = input_observation_props[0, -1, chan]
 
+            print(
+                freq,
+                offset,
+                sensor.polarization[chan],
+                BEAM_WIDTHS[self.target_sensor.name.lower()][chan],
+                alt,
+                EIA[self.target_sensor.name.lower()]
+            )
+
+
             output_observation_props.append(
                 torch.stack([
                     freq,
@@ -846,6 +860,8 @@ class SimulatorInput():
             anc_mask = torch.isnan(anc_data).all()[None, None]
             inpt[anc_var] = anc_data
             inpt[anc_var + "_mask"] = anc_mask
+            valid = torch.isfinite(anc_data)
+            print(anc_var, anc_mask, anc_data[valid].min(), anc_data[valid].max())
 
         inpt["output_observation_props"] = output_observation_props
         return inpt, "None", {}
@@ -904,19 +920,19 @@ def simulate_tbs_satformer(
     if "angles" in data:
         obs = obs.reshape((data.angles.size, len(sensor.frequencies)) + obs.shape[1:])
         obs = np.transpose(obs, (2, 3, 0, 1))
-        data["satformer_tbs"] = (("scans", "pixels", "angles", "channels"), obs[1::3])
+        data["satformer_tbs"] = (("scans", "pixels", "angles", "channels"), obs[::3])
 
         obs_rand = obs_rand.reshape((data.angles.size, len(sensor.frequencies)) + obs_rand.shape[1:])
         obs_rand = np.transpose(obs_rand, (2, 3, 0, 1))
-        data["satformer_tbs_rand"] = (("scans", "pixels", "angles", "channels"), obs_rand[1::3])
+        data["satformer_tbs_rand"] = (("scans", "pixels", "angles", "channels"), obs_rand[::3])
     else:
         obs = obs.reshape((len(sensor.frequencies),) + obs.shape[1:])
         obs = np.transpose(obs, (1, 2, 0))
-        data["satformer_tbs"] = (("scans", "pixels", "channels"), obs[1::3])
+        data["satformer_tbs"] = (("scans", "pixels", "channels"), obs[::3])
 
         obs_rand = obs_rand.reshape((len(sensor.frequencies),) + obs_rand.shape[1:])
         obs_rand = np.transpose(obs_rand, (1, 2, 0))
-        data["satformer_tbs_rand"] = (("scans", "pixels", "channels"), obs_rand[1::3])
+        data["satformer_tbs_rand"] = (("scans", "pixels", "channels"), obs_rand[::3])
 
 
 def process_sim_file(
