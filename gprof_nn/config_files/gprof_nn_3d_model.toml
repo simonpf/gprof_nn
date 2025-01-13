@@ -13,7 +13,7 @@ n_features = 15
 normalize = "minmax"
 
 [input.ancillary_data]
-n_features = 8
+n_features = 14
 normalize = "minmax"
 
 [output.surface_precip]
