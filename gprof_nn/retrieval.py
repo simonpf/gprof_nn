@@ -45,6 +45,8 @@ from gprof_nn.data.training_data import (
     load_training_data_3d_xtrack_sim,
     load_training_data_3d_conical_sim,
     load_training_data_3d_other,
+    determine_ancillary_config,
+    load_ancillary_data
 )
 from gprof_nn.data.utils import UPSAMPLING_FACTORS, upsample_data
 
@@ -54,7 +56,8 @@ LOGGER = logging.getLogger(__name__)
 
 
 def load_input_data_preprocessor(
-        preprocessor_file: Path
+        preprocessor_file: Path,
+        high_res: bool = False
 ) -> Tuple[Dict[str, torch.Tensor], Dict[str, np.ndarray]]:
     """
     Load retrieval input data from preprocessor file.
@@ -64,7 +67,7 @@ def load_input_data_preprocessor(
 
     Return:
         A pair of dictionaries: The first one containing the input tensors
-        'brightness_temperatures', 'viewing_angles', and 'ancillary_data',
+        'brightness_temperatures', 'earth_incidence_angles', and 'ancillary_data',
         the second containing auxilliary data to store in the retrieval output.
     """
     file_pp = PreprocessorFile(preprocessor_file)
@@ -72,7 +75,7 @@ def load_input_data_preprocessor(
     sensor = file_pp.sensor
 
     upsampling_factors = UPSAMPLING_FACTORS[sensor.name.lower()]
-    if max(upsampling_factors) > 1:
+    if high_res and max(upsampling_factors) > 1:
         data_pp = upsample_data(data_pp, upsampling_factors)
 
     tbs = data_pp.brightness_temperatures.data.astype(np.float32)
@@ -84,34 +87,44 @@ def load_input_data_preprocessor(
         tbs_full = tbs.astype(np.float32)
     tbs_full = np.transpose(tbs_full, (2, 0, 1))
 
-    viewing_angles = data_pp.earth_incidence_angle.data.astype(np.float32)
-    if viewing_angles.ndim == 2:
-        viewing_angles = viewing_angles[..., None]
+    eia = data_pp.earth_incidence_angle.data.astype(np.float32)
+    if eia.ndim == 2:
+        eia = eia[..., None]
 
-    if viewing_angles.shape[-1] < 15:
-        angs_full = np.nan * np.zeros(viewing_angles.shape[:2] + (15,), dtype=np.float32)
-        angs_full[..., sensor.gprof_channel_indices] = viewing_angles
+    if eia.shape[-1] < 15:
+        angs_full = np.nan * np.zeros(eia.shape[:2] + (15,), dtype=np.float32)
+        angs_full[..., sensor.gprof_channel_indices] = eia
     else:
-        angs_full = viewing_angles.astype(np.float32)
+        angs_full = eia.astype(np.float32)
     angs_full = np.transpose(angs_full, (2, 0, 1))
 
-    anc = torch.tensor(np.stack(
-        [data_pp[anc_var].data.astype("float32") for anc_var in ANCILLARY_VARIABLES]
-    ))
-    anc[anc < -1000] = np.nan
+    cfg = determine_ancillary_config(data_pp)
+    anc = load_ancillary_data(data_pp, cfg, stack_dim=0)
 
     tbs_full[tbs_full < 0] = np.nan
 
     input_data = {
         "brightness_temperatures": tbs_full,
-        "viewing_angles": angs_full,
+        "earth_incidence_angles": angs_full,
         "ancillary_data": anc
     }
     aux = {
-        "valid_input": (np.isfinite(tbs)).any(-1),
+        "valid_input": (np.isfinite(tbs_full)).any(0),
         "scan_time": data_pp.scan_time.data,
         "longitude": data_pp.longitude.data,
         "latitude": data_pp.latitude.data,
+        "total_column_water_vapor": data_pp.total_column_water_vapor.data,
+        "two_meter_temperature": data_pp.two_meter_temperature.data,
+        "convective_fraction": data_pp.convective_precipitation.data,
+        "moisture_convergence": data_pp.moisture_convergence.data,
+        "leaf_area_index": data_pp.leaf_area_index.data,
+        "snow_depth": data_pp.snow_depth.data,
+        "orographic_wind": data_pp.orographic_wind.data,
+        "wind_speed_10m": data_pp["10m_wind"].data,
+        "mountain_index": data_pp.mountain_type.data,
+        "land_fraction": data_pp.land_fraction.data,
+        "ice_fraction": data_pp.ice_fraction.data,
+        "elevation": data_pp.elevation.data
     }
     return input_data, aux
 
@@ -128,7 +141,7 @@ def load_input_data_l1c(
 
     Return:
         A dictionary containing the input tensors 'brightness_temperatures',
-        'viewing_angles', and 'ancillary_data'.
+        'earth_incidence_angles', and 'ancillary_data'.
     """
     sensor = L1CFile(l1c_file).sensor
     if needs_ancillary:
@@ -166,7 +179,7 @@ def load_input_data_training_1d(
 
     Return:
         A dictionary containing the input tensors 'brightness_temperatures',
-        'viewing_angles', and 'ancillary_data'.
+        'earth_incidence_angles', and 'ancillary_data'.
     """
     rng = np.random.default_rng(42)
 
@@ -203,7 +216,7 @@ def load_input_data_training_1d(
 
         input_data = {
             "brightness_temperatures": tbs,
-            "viewing_angles": angs,
+            "earth_incidence_angles": angs,
             "ancillary_data": anc,
         }
         valid  = torch.isfinite(tbs).any(0).numpy()
@@ -227,7 +240,7 @@ def load_input_data_training_3d(
 
     Return:
         A dictionary containing the input tensors 'brightness_temperatures',
-        'viewing_angles', and 'ancillary_data'.
+        'earth_incidence_angles', and 'ancillary_data'.
     """
     rng = np.random.default_rng(42)
 
@@ -308,7 +321,7 @@ def load_input_data_collocations(
 
     Return:
         A dictionary containing the input tensors 'brightness_temperatures',
-        'viewing_angles', and 'ancillary_data'.
+        'earth_incidence_angles', and 'ancillary_data'.
     """
     sensor = sensors.get_sensor(collocation_file.name.split("_")[-2].upper())
 
@@ -336,7 +349,7 @@ def load_input_data_collocations(
         input_data = {
             "brightness_temperatures": tbs_full,
             "ancillary_data": anc,
-            "viewing_angles": eia_full
+            "earth_incidence_angles": eia_full
         }
         aux = {
             "valid_input": valid,
@@ -368,6 +381,7 @@ def determine_input_format(path: Path) -> str:
             if "scans" in input_data.dims:
                 return "training_3d"
             return "training_1d"
+
     raise RuntimeError(
         f"Encountered an input file with suffix {path.suffix}, which is currently not supported."
     )
@@ -422,7 +436,7 @@ class GPROFNNInputLoader:
 
         Return:
             A dictionary mapping the names of the retrieval inputs ('brightness_temperatures',
-            'viewing_angles', 'ancillary_data') for tensor containing the corresponding data.
+            'earth_incidence_angles', 'ancillary_data') for tensor containing the corresponding data.
         """
         if self.input_format is None:
             input_format = determine_input_format(path)
@@ -532,12 +546,13 @@ class GPROFNNInputLoader:
 
             else:
                 if self.config == "3d" and tensor.dim() > 2:
+                    tensor = tensor.squeeze()
                     tensor = torch.permute(tensor, (1, 2, 0))
                 dims_v = dims[:tensor.dim()]
 
                 tensor = tensor.numpy()
                 if "valid_input" in aux:
-                    tensor[..., ~aux["valid_input"]] = np.nan
+                    tensor[~aux["valid_input"]] = -9999.9
 
                 output[var] = (dims_v, tensor)
                 # Use compressiong to keep file size reasonable.

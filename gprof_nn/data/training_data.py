@@ -627,6 +627,19 @@ def load_tbs_1d_conical_other(
     return tbs, angles
 
 
+def determine_ancillary_config(input_data: xr.Dataset) -> bool:
+    """
+    Determine configuration of ancillary data available from preprocessor.
+    """
+    t2m = input_data.two_meter_temperature.data
+    if (t2m < 0).all():
+        return "NRT"
+    lai = input_data.leaf_area_index.data
+    if (lai < 0).all():
+        return "STD"
+    return "CLI"
+
+
 def load_ancillary_data(
         training_data: xr.Dataset,
         configuration: str,
@@ -1544,7 +1557,7 @@ class GPROFNN3DDataset(Dataset):
                     "The provided path %s does not exists.",
                     path
                 )
-            files += sorted(list(path.glob("*_*_*.nc")))
+            files += sorted(list(path.glob("**/3d/*_*_*.nc")))
 
         if len(files) == 0:
             raise RuntimeError(
