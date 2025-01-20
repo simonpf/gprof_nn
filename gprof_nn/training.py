@@ -97,9 +97,12 @@ def load_inference_config(
         f"gprof_nn_{config.lower()}_inference.toml"
     )
     config_str = open(config_file_path, "r").read()
-    config_str = config_str.format(
-        ancillary="true" if ancillary else "false"
-    )
+    try:
+        config_str = config_str.format(
+            ancillary="true" if ancillary else "false"
+        )
+    except IndexError:
+        pass
     inference_config = toml.loads(config_str)
     inference_config = InferenceConfig.parse(
         output_config,
