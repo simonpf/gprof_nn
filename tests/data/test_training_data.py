@@ -2,6 +2,7 @@
 Tests for the Pytorch dataset classes used to load the training
 data.
 """
+import os
 
 from gprof_nn import sensors
 from gprof_nn.definitions import ALL_TARGETS
@@ -37,9 +38,15 @@ from conftest import (
     training_files_1d_atms_sim,
     training_files_1d_atms_mrms,
     training_files_1d_atms_era5,
-    training_files_3d_atms_sim
+    training_files_3d_atms_sim,
+    training_files_hr_gmi_cloudsat,
+    training_files_hr_gmi_combined,
 )
 
+
+NEEDS_PANSAT_PASSWORD = pytest.mark.skipif(
+    "PANSAT_PASSWORD" not in os.environ, reason="pansat password is required"
+)
 
 ###############################################################################
 # GMI
@@ -270,6 +277,17 @@ def test_gprof_nn_3d_dataset_gmi(training_files_3d, request):
     sp = y["surface_precip"]
     assert sp.ndim == 2
     assert (sp[torch.isfinite(sp)] >= 0.0).all()
+
+
+@NEEDS_PANSAT_PASSWORD
+def test_gprof_nn_hr_dataset_gmi(
+        training_files_hr_gmi_cloudsat,
+        training_files_hr_gmi_combined
+):
+    assert len(training_files_hr_gmi_cloudsat) > 0
+    assert len(training_files_hr_gmi_combined) > 0
+
+
 
 
 ###############################################################################

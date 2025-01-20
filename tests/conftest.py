@@ -8,8 +8,7 @@ from typing import Any, Dict, List
 
 import pytest
 
-import xarray as xr
-
+import numpy as np
 from pytorch_retrieve.utils import (
     read_model_config,
     read_training_config,
@@ -21,11 +20,12 @@ from pytorch_retrieve.config import (
     InputConfig,
     OutputConfig,
 )
+import xarray as xr
 
 from gprof_nn import sensors
 from gprof_nn import training
 from gprof_nn.data.preprocessor import run_preprocessor
-from gprof_nn.data import sim, mrms, era5, l1c
+from gprof_nn.data import sim, mrms, era5, l1c, cloudsat, combined
 from gprof_nn.training import load_inference_config
 
 
@@ -36,6 +36,7 @@ HAS_ARCHIVES = Path(sensors.GMI.l1c_file_path).exists()
 NEEDS_ARCHIVES = pytest.mark.skipif(
     not HAS_ARCHIVES, reason="L1C data not available."
 )
+
 
 SIM_DATA = Path("/qdata1/pbrown/dbaseV8")
 NEEDS_SIM_DATA = pytest.mark.skipif(
@@ -191,6 +192,47 @@ def training_files_3d_gmi_mrms(training_files_1d_gmi_mrms) -> Path:
     derived from collocations of MRMS and GMI.
     """
     return sorted(list((training_files_1d_gmi_mrms[0].parent.parent / "3d").glob("*.nc")))
+
+
+@pytest.fixture(scope="session")
+def training_files_hr_gmi_cloudsat(
+        tmp_path_factory,
+        sim_collocations_gmi: xr.Dataset
+) -> List[Path]:
+    """
+    Provides GPROF-NN HR training data for GMI derived from cloudsat.
+    """
+    output_path = tmp_path_factory.mktemp("cloudsat")
+    cloudsat.extract_samples(
+        sensors.GMI,
+        start_time=np.datetime64("2016-01-05T06:27:17"),
+        end_time=np.datetime64("2016-01-05T06:38:16"),
+        output_path=output_path,
+        scene_size=(96, 96),
+        high_res=True
+    )
+    return sorted(list(output_path.glob("*.nc")))
+
+
+@pytest.fixture(scope="session")
+def training_files_hr_gmi_combined(
+        tmp_path_factory,
+        sim_collocations_gmi: xr.Dataset
+) -> List[Path]:
+    """
+    Provides GPROF-NN HR training data for GMI derived from 2BCMB.
+    """
+    output_path = tmp_path_factory.mktemp("cloudsat")
+    combined.extract_samples(
+        sensors.GMI,
+        start_time=np.datetime64("2015-12-29T22:59:18"),
+        end_time=np.datetime64("2015-12-30T00:31:51"),
+        output_path=output_path,
+        scene_size=(96, 96),
+        high_res=True
+    )
+    return sorted(list(output_path.glob("*.nc")))
+
 
 @pytest.fixture(scope="session")
 def sim_collocations_atms() -> xr.Dataset:
