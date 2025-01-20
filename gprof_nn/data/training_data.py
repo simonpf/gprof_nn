@@ -842,7 +842,7 @@ class GPROFNN1DDataset(IterableDataset):
             if self.validation:
                 cfg = "CLI"
             else:
-                cfg = self.rng.choice(["None", "NRT", "STD", "CLI"])
+                cfg = self.rng.choice(["None", "NRT", "NRT_SNOW", "STD", "CLI"])
             anc = load_ancillary_data(dataset, configuration=cfg, stack_dim=1)
 
             targets = load_targets_1d(dataset, self.targets)
@@ -2374,6 +2374,7 @@ class GPROFNNHRDataset:
             else:
                 weights = torch.ones((96, 96))[None, None]
 
+
         surface_precip[~valid_ref] = np.nan
 
         valid = np.isfinite(scene.longitude.data) * np.isfinite(scene.latitude.data)
@@ -2452,7 +2453,6 @@ class GPROFNNHRDataset:
 
         weight_mask = torch.isnan(weights)
         weights = torch.nan_to_num(weights, nan=0.0)
-        weights = torch.ones((96, 96))[None, None]
         surface_precip[weight_mask[0, 0]] = torch.nan
         target = {
             "surface_precip": [torch.tensor(surface_precip.astype(np.float32))],
