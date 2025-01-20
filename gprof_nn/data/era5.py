@@ -307,6 +307,9 @@ def process_l1c_files(
 
 @click.argument("sensor")
 @click.argument("l1c_file_path")
+@click.argument("split")
+@click.argument("output_1d")
+@click.argument("output_3d")
 @click.option(
     "--start_time",
     default=None,
@@ -319,8 +322,6 @@ def process_l1c_files(
     help="Optional end time to limit the .sim files from which training data will be extracted.",
     metavar="YYYY-mm-ddTHH:MM:SS"
 )
-@click.argument("output_1d")
-@click.argument("output_3d")
 @click.option(
     "--n_processes",
     default=4,
@@ -329,10 +330,11 @@ def process_l1c_files(
 def cli(
         sensor: sensors.Sensor,
         l1c_file_path: Path,
-        start_time: np.datetime64,
-        end_time: np.datetime64,
+        split: str,
         output_1d: Path,
         output_3d: Path,
+        start_time: np.datetime64,
+        end_time: np.datetime64,
         n_processes: int = 4
 ) -> None:
     """
@@ -389,5 +391,6 @@ def cli(
         end_time,
         output_path_1d,
         output_path_3d,
+        split=split,
         n_processes=n_processes
     )
