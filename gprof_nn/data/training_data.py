@@ -1810,6 +1810,72 @@ class SimulatorDataset(Dataset):
             )
 
 
+def transform_observations_satformer(
+        observations: np.ndarray,
+        meta: np.ndarray
+) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Split satformer observations into mean, std. dev., and scaled anomaly.
+
+    Args:
+        observations: A 2D np.ndarray containing the observations.
+        meta: A 3D np.ndarray containing the meta data corresponding to the observations.
+    """
+    obs = observations
+    valid = np.isfinite(obs)
+    mean = np.mean(obs[valid])
+    std = np.std(obs[valid])
+    obs_n = (obs - mean) / std
+    obs = np.stack([
+        np.ones_like(obs_n) * mean,
+        np.ones_like(obs_n) * std,
+        obs_n
+    ])
+    meta[..., ~valid] = np.nan
+    return obs, meta
+
+
+def load_ancillary_data_satformer(
+        scene: xr.Dataset,
+        rng: np.random.Generator,
+        drop: float = 0.5,
+        anc_vars: Optional[List[str]] = None,
+) -> Dict[str, torch.Tensor]:
+    """
+    Load ancillary variables for Satformer model.
+
+    Args:
+        scene: A xarray.Dataset containing the training data.
+        rng: A numpy.random.Generator object for applying random ancillary variable dropout.
+        drop: The probability with which to drop ancillary data.
+        anc_vars: An optional list of ancillary variables to load.
+    """
+    inpt = {}
+
+    shape = (scene.scans.size, scene.pixels.size)
+
+    if anc_vars is None:
+        all_vars = ANCILLARY_VARIABLES
+    for anc_var in anc_vars:
+
+        if anc_var in scene:
+            anc_data = torch.tensor(scene[anc_var].data).to(dtype=torch.float32)
+        else:
+            anc_data = torch.nan * torch.zeros(shape)
+
+        if self.rng.random() <= drop:
+            anc_data = np.nan * torch.tensor(data[anc_var].data).to(dtype=torch.float32)
+        if anc_data.ndim < 3:
+            anc_data = anc_data[None]
+        if anc_data.ndim < 4:
+            anc_data = anc_data[:, None]
+
+        n_chans, n_seq, n_y, n_x = anc_data.shape
+        anc_mask = torch.isnan(anc_data).all()[None]
+        inpt[anc_var] = anc_data
+        inpt[anc_var + "_mask"] = anc_mask
+
+    return inpt
 
 
 class SatformerDataset:
@@ -2092,10 +2158,12 @@ class SatformerRetrievalDataset:
                     np.ones_like(obs_n) * std,
                     obs_n
                 ])
-                obs_in.append(torch.tensor(obs))
                 meta = input_meta[chans_in[input_ind]]
                 meta[..., ~valid] = np.nan
-                meta_in.append(torch.tensor(input_meta[chans_in[input_ind]]))
+                obs, meta = (0, 0)
+
+                obs_in.append(torch.tensor(obs))
+                meta_in.append(torch.tensor(meta))
             else:
                 obs_in.append(torch.nan * torch.zeros((3, 128, 128)))
                 meta_in.append(torch.nan * torch.zeros((8, 128, 128)))
@@ -2182,45 +2250,70 @@ class SatformerRetrievalDataset:
         return inpt, target
 
 
-class RetrievalDataset:
+class GPROFNNHRDataset:
     """
-    Dataset for training a Satformer to retrieve surface precipitation and
-    hydrometeor profiles.
+    Dataset for loading GPROF-NN HR training data from CloudSat and GPM CMB collocations.
     """
     def __init__(
-            self,
-            paths: Union[Path, List[Path]],
-            seq_len_in: int = 13,
-            seq_len_out: int = 4,
-            validation: bool = False,
-            channel_dropout: float = 0.1,
-            augment: bool = True,
-            precip_threshold: Optional[float] = -1.0,
-            subsample: float = 1.0
-
+        self,
+        paths: Union[Path, List[Path]],
+        seq_len_in: int = 13,
+        validation: bool = False,
+        channel_dropout: float = 0.1,
+        augment: bool = True,
+        subsample: float = 1.0,
+        precip_threshold: float = 0.5,
+        extra_targets: Optional[List[str]] = None
     ):
+        """
+        Args:
+            paths: A single path or a list of paths pointing to the directories containing
+                the training files.
+            seq_len_in: The maximum number of input observations.
+            validation: If 'True' will ensure reproducibility between invocations.
+            channel_dropout: Probability with which to dropout input channels.
+            augment: Whether or not to augment the training data with random flips.
+            subsample: Whether or not to subsample the training data.
+            precip_threshold: The threshold between which to switch between CloudSat and Combined precipitation
+                to load.
+            extra_targets: List of additional variables to load as targets. Can be used to load, e.g.,
+                latitude and longitude coordinates into the target dictionary.
+        """
         if isinstance(paths, list):
             self.input_files = np.concatenate([np.array(sorted(list(Path(path).glob("*.nc")))) for path in paths])
         else:
             self.input_files = np.array(sorted(list(Path(paths).glob("*.nc"))))
 
+        self.cloudsat_stats = None
         cloudsat_files = [path for path in self.input_files if "_cloudsat_" in path.name]
+        if len(cloudsat_files) > 0:
+            self.cloudsat_stats = xr.load_dataset(cloudsat_files[0].parent / ".stats.nc")
+        self.cmb_state = None
         cmb_files = [path for path in self.input_files if "_cmb_" in path.name]
-        n_cmb_files = len(cmb_files)
-        if (len(paths) > 1) and (n_cmb_files > 0) and (len(cloudsat_files) > 0):
-            cloudsat_files = list(np.random.choice(cloudsat_files, int(22.89 * n_cmb_files)))
+        if len(cmb_files) > 0:
+            self.cmb_stats = xr.load_dataset(cmb_files[0].parent / ".stats.nc")
+
+        if self.cloudsat_stats and self.cmb_stats:
+            scene_weights_cloudsat = 1.0 / self.cloudsat_stats.scene_counts.data
+            self.scene_weights_cloudsat = scene_weights_cloudsat / scene_weights_cloudsat.mean()
+            scene_weights_cmb = 1.0 / self.cmb_stats.scene_counts.data
+            self.scene_weights_cmb = scene_weights_cmb / scene_weights_cmb.mean()
+            self.global_weights = self.cloudsat_stats.counts / self.cmb_stats.counts
+        else:
+            self.global_weights = None
+            self.scene_weights_cmb = None
+            self.scene_weights_cloudsat = None
+
 
         self.input_files = np.array(cloudsat_files + cmb_files)
-
-
         self.drop_inputs = 1
         self.seq_len_in = seq_len_in
-        self.seq_len_out = seq_len_out
         self.validation = validation
         self.channel_dropout = channel_dropout
         self.augment = augment
         self.precip_threshold = precip_threshold
         self.subsample = subsample
+        self.extra_targets = extra_targets
         self.init_rng()
 
     def init_rng(self, w_id=0):
@@ -2257,133 +2350,141 @@ class RetrievalDataset:
         except Exception:
             return self[self.rng.integers(0, len(self))]
 
-        scan_start = self.rng.integers(0, 32)
-        pixel_start = self.rng.integers(0, 32)
-        scene = scene[{
-            "scans": slice(scan_start, scan_start + 96),
-            "pixels": slice(pixel_start, pixel_start + 96)
-        }]
+        if "total_precip" in scene:
+            surface_precip = scene["total_precip"].data
+        else:
+            surface_precip = scene["surface_precip"].data
 
-        land_frac = scene.land_fraction.data
         if "cmb" in self.input_files[ind].name:
-            surface_precip = scene.surface_precip.data
+            land_frac = scene.land_fraction.data
             valid_ref = (
                 (surface_precip > self.precip_threshold) +
                 ((land_frac > 0) * (surface_precip > 0))
             )
-        else:
-            precip_flag = scene.precip_flag.data
-            surface_precip = (
-                np.nan_to_num(scene.surface_precip.data, nan=0.0, copy=True) +
-                scene.surface_precip_snow.data
-            )
-
-            if self.precip_threshold >= 0.0:
-                valid_ref = (
-                    ((surface_precip < self.precip_threshold) * (land_frac == 0)) +
-                    (precip_flag == 0) +
-                    ((4 <= precip_flag) * (precip_flag <= 5)) +
-                    ((6 <= precip_flag) * (precip_flag <= 7))
-                )
+            if self.global_weights is not None:
+                weights = self.global_weights.interp(latitude=scene.latitude, longitude=scene.longitude).data
+                weights *= self.scene_weights_cmb
+                weights = torch.tensor(weights.astype(np.float32))[None, None]
             else:
-                valid_ref = (
-                    (land_frac == 0) +
-                    (precip_flag == 0) +
-                    ((4 <= precip_flag) * (precip_flag <= 5)) +
-                    ((6 <= precip_flag) * (precip_flag <= 7))
-                )
+                weights = torch.ones((96, 96))[None, None]
+        else:
+            valid_ref = surface_precip <= self.precip_threshold
+            if self.global_weights is not None:
+                weights = torch.tensor(self.scene_weights_cloudsat.astype(np.float32))[None, None]
+            else:
+                weights = torch.ones((96, 96))[None, None]
 
+        surface_precip[~valid_ref] = np.nan
 
         valid = np.isfinite(scene.longitude.data) * np.isfinite(scene.latitude.data)
 
-        if (valid * valid_ref).sum() < 5:
-            #self.input_files = np.delete(self.input_files, ind)
+        obs_in = []
+        meta_in = []
+
+        input_observations = scene.input_observations.data
+        input_meta = scene.input_meta_data.data
+        chans_in = np.random.permutation(scene.input_observations.all_channels.size)
+
+        for input_ind in range(self.seq_len_in):
+            rand = self.rng.random()
+            if (rand >= self.channel_dropout) and input_ind < len(chans_in):
+                obs = input_observations[chans_in[input_ind]]
+                meta = input_meta[chans_in[input_ind]]
+                obs, meta = transform_observations_satformer(obs, meta)
+                obs_in.append(torch.tensor(obs.astype(np.float32)))
+                meta_in.append(torch.tensor(meta.astype(np.float32)))
+            else:
+                obs_in.append(torch.nan * torch.zeros((3, 96, 96)))
+                meta_in.append(torch.nan * torch.zeros((8, 96, 96)))
+
+
+        inpt = {
+            "observations": torch.stack(obs_in, 1),
+            "input_observation_props": torch.stack(meta_in, 1),
+        }
+
+        anc_vars = [
+            "two_meter_temperature",
+            "total_column_water_vapor",
+            "leaf_area_index",
+            "land_fraction",
+            "ice_fraction",
+            "elevation",
+            "ir_observations",
+        ]
+        for anc_var in anc_vars:
+            anc_data = torch.tensor(scene[anc_var].data).to(dtype=torch.float32)
+            if self.rng.random() > 0.5:
+                anc_data = np.nan * torch.tensor(scene[anc_var].data).to(dtype=torch.float32)
+            if anc_data.ndim < 3:
+                anc_data = anc_data[None]
+            if anc_data.ndim < 4:
+                anc_data = anc_data[:, None]
+
+            n_chans, n_seq, n_y, n_x = anc_data.shape
+            anc_mask = torch.isnan(anc_data).all()[None]
+            inpt[anc_var] = anc_data
+            inpt[anc_var + "_mask"] = anc_mask
+
+        obs = inpt["observations"]
+        if torch.isfinite(obs).to(dtype=torch.float32).mean() < 0.5:
             LOGGER.info(
-                "No valid samples in scene %s.",
-                self.input_files[ind].name
+                "Less than 10 percent valid input observations in sample %s. Falling back to another, "
+                "randomly chosen sample.",
+                self.input_files[ind]
             )
             return self[self.rng.integers(0, len(self))]
 
-        tbs = scene.brightness_temperatures.data
-        tbs[~valid] = np.nan
-        full_shape = tbs.shape[:2] + (15,)
-        if tbs.shape != full_shape:
-            sensor = sensors.get_sensor(self.input_files[ind].name.split("_")[0])
-            tbs_full = np.nan * np.ones(full_shape, dtype="float32")
-            tbs_full[:, :, sensor.gprof_channel_indices] = tbs
-        else:
-            tbs_full = tbs.astype(np.float32)
-        tbs_full = torch.permute(torch.tensor(tbs_full), (2, 0, 1))
 
-        if "cmb" in self.input_files[ind].name and "gmi" in self.input_files[ind].name:
-            if self.rng.random() > 0.1:
-                n_pixels = self.rng.integers(10, 32)
-                if self.rng.random() > 0.5:
-                    tbs_full[-5:, :, :n_pixels] = torch.nan
-                else:
-                    tbs_full[-5:, :, -n_pixels:] = torch.nan
+        mask = torch.isnan(inpt["observations"]).all(0).all(-1).all(-1)
+        inpt["input_observation_mask"] = mask
 
-        #angs = data.earth_incidence_angle.data
-        #if angs.ndim == 2:
-        #    angs = angs[..., None]
-        #if tbs.shape != full_shape:
-        #    angs_full = np.nan * np.ones(full_shape, dtype="float32")
-        #    angs_full[:, :, sensor.gprof_channel_indices] = angs
-        #else:
-        #    angs_full = angs
-        #angs_full = torch.permute(torch.tensor(angs_full), (2, 0, 1))
-
-        anc = np.stack(
-            [scene[anc_var].data.astype("float32") for anc_var in ANCILLARY_VARIABLES]
-        )
-        anc[..., ~valid] = np.nan
-        anc = torch.tensor(anc)
-
-        x = {
-            "brightness_temperatures": tbs_full,
-            "ancillary_data": anc
+        weight_mask = torch.isnan(weights)
+        weights = torch.nan_to_num(weights, nan=0.0)
+        weights = torch.ones((96, 96))[None, None]
+        surface_precip[weight_mask[0, 0]] = torch.nan
+        target = {
+            "surface_precip": [torch.tensor(surface_precip.astype(np.float32))],
+            "surface_precip_weights": [weights],
         }
+        if self.extra_targets is not None:
+            for extra_target in self.extra_targets:
+                target[extra_target] = torch.tensor(scene[extra_target].data.astype(np.float32))
 
-        y = {}
-        for target in ALL_TARGETS:
+        scene.close()
 
-            if target == "surface_precip":
-                surface_precip[~valid_ref] = np.nan
-                y["surface_precip"] = torch.tensor(surface_precip[None])
-                continue
 
-            # MRMS collocations don't contain all targets.
-            if target not in scene:
-                if target in PROFILE_TARGETS:
-                    empty = torch.nan * torch.zeros((28, 128, 128))
+        valid = torch.isfinite(target["surface_precip"][0] * target["surface_precip_weights"][0])
+        #valid = torch.isfinite(target["surface_precip"][0])
+        if valid.sum() == 0:
+            new_ind = self.rng.integers(0, len(self))
+            LOGGER.warning(
+                "No valid pixels in file %s. Falling back to another "
+                " randomly-chosen sample.",
+                self.input_files[ind]
+            )
+            return self[new_ind]
+
+        # Flip vertically
+        if not self.validation and self.rng.random() > 0.5:
+            for key in inpt:
+                if not key.endswith("mask"):
+                    inpt[key] = torch.flip(inpt[key], (-2,))
+            for key in target:
+                if isinstance(target[key], list):
+                    target[key] = [torch.flip(targ, (-2,)) for targ in target[key]]
                 else:
-                    empty = torch.nan * torch.zeros((1, 128, 128))
-                y[target] = empty
-                continue
+                    target[key] = torch.flip(target[key], (-2,))
 
-            data = scene[target].data.astype("float32")
-            data[~valid] = np.nan
-            data[~valid_ref] = np.nan
-            if data.ndim < 3:
-                data = data[..., None]
+        # Flip horizontall
+        if not self.validation and self.rng.random() > 0.5:
+            for key in inpt:
+                if not key.endswith("mask"):
+                    inpt[key] = torch.flip(inpt[key], (-1,))
+            for key in target:
+                if isinstance(target[key], list):
+                    target[key] = [torch.flip(targ, (-1,)) for targ in target[key]]
+                else:
+                    target[key] = torch.flip(target[key], (-1,))
 
-            data = torch.tensor(data)
-            dims = tuple(range(data.ndim))
-            data = torch.permute(data, (2, 0, 1))
-            y[target] = data
-
-        # Also flip data if requested.
-        if self.augment:
-            prob = self.rng.random()
-            if prob > 0.5:
-                x = {key: torch.flip(tensor, (-2,)) for key, tensor in x.items()}
-                y = {key: torch.flip(tensor, (-2,)) for key, tensor in y.items()}
-            prob = self.rng.random()
-            if prob > 0.5:
-                x = {key: torch.flip(tensor, (-1,)) for key, tensor in x.items()}
-                y = {key: torch.flip(tensor, (-1,)) for key, tensor in y.items()}
-            prob = self.rng.random()
-            if prob > 0.5:
-                x = {key: torch.transpose(tensor, -2, -1) for key, tensor in x.items()}
-                y = {key: torch.transpose(tensor, -2, -1) for key, tensor in y.items()}
-        return x, y
+        return inpt, target

@@ -42,6 +42,7 @@ PANSAT_PRODUCTS = {
 UPSAMPLING_FACTORS = {
     "gmi": (3, 1),
     "atms": (3, 3,),
+    "mhs": (3, 3,),
     "amsr2": (1, 1)
 }
 
@@ -49,7 +50,8 @@ UPSAMPLING_FACTORS = {
 RADIUS_OF_INFLUENCE = {
     "gmi": 20e3,
     "atms": 100e3,
-    "amsr2": 10e3
+    "amsr2": 10e3,
+    "mhs": 80e3
 }
 
 
@@ -833,7 +835,7 @@ def calculate_angles(
     return np.rad2deg(zenith), np.rad2deg(azimuth), np.rad2deg(viewing_angle)
 
 
-CHANNEL_REGEXP = re.compile("([\d\.\s\+\/-]*)\s*GHz\s*(\w*)-Pol")
+_CHANNEL_REGEXP = re.compile("([\d\.]+)\s*(?:GHz)?(?:\+-)?\s*(?:\+\/-)?\s*([\d\.]*)\s*(?:GHz)?\s*(\w+)-Pol")
 
 POLARIZATIONS = {
     "H": 0,
@@ -846,6 +848,7 @@ BEAM_WIDTHS = {
     "gmi": [1.75, 1.75, 1.0, 1.0, 0.9, 0.9, 0.9, 0.4, 0.4, 0.4, 0.4, 0.4, 0.4],
     "atms": [5.2, 5.2, 2.2, 1.1, 1.1, 1.1, 1.1, 1.1, 1.1],
     "amsr2": [1.2, 1.2, 0.65, 0.65, 0.75, 0.75, 0.35, 0.35, 0.15, 0.15, 0.15, 0.15],
+    "mhs": [1.1, 1.1, 1.1, 1.1, 1.1],
 }
 
 
@@ -903,16 +906,13 @@ def calculate_obs_properties(
             offsets = []
             pols = []
 
-            for match in CHANNEL_REGEXP.findall(granule_data[f"tbs_s{swath_ind}"].attrs["LongName"]):
-                freq, pol = match
-                freq = freq.replace("/", "")
-                if freq.find("+-") > 0:
-                    freq, offs = freq.split("+-")
-                    freqs.append(float(freq))
-                    offsets.append(float(offs))
-                else:
-                    freqs.append(float(freq))
+            for match in _CHANNEL_REGEXP.findall(granule_data[f"tbs_s{swath_ind}"].attrs["LongName"]):
+                freq, offs, pol = match
+                freqs.append(float(freq))
+                if offs == "":
                     offsets.append(0.0)
+                else:
+                    offsets.append(float(offs))
                 pols.append(pol)
 
             swath_data = granule_data[[
