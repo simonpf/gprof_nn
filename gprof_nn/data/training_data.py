@@ -2385,11 +2385,22 @@ class GPROFNNHRDataset:
         input_meta = scene.input_meta_data.data
         chans_in = np.random.permutation(scene.input_observations.all_channels.size)
 
+        if self.rng.random() > 0.5:
+            width = self.rng.integers(0, 25)
+        else:
+            width = 0
+        left = self.rng.random()
+
         for input_ind in range(self.seq_len_in):
             rand = self.rng.random()
             if (rand >= self.channel_dropout) and input_ind < len(chans_in):
                 obs = input_observations[chans_in[input_ind]]
                 meta = input_meta[chans_in[input_ind]]
+                if width > 0 and chans_in[input_ind] >= 9:
+                    if left > 0.5:
+                        obs[..., :width] = np.nan
+                    else:
+                        obs[..., -width:] = np.nan
                 obs, meta = transform_observations_satformer(obs, meta)
                 obs_in.append(torch.tensor(obs.astype(np.float32)))
                 meta_in.append(torch.tensor(meta.astype(np.float32)))
