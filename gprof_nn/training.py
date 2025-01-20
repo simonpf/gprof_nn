@@ -114,7 +114,7 @@ def load_inference_config(
 )
 @click.argument(
     "configuration",
-    type=click.Choice(["1d", "3d"])
+    type=click.Choice(["1d", "3d", "hr"])
 )
 @click.argument(
     "training_data_path",
@@ -137,7 +137,7 @@ def init_cli(
     VALIDATION_DATA_PATH, respectively.
     """
     configuration = configuration.lower()
-    if not configuration in ["1d", "3d", "sim"]:
+    if not configuration in ["1d", "3d", "hr", "sim"]:
         LOGGER.error(
             "'configuration' must be one of ['1d', '3d', 'sim']."
         )
