@@ -29,6 +29,10 @@ from pansat.products.satellite.gpm import (
     l1c_npp_atms,
     l1c_noaa20_atms,
     l1c_gcomw1_amsr2,
+    l1c_xcal2016v_noaa19_mhs_v07a,
+    l1c_xcal2016v_noaa18_mhs_v07a,
+    l1c_xcal2019v_metopc_mhs_v07a,
+    l1c_xcal2016_metopb_mhs,
 )
 from pansat.utils import resample_data
 from pyresample.geometry import SwathDefinition
@@ -45,7 +49,8 @@ from gprof_nn.data.utils import (
     add_cpcir_data,
     calculate_obs_properties,
     mask_invalid_values,
-    RADIUS_OF_INFLUENCE
+    RADIUS_OF_INFLUENCE,
+    UPSAMPLING_FACTORS
 )
 from gprof_nn.data.l1c import L1CFile
 from gprof_nn.logging import (
@@ -63,15 +68,14 @@ LOGGER = logging.getLogger(__name__)
 PRODUCTS = {
     "gmi": (l1c_r_gpm_gmi,),
     "atms": (l1c_npp_atms, l1c_noaa20_atms),
-    "amsr2": (l1c_gcomw1_amsr2,)
+    "amsr2": (l1c_gcomw1_amsr2,),
+    "mhs": (
+        l1c_xcal2016v_noaa18_mhs_v07a,
+        l1c_xcal2016v_noaa19_mhs_v07a,
+        l1c_xcal2019v_metopc_mhs_v07a,
+        l1c_xcal2016_metopb_mhs,
+    )
 }
-
-UPSAMPLING_FACTORS = {
-    "gmi": (3, 1),
-    "atms": (3, 3,),
-    "amsr2": (1, 1)
-}
-
 
 def extract_pretraining_scenes(
         input_sensor: Sensor,
@@ -541,7 +545,6 @@ def cli(
                     scene_size=scene_size,
                 )
             )
-
 
         with Progress() as progress:
             task_progress = progress.add_task(
