@@ -2363,13 +2363,13 @@ class GPROFNNHRDataset:
             )
             if self.global_weights is not None:
                 weights = self.global_weights.interp(latitude=scene.latitude, longitude=scene.longitude).data
-                weights *= self.scene_weights_cmb / self.scene_weights_cloudsat
+                weights *= self.scene_weights_cmb
                 weights = torch.tensor(weights.astype(np.float32))[None, None]
             else:
                 weights = torch.ones((96, 96))[None, None]
         else:
             valid_ref = surface_precip <= self.precip_threshold
-            weights = torch.ones((96, 96))[None, None]
+            weights = torch.tensor(self.scene_weights_cloudsat.astype(np.float32)[None, None])
             #if self.global_weights is not None:
             #    weights = torch.tensor(self.scene_weights_cloudsat.astype(np.float32))[None, None]
             #else:
@@ -2392,8 +2392,8 @@ class GPROFNNHRDataset:
             width = 0
         left = self.rng.random()
 
-        missing_obs = np.any(np.isnan(input_observations), 0)
-        surface_precip[missing_obs] = np.nan
+        #missing_obs = np.any(np.isnan(input_observations), 0)
+        #surface_precip[missing_obs] = np.nan
 
         for input_ind in range(self.seq_len_in):
             rand = self.rng.random()
