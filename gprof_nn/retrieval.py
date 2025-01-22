@@ -680,6 +680,7 @@ class GPROFNNHRInputLoader:
             inpt[anc_var + "_mask"] = anc_mask
 
 
+
         aux = {
             "scan_time": input_data.scan_time.data,
             "longitude": input_data.longitude.data,
@@ -872,7 +873,7 @@ def cli(
     if config == "hr":
         input_loader = GPROFNNHRInputLoader(input_path)
     else:
-        input_loader = GPROFNNHRInputLoader(input_path, config=config)
+        input_loader = GPROFNNInputLoader(input_path, config=config)
 
     if output_path is None:
         output_path = Path(".")
@@ -887,15 +888,5 @@ def cli(
         input_loader,
         inference_config,
         n_input_loaders=n_input_loaders,
-        exclude_from_tiling=[
-            "input_observation_mask",
-            "two_meter_temperature_mask",
-            "total_column_water_vapor_mask",
-            "land_fraction_mask",
-            "ice_fraction_mask",
-            "leaf_area_index_mask",
-            "elevation_mask",
-            "ir_observations_mask",
-        ],
     )
     runner.run(output_path=output_path, device=device, dtype=dtype)
