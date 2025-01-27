@@ -18,6 +18,7 @@ from tempfile import TemporaryDirectory
 from typing import Dict, List, Optional, Union, Tuple
 
 import numpy as np
+from rich.progress import track
 from scipy.ndimage import rotate
 import torch
 from torch.utils.data import Dataset, IterableDataset
@@ -1888,7 +1889,6 @@ class SatformerDataset:
             seq_len_in: int = 13,
             seq_len_out: int = 4,
             validation: bool = False,
-            drop_inputs: int = 4,
             channel_dropout: float = 0.1,
     ):
         """
@@ -1904,7 +1904,6 @@ class SatformerDataset:
         self.seq_len_out = seq_len_out
         self.validation = validation
         self.channel_dropout = channel_dropout
-        self.drop_inputs = drop_inputs
         self.init_rng()
 
     def init_rng(self, w_id=0):
@@ -1946,7 +1945,6 @@ class SatformerDataset:
         except Exception:
             return self[self.rng.integers(0, len(self))]
 
-
         input_observations = data.input_observations.data.astype("float32")
         input_meta = data.input_meta_data.data.astype("float32")
         dropped_observations = data.target_observations.data.astype("float32")
@@ -1956,38 +1954,31 @@ class SatformerDataset:
 
         obs_in = []
         meta_in = []
+        obs_out = []
+        meta_out = []
         obs_dropped = []
         meta_dropped = []
 
         for input_ind in range(self.seq_len_in):
-            if input_ind < self.drop_inputs:
-                obs_dropped.append(torch.tensor(input_observations[[chans_in[input_ind]]]))
-                meta_dropped.append(torch.tensor(input_meta[chans_in[input_ind]]))
-            else:
+            if input_ind < len(chans_in):
+                obs = input_observations[chans_in[input_ind]]
+                meta = input_meta[chans_in[input_ind]]
+                obs, meta = transform_observations_satformer(obs, meta)
+
                 rand = self.rng.random()
-                if (rand >= self.channel_dropout) and input_ind < len(chans_in):
-                    obs = input_observations[chans_in[input_ind]]
-                    obs[..., ~valid] = np.nan
-                    valid = np.isfinite(obs)
-                    mean = np.mean(obs[valid])
-                    std = np.std(obs[valid])
-                    obs_n = (obs - mean) / std
-                    obs = np.stack([
-                        np.ones_like(obs_n) * mean,
-                        np.ones_like(obs_n) * std,
-                        obs_n
-                    ])
-                    obs_in.append(torch.tensor(obs))
-                    meta = input_meta[chans_in[input_ind]]
-                    meta[..., ~valid] = np.nan
-                    meta_in.append(torch.tensor(input_meta[chans_in[input_ind]]))
+                if (rand >= self.channel_dropout):
+                    obs_in.append(torch.tensor(obs.astype(np.float32)))
+                    meta_in.append(torch.tensor(meta.astype(np.float32)))
                 else:
                     obs_in.append(torch.nan * torch.zeros((3, 128, 128)))
                     meta_in.append(torch.nan * torch.zeros((8, 128, 128)))
+                    obs_out.append(torch.tensor(obs.astype(np.float32)))
+                    meta_out.append(torch.tensor(meta.astype(np.float32)))
+            else:
+                obs_in.append(torch.nan * torch.zeros((3, 128, 128)))
+                meta_in.append(torch.nan * torch.zeros((8, 128, 128)))
 
-        obs_out = []
-        meta_out = []
-        for output_ind in range(self.seq_len_out):
+        for output_ind in range(self.seq_len_out - len(obs_out)):
             if output_ind < len(chans_out):
                 obs_out.append(torch.tensor(target_observations[[chans_out[output_ind]]]))
                 meta_out.append(torch.tensor(target_meta[chans_out[output_ind]]))
@@ -2000,8 +1991,6 @@ class SatformerDataset:
             "input_observation_props": torch.stack(meta_in, 1),
             "output_observation_props": torch.stack(meta_out, 1),
         }
-        if self.drop_inputs > 0:
-            inpt["dropped_observation_props"] = torch.stack(meta_dropped, 1)
 
         anc_vars = [
             "two_meter_temperature",
@@ -2012,7 +2001,8 @@ class SatformerDataset:
             "elevation",
             "ir_observations",
         ]
-        for anc_var in anc_vars:
+
+        for anc_var in ANCILLARY_VARIABLES:
             anc_data = torch.tensor(data[anc_var].data).to(dtype=torch.float32)
             if self.rng.random() > 0.5:
                 anc_data = np.nan * torch.tensor(data[anc_var].data).to(dtype=torch.float32)
@@ -2050,8 +2040,6 @@ class SatformerDataset:
         target = {
             "output_observations": obs_out,
         }
-        if self.drop_inputs > 0:
-            target["dropped_observations"] = obs_dropped
 
         data.close()
 
@@ -2066,7 +2054,7 @@ class SatformerDataset:
                 else:
                     target[key] = torch.flip(target[key], (-2,))
 
-        # Flip horizontall
+        # Flip horizontally
         if not self.validation and self.rng.random() > 0.5:
             for key in inpt:
                 if not key.endswith("mask"):
@@ -2077,177 +2065,20 @@ class SatformerDataset:
                 else:
                     target[key] = torch.flip(target[key], (-1,))
 
-        return inpt, target
-
-
-class SatformerRetrievalDataset:
-    """
-    Dataset for training a Satformer to retrieve surface precipitation and
-    hydrometeor profiles.
-    """
-    def __init__(
-            self,
-            path: Path,
-            seq_len_in: int = 13,
-            validation: bool = False,
-            channel_dropout: float = 0.0,
-    ):
-        self.input_files = np.array(sorted(list(Path(path).glob("*.nc"))))
-        self.drop_inputs = 1
-        self.seq_len_in = seq_len_in
-        self.validation = validation
-        self.channel_dropout = channel_dropout
-        self.init_rng()
-
-    def init_rng(self, w_id=0):
-        """
-        Initialize random number generator.
-
-        Args:
-            w_id: The worker ID which of the worker process..
-        """
-        if self.validation:
-            seed = 42
-        else:
-            seed = int.from_bytes(os.urandom(4), "big") + w_id
-        self.rng = np.random.default_rng(seed)
-
-    def worker_init_fn(self, w_id: int):
-        """
-        Pytorch retrieve interface.
-        """
-        self.init_rng(w_id)
-        winfo = torch.utils.data.get_worker_info()
-        n_workers = winfo.num_workers
-
-
-    def __len__(self):
-        return len(self.input_files)
-
-    def __getitem__(self, ind: int):
-
-        #ind = min(ind * 10 + self.rng.integers(0, 10), len(self) * 10 - 1)
-
-        try:
-            data = xr.open_dataset(self.input_files[ind])
-        except Exception:
-            return self[self.rng.integers(0, len(self))]
-
-        valid = np.isfinite(data.longitude.data)
-
-        n_chans_in = data.all_channels.size
-        chans_in = self.rng.permutation(n_chans_in)
-
-        input_observations = data.input_observations.data.astype("float32")
-        input_meta = data.input_meta_data.data.astype("float32")
-
-        obs_in = []
-        meta_in = []
-
-        for input_ind in range(self.seq_len_in):
-            rand = self.rng.random()
-            if (rand >= self.channel_dropout) and input_ind < len(chans_in):
-                obs = input_observations[chans_in[input_ind]]
-                obs[..., ~valid] = np.nan
-                valid = np.isfinite(obs)
-                mean = np.mean(obs[valid])
-                std = np.std(obs[valid])
-                obs_n = (obs - mean) / std
-                obs = np.stack([
-                    np.ones_like(obs_n) * mean,
-                    np.ones_like(obs_n) * std,
-                    obs_n
-                ])
-                meta = input_meta[chans_in[input_ind]]
-                meta[..., ~valid] = np.nan
-                obs, meta = (0, 0)
-
-                obs_in.append(torch.tensor(obs))
-                meta_in.append(torch.tensor(meta))
-            else:
-                obs_in.append(torch.nan * torch.zeros((3, 128, 128)))
-                meta_in.append(torch.nan * torch.zeros((8, 128, 128)))
-
-        inpt = {
-            "observations": torch.stack(obs_in, 1),
-            "input_observation_props": torch.stack(meta_in, 1),
-        }
-        #inpt["input_observation_props"][4] *= 100e3
-
-        anc_vars = [
-            "two_meter_temperature",
-            "total_column_water_vapor",
-            "leaf_area_index",
-            "land_fraction",
-            "ice_fraction",
-            "elevation",
-            "ir_observations",
-        ]
-        for anc_var in anc_vars:
-            anc_data = data[anc_var].data
-            anc_data[..., ~valid] = np.nan
-            anc_data = torch.tensor(anc_data).to(dtype=torch.float32)
-
-            if self.rng.random() > 0.5:
-                anc_data = np.nan * torch.tensor(data[anc_var].data).to(dtype=torch.float32)
-            if anc_data.ndim < 3:
-                anc_data = anc_data[None]
-            if anc_data.ndim < 4:
-                anc_data = anc_data[:, None]
-
-            n_chans, n_seq, n_y, n_x = anc_data.shape
-            anc_mask = torch.isnan(anc_data).all()[None]
-            inpt[anc_var] = anc_data
-            inpt[anc_var + "_mask"] = anc_mask
-
-        obs = inpt["observations"]
-        mask = torch.isnan(inpt["observations"]).all(0).all(-1).all(-1)
-        inpt["input_observation_mask"] = mask
-        if torch.isfinite(obs[0, ~mask]).to(dtype=torch.float32).mean() < 0.5:
-            LOGGER.info(
-                "Less than 50 percent valid input observations in sample %s. Falling back to another, "
-                "randomly chosen sample.",
-                self.input_files[ind]
-            )
-            return self[self.rng.integers(0, len(self))]
-
-        surface_precip = torch.tensor(data.surface_precip.data)
-        if torch.isfinite(surface_precip).to(dtype=torch.float32).sum() < 100:
-            LOGGER.info(
-                "Less than 10 percent valid output observations in sample %s. Falling back to another, "
-                "randomly chosen sample.",
-                self.input_files[ind]
-            )
-            return self[self.rng.integers(0, len(self))]
-
-        target = {
-            "surface_precip": [surface_precip]
-        }
-        data.close()
-
-        # Flip vertically
+        # Transpose
         if not self.validation and self.rng.random() > 0.5:
             for key in inpt:
                 if not key.endswith("mask"):
-                    inpt[key] = torch.flip(inpt[key], (-2,))
+                    inpt[key] = torch.transpose(inpt[key], -2, -1)
             for key in target:
                 if isinstance(target[key], list):
-                    target[key] = [torch.flip(targ, (-2,)) for targ in target[key]]
+                    target[key] = [torch.transpose(targ, -2, -1) for targ in target[key]]
                 else:
-                    target[key] = torch.flip(target[key], (-2,))
-
-        # Flip horizontall
-        if not self.validation and self.rng.random() > 0.5:
-            for key in inpt:
-                if not key.endswith("mask"):
-                    inpt[key] = torch.flip(inpt[key], (-1,))
-            for key in target:
-                if isinstance(target[key], list):
-                    target[key] = [torch.flip(targ, (-1,)) for targ in target[key]]
-                else:
-                    target[key] = torch.flip(target[key], (-1,))
+                    target[key] = torch.transpose(target[key], -2, -1)
 
         return inpt, target
+
+
 
 
 class GPROFNNHRDataset:
@@ -2280,24 +2111,32 @@ class GPROFNNHRDataset:
                 latitude and longitude coordinates into the target dictionary.
         """
         if isinstance(paths, list):
-            self.input_files = np.concatenate([np.array(sorted(list(Path(path).glob("*.nc")))) for path in paths])
+            input_files = sum(
+                [sorted(list(Path(path).glob("*.nc"))) for path in paths],
+                []
+            )
         else:
-            self.input_files = np.array(sorted(list(Path(paths).glob("*.nc"))))
+            input_files = sorted(list(Path(paths).glob("*.nc")))
 
         self.cloudsat_stats = None
-        cloudsat_files = [path for path in self.input_files if "_cloudsat_" in path.name]
+        cloudsat_files = [path for path in input_files if "_cloudsat_" in path.name]
         if len(cloudsat_files) > 0:
             self.cloudsat_stats = xr.load_dataset(cloudsat_files[0].parent / ".stats.nc")
-        self.cmb_state = None
-        cmb_files = [path for path in self.input_files if "_cmb_" in path.name]
+            self.cloudsat_stats.longitude.data[0] = -180.0
+            self.cloudsat_stats.longitude.data[-1] = 180.0
+        self.cmb_stats = None
+        cmb_files = [path for path in input_files if "_cmb_" in path.name]
         if len(cmb_files) > 0:
             self.cmb_stats = xr.load_dataset(cmb_files[0].parent / ".stats.nc")
+            self.cmb_stats.longitude.data[0] = -180.0
+            self.cmb_stats.longitude.data[-1] = 180.0
 
         if self.cloudsat_stats and self.cmb_stats:
             scene_weights_cloudsat = 1.0 / self.cloudsat_stats.scene_counts.data
-            self.scene_weights_cloudsat = scene_weights_cloudsat / scene_weights_cloudsat.mean()
+            scene_weights_cloudsat[~np.isfinite(scene_weights_cloudsat)] = np.nan
+            self.scene_weights_cloudsat = scene_weights_cloudsat / np.nanmean(scene_weights_cloudsat)
             scene_weights_cmb = 1.0 / self.cmb_stats.scene_counts.data
-            self.scene_weights_cmb = scene_weights_cmb / scene_weights_cmb.mean()
+            self.scene_weights_cmb = scene_weights_cmb / np.nanmean(scene_weights_cmb)
             self.global_weights = self.cloudsat_stats.counts / self.cmb_stats.counts
         else:
             self.global_weights = None
@@ -2305,16 +2144,91 @@ class GPROFNNHRDataset:
             self.scene_weights_cloudsat = None
 
 
-        self.input_files = np.array(cloudsat_files + cmb_files)
+        self.validation = validation
+        self.init_rng()
+        self.input_files = input_files
         self.drop_inputs = 1
         self.seq_len_in = seq_len_in
-        self.validation = validation
         self.channel_dropout = channel_dropout
         self.augment = augment
         self.precip_threshold = precip_threshold
         self.subsample = subsample
         self.extra_targets = extra_targets
-        self.init_rng()
+
+        self.oversampling_factor = len(cmb_files) / len(cloudsat_files)
+        self.cloudsat_files = cloudsat_files
+        self.cmb_files = cmb_files
+
+
+    def load_resampling_weights(self, input_files: np.ndarray) -> xr.Dataset:
+        """
+        Load training file resampling weights from cached file or recompute if necessary.
+
+        Args:
+            input_files:
+
+        Return:
+            An xarray.Dataset containing the input files and corresponding resample weights to
+            achieve uniform coverage.
+        """
+
+        weight_file = Path(".") / "resampling_weights.nc"
+        if not weight_file.exists():
+            weights = self.calculate_resampling_weights(input_files)
+            weights.to_netcdf(weight_file)
+            return weights
+
+        weights = xr.load_dataset(weight_file)
+        input_files_cached = weights.input_files.data
+        if not (input_files_cached == input_files).all():
+            weights = self.calculate_resampling_weights(input_files)
+            weights.to_netcdf(weight_file)
+            return weights
+
+        return weights
+
+
+    def calculate_resampling_weights(self, input_files: np.ndarray):
+        """
+        Calculate resampling weights.
+
+        Args:
+            input_files: An xarra.ndarray containing all input file names
+
+        Return:
+            An xarray.Dataset containing the resampling weights for all given input files.
+        """
+        weights = []
+
+        global_weights = self.cloudsat_stats.counts / self.cmb_stats.counts
+        invalid = global_weights.data > 1e4
+        global_weights.data[invalid] = np.nan
+
+        for path in track(input_files):
+            with xr.open_dataset(path) as data:
+                lons = data.longitude.data
+                lats = data.latitude.data
+                mean_lon = lons.mean()
+                mean_lat = lats.mean()
+                weight = global_weights.interp(
+                    longitude=mean_lon,
+                    latitude=mean_lat,
+                    method="nearest"
+                ).data
+            if "_cmb_" in path:
+                weights.append(weight)
+            else:
+                if weight < 1e4:
+                    weights.append(1.0)
+                else:
+                    weights.append(0.0)
+
+        weights = xr.Dataset({
+            "weights": (("samples",), np.array(weights)),
+            "input_files": (("samples",), input_files)
+        })
+        return weights
+
 
     def init_rng(self, w_id=0):
         """
@@ -2339,23 +2253,26 @@ class GPROFNNHRDataset:
 
 
     def __len__(self):
-        return int(len(self.input_files) / self.subsample)
+        return 2 * len(self.cmb_files)
 
     def __getitem__(self, ind: int):
 
-        ind = min(self.input_files.size - 1, int(self.subsample * ind) + self.rng.integers(0, self.subsample))
+        if ind % 2 == 1:
+            input_file = self.cloudsat_files[(ind // 2) % len(self.cloudsat_files)]
+        else:
+            input_file = self.cmb_files[ind // 2]
 
         try:
-            scene = xr.open_dataset(self.input_files[ind])
+            scene = xr.open_dataset(input_file)
         except Exception:
-            return self[self.rng.integers(0, len(self))]
+            return self[2 * self.rng.integers(0, len(self) // 2) + ind % 2]
 
         if "total_precip" in scene:
             surface_precip = scene["total_precip"].data
         else:
             surface_precip = scene["surface_precip"].data
 
-        if "cmb" in self.input_files[ind].name:
+        if "cmb" in input_file.name:
             land_frac = scene.land_fraction.data
             valid_ref = (
                 (surface_precip > self.precip_threshold) +
@@ -2363,16 +2280,15 @@ class GPROFNNHRDataset:
             )
             if self.global_weights is not None:
                 weights = self.global_weights.interp(latitude=scene.latitude, longitude=scene.longitude).data
+                weights *= self.oversampling_factor
                 weights *= self.scene_weights_cmb
-                weights = torch.tensor(weights.astype(np.float32))[None, None]
+                weights = torch.tensor(weights.astype(np.float32))
+
             else:
-                weights = torch.ones((96, 96))[None, None]
+                weights = torch.ones((96, 96))
         else:
             valid_ref = surface_precip <= self.precip_threshold
-            weights = torch.tensor(self.scene_weights_cloudsat.astype(np.float32)[None, None])
-            #if self.global_weights is not None:
-            #    weights = torch.tensor(self.scene_weights_cloudsat.astype(np.float32))[None, None]
-            #else:
+            weights = torch.tensor(self.scene_weights_cloudsat.astype(np.float32))
 
 
         surface_precip[~valid_ref] = np.nan
@@ -2436,6 +2352,8 @@ class GPROFNNHRDataset:
             if anc_data.ndim < 4:
                 anc_data = anc_data[:, None]
 
+            valid = torch.isfinite(anc_data)
+
             n_chans, n_seq, n_y, n_x = anc_data.shape
             anc_mask = torch.isnan(anc_data).all()[None]
             inpt[anc_var] = anc_data
@@ -2446,19 +2364,20 @@ class GPROFNNHRDataset:
             LOGGER.info(
                 "Less than 10 percent valid input observations in sample %s. Falling back to another, "
                 "randomly chosen sample.",
-                self.input_files[ind]
+                input_file
             )
-            return self[self.rng.integers(0, len(self))]
+            return self[2 * self.rng.integers(0, len(self) // 2) + ind % 2]
 
 
         mask = torch.isnan(inpt["observations"]).all(0).all(-1).all(-1)
         inpt["input_observation_mask"] = mask
 
-        weight_mask = torch.isnan(weights)
+        surface_precip = torch.tensor(surface_precip.astype(np.float32))
+        weight_mask = ~torch.isfinite(weights) + (weights == 0.0)
         weights = torch.nan_to_num(weights, nan=0.0)
-        surface_precip[weight_mask[0, 0]] = torch.nan
+        surface_precip[weight_mask] = torch.nan
         target = {
-            "surface_precip": [torch.tensor(surface_precip.astype(np.float32))],
+            "surface_precip": [surface_precip],
             "surface_precip_weights": [weights],
         }
         if self.extra_targets is not None:
@@ -2471,11 +2390,11 @@ class GPROFNNHRDataset:
         valid = torch.isfinite(target["surface_precip"][0] * target["surface_precip_weights"][0])
         #valid = torch.isfinite(target["surface_precip"][0])
         if valid.sum() == 0:
-            new_ind = self.rng.integers(0, len(self))
+            new_ind = 2 * self.rng.integers(0, len(self) // 2) + ind % 2
             LOGGER.warning(
                 "No valid pixels in file %s. Falling back to another "
                 " randomly-chosen sample.",
-                self.input_files[ind]
+                input_file
             )
             return self[new_ind]
 
@@ -2490,7 +2409,7 @@ class GPROFNNHRDataset:
                 else:
                     target[key] = torch.flip(target[key], (-2,))
 
-        # Flip horizontall
+        # Flip horizontally
         if not self.validation and self.rng.random() > 0.5:
             for key in inpt:
                 if not key.endswith("mask"):
