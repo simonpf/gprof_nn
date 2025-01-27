@@ -2265,12 +2265,12 @@ class GPROFNNHRDataset:
         try:
             scene = xr.open_dataset(input_file)
         except Exception:
-            return self[2 * self.rng.integers(0, len(self) // 2) + ind % 2]
+            return self[self.rng.integers(0, len(self))]
 
         if "total_precip" in scene:
-            surface_precip = scene["total_precip"].data
+            surface_precip = scene["total_precip"].data.copy()
         else:
-            surface_precip = scene["surface_precip"].data
+            surface_precip = scene["surface_precip"].data.copy()
 
         if "cmb" in input_file.name:
             land_frac = scene.land_fraction.data
@@ -2366,7 +2366,7 @@ class GPROFNNHRDataset:
                 "randomly chosen sample.",
                 input_file
             )
-            return self[2 * self.rng.integers(0, len(self) // 2) + ind % 2]
+            return self[self.rng.integers(0, len(self))]
 
 
         mask = torch.isnan(inpt["observations"]).all(0).all(-1).all(-1)
@@ -2381,16 +2381,23 @@ class GPROFNNHRDataset:
             "surface_precip_weights": [weights],
         }
         if self.extra_targets is not None:
-            for extra_target in self.extra_targets:
-                target[extra_target] = torch.tensor(scene[extra_target].data.astype(np.float32))
+            if "surface_precip_cmb" in self.extra_targets:
+                if "_cmb_" in input_file.name:
+                    target["surface_precip_cmb"] = torch.tensor(scene.surface_precip.data)
+                else:
+                    target["surface_precip_cmb"] = torch.nan * torch.zeros((96, 96))
+            if "surface_precip_cloudsat" in self.extra_targets:
+                if "_cloudsat_" in input_file.name:
+                    target["surface_precip_cloudsat"] = torch.tensor(scene.total_precip.data)
+                else:
+                    target["surface_precip_cloudsat"] = torch.nan * torch.zeros((96, 96))
 
         scene.close()
 
 
         valid = torch.isfinite(target["surface_precip"][0] * target["surface_precip_weights"][0])
-        #valid = torch.isfinite(target["surface_precip"][0])
         if valid.sum() == 0:
-            new_ind = 2 * self.rng.integers(0, len(self) // 2) + ind % 2
+            new_ind = self.rng.integers(0, len(self))
             LOGGER.warning(
                 "No valid pixels in file %s. Falling back to another "
                 " randomly-chosen sample.",
@@ -2419,5 +2426,16 @@ class GPROFNNHRDataset:
                     target[key] = [torch.flip(targ, (-1,)) for targ in target[key]]
                 else:
                     target[key] = torch.flip(target[key], (-1,))
+
+        # Transpose
+        if not self.validation and self.rng.random() > 0.5:
+            for key in inpt:
+                if not key.endswith("mask"):
+                    inpt[key] = torch.transpose(inpt[key], -2, -1)
+            for key in target:
+                if isinstance(target[key], list):
+                    target[key] = [torch.transpose(targ, -2, -1) for targ in target[key]]
+                else:
+                    target[key] = torch.transpose(target[key], -2, -1)
 
         return inpt, target
