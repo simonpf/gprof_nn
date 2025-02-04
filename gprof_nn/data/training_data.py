@@ -1026,6 +1026,7 @@ def load_training_data_3d_gmi(
         targets: List[str],
         augment: bool = False,
         rng: np.random.Generator = None,
+        ancillary_config: Optional[str] = None
 ) -> Tuple[Dict[str, torch.Tensor]]:
     """
     Load GPROF-NN 3D training scene for GMI.
@@ -1036,6 +1037,7 @@ def load_training_data_3d_gmi(
         targets: A list containing a list of the targets to load.
         augment: Whether or not to augment the input data.
         rng: A numpy random number generator to use for the augmentation.
+        ancillary_config: A string specifying the ancillary data configuration to load.
 
     Return:
         A tuple ``(x, y)`` of dictionaries ``x`` and ``y`` containing the
@@ -1074,7 +1076,9 @@ def load_training_data_3d_gmi(
         dtype=torch.float32
     )
 
-    if augment:
+    if ancillary_config is not None:
+        cfg = ancillary_config
+    elif augment:
         cfg = rng.choice(["None", "NRT", "NRT_SNOW", "STD", "CLI"])
     else:
         cfg = "CLI"
@@ -1140,6 +1144,7 @@ def load_training_data_3d_xtrack_sim(
         targets: List[str],
         augment: bool = False,
         rng: np.random.Generator = None,
+        ancillary_config: Optional[str] = None
 ) -> Tuple[Dict[str, torch.Tensor]]:
     """
     Load GPROF-NN 3D training scene for cross-track scannres from
@@ -1152,6 +1157,8 @@ def load_training_data_3d_xtrack_sim(
         targets: A list containing a list of the targets to load.
         augment: Whether or not to augment the input data.
         rng: A numpy random number generator to use for the augmentation.
+        ancillary_config: An optional string specifying the ancillary data configuration
+            to load.
 
     Return:
         A tuple ``(x, y)`` of dictionaries ``x`` and ``y`` containing the
@@ -1215,7 +1222,9 @@ def load_training_data_3d_xtrack_sim(
     angs_full[:, :, chan_inds] = np.abs(angs[..., None])
     angs_full = torch.permute(torch.tensor(angs_full), (2, 0, 1))
 
-    if augment:
+    if ancillary_config is not None:
+        cfg = ancillary_config
+    elif augment:
         cfg = self.rng.choice(["None", "NRT", "NRT_SNOW", "STD", "CLI"])
     else:
         cfg = "CLI"
@@ -1278,6 +1287,7 @@ def load_training_data_3d_conical_sim(
         targets: List[str],
         augment: bool = False,
         rng: np.random.Generator = None,
+        ancillary_config: Optional[str] = None
 ) -> Tuple[Dict[str, torch.Tensor]]:
     """
     Load GPROF-NN 3D training scene for non-GMI conical scanners from
@@ -1290,6 +1300,7 @@ def load_training_data_3d_conical_sim(
         targets: A list containing a list of the targets to load.
         augment: Whether or not to augment the input data.
         rng: A numpy random number generator to use for the augmentation.
+        ancillary_config: Optional string specifying the ancillary data configuration to load.
 
     Return:
         A tuple ``(x, y)`` of dictionaries ``x`` and ``y`` containing the
@@ -1347,7 +1358,9 @@ def load_training_data_3d_conical_sim(
         dtype=torch.float32
     )
 
-    if augment:
+    if ancillary_config is not None:
+        cfg = ancillary_config
+    elif augment:
         cfg = self.rng.choice(["None", "NRT", "NRT_SNOW", "STD", "CLI"])
     else:
         cfg = "CLI"

@@ -175,7 +175,8 @@ def load_input_data_l1c(
 
 
 def load_input_data_training_1d(
-        training_file: Path
+        training_file: Path,
+        ancillary_config: str
 ) -> Dict[str, torch.Tensor]:
     """
     Load retrieval input data from a 1D training file.
@@ -183,6 +184,7 @@ def load_input_data_training_1d(
     Args:
         training_file: A path object pointing to the training file from which
             to load the input data.
+        ancillary_config: String specifying the ancillary data configuration tol oad.
 
     Return:
         A dictionary containing the input tensors 'brightness_temperatures',
@@ -195,7 +197,7 @@ def load_input_data_training_1d(
 
         if sensor == sensors.GMI:
             tbs = load_tbs_1d_gmi(data)
-            anc = load_ancillary_data(data, configuration="CLI", stack_dim=1)
+            anc = load_ancillary_data(data, configuration=ancillary_config, stack_dim=1)
             angs = torch.tensor(np.broadcast_to(EIA_GMI.astype("float32"), tbs.shape))
         elif isinstance(sensor, sensors.CrossTrackScanner):
             if data.attrs["source"] == "sim":
@@ -236,7 +238,8 @@ def load_input_data_training_1d(
 
 
 def load_input_data_training_3d(
-        training_file: Path
+        training_file: Path,
+        ancillary_config: str
 ) -> Dict[str, torch.Tensor]:
     """
     Load retrieval input data from a 3D training file.
@@ -244,6 +247,7 @@ def load_input_data_training_3d(
     Args:
         training_file: A path object pointing to the training file from which
             to load the input data.
+        ancillary_config: A string specifying the ancillary data configuration to load.
 
     Return:
         A dictionary containing the input tensors 'brightness_temperatures',
@@ -400,7 +404,8 @@ class GPROFNNInputLoader:
             path: str | Path | List[str | Path],
             input_format: Optional[str] = None,
             config: str = "3d",
-            needs_ancillary: bool = True
+            needs_ancillary: bool = True,
+            ancillary_config: Optional[str] = None
     ):
 
         # Determine input files.
@@ -425,6 +430,9 @@ class GPROFNNInputLoader:
         self.config = config
 
         self.input_format = input_format
+        if ancillary_config is None:
+            ancillary_config = "CLI"
+        self.ancillary_config = ancillary_config
 
 
     def __len__(self) -> int:
@@ -449,13 +457,13 @@ class GPROFNNInputLoader:
             input_format = determine_input_format(path)
 
         if input_format == "preprocessor":
-            input_data, aux = load_input_data_preprocessor(path)
+            input_data, aux = load_input_data_preprocessor(path, self.ancillary_config)
         elif input_format == "l1c":
             input_data, aux = load_input_data_l1c(path)
         elif input_format == "training_1d":
-            input_data, aux = load_input_data_training_1d(path)
+            input_data, aux = load_input_data_training_1d(path, self.ancillary_config)
         elif input_format == "training_3d":
-            input_data, aux = load_input_data_training_3d(path)
+            input_data, aux = load_input_data_training_3d(path, self.ancillary_config)
         elif input_format == "collocations":
             input_data, aux = load_input_data_collocations(path)
         else:
@@ -832,6 +840,14 @@ class GPROFNNHRInputLoader:
     )
 )
 @click.option(
+    "--ancillary_config",
+    type=str,
+    default=None,
+    help=(
+        "The ancillary data configuration to use for inference."
+    )
+)
+@click.option(
     "--n_input_loaders",
     type=int,
     default=1,
@@ -845,7 +861,8 @@ def cli(
         output_path: Optional[Path] = None,
         device: str = "cpu",
         dtype: str = "float32",
-        n_input_loaders: int = 1
+        ancillary_config: Optional[str] = None,
+        n_input_loaders: int = 1,
 ) -> None:
     """
     Run GPROF-NN retrieval using the retrieval model RETRIEVAL_MODEL on all input
@@ -871,7 +888,7 @@ def cli(
         config = "hr"
 
     if config == "hr":
-        input_loader = GPROFNNHRInputLoader(input_path)
+        input_loader = GPROFNNHRInputLoader(input_path, ancillary_config=ancillary_config)
     else:
         input_loader = GPROFNNInputLoader(input_path, config=config)
 
