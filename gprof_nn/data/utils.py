@@ -194,8 +194,6 @@ def remap_scene(scene, coords, targets):
                 data_r = extract_domain(data_v, coords, order=0)
                 data_r = data_r.astype(np.int32)
             else:
-                if v in LIMITS:
-                    data_v = apply_limits(data_v, *LIMITS[v])
                 data_r = extract_domain(data_v, coords, order=0)
                 data_r = data_r.astype(np.float32)
             data[v] = (dims + scene[v].dims[2:], data_r)
@@ -625,13 +623,12 @@ def upsample_data(
     Return:
         The preprocessor data upsampled by the given factors along scans and pixels.
     """
-    float_vars = [
-        name for name in [
-            "latitude", "longitude", "brightness_temperatures", "total_column_water_vapor", "two_meter_temperature",
-            "moisture_convergence", "leaf_area_index", "snow_depth", "land_fraction", "ice_fraction", "elevation",
-            "earth_incidence_angle"
-        ] if name in data
-    ]
+    all_vars = (
+        ["latitude", "longitude", "brightness_temperatures", "earth_incidence_angle"] +
+        ANCILLARY_VARIABLES
+    )
+
+    float_vars = [name for name in all_vars if name in data]
 
     scan_time = data["scan_time"]
     data = data[float_vars]
@@ -646,7 +643,7 @@ def upsample_data(
 
     data = data.interp(scans=new_scans, pixels=new_pixels).drop_vars(["pixels", "scans"])
     scan_time_int = scan_time.astype(np.int64)
-    scan_time_new = scan_time_int.interp(scans=new_scans, method="nearest")
+    scan_time_new = scan_time_int.interp(scans=new_scans, method="linear")
     data["scan_time"] = (("scans",), scan_time_new.data.astype("datetime64[ns]"))
 
     return data
@@ -656,41 +653,68 @@ def mask_invalid_values(preprocessor_data: xr.Dataset):
     """
     Mask unphysical values in preprocessor data.
     """
+    new_dataset = {}
+    new_dataset["scan_time"] = (("scans"), preprocessor_data.scan_time.data)
+
     # Longitude
-    data = preprocessor_data.longitude.data
-    invalid = (data < -180) * (data > 180)
-    data[invalid] = np.nan
+    lon = preprocessor_data.longitude.data
+    invalid = (lon < -180) + (lon > 180)
+    lon[invalid] = np.nan
+    new_dataset["longitude"] = (("scans", "pixels"), lon)
 
-    data = preprocessor_data.latitude.data
-    invalid = (data < -90) * (data > 90)
-    data[invalid] = np.nan
+    # Latitude
+    lat = preprocessor_data.latitude.data
+    invalid = (lat < -90) + (lat > 90)
+    lat[invalid] = np.nan
+    new_dataset["latitude"] = (("scans", "pixels"), lat)
 
-    # Two meter temperature
-    data = preprocessor_data.two_meter_temperature.data
-    invalid = (data < 0) * (data > 1_000)
-    data[invalid] = np.nan
+    # Earth incidence angle
+    eia = preprocessor_data.earth_incidence_angle.data
+    invalid = (eia < -100) + (eia > 100)
+    eia[invalid] = np.nan
+    new_dataset["earth_incidence_angle"] = (
+        list(preprocessor_data.earth_incidence_angle.dims),
+        eia
+    )
 
-    # Total column water vapor
-    data = preprocessor_data.total_column_water_vapor.data
-    invalid = (data < 0) * (data > 1_000)
-    data[invalid] = np.nan
+    tbs = preprocessor_data.brightness_temperatures.data
+    invalid = (tbs < 0) + (tbs > 500)
+    tbs[invalid] = np.nan
+    new_dataset["brightness_temperatures"] = (
+        list(preprocessor_data.brightness_temperatures.dims),
+        tbs
+    )
 
-    # Leaf area index
-    data = preprocessor_data.leaf_area_index.data
-    invalid = (data < 0) * (data > 1_000)
-    data[invalid] = np.nan
+    limits = {
+        "longitude": (-180, 180),
+        "latitude": (-90, 90),
+        "land_fraction": (0, 100),
+        "mountain_type": (0, 10),
+        "elevation": (0, 10_000),
+        "leaf_area_index": (0, 1_000),
+        "leaf_area_index_climatology": (0, 1_000),
+        "two_meter_temperature": (0, 1_000),
+        "total_column_water_vapor": (0, 1_000),
+        "orographic_wind": (-10, 10),
+        "10m_wind": (0, 100),
+        "moisture_convergence": (-1.0, 1.0),
+        "convective_precipitation": (0.0, 1.0),
+        "ice_fraction": (0.0, 100.0),
+        "snow_depth": (0.0, 100.0),
+        "snow_mask": (0.0, 1.0)
 
-    # Elevation
-    data = preprocessor_data.elevation.data.astype("float32")
-    invalid = (data < 0) * (data > 1_000)
-    data[invalid] = np.nan
+    }
+    for var, (low, high) in limits.items():
+        data = preprocessor_data[var].data.astype(np.float32)
+        invalid = (data < low) + (data > high)
+        data[invalid] = np.nan
+        new_dataset[var] = (
+            list(preprocessor_data[var].dims),
+            data
+        )
 
-    # Land fraction
-    data = preprocessor_data.land_fraction.data
-    invalid = (data < 0) * (data > 100)
-    data[invalid] = -1
+    return xr.Dataset(new_dataset)
 
-    return preprocessor_data
 
 
 def add_cpcir_data(
@@ -897,86 +921,91 @@ def calculate_obs_properties(
 
     granule_data = granule.open()
     if "latitude" in granule_data:
+        granule_data = granule_data.rename(
+            latitude="latitude_s1",
+            longitude="longitude_s1",
+            tbs="tbs_s1",
+            channels="channels_s1"
+        )
         pass
-    else:
-        swath_ind = 1
-        while f"latitude_s{swath_ind}" in granule_data:
+    swath_ind = 1
+    while f"latitude_s{swath_ind}" in granule_data:
 
-            freqs = []
-            offsets = []
-            pols = []
+        freqs = []
+        offsets = []
+        pols = []
 
-            for match in _CHANNEL_REGEXP.findall(granule_data[f"tbs_s{swath_ind}"].attrs["LongName"]):
-                freq, offs, pol = match
-                freqs.append(float(freq))
-                if offs == "":
-                    offsets.append(0.0)
-                else:
-                    offsets.append(float(offs))
-                pols.append(pol)
+        for match in _CHANNEL_REGEXP.findall(granule_data[f"tbs_s{swath_ind}"].attrs["LongName"]):
+            freq, offs, pol = match
+            freqs.append(float(freq))
+            if offs == "":
+                offsets.append(0.0)
+            else:
+                offsets.append(float(offs))
+            pols.append(pol)
 
-            swath_data = granule_data[[
-                f"longitude_s{swath_ind}",
-                f"latitude_s{swath_ind}",
-                f"tbs_s{swath_ind}",
-                f"channels_s{swath_ind}",
-                "scan_time"
-            ]].reset_coords("scan_time")
+        swath_data = granule_data[[
+            f"longitude_s{swath_ind}",
+            f"latitude_s{swath_ind}",
+            f"tbs_s{swath_ind}",
+            f"channels_s{swath_ind}",
+            "scan_time"
+        ]].reset_coords("scan_time")
 
-            fp_lons = swath_data[f"longitude_s{swath_ind}"].data
-            fp_lats = swath_data[f"latitude_s{swath_ind}"].data
-            sensor_lons = granule_data["spacecraft_longitude"].data
-            sensor_lats = granule_data["spacecraft_latitude"].data
-            sensor_alt = granule_data["spacecraft_altitude"].data * 1e3
-            zenith, azimuth, viewing_angle = calculate_angles(
-                fp_lons,
-                fp_lats,
-                sensor_lons,
-                sensor_lats,
-                sensor_alt
-            )
-            sensor_alt = np.broadcast_to(sensor_alt[..., None], zenith.shape) / 100e3
+        fp_lons = swath_data[f"longitude_s{swath_ind}"].data
+        fp_lats = swath_data[f"latitude_s{swath_ind}"].data
+        sensor_lons = granule_data["spacecraft_longitude"].data
+        sensor_lats = granule_data["spacecraft_latitude"].data
+        sensor_alt = granule_data["spacecraft_altitude"].data * 1e3
+        zenith, azimuth, viewing_angle = calculate_angles(
+            fp_lons,
+            fp_lats,
+            sensor_lons,
+            sensor_lats,
+            sensor_alt
+        )
+        sensor_alt = np.broadcast_to(sensor_alt[..., None], zenith.shape) / 100e3
 
-            swath_data = swath_data.rename({
-                f"longitude_s{swath_ind}": "longitude",
-                f"latitude_s{swath_ind}": "latitude"
-            })
-            swath_data["sensor_alt"] = (("scans", "pixels"), sensor_alt)
-            swath_data["zenith"] = (("scans", "pixels"), zenith)
-            swath_data["azimuth"] = (("scans", "pixels"), azimuth)
-            swath_data["viewing_angle"] = (("scans", "pixels"), viewing_angle)
-
-            swath_data_r = resample_data(
-                swath_data,
-                swath,
-                radius_of_influence=radius_of_influence,
-            )
-            sensor_alt = swath_data_r.sensor_alt.data
-            zenith = swath_data_r.zenith.data
-            azimuth = swath_data_r.azimuth.data
-            viewing_angle = swath_data_r.viewing_angle.data
-
-            for chan_ind in range(swath_data_r[f"channels_s{swath_ind}"].size):
-                observations.append(swath_data_r[f"tbs_s{swath_ind}"].data[..., chan_ind])
-                meta = np.stack((
-                    freqs[chan_ind] * np.ones_like(observations[-1]),
-                    offsets[chan_ind] * np.ones_like(observations[-1]),
-                    calculate_polarization_weights(pols[chan_ind], viewing_angle),
-                    BEAM_WIDTHS[sensor][tot_chan_ind] * np.ones_like(observations[-1]),
-                    sensor_alt,
-                    zenith,
-                    1.0 + np.sin(np.deg2rad(azimuth)),
-                    1.0 + np.cos(np.deg2rad(azimuth))
-                ))
-                meta_data.append(meta)
-                tot_chan_ind += 1
-
-            swath_ind += 1
-
-        observations = np.stack(observations)
-        meta_data = np.stack(meta_data)
-        return xr.Dataset({
-            "observations": (("channels", "scans", "pixels"), observations),
-            "meta_data": (("channels", "meta", "scans", "pixels"), meta_data),
-            "scan_time": (("scans", "pixels"), swath_data_r.scan_time.data)
+        swath_data = swath_data.rename({
+            f"longitude_s{swath_ind}": "longitude",
+            f"latitude_s{swath_ind}": "latitude"
         })
+        swath_data["sensor_alt"] = (("scans", "pixels"), sensor_alt)
+        swath_data["zenith"] = (("scans", "pixels"), zenith)
+        swath_data["azimuth"] = (("scans", "pixels"), azimuth)
+        swath_data["viewing_angle"] = (("scans", "pixels"), viewing_angle)
+
+        swath_data_r = resample_data(
+            swath_data,
+            swath,
+            radius_of_influence=radius_of_influence,
+        )
+        sensor_alt = swath_data_r.sensor_alt.data
+        zenith = swath_data_r.zenith.data
+        azimuth = swath_data_r.azimuth.data
+        viewing_angle = swath_data_r.viewing_angle.data
+
+        for chan_ind in range(swath_data_r[f"channels_s{swath_ind}"].size):
+            observations.append(swath_data_r[f"tbs_s{swath_ind}"].data[..., chan_ind])
+            meta = np.stack((
+                freqs[chan_ind] * np.ones_like(observations[-1]),
+                offsets[chan_ind] * np.ones_like(observations[-1]),
+                calculate_polarization_weights(pols[chan_ind], viewing_angle),
+                BEAM_WIDTHS[sensor][tot_chan_ind] * np.ones_like(observations[-1]),
+                sensor_alt,
+                zenith,
+                1.0 + np.sin(np.deg2rad(azimuth)),
+                1.0 + np.cos(np.deg2rad(azimuth))
+            ))
+            meta_data.append(meta)
+            tot_chan_ind += 1
+
+        swath_ind += 1
+
+    observations = np.stack(observations)
+    meta_data = np.stack(meta_data)
+    return xr.Dataset({
+        "observations": (("channels", "scans", "pixels"), observations),
+        "meta_data": (("channels", "meta", "scans", "pixels"), meta_data),
+        "scan_time": (("scans", "pixels"), swath_data_r.scan_time.data)
+    })
