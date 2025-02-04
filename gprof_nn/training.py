@@ -71,9 +71,7 @@ def init(
                 tb_sim_shape=f"[{n_chans}]",
                 tb_bias_shape=f"[{n_chans}]",
             )
-
-    with open(path / "model.toml", "w") as output:
-        output.write(model_config)
+            with open(path / "model.toml", "w") as output: output.write(model_config)
 
 
 def load_inference_config(
@@ -117,7 +115,7 @@ def load_inference_config(
 )
 @click.argument(
     "configuration",
-    type=click.Choice(["1d", "3d", "hr"])
+    type=click.Choice(["1d", "3d", "sim", "hr"])
 )
 @click.argument(
     "training_data_path",
@@ -142,7 +140,7 @@ def init_cli(
     configuration = configuration.lower()
     if not configuration in ["1d", "3d", "hr", "sim"]:
         LOGGER.error(
-            "'configuration' must be one of ['1d', '3d', 'sim']."
+            "'configuration' must be one of ['1d', '3d', 'hr', 'sim']."
         )
         return 1
 
@@ -271,7 +269,15 @@ def run_cli(
         input_configs = {
             name: InputConfig.parse(name, cfg)
             for name, cfg in model_config["input"].items()
+
         }
+        if "meta_data" in model_config:
+            input_configs.update(
+                {
+                    name: InputConfig.parse(name, cfg)
+                    for name, cfg in model_config["meta_data"].items()
+                }
+            )
         output_configs = {
             name: OutputConfig.parse(name, cfg)
             for name, cfg in model_config["output"].items()
