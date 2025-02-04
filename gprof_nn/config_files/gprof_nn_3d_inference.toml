@@ -1,4 +1,4 @@
-tile_size = [128, 128]
+tile_size = [128, 64]
 spatial_overlap = 16
 input_loader = "gprof_nn.retrieval.GPROFNNInputLoader"
 input_loader_args = {{config="3d", needs_ancillary={ancillary}}}
