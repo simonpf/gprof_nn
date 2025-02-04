@@ -659,16 +659,15 @@ def load_ancillary_data(
         'stack_dim'.
     """
     data = []
-    for ind, var in enumerate(ANCILLARY_VARIABLES):
-            data.append(training_data[var].data)
-    data = np.stack(data, axis=stack_dim)
-
     var_inds = ANCILLARY_CFGS.get(configuration, [])
-    for ind, _ in enumerate(ANCILLARY_VARIABLES):
-        if ind not in var_inds:
-            slc = np.take(data, indices=ind, axis=stack_dim)
-            slc[:] = np.nan
-
+    for ind, var in enumerate(ANCILLARY_VARIABLES):
+        data_v = training_data[var].data.copy().astype(np.float32)
+        if ind in var_inds:
+            data_v[data_v < -9000] = np.nan
+            data.append(data_v)
+        else:
+            data.append(np.nan * data_v)
+    data = np.stack(data, axis=stack_dim)
     return torch.tensor(data.astype(np.float32))
 
 
@@ -897,7 +896,7 @@ class GPROFNN1DDataset(IterableDataset):
             if self.validation:
                 cfg = "CLI"
             else:
-                cfg = self.rng.choice(["None", "NRT", "STD", "CLI"])
+                cfg = self.rng.choice(["None", "NRT", "NRT_SNOW", "STD", "CLI"])
             anc = load_ancillary_data(dataset, configuration=cfg, stack_dim=1)
 
         elif isinstance(sensor, sensors.ConstellationScanner):
@@ -915,7 +914,7 @@ class GPROFNN1DDataset(IterableDataset):
             if self.validation:
                 cfg = "CLI"
             else:
-                cfg = self.rng.choice(["None", "NRT", "STD", "CLI"])
+                cfg = self.rng.choice(["None", "NRT", "NRT_SNOW", "STD", "CLI"])
             anc = load_ancillary_data(dataset, configuration=cfg, stack_dim=1)
             targets = load_targets_1d(dataset, self.targets)
 
@@ -1076,7 +1075,7 @@ def load_training_data_3d_gmi(
     )
 
     if augment:
-        cfg = rng.choice(["None", "NRT", "STD", "CLI"])
+        cfg = rng.choice(["None", "NRT", "NRT_SNOW", "STD", "CLI"])
     else:
         cfg = "CLI"
     anc = load_ancillary_data(scene, configuration=cfg, stack_dim=0)
@@ -1217,7 +1216,7 @@ def load_training_data_3d_xtrack_sim(
     angs_full = torch.permute(torch.tensor(angs_full), (2, 0, 1))
 
     if augment:
-        cfg = rng.choice(["None", "NRT", "STD", "CLI"])
+        cfg = self.rng.choice(["None", "NRT", "NRT_SNOW", "STD", "CLI"])
     else:
         cfg = "CLI"
     anc = load_ancillary_data(scene, configuration=cfg, stack_dim=0)
@@ -1349,7 +1348,7 @@ def load_training_data_3d_conical_sim(
     )
 
     if augment:
-        cfg = rng.choice(["None", "NRT", "STD", "CLI"])
+        cfg = self.rng.choice(["None", "NRT", "NRT_SNOW", "STD", "CLI"])
     else:
         cfg = "CLI"
     anc = load_ancillary_data(scene, configuration=cfg, stack_dim=0)
@@ -1558,7 +1557,9 @@ class GPROFNN3DDataset(Dataset):
                     "The provided path %s does not exists.",
                     path
                 )
-            files += sorted(list(path.glob("**/3d/*_*_*.nc")))
+            files += sorted(list(path.glob("**/3d*/*_*_*.nc")))
+
+        folders = set([path.parent for path in files])
 
         if len(files) == 0:
             raise RuntimeError(
@@ -1887,7 +1888,7 @@ class SatformerDataset:
             self,
             path: Path,
             seq_len_in: int = 13,
-            seq_len_out: int = 4,
+            seq_len_out: int = 6,
             validation: bool = False,
             channel_dropout: float = 0.1,
     ):
@@ -1963,16 +1964,16 @@ class SatformerDataset:
             if input_ind < len(chans_in):
                 obs = input_observations[chans_in[input_ind]]
                 meta = input_meta[chans_in[input_ind]]
-                obs, meta = transform_observations_satformer(obs, meta)
 
                 rand = self.rng.random()
                 if (rand >= self.channel_dropout):
+                    obs, meta = transform_observations_satformer(obs, meta)
                     obs_in.append(torch.tensor(obs.astype(np.float32)))
                     meta_in.append(torch.tensor(meta.astype(np.float32)))
                 else:
                     obs_in.append(torch.nan * torch.zeros((3, 128, 128)))
                     meta_in.append(torch.nan * torch.zeros((8, 128, 128)))
-                    obs_out.append(torch.tensor(obs.astype(np.float32)))
+                    obs_out.append(torch.tensor(obs.astype(np.float32))[None])
                     meta_out.append(torch.tensor(meta.astype(np.float32)))
             else:
                 obs_in.append(torch.nan * torch.zeros((3, 128, 128)))
@@ -1992,17 +1993,7 @@ class SatformerDataset:
             "output_observation_props": torch.stack(meta_out, 1),
         }
 
-        anc_vars = [
-            "two_meter_temperature",
-            "total_column_water_vapor",
-            "leaf_area_index",
-            "land_fraction",
-            "ice_fraction",
-            "elevation",
-            "ir_observations",
-        ]
-
-        for anc_var in ANCILLARY_VARIABLES:
+        for anc_var in ANCILLARY_VARIABLES + ["ir_observations"]:
             anc_data = torch.tensor(data[anc_var].data).to(dtype=torch.float32)
             if self.rng.random() > 0.5:
                 anc_data = np.nan * torch.tensor(data[anc_var].data).to(dtype=torch.float32)
