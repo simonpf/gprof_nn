@@ -20,6 +20,7 @@ from typing import Dict, List, Optional, Union, Tuple
 import numpy as np
 from rich.progress import track
 from scipy.ndimage import rotate
+from scipy.signal import convolve
 import torch
 from torch.utils.data import Dataset, IterableDataset
 import xarray as xr
@@ -1063,10 +1064,17 @@ def load_training_data_3d_gmi(
     lons = scene.longitude.data
 
     if source == "sim":
-        coords = get_transformation_coordinates(
-            lats, lons, sensors.GMI.viewing_geometry, 64, 128, p_x_i, p_x_o, p_y
-        )
-        scene = remap_scene(scene, coords, variables)
+        p = rng.random()
+        if p < 0.5:
+            coords = get_transformation_coordinates(
+                lats, lons, sensors.GMI.viewing_geometry, 64, 128, p_x_i, p_x_o, p_y
+            )
+            scene = remap_scene(scene, coords, variables).transpose("levels", "scans", "pixels", ...)
+        else:
+            coords = get_transformation_coordinates(
+                lats, lons, sensors.GMI.viewing_geometry, 128, 64, p_x_i, p_x_o, p_y
+            )
+            scene = remap_scene(scene, coords, variables).transpose("levels", "pixels", "scans", ...)
 
     tbs = torch.tensor(scene.brightness_temperatures.data, dtype=torch.float32)
     angs = torch.nan * torch.zeros_like(tbs)
@@ -1088,10 +1096,30 @@ def load_training_data_3d_gmi(
     angs = torch.permute(angs, (2, 0, 1))
 
     if augment:
+
+        # Simulate missing higher frequency channels
         r = rng.random()
         n_p = rng.integers(10, 30)
-        if r > 0.80:
+        if r > 0.6:
             tbs[10:15, :, :n_p] = torch.nan
+
+        r = rng.random()
+        if r > 0.8:
+            blobs = rng.integers(1, 4)
+            for ind in range(blobs):
+                y = np.arange(tbs.shape[1])
+                x = np.arange(tbs.shape[2])
+                xx, yy = np.meshgrid(x, y)
+                row_center = rng.integers(tbs.shape[1])
+                col_center = rng.integers(tbs.shape[2])
+                r = np.sqrt((xx - col_center) ** 2 + (yy - row_center) ** 2)
+                noise = 200 * np.exp(np.log(0.5) * (r / 1.5) ** 2)
+                chan_var = rng.random(size=15)
+                chan_var[9:] = 0.0
+                noise = (chan_var[..., None, None] * noise[None]).astype(np.float32)
+
+                tbs = tbs + noise
+                tbs[tbs > 350] = np.nan
 
     x = {
         "brightness_temperatures": tbs,
@@ -1099,10 +1127,10 @@ def load_training_data_3d_gmi(
         "ancillary_data": anc
     }
 
-    dims = ("scans", "pixels")
-    if "levels" in scene.dims:
-        dims = ("levels",) + dims
-    scene = scene.transpose(*dims, ...)
+    #dims = ("scans", "pixels")
+    #if "levels" in scene.dims:
+    #    dims = ("levels",) + dims
+    #scene = scene.transpose(*dims, ...)
 
     y = {}
     for target in targets:
@@ -1309,8 +1337,7 @@ def load_training_data_3d_conical_sim(
     required = [
         "latitude",
         "longitude",
-        "simulated_brightness_temperatures",
-        "brightness_temperature_biases"
+        "satformer_tbs_rand"
     ]
     variables = [
         name for name in targets + required
@@ -1338,22 +1365,14 @@ def load_training_data_3d_conical_sim(
     scene = remap_scene(scene, coords, variables)
 
     # Calculate brightness temperatures
-    tbs_sim = scene.simulated_brightness_temperatures.data
-    tb_biases = scene.brightness_temperature_biases.data
-    gprof_inds = list(sensor.gprof_channels)
-    gmi_angs = sensors.GMI.earth_incidence_angle[gprof_inds]
-    angs = sensor.earth_incidence_angle
-    corr = np.cos(np.deg2rad(gmi_angs)) / np.cos(np.deg2rad(angs))
-    tbs = tbs_sim - corr * tb_biases
+    tbs_sim = scene.satformer_tbs_rand
+    full_shape = tbs_sim.shape[:2] + (15,)
+    tbs_full = np.nan * np.ones(full_shape, dtype="float32")
+    tbs_full[:, :, sensor.gprof_channel_indices] = tbs_sim
+    tbs_full = torch.permute(torch.tensor(tbs_full), (2, 0, 1))
 
-    tbs_full = np.nan * np.zeros(tbs.shape[:2] + (15,))
-    tbs_full[..., gprof_inds] = tbs
-
-    tbs = torch.tensor(tbs_full, dtype=torch.float32)
-    tbs = torch.permute(tbs, (2, 0, 1))
-
-    angs_full = torch.nan * torch.zeros_like(tbs)
-    angs_full[gprof_inds] = torch.tensor(
+    angs_full = torch.nan * torch.zeros_like(tbs_full)
+    angs_full[sensor.gprof_channel_indices] = torch.tensor(
         sensor.earth_incidence_angle[..., None, None],
         dtype=torch.float32
     )
@@ -1361,13 +1380,13 @@ def load_training_data_3d_conical_sim(
     if ancillary_config is not None:
         cfg = ancillary_config
     elif augment:
-        cfg = self.rng.choice(["None", "NRT", "NRT_SNOW", "STD", "CLI"])
+        cfg = rng.choice(["None", "NRT", "NRT_SNOW", "STD", "CLI"])
     else:
         cfg = "CLI"
     anc = load_ancillary_data(scene, configuration=cfg, stack_dim=0)
 
     x = {
-        "brightness_temperatures": tbs,
+        "brightness_temperatures": tbs_full,
         "earth_incidence_angles": angs_full,
         "ancillary_data": anc
     }
@@ -2390,14 +2409,19 @@ class GPROFNNHRDataset:
                     target["surface_precip_cmb"] = torch.tensor(scene.surface_precip.data)
                 else:
                     target["surface_precip_cmb"] = torch.nan * torch.zeros((96, 96))
+
             if "surface_precip_cloudsat" in self.extra_targets:
                 if "_cloudsat_" in input_file.name:
                     target["surface_precip_cloudsat"] = torch.tensor(scene.total_precip.data)
                 else:
                     target["surface_precip_cloudsat"] = torch.nan * torch.zeros((96, 96))
 
-        scene.close()
+            remaining_targets = [targ for targ in self.extra_targets if targ not in ["surface_precip_cmn", "surface_precip_cloudsat"]]
+            print("REM TARGS :: ", remaining_targets)
+            for targ in remaining_targets:
+                target[targ] = torch.tensor(scene[targ].data.astype(np.float32))
 
+        scene.close()
 
         valid = torch.isfinite(target["surface_precip"][0] * target["surface_precip_weights"][0])
         if valid.sum() == 0:
