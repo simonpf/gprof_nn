@@ -1,38 +1,33 @@
 [stage_1]
 dataset_module = "gprof_nn.data.training_data"
-training_dataset = "GPROFNN1DDataset"
+training_dataset = "SatformerDataset"
 training_dataset_args = {{path="{training_data_path}"}}
-validation_dataset_args = {{path="{validation_data_path}"}}
-n_epochs = 20
-batch_size = 64
+debug = true
+validation_split = 0.1
+n_epochs = 40
+batch_size = 2
+accumulate_grad_batches = 4
 optimizer = "AdamW"
-optimize_args = {{lr = 1e-3}}
+optimizer_args = {{lr = 5e-4}}
 scheduler = "CosineAnnealingLR"
-scheduler_args = {{T_max = 20}}
-metrics = ["CorrelationCoef", "MSE", "Bias"]
+scheduler_args = {{T_max = 40}}
+metrics = ["CorrelationCoef", "MSE", "Bias", "PlotSamples"]
+n_dataloader_workers = 6
+load_weights= "satformer.ckpt"
 
 [stage_2]
 dataset_module = "gprof_nn.data.training_data"
-training_dataset = "GPROFNN1DDataset"
+training_dataset = "SatformerDataset"
 training_dataset_args = {{path="{training_data_path}"}}
-validation_dataset_args = {{path="{validation_data_path}"}}
-n_epochs = 20
-batch_size = 64
+validation_split = 0.1
+debug = true
+n_epochs = 80
+batch_size = 2
+accumulate_grad_batches = 2
 optimizer = "AdamW"
-optimize_args = {{lr = 1e-3}}
+optimizer_args = {{lr = 5e-5}}
 scheduler = "CosineAnnealingLR"
-scheduler_args = {{T_max = 20}}
-metrics = ["CorrelationCoef", "MSE", "Bias"]
-
-[stage_3]
-dataset_module = "gprof_nn.data.training_data"
-training_dataset = "GPROFNN1DDataset"
-training_dataset_args = {{path="{training_data_path}"}}
-validation_dataset_args = {{path="{validation_data_path}"}}
-n_epochs = 20
-batch_size = 64
-optimizer = "AdamW"
-optimize_args = {{lr = 1e-3}}
-scheduler = "CosineAnnealingLR"
-scheduler_args = {{T_max = 20}}
-metrics = ["CorrelationCoef", "MSE", "Bias"]
+scheduler_args = {{T_max = 80}}
+metrics = ["CorrelationCoef", "MSE", "Bias", "PlotSamples"]
+n_dataloader_workers = 6
+reuse_optimizer = true
