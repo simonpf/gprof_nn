@@ -42,6 +42,7 @@ import gprof_nn
 from gprof_nn import sensors
 from gprof_nn.config import CONFIG
 from gprof_nn.definitions import (
+    ANCILLARY_VARIABLES,
     ALL_TARGETS,
     DATABASE_MONTHS,
     DATA_SPLIT,
@@ -56,6 +57,7 @@ from gprof_nn.data.l1c import L1CFile
 from gprof_nn.data.era5 import load_era5_data, add_era5_precip
 from gprof_nn.data.mrms import MRMSMatchFile
 from gprof_nn.data.preprocessor import run_preprocessor
+from gprof_nn.data.training_data import transform_observations_satformer
 from gprof_nn.data.utils import (
     compressed_pixel_range,
     N_PIXELS_CENTER,
@@ -652,17 +654,18 @@ class SimulatorInput():
     def __init__(self, data: xr.Dataset, target_sensor: Sensor):
         self.data = data
         self.target_sensor = target_sensor
+        if self.target_sensor.kind in ["CONICAL", "CONICAL_CONSTELLATION"]:
+            self.input_data = self.load_input_data_conical()
+        elif self.target_sensor.kind in ["XTRACK"]:
+            self.input_data = self.load_input_data_xtrack()
+        else:
+            raise ValueError(f"Encountered sensor with unsupported kind {self.target_sensor.kind}.")
 
     def __len__(self):
         return 1
 
     def __iter__(self):
-        if self.target_sensor.kind in ["CONICAL", "CONICAL_CONSTELLATION"]:
-            yield self.load_input_data_conical()
-        elif self.target_sensor.kind in ["XTRACK"]:
-            yield self.load_input_data_xtrack()
-        else:
-            raise ValueError(f"Encountered sensor with unsupported kind {self.target_sensor.kind}.")
+        yield self.input_data
 
     def load_input_data_xtrack(self):
 
@@ -675,7 +678,7 @@ class SimulatorInput():
         granule = Granule(recs[0], recs[0].temporal_coverage, None)
         rof_in = RADIUS_OF_INFLUENCE["gmi"]
         input_obs = calculate_obs_properties(input_data, granule, radius_of_influence=rof_in)
-        observations = torch.tensor(input_obs.observations.data)
+        observations = input_obs.observations.data
         input_observation_props = torch.tensor(input_obs.meta_data.data).transpose(0, 1)[None]
 
         output_observation_props = []
@@ -712,49 +715,40 @@ class SimulatorInput():
                 )
 
         output_observation_props = torch.stack(output_observation_props, 1)[None]
+        input_observation_props = input_obs.meta_data.data
 
         obs_in = []
-        for ind, obs in enumerate(input_obs.observations.data):
-            valid = np.isfinite(obs)
-            obs[..., ~valid] = np.nan
-            mean = np.mean(obs[valid])
-            std = np.std(obs[valid])
-            obs_n = (obs - mean) / std
-            obs = np.stack([
-                np.ones_like(obs_n) * mean,
-                np.ones_like(obs_n) * std,
-                obs_n
-            ])
-            obs_in.append(torch.tensor(obs))
+        meta_in = []
 
-            input_observation_props[..., ind, torch.tensor(~valid)] = np.nan
+        for ind, obs in enumerate(input_obs.observations.data):
+            obs = observations[ind]
+            meta = input_observation_props[ind]
+            obs, meta = transform_observations_satformer(obs, meta)
+            obs_in.append(torch.tensor(obs))
+            meta_in.append(torch.tensor(meta))
 
         obs_in = torch.stack(obs_in, 1)[None]
+        meta_in = torch.stack(meta_in, 1)[None]
         obs_in_mask = torch.isnan(obs_in).all(1).all(-1).all(-1)
 
         inpt = {
             "observations": obs_in,
-            "input_observation_props": input_observation_props,
+            "input_observation_props": meta_in,
             "input_observation_mask": obs_in_mask,
         }
 
-        anc_vars = [
-            "two_meter_temperature",
-            "total_column_water_vapor",
-            "leaf_area_index",
-            "land_fraction",
-            "ice_fraction",
-            "elevation",
-            "ir_observations",
-        ]
-        for anc_var in anc_vars:
+        for anc_var in ANCILLARY_VARIABLES + ["ir_observations"]:
             anc_data = torch.tensor(input_data[anc_var].data).to(dtype=torch.float32)
-            if anc_data.dim() < 3:
+            if anc_data.ndim < 3:
                 anc_data = anc_data[None]
-            anc_data = anc_data[None, :, None]
-            anc_mask = torch.isnan(anc_data).all()[None, None]
-            inpt[anc_var] = anc_data
-            inpt[anc_var + "_mask"] = anc_mask
+            if anc_data.ndim < 4:
+                anc_data = anc_data[:, None]
+
+            n_chans, n_seq, n_y, n_x = anc_data.shape
+            anc_mask = torch.isnan(anc_data).all()
+            inpt[anc_var] = anc_data[None]
+            inpt[anc_var + "_mask"] = anc_mask[None, None]
+
 
         inpt["output_observation_props"] = output_observation_props
         return inpt, "None", {}
@@ -775,7 +769,7 @@ class SimulatorInput():
         granule = Granule(recs[0], recs[0].temporal_coverage, None)
         rof_in = RADIUS_OF_INFLUENCE["gmi"]
         input_obs = calculate_obs_properties(input_data, granule, radius_of_influence=rof_in)
-        observations = torch.tensor(input_obs.observations.data)
+        observations = input_obs.observations.data
         input_observation_props = torch.tensor(input_obs.meta_data.data).transpose(0, 1)[None]
 
         output_observation_props = []
@@ -795,16 +789,6 @@ class SimulatorInput():
             sin_az = input_observation_props[0, -2, chan]
             cos_az = input_observation_props[0, -1, chan]
 
-            print(
-                freq,
-                offset,
-                sensor.polarization[chan],
-                BEAM_WIDTHS[self.target_sensor.name.lower()][chan],
-                alt,
-                EIA[self.target_sensor.name.lower()]
-            )
-
-
             output_observation_props.append(
                 torch.stack([
                     freq,
@@ -820,41 +804,28 @@ class SimulatorInput():
 
         output_observation_props = torch.stack(output_observation_props, 1)[None]
 
-        obs_in = []
-        for ind, obs in enumerate(input_obs.observations.data):
-            valid = np.isfinite(obs)
-            obs[..., ~valid] = np.nan
-            mean = np.mean(obs[valid])
-            std = np.std(obs[valid])
-            obs_n = (obs - mean) / std
-            obs = np.stack([
-                np.ones_like(obs_n) * mean,
-                np.ones_like(obs_n) * std,
-                obs_n
-            ])
-            obs_in.append(torch.tensor(obs))
+        input_observation_props = input_obs.meta_data.data
 
-            input_observation_props[..., ind, torch.tensor(~valid)] = np.nan
+        obs_in = []
+        meta_in = []
+        for ind, obs in enumerate(input_obs.observations.data):
+            obs = observations[ind]
+            meta = input_observation_props[ind]
+            obs, meta = transform_observations_satformer(obs, meta)
+            obs_in.append(torch.tensor(obs))
+            meta_in.append(torch.tensor(meta))
 
         obs_in = torch.stack(obs_in, 1)[None]
+        meta_in = torch.stack(meta_in, 1)[None]
         obs_in_mask = torch.isnan(obs_in).all(1).all(-1).all(-1)
 
         inpt = {
             "observations": obs_in,
-            "input_observation_props": input_observation_props,
+            "input_observation_props": meta_in,
             "input_observation_mask": obs_in_mask,
         }
 
-        anc_vars = [
-            "two_meter_temperature",
-            "total_column_water_vapor",
-            "leaf_area_index",
-            "land_fraction",
-            "ice_fraction",
-            "elevation",
-            "ir_observations",
-        ]
-        for anc_var in anc_vars:
+        for anc_var in ANCILLARY_VARIABLES + ["ir_observations"]:
             anc_data = torch.tensor(input_data[anc_var].data).to(dtype=torch.float32)
             if anc_data.dim() < 3:
                 anc_data = anc_data[None]
@@ -887,33 +858,34 @@ def simulate_tbs_satformer(
             "output_observations_rand": random_sample
         }
     }
+
+    mask_vars = [
+        "input_observation_mask",
+    ]
+    for var in ANCILLARY_VARIABLES:
+        mask_vars.append(f"{var}_mask")
+    mask_vars.append("ir_observations_mask")
+
     inference_config = InferenceConfig(
         tile_size=128,
         spatial_overlap=32,
         retrieval_output=retrieval_output,
-        batch_size=1
+        batch_size=1,
+        exclude_from_tiling=mask_vars
     )
 
     if device is None:
         device = "cuda:0"
 
-    results = run_inference(
-        model,
-        input_loader,
-        inference_config,
-        exclude_from_tiling=[
-            "input_observation_mask",
-            "two_meter_temperature_mask",
-            "total_column_water_vapor_mask",
-            "land_fraction_mask",
-            "ice_fraction_mask",
-            "leaf_area_index_mask",
-            "elevation_mask",
-            "ir_observations_mask",
-        ],
-        device=device
-    )
-    results = results[0]
+    lock = FileLock(f"{device}.lock")
+    with lock:
+        results = run_inference(
+            model,
+            input_loader,
+            inference_config,
+            device=device,
+        )
+        results = results[0]
 
 
     obs = results.output_observations.data
@@ -945,7 +917,8 @@ def process_sim_file(
         output_path_3d: Path,
         include_cmb_precip: bool = False,
         lonlat_bounds: Optional[Tuple[float, float, float, float]] = None,
-        satformer_model: Optional[Path] = None
+        satformer_model: Optional[Path] = None,
+        device: str = "cuda:0"
 ) -> None:
     """
     Extract training data from a single .sim-file and write output to
@@ -980,15 +953,14 @@ def process_sim_file(
     vars = list(data.variables) + list(data.dims)
 
     if sensor.name.lower() != "gmi" and satformer_model is not None:
-        lock = FileLock("cuda.lock")
-        with lock:
-            simulate_tbs_satformer(
-                satformer_model,
-                data,
-                sensor,
-            )
-            torch.cuda.synchronize()
-            torch.cuda.empty_cache()
+        simulate_tbs_satformer(
+            satformer_model,
+            data,
+            sensor,
+            device=device
+        )
+        torch.cuda.synchronize()
+        torch.cuda.empty_cache()
 
 
     if lonlat_bounds is not None:
@@ -1020,7 +992,8 @@ def process_files(
         split: Optional[str] = None,
         include_cmb_precip: bool = False,
         lonlat_bounds: Optional[Tuple[float, float, float, float]] = None,
-        satformer_model: Optional[Path] = None
+        satformer_model: Optional[Path] = None,
+        device: str = "cuda:0"
 ) -> None:
     """
     Parallel processing of all .sim files within a given time range.
@@ -1048,6 +1021,7 @@ def process_files(
             of the upper right corner (``lon_ur``, ``lat_ur``).
         satformer_model: An optional Path pointing to a satformer model to use to simulate
             brightness temperatures.
+        device: A string specifying the device to run the Satformer simulations on.
     """
     sim_files = sorted(list(path.glob(f"**/{sensor.sim_file_pattern}")))
     files = []
@@ -1097,7 +1071,8 @@ def process_files(
                 output_path_3d,
                 include_cmb_precip=include_cmb_precip,
                 lonlat_bounds=lonlat_bounds,
-                satformer_model=satformer_model
+                satformer_model=satformer_model,
+                device=device
             )
         )
         tasks[-1].file = path
@@ -1161,6 +1136,14 @@ def process_files(
     ),
     metavar="path"
 )
+@click.option(
+    "--device",
+    default="cuda:0",
+    help=(
+        "The device to run the Satformer model on."
+    ),
+    metavar="device"
+)
 def cli(sensor: Sensor,
         sim_file_path: Path,
         split: str,
@@ -1171,7 +1154,8 @@ def cli(sensor: Sensor,
         n_processes: int = 1,
         include_cmb_precip: bool = False,
         bounds: Tuple[float, float, float, float] = None,
-        satformer_model: Optional[Path] = None
+        satformer_model: Optional[Path] = None,
+        device: str = "cuda:0"
 ) -> None:
     """
     \b
@@ -1253,5 +1237,6 @@ def cli(sensor: Sensor,
         n_processes=n_processes,
         include_cmb_precip=include_cmb_precip,
         lonlat_bounds=lonlat_bounds,
-        satformer_model=satformer_model
+        satformer_model=satformer_model,
+        device=device
     )
