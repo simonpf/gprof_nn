@@ -16,7 +16,9 @@ from matplotlib.patches import Rectangle
 from matplotlib.ticker import FixedLocator
 from matplotlib.colors import to_rgba, to_hex, LogNorm
 from matplotlib.cm import ScalarMappable
+from matplotlib.gridspec import GridSpec
 import numpy as np
+import torch
 import xarray as xr
 
 
@@ -506,3 +508,43 @@ def add_ticks(
     gl.bottom_labels = bottom
     gl.xlocator = FixedLocator(lons)
     gl.ylocator = FixedLocator(lats)
+
+
+def plot_channels(
+        tnsr: np.ndarray | torch.Tensor,
+        batch_index: int = 0,
+        n_rows: int = 4,
+        n_cols: int = 4,
+):
+    """
+    Uses a grid of figures to display a multi-channel tensor.
+    """
+    ax_width = 4
+    ax_height = 4
+    fig = plt.Figure(figsize=(ax_width * n_cols, ax_height * n_rows))
+    gs = GridSpec(n_rows, n_cols)
+
+    tnsr = tnsr.squeeze()
+    *n_batch, n_chans, width, height = tnsr.shape
+    if isinstance(tnsr, torch.Tensor):
+        tnsr = tnsr.float().cpu().detach().numpy()
+    if len(n_batch) < 0:
+        tnsr = tnsr[batch_index]
+
+
+    for ind in range(n_chans):
+        row_ind = ind // n_cols
+        col_ind = ind % n_cols
+
+        if n_rows <= row_ind:
+            break
+
+        if n_cols <= col_ind:
+            break
+
+        ax = fig.add_subplot(gs[row_ind, col_ind])
+
+        m = ax.pcolormesh(tnsr[ind])
+        fig.colorbar(m, ax=ax)
+
+    return fig
