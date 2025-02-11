@@ -64,13 +64,15 @@ LOGGER = logging.getLogger(__name__)
 
 def load_input_data_preprocessor(
         preprocessor_file: Path,
-        high_res: bool = False
+        high_res: bool = False,
+        ancillary_config: Optional[str] = None
 ) -> Tuple[Dict[str, torch.Tensor], Dict[str, np.ndarray]]:
     """
     Load retrieval input data from preprocessor file.
 
     Args:
         preprocessor_file: A path pointing to a preprocessor file.
+        ancillary_config: A string specifying the ancillary data configuration to load.
 
     Return:
         A pair of dictionaries: The first one containing the input tensors
@@ -105,8 +107,9 @@ def load_input_data_preprocessor(
         angs_full = eia.astype(np.float32)
     angs_full = np.transpose(angs_full, (2, 0, 1))
 
-    cfg = determine_ancillary_config(data_pp)
-    anc = load_ancillary_data(data_pp, cfg, stack_dim=0)
+    if ancillary_config is None:
+        ancillary_config = determine_ancillary_config(data_pp)
+    anc = load_ancillary_data(data_pp, ancillary_config, stack_dim=0)
 
     tbs_full[tbs_full < 0] = np.nan
 
@@ -138,7 +141,8 @@ def load_input_data_preprocessor(
 
 def load_input_data_l1c(
         l1c_file: Path,
-        needs_ancillary: bool = True
+        needs_ancillary: bool = True,
+        ancillary_config: Optional[str] = None
 ) -> Dict[str, torch.Tensor]:
     """
     Load retrieval input data from a L1C file.
@@ -156,7 +160,7 @@ def load_input_data_l1c(
             tmp_path = Path(tmp)
             pp_path = tmp_path / l1c_file.with_suffix(".pp").name
             run_preprocessor(l1c_file, sensor, output_file=pp_path)
-            pp_data = load_input_data_preprocessor(pp_path)
+            pp_data = load_input_data_preprocessor(pp_path, ancillary_config=ancillary_config)
             return pp_data
 
     l1c_data = L1CFile(l1c_file).to_xarray_dataset()
@@ -304,7 +308,7 @@ def load_input_data_training_3d(
                 )
 
         tbs = input_data["brightness_temperatures"].numpy()
-        valid = torch.isfinit(tbs).any(0).numpy()
+        valid = np.isfinite(tbs).any(0)
         aux = {
             "valid_input": valid,
             "longitude": targets.pop("longitude").numpy(),
@@ -321,7 +325,8 @@ def load_input_data_training_3d(
 
 
 def load_input_data_collocations(
-        collocation_file: Path
+        collocation_file: Path,
+        ancillary_config: str  = "NONE"
 ) -> Dict[str, torch.Tensor]:
     """
     Load retrieval input data from a SPEED collocation file.
@@ -345,11 +350,7 @@ def load_input_data_collocations(
 
         valid = torch.isfinite(tbs_full).any(0)
 
-        anc = []
-        for anc_var in ANCILLARY_VARIABLES:
-            anc.append(torch.tensor(scene[anc_var].data.astype(np.float32)))
-        anc = torch.stack(anc)
-        valid = valid * (anc > -9_000).all(0)
+        anc = load_ancillary_data(scene, ancillary_config, stack_dim=0)
 
         eia = torch.tensor(scene.earth_incidence_angle_gprof.data.astype(np.float32))
         if eia.ndim == 2:
@@ -457,15 +458,15 @@ class GPROFNNInputLoader:
             input_format = determine_input_format(path)
 
         if input_format == "preprocessor":
-            input_data, aux = load_input_data_preprocessor(path, self.ancillary_config)
+            input_data, aux = load_input_data_preprocessor(path, ancillary_config=self.ancillary_config)
         elif input_format == "l1c":
-            input_data, aux = load_input_data_l1c(path)
+            input_data, aux = load_input_data_l1c(path, ancillary_config=self.ancillary_config)
         elif input_format == "training_1d":
-            input_data, aux = load_input_data_training_1d(path, self.ancillary_config)
+            input_data, aux = load_input_data_training_1d(path, ancillary_config=self.ancillary_config)
         elif input_format == "training_3d":
-            input_data, aux = load_input_data_training_3d(path, self.ancillary_config)
+            input_data, aux = load_input_data_training_3d(path, ancillary_config=self.ancillary_config)
         elif input_format == "collocations":
-            input_data, aux = load_input_data_collocations(path)
+            input_data, aux = load_input_data_collocations(path, ancillary_config=self.ancillary_config)
         else:
             raise ValueError(
                 f"Encountered unknown input format '{input_format}'."
@@ -645,7 +646,6 @@ class GPROFNNHRInputLoader:
 
         obs_in = []
         for ind, obs in enumerate(input_obs.observations.data):
-            print(ind, np.nanmin(obs), np.nanmax(obs))
             valid = obs >= 0.0
             obs[..., ~valid] = np.nan
             mean = np.mean(obs[valid])
@@ -888,9 +888,13 @@ def cli(
         config = "hr"
 
     if config == "hr":
-        input_loader = GPROFNNHRInputLoader(input_path, ancillary_config=ancillary_config)
+        input_loader = GPROFNNHRInputLoader(input_path)
     else:
-        input_loader = GPROFNNInputLoader(input_path, config=config)
+        input_loader = GPROFNNInputLoader(
+            input_path,
+            config=config,
+            ancillary_config=ancillary_config
+        )
 
     if output_path is None:
         output_path = Path(".")
