@@ -662,12 +662,12 @@ def load_ancillary_data(
     data = []
     var_inds = ANCILLARY_CFGS.get(configuration, [])
     for ind, var in enumerate(ANCILLARY_VARIABLES):
-        data_v = training_data[var].data.copy().astype(np.float32)
-        if ind in var_inds:
+        if var in training_data:
+            data_v = training_data[var].data.copy().astype(np.float32)
             data_v[data_v < -9000] = np.nan
             data.append(data_v)
         else:
-            data.append(np.nan * data_v)
+            data.append(np.nan * data[-1])
     data = np.stack(data, axis=stack_dim)
     return torch.tensor(data.astype(np.float32))
 
@@ -1147,7 +1147,7 @@ def load_training_data_3d_gmi(
         if data_t.ndim < 3:
             data_t = data_t[None]
         data = torch.tensor(data_t.astype("float32"))
-        y[target] = data
+        y[target] = data.squeeze()
 
     # Also flip data if requested.
     if augment:
@@ -1160,8 +1160,6 @@ def load_training_data_3d_gmi(
             x = {key: torch.flip(tensor, (-1,)) for key, tensor in x.items()}
             y = {key: torch.flip(tensor, (-1,)) for key, tensor in y.items()}
 
-    for key, tensor in y.items():
-        y[key] = tensor.squeeze()
 
     return x, y
 
@@ -1218,14 +1216,16 @@ def load_training_data_3d_xtrack_sim(
 
     lats = scene.latitude.data
     lons = scene.longitude.data
+    transpose = False
+    if rng.random() < 0.5:
+        transpose = True
     coords = get_transformation_coordinates(
-        lats, lons, sensor.viewing_geometry, width, height, p_x_i, p_x_o, p_y
+        lats, lons, sensor.viewing_geometry, width, height, p_x_i, p_x_o, p_y,
+        transpose=transpose
     )
 
-    if rng.random() < 0.5:
-        coords = np.flip(coords, 0)
 
-    scene = remap_scene(scene, coords, variables)
+    scene = remap_scene(scene, coords, variables).transpose("levels", "scans", "pixels", ...)
 
     center = sensor.viewing_geometry.get_window_center(p_x_o, width)
     j_start = int(center[1, 0, 0] - width // 2)
@@ -1253,7 +1253,7 @@ def load_training_data_3d_xtrack_sim(
     if ancillary_config is not None:
         cfg = ancillary_config
     elif augment:
-        cfg = self.rng.choice(["None", "NRT", "NRT_SNOW", "STD", "CLI"])
+        cfg = rng.choice(["None", "NRT", "NRT_SNOW", "STD", "CLI"])
     else:
         cfg = "CLI"
     anc = load_ancillary_data(scene, configuration=cfg, stack_dim=0)
@@ -1290,10 +1290,7 @@ def load_training_data_3d_xtrack_sim(
         if data.ndim < 3:
             data = data[..., None]
         data = torch.tensor(data)
-
-        dims = tuple(range(data.ndim))
-        data = torch.permute(data, dims[2:] + dims[:2])
-        y[target] = data
+        y[target] = data.squeeze()
 
     # Also flip data if requested.
     if augment:
@@ -1362,7 +1359,7 @@ def load_training_data_3d_conical_sim(
     coords = get_transformation_coordinates(
         lats, lons, sensor.viewing_geometry, width, height, p_x_i, p_x_o, p_y
     )
-    scene = remap_scene(scene, coords, variables)
+    scene = remap_scene(scene, coords, variables).transpose("levels", "scans", "pixels", ...)
 
     # Calculate brightness temperatures
     tbs_sim = scene.satformer_tbs_rand
@@ -1407,7 +1404,7 @@ def load_training_data_3d_conical_sim(
         if data.ndim < 3:
             data = data[None]
         data = torch.tensor(scene[target].data.astype("float32"))
-        y[target] = data
+        y[target] = data.squeeze()
 
     # Also flip data if requested.
     if augment:
@@ -2417,7 +2414,6 @@ class GPROFNNHRDataset:
                     target["surface_precip_cloudsat"] = torch.nan * torch.zeros((96, 96))
 
             remaining_targets = [targ for targ in self.extra_targets if targ not in ["surface_precip_cmn", "surface_precip_cloudsat"]]
-            print("REM TARGS :: ", remaining_targets)
             for targ in remaining_targets:
                 target[targ] = torch.tensor(scene[targ].data.astype(np.float32))
 
