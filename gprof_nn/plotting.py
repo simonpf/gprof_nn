@@ -521,16 +521,15 @@ def plot_channels(
     """
     ax_width = 4
     ax_height = 4
-    fig = plt.Figure(figsize=(ax_width * n_cols, ax_height * n_rows))
+    fig = plt.figure(figsize=(ax_width * n_cols, ax_height * n_rows))
     gs = GridSpec(n_rows, n_cols)
 
     tnsr = tnsr.squeeze()
     *n_batch, n_chans, width, height = tnsr.shape
     if isinstance(tnsr, torch.Tensor):
         tnsr = tnsr.float().cpu().detach().numpy()
-    if len(n_batch) < 0:
+    if 0 < len(n_batch):
         tnsr = tnsr[batch_index]
-
 
     for ind in range(n_chans):
         row_ind = ind // n_cols
