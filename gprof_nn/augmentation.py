@@ -535,7 +535,7 @@ def get_center_pixel_input(x, width):
 
 
 def get_transformation_coordinates(
-    lats, lons, viewing_geometry, width, height, x_i, x_o, y
+        lats, lons, viewing_geometry, width, height, x_i, x_o, y, transpose=False
 ):
     """
     Calculate transformation coordinates that reprojects data from GMI
@@ -571,6 +571,8 @@ def get_transformation_coordinates(
     d_j = np.arange(width) - np.floor(width / 2.0)
     coords_pixel_out = center_out + np.meshgrid(d_i, d_j, indexing="ij")
     coords_eucl_out = viewing_geometry.pixel_coordinates_to_euclidean(coords_pixel_out)
+    if transpose:
+        coords_eucl_out = np.flip(coords_eucl_out, axis=0)
 
     offset = coords_eucl_out[:, height // 2, width // 2]
 
