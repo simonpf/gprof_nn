@@ -662,12 +662,12 @@ def load_ancillary_data(
     data = []
     var_inds = ANCILLARY_CFGS.get(configuration, [])
     for ind, var in enumerate(ANCILLARY_VARIABLES):
-        if var in training_data:
-            data_v = training_data[var].data.copy().astype(np.float32)
-            data_v[data_v < -9000] = np.nan
+        data_v = training_data[var].data.copy().astype(np.float32)
+        data_v[data_v < -9000] = np.nan
+        if ind in var_inds:
             data.append(data_v)
         else:
-            data.append(np.nan * data[-1])
+            data.append(np.nan * data_v)
     data = np.stack(data, axis=stack_dim)
     return torch.tensor(data.astype(np.float32))
 
@@ -2308,7 +2308,10 @@ class GPROFNNHRDataset:
                 weights = torch.ones((96, 96))
         else:
             valid_ref = surface_precip <= self.precip_threshold
-            weights = torch.tensor(self.scene_weights_cloudsat.astype(np.float32))
+            if self.global_weights is not None:
+                weights = torch.tensor(self.scene_weights_cloudsat.astype(np.float32)[None, None])
+            else:
+                weights = torch.ones((96, 96))[None, None]
 
 
         surface_precip[~valid_ref] = np.nan
@@ -2328,8 +2331,8 @@ class GPROFNNHRDataset:
             width = 0
         left = self.rng.random()
 
-        #missing_obs = np.any(np.isnan(input_observations), 0)
-        #surface_precip[missing_obs] = np.nan
+        missing_obs = np.any(np.isnan(input_observations), 0)
+        surface_precip[missing_obs] = np.nan
 
         for input_ind in range(self.seq_len_in):
             rand = self.rng.random()
