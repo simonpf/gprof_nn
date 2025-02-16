@@ -254,13 +254,13 @@ def process_l1c_files(
         if split is not None:
             days = DATA_SPLIT[split]
             l1c_files_split = []
-            for l1c_file in l1c_files:
-                time = L1CFile(l1c_file).start_time
+            for l1c_file in l1c_files_day:
+                time = l1c_file.start_time
                 day_of_month = int(
                     (time - time.astype("datetime64[M]")).astype("timedelta64[D]").astype("int64")
                 )
                 if day_of_month + 1 in days:
-                    l1c_files_split.append(l1c_file)
+                    l1c_files_split.append(l1c_file.filename)
             l1c_files_day = l1c_files_split
 
         l1c_files += l1c_files_day
@@ -276,7 +276,7 @@ def process_l1c_files(
             pool.submit(
                 process_l1c_file,
                 sensor,
-                l1c_file.path,
+                l1c_file,
                 output_path_1d,
                 output_path_3d,
             )
