@@ -473,7 +473,8 @@ class GPROFNNInputLoader:
             )
 
         input_data = {
-            name: torch.tensor(data)[None] for name, data in input_data.items()
+            name: (torch.tensor(data) if isinstance(data, np.ndarray) else data)[None]
+            for name, data in input_data.items()
         }
 
         if self.config == "1d":
@@ -572,7 +573,8 @@ class GPROFNNInputLoader:
 
                 tensor = tensor.numpy()
                 if "valid_input" in aux:
-                    tensor[~aux["valid_input"]] = -9999.9
+                    valid = aux["valid_input"].numpy()
+                    tensor[~valid] = -9999.9
 
                 output[var] = (dims_v, tensor)
                 # Use compressiong to keep file size reasonable.
