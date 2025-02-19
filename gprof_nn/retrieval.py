@@ -87,6 +87,7 @@ def load_input_data_preprocessor(
     if high_res and max(upsampling_factors) > 1:
         data_pp = upsample_data(data_pp, upsampling_factors)
 
+    # Brightness temperatures
     tbs = data_pp.brightness_temperatures.data.astype(np.float32)
     tbs[tbs < 0] = np.nan
     if tbs.shape[-1] < 15:
@@ -95,29 +96,29 @@ def load_input_data_preprocessor(
     else:
         tbs_full = tbs.astype(np.float32)
     tbs_full = np.transpose(tbs_full, (2, 0, 1))
+    tbs_full[tbs_full < 0] = np.nan
 
-    eia = data_pp.earth_incidence_angle.data.astype(np.float32)
-    if eia.ndim == 2:
-        eia = eia[..., None]
-
-    if eia.shape[-1] < 15:
-        angs_full = np.nan * np.zeros(eia.shape[:2] + (15,), dtype=np.float32)
-        angs_full[..., sensor.gprof_channel_indices] = eia
+    # Earth incidence angles
+    angs_full = np.nan * np.ones_like(tbs_full)
+    chan_inds = list(sensor.gprof_channels.keys())
+    if isinstance(sensor, sensors.CrossTrackScanner):
+        eia = data_pp.earth_incidence_angle.data.astype(np.float32)
+        angs_full[chan_inds] = eia[None]
     else:
-        angs_full = eia.astype(np.float32)
-    angs_full = np.transpose(angs_full, (2, 0, 1))
+        angs_full[chan_inds] = torch.tensor(sensor.earth_incidence_angle[..., None, None], dtype=torch.float32)
 
+    # Ancillary data
     if ancillary_config is None:
         ancillary_config = determine_ancillary_config(data_pp)
     anc = load_ancillary_data(data_pp, ancillary_config, stack_dim=0)
 
-    tbs_full[tbs_full < 0] = np.nan
 
     input_data = {
         "brightness_temperatures": tbs_full,
         "earth_incidence_angles": angs_full,
         "ancillary_data": anc
     }
+
     aux = {
         "valid_input": (np.isfinite(tbs_full)).any(0),
         "scan_time": data_pp.scan_time.data,
@@ -343,25 +344,31 @@ def load_input_data_collocations(
 
     with xr.open_dataset(collocation_file, group="input_data") as scene:
 
+        scene = scene.transpose("scan", "pixel", "channel", "channel_gprof", ...)
+
         tbs = torch.tensor(np.transpose(scene.observations_gprof.data.astype(np.float32), (2, 0, 1)))
         tbs_full = torch.nan * torch.zeros((15,) + tbs.shape[1:])
         tbs_full[sensor.gprof_channel_indices] = tbs
         tbs_full[tbs_full < 0] = np.nan
 
-        valid = torch.isfinite(tbs_full).any(0)
+        # Earth incidence angles
+        angs_full = np.nan * np.ones_like(tbs_full)
+        chan_inds = list(sensor.gprof_channels.keys())
+        if isinstance(sensor, sensors.CrossTrackScanner):
+            eia = scene.earth_incidence_angle_gprof.data.astype(np.float32)
+            angs_full[chan_inds] = eia[None]
+        else:
+            angs_full[chan_inds] = torch.tensor(sensor.earth_incidence_angle[..., None, None], dtype=torch.float32)
 
+        # Ancillary data
         anc = load_ancillary_data(scene, ancillary_config, stack_dim=0)
 
-        eia = torch.tensor(scene.earth_incidence_angle_gprof.data.astype(np.float32))
-        if eia.ndim == 2:
-            eia = eia[None]
-        eia_full = torch.nan * torch.zeros((15,) + tbs.shape[1:])
-        eia_full[:] = eia
+        valid = torch.isfinite(tbs_full).any(0)
 
         input_data = {
             "brightness_temperatures": tbs_full,
             "ancillary_data": anc,
-            "earth_incidence_angles": eia_full
+            "earth_incidence_angles": angs_full
         }
         aux = {
             "valid_input": valid,

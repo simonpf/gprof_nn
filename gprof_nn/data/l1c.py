@@ -168,8 +168,6 @@ class L1CFile:
         month = date.month
         day = date.day
         data_path = Path(path) / f"{year:02}{month:02}" / f"{year:02}{month:02}{day:02}"
-        print("DATA PATH :: ", data_path)
-        print("PATTERN :: ", sensor.l1c_file_prefix + f"*{date.year:04}{month:02}{day:02}*V07*.HDF5")
         files = list(
             data_path.glob(
                 sensor.l1c_file_prefix + f"*{date.year:04}{month:02}{day:02}*V07*.HDF5"
