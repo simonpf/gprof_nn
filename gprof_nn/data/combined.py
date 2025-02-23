@@ -21,9 +21,6 @@ from pansat.granule import merge_granules
 from pansat.catalog import Index
 from pansat.catalog.index import find_matches
 from pansat.products.satellite.gpm import (
-    l1c_gpm_gmi, l1c_npp_atms, l1c_noaa20_atms, l1c_gcomw1_amsr2
-)
-from pansat.products.satellite.gpm import (
     l2b_corra2022_gpm_dprgmi_v07a,
     l2b_corra2022_gpm_dprgmi_v07b,
     l2b_corra2022_gpm_dprgmi_v07c,
@@ -195,6 +192,9 @@ def extract_cmb_scenes(
             reference_var="surface_precip",
             offset=32
         )
+        scenes = [
+            scene for scene in scenes if np.isfinite(scene.input_observations.data).all()
+        ]
         LOGGER.info(
             "Extracted %s training scenes from %s.",
             len(scenes),

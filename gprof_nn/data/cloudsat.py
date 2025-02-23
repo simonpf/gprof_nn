@@ -34,6 +34,7 @@ from rich.progress import track, Progress
 
 from gprof_nn.statistics import TrainingDataStats
 from gprof_nn.sensors import Sensor
+from gprof_nn.data.era5 import load_era5_data
 from gprof_nn.data.utils import (
     run_preprocessor,
     upsample_data,
@@ -197,11 +198,19 @@ def extract_cloudsat_scenes(
         total_precip[pflag == 0] = 0.0
         total_precip[surface_precip > 0] = surface_precip[surface_precip > 0]
         total_precip[surface_precip_snow > 0] = surface_precip_snow[surface_precip_snow > 0]
+
+        rain = (1 <= pflag) * (pflag <= 3)
+        era5_data = load_era5_data(input_data.scan_time.min().data, input_data.scan_time.max().data)
+        era5_data = era5_data.interp(latitude=input_data.latitude, longitude=input_data.longitude)
+        total_precip[rain] = era5_data.tp.data[rain]
+
         input_data["total_precip"] = (("scans", "pixels"), total_precip)
 
         input_data["input_observations"] = input_obs.observations.rename({"channels": "all_channels"})
         input_data["input_meta_data"] = input_obs.meta_data.rename({"channels": "all_channels"})
         mask_invalid_values(input_data)
+
+        input_data = input_data[{"scans": slice(25, -25)}]
 
         scenes = extract_scenes(
             input_data,
