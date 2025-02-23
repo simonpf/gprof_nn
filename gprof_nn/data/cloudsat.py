@@ -201,7 +201,11 @@ def extract_cloudsat_scenes(
 
         rain = (1 <= pflag) * (pflag <= 3)
         era5_data = load_era5_data(input_data.scan_time.min().data, input_data.scan_time.max().data)
-        era5_precip = era5_data.tp.interp(latitude=input_data.latitude, longitude=input_data.longitude).data
+        era5_precip = era5_data.tp.interp(
+            time=input_data.scan_time_cloudsat,
+            latitude=input_data.latitude,
+            longitude=input_data.longitude
+        ).data
         total_precip[rain] = 1000.0 * era5_precip[rain]
 
         input_data["total_precip"] = (("scans", "pixels"), total_precip)
