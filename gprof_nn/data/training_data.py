@@ -1140,7 +1140,7 @@ def load_training_data_3d_gmi(
                 empty = torch.nan * torch.zeros((28, 128, 64))
             else:
                 empty = torch.nan * torch.zeros((1, 128, 64))
-            y[target] = empty
+            y[target] = empty.squeeze()
             continue
 
         data_t = scene[target].data
@@ -1223,7 +1223,8 @@ def load_training_data_3d_xtrack_sim(
         lats, lons, sensor.viewing_geometry, width, height, p_x_i, p_x_o, p_y,
         transpose=transpose
     )
-
+    for var in ANCILLARY_VARIABLES:
+        scene[var] = scene[var].astype(np.float32)
 
     scene = remap_scene(scene, coords, variables).transpose("levels", "scans", "pixels", ...)
 
@@ -1236,8 +1237,9 @@ def load_training_data_3d_xtrack_sim(
 
     weights = calculate_interpolation_weights(np.abs(angs), angle_grid)
      # Calculate brightness temperatures
-    tbs_sim = scene.satformer_tbs_rand
-    tbs_sim = interpolate(tbs_sim, np.round(weights))
+    tbs_sim = scene.satformer_tbs_rand.data
+    tbs_sim = interpolate(tbs_sim, weights)
+    tbs_sim[tbs_sim > 350] = np.nan
 
     full_shape = tbs_sim.shape[:2] + (15,)
     tbs_full = np.nan * np.ones(full_shape, dtype="float32")
@@ -1250,6 +1252,9 @@ def load_training_data_3d_xtrack_sim(
     angs_full[:, :, chan_inds] = np.abs(angs[..., None])
     angs_full = torch.permute(torch.tensor(angs_full), (2, 0, 1))
 
+    invalid = torch.isnan(tbs_full).all(0)
+    angs_full[..., invalid] = torch.nan
+
     if ancillary_config is not None:
         cfg = ancillary_config
     elif augment:
@@ -1257,6 +1262,7 @@ def load_training_data_3d_xtrack_sim(
     else:
         cfg = "CLI"
     anc = load_ancillary_data(scene, configuration=cfg, stack_dim=0)
+    anc[..., invalid] = torch.nan
 
     x = {
         "brightness_temperatures": tbs_full,
@@ -1272,7 +1278,7 @@ def load_training_data_3d_xtrack_sim(
                 empty = torch.nan * torch.zeros((28, 128, 64))
             else:
                 empty = torch.nan * torch.zeros((1, 128, 64))
-            y[target] = empty
+            y[target] = empty.squeeze()
             continue
 
         dims = ("scans", "pixels")
@@ -1317,7 +1323,6 @@ def load_training_data_3d_conical_sim(
     """
     Load GPROF-NN 3D training scene for non-GMI conical scanners from
     sim-file training data.
-
     Args:
         sensor: The sensor from which the training data was extracted.
         scene: An xarray.Dataset containing the scene from which to load
@@ -1359,6 +1364,9 @@ def load_training_data_3d_conical_sim(
     coords = get_transformation_coordinates(
         lats, lons, sensor.viewing_geometry, width, height, p_x_i, p_x_o, p_y
     )
+    for var in ANCILLARY_VARIABLES:
+        scene[var] = scene[var].astype(np.float32)
+
     scene = remap_scene(scene, coords, variables).transpose("levels", "scans", "pixels", ...)
 
     # Calculate brightness temperatures
@@ -1367,6 +1375,7 @@ def load_training_data_3d_conical_sim(
     tbs_full = np.nan * np.ones(full_shape, dtype="float32")
     tbs_full[:, :, sensor.gprof_channel_indices] = tbs_sim
     tbs_full = torch.permute(torch.tensor(tbs_full), (2, 0, 1))
+    tbs_full[tbs_full > 350] = np.nan
 
     angs_full = torch.nan * torch.zeros_like(tbs_full)
     angs_full[sensor.gprof_channel_indices] = torch.tensor(
@@ -1397,7 +1406,7 @@ def load_training_data_3d_conical_sim(
                 empty = torch.nan * torch.zeros((28, 128, 64))
             else:
                 empty = torch.nan * torch.zeros((1, 128, 64))
-            y[target] = empty
+            y[target] = empty.squeeze()
             continue
 
         data = scene[target].data
@@ -1426,6 +1435,7 @@ def load_training_data_3d_other(
         targets: List[str],
         augment: bool = False,
         rng: np.random.Generator = None,
+        ancillary_config: Optional[str] = None
 ) -> Tuple[Dict[str, torch.Tensor]]:
     """
     Load training data for non-GMI sensors that are training scenes extracted
@@ -1438,6 +1448,7 @@ def load_training_data_3d_other(
         targets: A list containing a list of the targets to load.
         augment: Whether or not to augment the input data.
         rng: A numpy random number generator to use for the augmentation.
+        ancillary_config: Optional string specifying the ancillary data configuration to load.
 
     Return:
         A tuple ``(x, y)`` of dictionaries ``x`` and ``y`` containing the
@@ -1478,7 +1489,9 @@ def load_training_data_3d_other(
     tbs_full = torch.permute(torch.tensor(tbs_full), (2, 0, 1))
 
     angs_full = torch.nan * torch.zeros_like(tbs_full)
-    eia = scene.earth_incidence_angle.data
+    eia = scene.earth_incidence_angle.data.copy()
+    eia[eia < -99] = np.nan
+
     chan_inds = list(sensor.gprof_channels.keys())
     if eia.ndim == 2:
         angs_full[chan_inds] = torch.tensor(eia[None], dtype=torch.float32)
@@ -1488,9 +1501,13 @@ def load_training_data_3d_other(
             dtype=torch.float32
         )
 
-    anc = torch.tensor(np.stack(
-        [scene[anc_var].data.astype("float32") for anc_var in ANCILLARY_VARIABLES]
-    ))
+    if ancillary_config is not None:
+        cfg = ancillary_config
+    elif augment:
+        cfg = rng.choice(["None", "NRT", "NRT_SNOW", "STD", "CLI"])
+    else:
+        cfg = "CLI"
+    anc = load_ancillary_data(scene, configuration=cfg, stack_dim=0)
 
     x = {
         "brightness_temperatures": tbs_full,
@@ -1511,7 +1528,7 @@ def load_training_data_3d_other(
                 empty = torch.nan * torch.zeros((28, 128, 64))
             else:
                 empty = torch.nan * torch.zeros((1, 128, 64))
-            y[target] = empty
+            y[target] = empty.squeeze()
             continue
 
 
@@ -1547,7 +1564,8 @@ class GPROFNN3DDataset(Dataset):
         path: Path,
         targets: Optional[List[str]] = None,
         augment: bool = True,
-        validation: bool = False
+        validation: bool = False,
+        subsample: int = 1
     ):
         """
         Create GPROF-NN 3D dataset.
@@ -1562,6 +1580,8 @@ class GPROFNN3DDataset(Dataset):
                 data.
             validation: If set to 'True', data  loaded in consecutive iterations
                 over the dataset will be identical.
+            subsample: A subsampling factor used to randomly subsample the training
+                data.
         """
         super().__init__()
 
@@ -1571,6 +1591,7 @@ class GPROFNN3DDataset(Dataset):
         self.validation = validation
         self.augment = augment and not validation
         self.validation = validation
+        self.subsample = subsample
 
         if isinstance(path, list):
             paths = path
@@ -1601,6 +1622,7 @@ class GPROFNN3DDataset(Dataset):
         self.files = self.rng.permutation(self.files)
 
 
+
     def init_rng(self, w_id=0):
         """
         Initialize random number generator.
@@ -1626,9 +1648,14 @@ class GPROFNN3DDataset(Dataset):
         return f"GPROFNN3DDataset(path={self.path}, targets={self.targets})"
 
     def __len__(self):
-        return len(self.files)
+        return len(self.files) // self.subsample
 
     def __getitem__(self, ind):
+
+        ind_min = self.subsample * ind
+        ind_max = ind_min + self.subsample
+        ind = min(self.rng.integers(ind_min, ind_max), len(self.files) - 1)
+
         with xr.open_dataset(self.files[ind]) as scene:
             sensor = scene.attrs["sensor"]
             sensor = getattr(sensors, sensor)
@@ -2276,6 +2303,7 @@ class GPROFNNHRDataset:
         return 2 * len(self.cmb_files)
 
     def __getitem__(self, ind: int):
+
 
         if ind % 2 == 1:
             input_file = self.cloudsat_files[(ind // 2) % len(self.cloudsat_files)]
