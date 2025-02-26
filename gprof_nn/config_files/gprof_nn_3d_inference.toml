@@ -6,6 +6,7 @@ input_loader_args = {{config="3d", needs_ancillary={ancillary}}}
 [retrieval_output.surface_precip]
 surface_precip = "ExpectedValue"
 surface_precip_terciles = {{retrieval_output="Quantiles", tau=[0.33, 0.66]}}
+most_likely_precip = {{retrieval_output="MaximumProbability"}}
 probability_of_precipitation = {{retrieval_output="ExceedanceProbability", threshold=1e-3}}
 
 [retrieval_output.convective_precip]
