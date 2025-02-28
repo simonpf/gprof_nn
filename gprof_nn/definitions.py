@@ -24,6 +24,22 @@ ALL_TARGETS = [
     "cloud_water_path",
 ]
 
+ALL_OUTPUTS = [
+    "surface_precip",
+    "surface_precip_1st_tercile",
+    "surface_precip_2nd_tercile",
+    "most_likely_precip",
+    "probability_of_precipitation",
+    "convective_precip",
+    "cloud_water_content",
+    "rain_water_content",
+    "snow_water_content",
+    "latent_heating",
+    "ice_water_path",
+    "rain_water_path",
+    "cloud_water_path",
+]
+
 PROFILE_TARGETS = [
     "rain_water_content",
     "cloud_water_content",

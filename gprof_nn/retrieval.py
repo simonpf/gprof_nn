@@ -32,7 +32,7 @@ import gprof_nn.logging
 from gprof_nn import sensors
 from gprof_nn.data.l1c import L1CFile
 from gprof_nn.data.preprocessor import PreprocessorFile, run_preprocessor
-from gprof_nn.definitions import ANCILLARY_VARIABLES, ALL_TARGETS
+from gprof_nn.definitions import ANCILLARY_VARIABLES, ALL_TARGETS, ALL_OUTPUTS
 from gprof_nn.data.training_data import (
     EIA_GMI,
     load_tbs_1d_gmi,
@@ -60,6 +60,58 @@ from gprof_nn.data.utils import (
 
 LOGGER = logging.getLogger(__name__)
 
+
+def calculate_quality_flag_and_pixel_status(
+        sensor: sensors.Sensor,
+        tbs_full,
+        input_data: xr.Dataset
+) -> np.ndarray:
+    """
+    Calculate the pixel status based on input data.
+
+    Args:
+        sensor: The sensor for which the retrieval is performed.
+        tbs_full: The full brightness temperature array that will be input to the retrieval.
+        input_data: An xarray.Dataset containing the rerieval input data.
+    """
+    missing_tbs = tbs_full[sensor.gprof_channel_indices]
+    any_missing = np.any(np.isnan(missing_tbs), axis=0)
+    all_missing = np.all(np.isnan(missing_tbs), axis=0)
+
+    lons = input_data.longitude.data
+    lats = input_data.latitude.data
+    invalid_coords = ~(
+        (-180.0 <= lons) * (lons <= 180.0) *
+        (-90.0 <= lats) * (lats <= 90.0)
+    )
+
+    tbs_out_of_range = np.any(
+        (tbs_full[sensor.gprof_channel_indices] > 350.0) + (tbs_full[sensor.gprof_channel_indices] < 0.0),
+        axis=0
+    )
+
+    snow_mask = input_data.snow_mask.data
+    snow_depth = input_data.snow_depth.data
+    ice_fraction = input_data.ice_fraction.data
+
+    snow_or_ice = np.zeros_like(any_missing)
+    snow_or_ice[0.0 < snow_mask] = True
+    snow_or_ice[0.0 < snow_depth] = True
+    snow_or_ice[0.0 < ice_fraction] = True
+
+    status = -99.0 * np.ones_like(any_missing)
+    qflag = -99.0 * np.ones_like(any_missing)
+
+    all_good = (~any_missing) * (~invalid_coords) * (~snow_or_ice)
+    qflag[snow_or_ice] = 2
+    qflag[any_missing * ~all_missing] = 1
+    qflag[all_good] = 0
+
+    status[all_good] = 0
+    status[invalid_coords] = 1
+    status[tbs_out_of_range] = 2
+
+    return qflag, status
 
 
 def load_input_data_preprocessor(
@@ -112,6 +164,7 @@ def load_input_data_preprocessor(
         ancillary_config = determine_ancillary_config(data_pp)
     anc = load_ancillary_data(data_pp, ancillary_config, stack_dim=0)
 
+    qflag, status = calculate_quality_flag_and_pixel_status(sensor, tbs_full, data_pp)
 
     input_data = {
         "brightness_temperatures": tbs_full,
@@ -120,13 +173,14 @@ def load_input_data_preprocessor(
     }
 
     aux = {
-        "valid_input": (np.isfinite(tbs_full)).any(0),
+        "pixel_status": status,
+        "quality_flag": qflag,
         "scan_time": data_pp.scan_time.data,
         "longitude": data_pp.longitude.data,
         "latitude": data_pp.latitude.data,
         "total_column_water_vapor": data_pp.total_column_water_vapor.data,
         "two_meter_temperature": data_pp.two_meter_temperature.data,
-        "convective_fraction": data_pp.convective_precipitation.data,
+        "convective_precipitation": data_pp.convective_precipitation.data,
         "moisture_convergence": data_pp.moisture_convergence.data,
         "leaf_area_index": data_pp.leaf_area_index.data,
         "snow_depth": data_pp.snow_depth.data,
@@ -135,14 +189,15 @@ def load_input_data_preprocessor(
         "mountain_index": data_pp.mountain_type.data,
         "land_fraction": data_pp.land_fraction.data,
         "ice_fraction": data_pp.ice_fraction.data,
-        "elevation": data_pp.elevation.data
+        "elevation": data_pp.elevation.data,
+        "snow_mask": data_pp.snow_mask.data,
+        "preprocessor_file": file_pp
     }
     return input_data, aux
 
 
 def load_input_data_l1c(
         l1c_file: Path,
-        needs_ancillary: bool = True,
         ancillary_config: Optional[str] = None
 ) -> Dict[str, torch.Tensor]:
     """
@@ -156,27 +211,63 @@ def load_input_data_l1c(
         'earth_incidence_angles', and 'ancillary_data'.
     """
     sensor = L1CFile(l1c_file).sensor
-    if needs_ancillary:
+    try:
         with TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
             pp_path = tmp_path / l1c_file.with_suffix(".pp").name
             run_preprocessor(l1c_file, sensor, output_file=pp_path)
             pp_data = load_input_data_preprocessor(pp_path, ancillary_config=ancillary_config)
             return pp_data
+    except RuntimeError:
+        LOGGER.warning(
+            "Encountered and error running the preprocessor. Running retrieval without ancillary "
+            "data."
+        )
 
     l1c_data = L1CFile(l1c_file).to_xarray_dataset()
-    tbs = torch.tensor(
-        np.transpose(l1c_data.brightness_temperatures.data.astype(np.float32), (2, 0, 1))
-    )
+    tbs = np.transpose(l1c_data.brightness_temperatures.data.astype(np.float32), (2, 0, 1))
     tbs[tbs < 0] = np.nan
-    valid = torch.isfinite(tbs).any(0).numpy()
-    aux = {
-        "valid_input": valid,
-        "scan_time": l1c_data.scan_time.data,
-        "latitude": l1c_data.latitude.data,
-        "longitude": l1c_data.longitude.data,
+    tbs[tbs > 350.0] = np.nan
+
+    tbs_full = np.nan * np.zeros((15,) + tbs.shape[1:], dtype=np.float32)
+    tbs_full[sensor.gprof_channel_indices] = tbs
+    anc = np.nan * np.zeros((14,) + tbs.shape[1:])
+    eia = l1c_data.earth_incidence_angle
+    angs_full = np.nan * np.zeros_like(tbs_full)
+    if eia.ndim == 2:
+        angs_full[sensor.gprof_channel_indices] = eia
+    else:
+        angs_full[sensor.gprof_channel_indices] = eia[None]
+    inpt = {
+        "brightness_temperatures": tbs_full,
+        "ancillary_data": anc,
+        "earth_incidence_angles": angs_full
     }
-    return {"brightness_temperatures": tbs}, aux
+
+    qflag, status = calculate_quality_flag_and_pixel_status(sensor, tbs_full, data_pp)
+    missing = np.nan * np.zeros_like(tbs_full[0])
+    aux = {
+        "pixel_status": status,
+        "quality_flag": qflag,
+        "scan_time": data_pp.scan_time.data,
+        "longitude": data_pp.longitude.data,
+        "latitude": data_pp.latitude.data,
+        "total_column_water_vapor": missing,
+        "two_meter_temperature": missing,
+        "convective_precipitation": missing,
+        "moisture_convergence": missing,
+        "leaf_area_index": missing,
+        "snow_depth": missing,
+        "orographic_wind": missing,
+        "wind_speed_10m": missing,
+        "mountain_index": missing,
+        "land_fraction": missing,
+        "ice_fraction": missing,
+        "elevation": missing,
+        "snow_mask": missing,
+    }
+
+    return inpt, aux
 
 
 def load_input_data_training_1d(
@@ -233,9 +324,12 @@ def load_input_data_training_1d(
             "earth_incidence_angles": angs,
             "ancillary_data": anc,
         }
-        valid  = torch.isfinite(tbs).any(0).numpy()
+
+        qflag, status = calculate_quality_flag_and_pixel_status(sensor, tbs, data)
+
         aux = {
-            "valid_input": valid,
+            "pixel_status": status,
+            "quality_flag": qflag,
             "longitude": data.longitude.data,
             "latitude": data.latitude.data,
         }
@@ -308,10 +402,12 @@ def load_input_data_training_3d(
                     rng=rng
                 )
 
-        tbs = input_data["brightness_temperatures"].numpy()
-        valid = np.isfinite(tbs).any(0)
+        tbs_full = input_data["brightness_temperatures"]
+        qflag, status = calculate_quality_flag_and_pixel_status(sensor, tbs_full, scene)
+
         aux = {
-            "valid_input": valid,
+            "quality_flag": qflag,
+            "pixel_status": status,
             "longitude": targets.pop("longitude").numpy(),
             "latitude": targets.pop("latitude").numpy(),
         }
@@ -328,7 +424,7 @@ def load_input_data_training_3d(
 def load_input_data_collocations(
         collocation_file: Path,
         ancillary_config: str  = "NONE"
-) -> Dict[str, torch.Tensor]:
+) -> Dict[str, np.ndarray]:
     """
     Load retrieval input data from a SPEED collocation file.
 
@@ -346,8 +442,8 @@ def load_input_data_collocations(
 
         scene = scene.transpose("scan", "pixel", "channel", "channel_gprof", ...)
 
-        tbs = torch.tensor(np.transpose(scene.observations_gprof.data.astype(np.float32), (2, 0, 1)))
-        tbs_full = torch.nan * torch.zeros((15,) + tbs.shape[1:])
+        tbs = np.transpose(scene.observations_gprof.data.astype(np.float32), (2, 0, 1))
+        tbs_full = np.nan * np.zeros((15,) + tbs.shape[1:])
         tbs_full[sensor.gprof_channel_indices] = tbs
         tbs_full[tbs_full < 0] = np.nan
 
@@ -358,20 +454,21 @@ def load_input_data_collocations(
             eia = scene.earth_incidence_angle_gprof.data.astype(np.float32)
             angs_full[chan_inds] = eia[None]
         else:
-            angs_full[chan_inds] = torch.tensor(sensor.earth_incidence_angle[..., None, None], dtype=torch.float32)
+            angs_full[chan_inds] = sensor.earth_incidence_angle[..., None, None].astype(np.float32)
 
         # Ancillary data
         anc = load_ancillary_data(scene, ancillary_config, stack_dim=0)
-
-        valid = torch.isfinite(tbs_full).any(0)
 
         input_data = {
             "brightness_temperatures": tbs_full,
             "ancillary_data": anc,
             "earth_incidence_angles": angs_full
         }
+
+        qflag, status = calculate_quality_flag_and_pixel_status(sensor, tbs_full, scene)
         aux = {
-            "valid_input": valid,
+            "pixel_status": status,
+            "quality_flag": qflag,
             "longitude": scene.longitude.data,
             "latitude": scene.latitude.data
         }
@@ -412,8 +509,8 @@ class GPROFNNInputLoader:
             path: str | Path | List[str | Path],
             input_format: Optional[str] = None,
             config: str = "3d",
-            needs_ancillary: bool = True,
-            ancillary_config: Optional[str] = None
+            ancillary_config: str = "CLI",
+            output_format: str = "NETCDF"
     ):
 
         # Determine input files.
@@ -429,7 +526,6 @@ class GPROFNNInputLoader:
             else:
                 self.input_files = [path]
 
-        self.needs_ancillary = needs_ancillary
         config = config.lower()
         if not config in ['1d', '3d']:
             raise ValueError(
@@ -438,9 +534,8 @@ class GPROFNNInputLoader:
         self.config = config
 
         self.input_format = input_format
-        if ancillary_config is None:
-            ancillary_config = "CLI"
         self.ancillary_config = ancillary_config
+        self.output_format = output_format.upper()
 
 
     def __len__(self) -> int:
@@ -490,6 +585,7 @@ class GPROFNNInputLoader:
                 if tensor.ndim == 4 else tensor
                 for name, tensor in input_data.items()
             }
+        aux["output_format"] = self.output_format
 
         return input_data, aux
 
@@ -506,7 +602,8 @@ class GPROFNNInputLoader:
             self,
             results: Dict[str, torch.Tensor],
             aux: Dict[str, np.ndarray],
-            filename: str
+            filename: str,
+            output_path: Path
     ) -> Tuple[xr.Dataset, str]:
         """
         Combines retrieval results with auxiliary data into orbit-based retrieval
@@ -535,6 +632,10 @@ class GPROFNNInputLoader:
             dims = ("samples", "levels")
 
         output = xr.Dataset()
+
+        preprocessor_file = aux.pop("preprocessor_file", None)
+        output_format = aux.pop("output_format", "NETCDF")
+
         for name, data in aux.items():
             data = data.squeeze()
             if data.ndim > 2 and data.shape[-1] != 28:
@@ -547,13 +648,13 @@ class GPROFNNInputLoader:
             dims = ("scans", "pixels", "levels")
         else:
             dims = ("samples", "levels")
+
         for var, tensor in results.items():
 
             # Discard dummy dimensions.
             tensor = tensor.squeeze()
             if self.config.lower() == "1d":
                 tensor = tensor.reshape(shape + tensor.shape[1:])
-
 
             if var == "surface_precip_terciles":
                 if self.config == "3d":
@@ -563,12 +664,12 @@ class GPROFNNInputLoader:
                 else:
                     dims_v = ("scans", "pixels")
                 output["surface_precip_1st_tercile"] = (
-                    dims_v, tensor[..., 0].numpy()
+                    dims_v, np.maximum(tensor[..., 0].numpy(), 0.0)
                 )
                 output["surface_precip_1st_tercile"].encoding = {"dtype": "float32", "zlib": True}
                 output["surface_precip_2nd_tercile"] = (
                     dims_v,
-                    tensor[..., 1].numpy()
+                    np.maximum(tensor[..., 1].numpy(), 0.0)
                 )
                 output["surface_precip_2nd_tercile"].encoding = {"dtype": "float32", "zlib": True}
 
@@ -576,28 +677,44 @@ class GPROFNNInputLoader:
                 if self.config == "3d" and tensor.dim() > 2:
                     tensor = tensor.squeeze()
                     tensor = torch.permute(tensor, (1, 2, 0))
-                dims_v = dims[:tensor.dim()]
 
+                dims_v = dims[:tensor.dim()]
                 tensor = tensor.numpy()
-                if "valid_input" in aux:
-                    valid = aux["valid_input"].numpy()
-                    tensor[~valid] = -9999.9
+                if var != "latent_heating":
+                    tensor = np.maximum(tensor, 0.0)
 
                 output[var] = (dims_v, tensor)
                 # Use compressiong to keep file size reasonable.
                 output[var].encoding = {"dtype": "float32", "zlib": True}
 
 
-        # Quick and dirty way to transform 1C filename to 2A filename
-        output_filename = (
-            filename.replace("1C-R", "2A")
-            .replace("1C", "2A")
-            .replace("pp", "nc")
-            .replace("HDF5", "nc")
-        )
+        qflag = aux["quality_flag"]
+        for name in ALL_OUTPUTS:
+            output[name].data[qflag < 0] = np.nan
 
-        # Return outputs as xr.Dataset and filename to use to save data.
-        return output, output_filename
+
+        for var in output:
+            var_data = output[var].data
+            if np.issubdtype(var_data.dtype, np.floating):
+                output[var].data = np.nan_to_num(output[var].data, nan=-9999.9)
+            else:
+                output[var].data = np.nan_to_num(output[var].data, nan=-99)
+
+        if output_format.upper() == "NETCDF":
+            # Quick and dirty way to transform 1C filename to 2A filename
+            output_filename = (
+                filename.replace("1C-R", "2A")
+                .replace("1C", "2A")
+                .replace("pp", "nc")
+                .replace("HDF5", "nc")
+            )
+
+            # Return outputs as xr.Dataset and filename to use to save data.
+            return output, output_filename
+
+
+        # Output format is binary
+        return preprocessor_file.write_retrieval_results(output_path, output)
 
 
 class GPROFNNHRInputLoader:
@@ -857,6 +974,15 @@ class GPROFNNHRInputLoader:
     )
 )
 @click.option(
+    "--output_format",
+    type=str,
+    default="netcdf",
+    help=(
+        "The format to use to store the retrieval results. Shoule be 'netcdf' for NetCDF4 format"
+        " (default) or 'binary' for GPROF binary format."
+    )
+)
+@click.option(
     "--n_input_loaders",
     type=int,
     default=1,
@@ -871,6 +997,7 @@ def cli(
         device: str = "cpu",
         dtype: str = "float32",
         ancillary_config: Optional[str] = None,
+        output_format: str = "NETCDF",
         n_input_loaders: int = 1,
 ) -> None:
     """
@@ -902,7 +1029,8 @@ def cli(
         input_loader = GPROFNNInputLoader(
             input_path,
             config=config,
-            ancillary_config=ancillary_config
+            ancillary_config=ancillary_config,
+            output_format=output_format
         )
 
     if output_path is None:

@@ -390,7 +390,7 @@ class PreprocessorFile:
         dataset.attrs["frequencies"] = self.orbit_header["frequencies"][0]
         return dataset
 
-    def write_retrieval_results(self, path, results, ancillary_data=None, suffix=""):
+    def write_retrieval_results(self, path, results, suffix=""):
         """
         Write retrieval result to GPROF binary format.
 
@@ -398,7 +398,6 @@ class PreprocessorFile:
             path: The folder to which to write the result. The filename
                   itself follows the GPORF naming scheme.
             results: Dictionary containing the retrieval results.
-            ancillary_data: The folder containing the profile clusters.
             suffix: Suffix to append to algorithm name in filename.
 
         Returns:
@@ -417,28 +416,13 @@ class PreprocessorFile:
             "to file '%s'.", str(filename)
         )
 
-        if ancillary_data is not None:
-            profiles_raining = ProfileClusters(ancillary_data, True)
-            profiles_non_raining = ProfileClusters(ancillary_data, False)
-        else:
-            profiles_raining = None
-            profiles_non_raining = None
-
         n_scans = results.scans.size
         with open(filename, "wb") as file:
             self._write_retrieval_orbit_header(file)
-            self._write_retrieval_profile_info(
-                file, profiles_raining, profiles_non_raining
-            )
+            self._write_retrieval_profile_info(file)
             for i in range(n_scans):
                 self._write_retrieval_scan_header(file, i)
-                self._write_retrieval_scan(
-                    file,
-                    i,
-                    results,
-                    profiles_raining=profiles_raining,
-                    profiles_non_raining=profiles_non_raining,
-                )
+                self._write_retrieval_scan(file, i, results)
         return filename
 
     def _get_retrieval_filename(self, suffix=""):
@@ -501,7 +485,6 @@ class PreprocessorFile:
     def _write_retrieval_profile_info(
         self, file, clusters_raining=None, clusters_non_raining=None
     ):
-
         """
         Write the retrieval profile info to an opened binary file.
 
@@ -509,43 +492,9 @@ class PreprocessorFile:
             file: Handle to the binary file to write the data to.
         """
         profile_info = np.recarray(1, dtype=retrieval.PROFILE_INFO_TYPES)
-
-        profile_info["n_species"] = N_SPECIES
-        profile_info["n_temps"] = N_TEMPERATURES
-        profile_info["n_layers"] = N_LAYERS
-        profile_info["n_profiles"] = N_PROFILES
-        profile_info["species_description"][0][0] = "Rain water content  ".encode()
-        profile_info["species_description"][0][1] = "Cloud water content ".encode()
-        profile_info["species_description"][0][2] = "Snow water content  ".encode()
-        profile_info["species_description"][0][3] = "Graupel/Hail content".encode()
-        profile_info["species_description"][0][4] = "Latent heating      ".encode()
         profile_info["height_top_layers"] = np.concatenate(
             [np.linspace(0.5, 10, 20), np.linspace(11, 18, 8)]
         )
-        profile_info["temperature"] = np.linspace(270.0, 303.0, 12)
-
-        if (clusters_raining is not None) and (clusters_non_raining is not None):
-            profiles_combined = []
-            for i, s in enumerate(
-                [
-                    "rain_water_content",
-                    "cloud_water_content",
-                    "snow_water_content",
-                    "graupel_water_content",
-                    "latent_heat",
-                ]
-            ):
-                profiles = [
-                    clusters_raining.get_profile_data(s),
-                    clusters_non_raining.get_profile_data(s),
-                ]
-                profiles = np.concatenate(profiles, axis=-1)
-                profiles_combined.append(profiles)
-
-            profiles_combined = np.stack(profiles_combined)
-            profile_info["profiles"][0] = profiles_combined.ravel(order="f")
-        else:
-            profile_info["profiles"] = MISSING
         profile_info.tofile(file)
 
     def _write_retrieval_scan_header(self, file, scan_index):
@@ -576,8 +525,6 @@ class PreprocessorFile:
         file,
         scan_index,
         retrieval_data,
-        profiles_raining=None,
-        profiles_non_raining=None,
     ):
         """
         Write retrieval data from a full scan to a binary stream.
@@ -588,10 +535,6 @@ class PreprocessorFile:
             scan_index: The index of the scan to write.
             retrieval_data: The ``xarray.Dataset`` containing the retrieval
                 results.
-            profiles_raining: The mean profiles to use to compress the
-                retrieval results for raining pixels.
-            profiles_non_raining: The mean profiles to use to compress the
-                retrieval results for non-raining pixels.
         """
         data = retrieval_data[{"scans": scan_index}]
         scan_data = self.get_scan(scan_index)
@@ -599,55 +542,35 @@ class PreprocessorFile:
         out_data = np.recarray(self.n_pixels, dtype=retrieval.DATA_RECORD_TYPES)
 
         # Pixel status
-        ps = out_data["pixel_status"]
-        ps[:] = 0
-        indices = (
-            (scan_data["latitude"] < LAT_MIN)
-            + (scan_data["latitude"] > LAT_MAX)
-            + (scan_data["longitude"] < LON_MIN)
-            + (scan_data["longitude"] > LON_MAX)
-        )
-        ps[indices] = 1
-        indices = np.any(
-            (
-                (scan_data["brightness_temperatures"] < TB_MIN)
-                + (scan_data["brightness_temperatures"] > TB_MAX)
-            ),
-            axis=-1,
-        )
-        ps[indices] = 2
-        indices = (
-            (scan_data["two_meter_temperature"] < 0)
-            + (scan_data["total_column_water_vapor"] < 0)
-            + (scan_data["surface_type"] < 0)
-            + (scan_data["airmass_type"] < 0)
-        )
-        ps[indices] = 4
-
+        out_data["pixel_status"] = data["pixel_status"]
+        out_data["quality_flag"] = data["quality_flag"]
         out_data["l1c_quality_flag"] = scan_data["quality_flag"]
-        out_data["surface_type"] = scan_data["surface_type"]
 
-        tcwv = np.round(scan_data["total_column_water_vapor"]).astype(int)
-        tcwv = np.clip(tcwv, TCWV_MIN, TCWV_MAX)
-        out_data["total_column_water_vapor"] = tcwv
-        t2m = np.round(scan_data["two_meter_temperature"]).astype(int)
-        t2m = np.clip(t2m, T2M_MIN, T2M_MAX)
-        out_data["two_meter_temperature"] = t2m
+        carry_over = [
+            "total_column_water_vapor", "two_meter_temperature", "convective_precipitation", "moisture_convergence",
+            "snow_depth", "orographic_wind", "10m_wind", "mountain_type", "land_fraction", "ice_fraction", "elevation",
+            "snow_mask", "sunglint_angle"
+        ]
+        lai = scan_data["leaf_area_index"]
+        if np.any(np.isfinite(lai)):
+            carry_over.insert(4, "leaf_area_index")
+        else:
+            carry_over.insert(4, "leaf_area_index_climatology")
+        for name in carry_over:
+            out_data[name] = scan_data[name]
 
-        out_data["pop"] = data["pop"].astype(int)
-        out_data["airmass_type"] = scan_data["airmass_type"]
-        out_data["sunglint_angle"] = scan_data["sunglint_angle"]
-        out_data["precip_flag"] = data["precip_flag"]
+        out_data["probability_of_precipitation"] = data.probability_of_precipitation.data
+        out_data["precipitation_flag"] = 0.5 < data.probability_of_precipitation.data
         out_data["latitude"] = scan_data["latitude"]
         out_data["longitude"] = scan_data["longitude"]
 
         out_data["surface_precip"] = data["surface_precip"]
 
         wet_bulb_temperature = scan_data["wet_bulb_temperature"]
-        surface_type = scan_data["surface_type"]
+        land_fraction = scan_data["land_fraction"]
         surface_precip = data["surface_precip"]
         frozen_precip = calculate_frozen_precip(
-            wet_bulb_temperature, surface_type, surface_precip.data
+            wet_bulb_temperature, land_fraction, surface_precip.data
         )
         frozen_precip[surface_precip < 0] = MISSING
         out_data["frozen_precip"] = frozen_precip
@@ -656,49 +579,13 @@ class PreprocessorFile:
         out_data["cloud_water_path"] = data["cloud_water_path"]
         out_data["ice_water_path"] = data["ice_water_path"]
         out_data["most_likely_precip"] = data["most_likely_precip"]
-        out_data["precip_1st_tercile"] = data["precip_1st_tercile"]
-        out_data["precip_2nd_tercile"] = data["precip_2nd_tercile"]
-        if "pixel_status" in data.variables:
-            out_data["pixel_status"] = data["pixel_status"]
-        if "quality_flag" in data.variables:
-            out_data["quality_flag"] = data["quality_flag"]
+        out_data["surface_precip_1st_tercile"] = data["surface_precip_1st_tercile"]
+        out_data["surface_precip_2nd_tercile"] = data["surface_precip_2nd_tercile"]
+        out_data["rain_water_content"] = data["rain_water_content"]
+        out_data["cloud_water_content"] = data["cloud_water_content"]
+        out_data["snow_water_content"] = data["snow_water_content"]
+        out_data["latent_heating"] = data["latent_heating"]
 
-        if profiles_raining is not None and profiles_non_raining is not None:
-            t2m = scan_data["two_meter_temperature"]
-            t2m_indices = profiles_raining.get_t2m_indices(t2m)
-            out_data["profile_t2m_index"] = t2m_indices + 1
-
-            profile_indices = np.zeros((self.n_pixels, N_SPECIES), dtype=np.float32)
-            profile_scales = np.zeros((self.n_pixels, N_SPECIES), dtype=np.float32)
-            for i, s in enumerate(
-                [
-                    "rain_water_content",
-                    "cloud_water_content",
-                    "snow_water_content",
-                    "latent_heat",
-                ]
-            ):
-                invalid = np.all(data[s].data < -500, axis=-1)
-                scales_r, indices_r = profiles_raining.get_scales_and_indices(
-                    s, t2m, data[s].data
-                )
-                scales_nr, indices_nr = profiles_non_raining.get_scales_and_indices(
-                    s, t2m, data[s].data
-                )
-                scales = np.where(surface_precip > 0.01, scales_r, scales_nr)
-                indices = np.where(surface_precip > 0.01, indices_r, indices_nr + 40)
-
-                profile_indices[:, i] = indices + 1
-                profile_indices[invalid, i] = 0
-                profile_scales[:, i] = scales
-                profile_scales[invalid, i] = 1.0
-            out_data["profile_index"] = profile_indices
-            out_data["profile_scale"] = profile_scales
-
-        else:
-            out_data["profile_t2m_index"] = 0
-            out_data["profile_scale"] = 1.0
-            out_data["profile_index"] = 0
         out_data.tofile(file)
 
 
@@ -815,14 +702,14 @@ def run_preprocessor(
 ###############################################################################
 
 
-def calculate_frozen_precip(wet_bulb_temperature, surface_type, surface_precip):
+def calculate_frozen_precip(wet_bulb_temperature, land_fraction, surface_precip):
     """
     Calculate amount of frozen precipitation based on wet-bulb
     temperature lookup table.
 
     Args:
         wet_bulb_temperature: The wet bulb temperature in K.
-        surface_type: The surface type for each observation.
+        land_fraction: The surface type for each observation.
         surface_precip: The total amount of surface precipitation.
 
     Returns:
@@ -835,8 +722,8 @@ def calculate_frozen_precip(wet_bulb_temperature, surface_type, surface_precip):
     f_ocean = TWB_INTERP_OCEAN(t_wb)
     f_land = TWB_INTERP_LAND(t_wb)
 
-    ocean_pixels = surface_type == 1
-    frac = 1.0 - np.where(ocean_pixels, f_ocean, f_land) / 100.0
+    land_pixels = 100.0 <= land_fraction
+    frac = 1.0 - np.where(land_pixels, f_land, f_ocean) / 100.0
     return frac * surface_precip
 
 

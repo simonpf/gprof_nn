@@ -2,177 +2,269 @@
 gprof_nn.data.finetuning
 ========================
 
-Implements functionality to extract finetune datasets for the GPROF-NN
-retrievals.
+Implements functionality to extract finetune datasets for the GPROF-NN retrievals.
 """
-from datetime import datetime
+from calendar import monthrange
+from concurrent.futures import ProcessPoolExecutor
+from datetime import datetime, timedelta
 import logging
+import os
 from pathlib import Path
-from typing import Optional
+from tempfile import TemporaryDirectory
+from typing import List, Optional
 
 import click
+from filelock import FileLock
 import numpy as np
+import torch
+from torch import nn
 import xarray as xr
 
+from pansat import Granule, TimeRange
+from pansat.catalog import Index
+from pansat.catalog.index import find_matches
+from pansat.utils import resample_data
+
+from pyresample.geometry import SwathDefinition
+
+from pytorch_retrieve import load_model
+from pytorch_retrieve.inference import run_inference
+
 from gprof_nn.utils import to_datetime64
+from gprof_nn import sensors
+from gprof_nn.definitions import ALL_TARGETS
+from gprof_nn.retrieval import GPROFNNInputLoader
 from gprof_nn.definitions import ANCILLARY_VARIABLES
 from gprof_nn.data.utils import (
+    PANSAT_PRODUCTS,
+    RADIUS_OF_INFLUENCE,
+    extract_scans,
+    extract_scenes,
+    run_preprocessor,
     write_training_samples_1d,
-    write_training_samples_3d
+    write_training_samples_3d,
+
 )
 
 
 LOGGER = logging.getLogger(__name__)
 
 
-def extract_finetuning_samples(
-        collocation_path: Path,
-        output_path_1d: Path,
-        output_path_3d: Path,
-        start_time: Optional[np.datetime64] = None,
-        end_time: Optional[np.datetime64] = None,
-) -> None:
+def run_retrieval(
+        gpm_granule: Granule,
+        retrieval_model: nn.Module,
+        device: str = "cuda:0"
+) -> xr.Dataset:
     """
-    Extract training samples for fine-tuning the GPROF-NN retrievals.
+    Run retrieval on a GPM granule.
 
     Args:
-        collocation_path: A path object pointing to the directory containing the extracted
-            collocations.
-        output_path_1d: A path object pointing to the path to which to write the training
-            samples for the GPROF-NN 1D retrieval.
-        output_path_3d: A path object pointing to the path to which to write the training
-            samples for the GPROF-NN 3D retrieval.
-        start_time: An optional start time to limit the collocations files considered.
-        end_time: An optional end time to limit the collocation files considered.
-    """
-    collocation_files = sorted(list(Path(collocation_path).glob("*.nc")))
-    valid_files = []
-    for collocation_file in collocation_files:
-        date_str = collocation_file.stem.split("_")[-1]
-        date = to_datetime64(
-            datetime.strptime(date_str, "%Y%m%d%H%M%S")
-        )
-        if start_time is not None and date < start_time:
-            continue
-        if end_time is not None and date > start_time:
-            continue
-        valid_files.append(collocation_file)
+        gpm_granule: A pansat granule identifying a subset of an orbit
+            of GPM L1C files.
+        retrieval_model: The GPROF-NN retrieval model to run the retrieval on.
+        device: The name of the device to run the retrieval on.
 
-    LOGGER.info(
-        "Found %s collocation files in range %s - %s.",
-        len(valid_files),
+    Return:
+        An xarray.Dataset containing the results from the preprocessor.
+    """
+    from gprof_nn.data.l1c import L1CFile
+    old_dir = os.getcwd()
+
+    with TemporaryDirectory() as tmp:
+        tmp = Path(tmp)
+        l1c_file = extract_scans(gpm_granule, tmp, min_scans=256)
+        input_loader = GPROFNNInputLoader([l1c_file])
+        lock = FileLock(f"{device}.lock")
+        with lock:
+            results = run_inference(
+                retrieval_model,
+                input_loader,
+                retrieval_model.inference_config,
+                device=device,
+            )
+            results = results[0]
+    return results
+
+
+def extract_finetuning_samples(
+        reference_sensor: sensors.Sensor,
+        retrieval_model: nn.Module,
+        target_sensor: sensors.Sensor,
+        year: int,
+        month: int,
+        day: int,
+        output_path_1d: Path,
+        output_path_3d: Path,
+) -> None:
+    """
+    Extract training samples to fine-tune GPROF-NN retrievals.
+
+    Args:
+        reference_sensor: The sensor to use to generate the retrieval reference data from.
+        retrieval_model: The retrieval model to use.
+        year: Integer defining the year.
+        month: Integer defining the month.
+        day: Integer defining the day.
+        output_path_1d: The path to write the 1D training data to.
+        output_path_3d: The path to write the 3D training data to.
+    """
+    ref_prods = PANSAT_PRODUCTS[reference_sensor.name.lower()]
+    targ_prods = PANSAT_PRODUCTS[target_sensor.name.lower()]
+
+    retrieval_model = load_model(retrieval_model)
+
+    start_time = datetime(year, month, day)
+    end_time = start_time + timedelta(hours=23, minutes=59)
+    time_range = TimeRange(
         start_time,
         end_time
     )
+    for ref_prod in ref_prods:
+        for targ_prod in targ_prods:
+            LOGGER.info("Getting reference input files.")
+            ref_recs = ref_prod.get(time_range)
+            ref_index = Index.index(ref_prod, ref_recs)
+            LOGGER.info("Getting target input files.")
+            targ_recs = targ_prod.get(time_range)
+            targ_index = Index.index(targ_prod, targ_recs)
+            matches = find_matches(targ_index, ref_index, np.timedelta64(15, "m"))
 
-    input_variables = (
-        ANCILLARY_VARIABLES +
-        [
-            "tbs_mw_gprof",
-            "earth_incidence_angle",
-            "surface_type",
-            "airlifting_index",
-            "mountain_type",
-            "scan_time",
-            "latitude",
-            "longitude"
-        ]
-    )
-
-    reference_variables = ["surface_precip"]
-
-
-    for path in valid_files:
-
-        with xr.open_dataset(path, group="input_data") as data:
-            input_data = data[input_variables].rename(
-                tbs_mw_gprof="brightness_temperatures"
+            LOGGER.info(
+                "Found %s collocations for reference product %s and target product %s.",
+                len(matches), ref_prod, targ_prod
             )
 
-        with xr.open_dataset(path, group="reference_data") as data:
-            ref_data = data[reference_variables].rename(
-                surface_precip="surface_precip_combined"
-            ).drop(["latitude", "longitude"])
+            for targ_granule, input_granules in matches:
+                retrieval_results = [run_retrieval(input_granule, retrieval_model) for input_granule in input_granules]
+                retrieval_results = xr.concat(retrieval_results, dim="scans")
+                retrieval_results = retrieval_results.rename(latent_heating="latent_heat")[
+                    ALL_TARGETS + ["scan_time", "longitude", "latitude"]
+                ]
+                input_data = run_preprocessor(targ_granule)
+                swath = SwathDefinition(lons=input_data.longitude.data, lats=input_data.latitude.data)
+                retrieval_results = resample_data(
+                    retrieval_results,
+                    swath,
+                    new_dims=("scans", "pixels"),
+                    radius_of_influence=RADIUS_OF_INFLUENCE[reference_sensor.name.lower()]
+                )
+                scan_time = retrieval_results.scan_time
+                input_data = xr.merge([input_data, retrieval_results.drop_vars(["scan_time"])])
 
-            for ref_var in reference_variables:
-                var_data = ref_data[ref_var].data
-                var_data[var_data < -1_000] = np.nan
+                time_diff = retrieval_results.scan_time - input_data.scan_time
+                valid = (np.abs(time_diff) < np.timedelta64(15, "m")) * np.isfinite(input_data.surface_precip)
+                valid = valid.data.astype(np.float32)
+                valid[valid < 1.0] = np.nan
+                input_data["valid"] = (("scans", "pixels"), valid)
+
+                ref_name = reference_sensor.name.lower()
+                targ_name = target_sensor.name.lower()
+                prefix = f"{targ_name}_{ref_name}"
+
+                if output_path_3d is not None:
+                    write_training_samples_3d(
+                        output_path_3d,
+                        prefix,
+                        input_data,
+                        n_scans=128,
+                        n_pixels=64,
+                        min_valid=10,
+                        reference_var="valid"
+                    )
+                if output_path_1d is not None:
+                    write_training_samples_1d(
+                        output_path_1d,
+                        prefix,
+                        input_data,
+                        reference_var="valid"
+                    )
 
 
-        data = xr.merge(
-            [input_data, ref_data]
-        )
-        data.attrs["source"] = "collocs"
-
-        write_training_samples_1d(
-            output_path_1d,
-            "cmb",
-            data,
-            reference_var="surface_precip_combined"
-
-        )
-        write_training_samples_3d(
-            output_path_3d,
-            "cmb",
-            data,
-            n_scans=128,
-            n_pixels=64,
-            overlapping=True,
-            reference_var="surface_precip_combined"
-        )
-
-
-@click.argument("collocation_path", type=str)
+@click.argument("reference_sensor", type=str)
+@click.argument("retrieval_model", type=str)
+@click.argument("target_sensor", type=str)
+@click.argument("year", type=int)
+@click.argument("month", type=int)
+@click.argument("days", type=int, nargs=-1)
 @click.argument("output_path_1d", type=str)
 @click.argument("output_path_3d", type=str)
-@click.option("--start_time", type=str, default=None)
-@click.option("--end_time", type=str, default=None)
+@click.option("--n_processes", type=int, default=1)
 def cli(
-        collocation_path: str,
+        reference_sensor: str,
+        retrieval_model: str,
+        target_sensor: str,
+        year: int,
+        month: int,
+        days: List[int],
         output_path_1d: str,
         output_path_3d: str,
-        start_time: Optional[str] = None,
-        end_time: Optional[str] = None
+        n_processes: int = 1
 ) -> None:
     """
-    Extract training samples for fine-tuning the GPROF-NN retrievals.
-
-    Args:
-        collocation_path: A path object pointing to the directory containing the extracted
-            collocations.
-        output_path_1d: A path object pointing to the path to which to write the training
-            samples for the GPROF-NN 1D retrieval.
-        output_path_3d: A path object pointing to the path to which to write the training
-            samples for the GPROF-NN 3D retrieval.
-        start_time: An optional start time to limit the collocations files considered.
-        end_time: An optional end time to limit the collocation files considered.
+    Extract samples to fine-tune GPROF retrievals for TARGET_SENSOR using retrieval from
+    REFERENCE_SENSOR.
     """
-    collocation_path = Path(collocation_path)
+    reference_sensor = getattr(sensors, reference_sensor.upper())
+    target_sensor = getattr(sensors, target_sensor.upper())
+
+    retrieval_model = Path(retrieval_model)
+    if not retrieval_model.exists():
+        LOGGER.error(
+            "'retrieval model' argument must point to an existing retrieval model."
+        )
+        return 1
+
+    if len(days) == 0:
+        _, n_days = monthrange(year, month)
+        days = list(range(1, n_days + 1))
+
     output_path_1d = Path(output_path_1d)
+    if not output_path_1d.exists():
+        LOGGER.error(
+            "'output_path_1d' must point to an existing directory."
+        )
+        return 1
+
     output_path_3d = Path(output_path_3d)
+    if not output_path_3d.exists():
+        LOGGER.error(
+            "'output_path_1d' must point to an existing directory."
+        )
+        return 1
 
-    if start_time is not None:
-        try:
-            start_time = np.datetime64(start_time)
-        except RuntimeError:
-            LOGGER.error(
-                "Couldn't parse start time '%s' as np.datetime64 value."
+    if n_processes <= 1:
+        for day in days:
+            extract_finetuning_samples(
+                reference_sensor,
+                retrieval_model,
+                target_sensor,
+                year,
+                month,
+                day,
+                output_path_1d,
+                output_path_3d,
             )
-            return 1
-
-    if end_time is not None:
-        try:
-            end_time = np.datetime64(end_time)
-        except RuntimeError:
-            LOGGER.error(
-                "Couldn't parse end time '%s' as np.datetime64 value."
+    else:
+        pool = ProcessPoolExecutor(max_workers=n_processes)
+        tasks = []
+        for day in days:
+            task = pool.submit(
+                extract_finetuning_samples,
+                reference_sensor,
+                retrieval_model,
+                target_sensor,
+                year,
+                month,
+                day,
+                output_path_1d,
+                output_path_3d
             )
-            return 1
-
-    extract_finetuning_samples(
-        collocation_path,
-        output_path_1d,
-        output_path_3d,
-        start_time=start_time,
-        end_time=end_time
-    )
+            tasks.append(task)
+        for day, task in zip(days, tasks):
+            try:
+                task.result()
+            except Exception:
+                LOGGER.exception(
+                    "Encountered the following error when processing %s/%s/%s.",
+                    year, month, day
+                )

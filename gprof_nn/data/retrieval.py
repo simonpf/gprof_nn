@@ -64,18 +64,7 @@ ORBIT_HEADER_TYPES = np.dtype(
     ]
 )
 
-PROFILE_INFO_TYPES = np.dtype(
-    [
-        ("n_species", "i1"),
-        ("n_temps", "i1"),
-        ("n_layers", "i1"),
-        ("n_profiles", "i1"),
-        ("species_description", f"{N_SPECIES}a20"),
-        ("height_top_layers", f"{N_LAYERS}f4"),
-        ("temperature", f"{N_TEMPERATURES}f4"),
-        ("profiles", f"{N_SPECIES * N_TEMPERATURES * N_LAYERS * N_PROFILES}f4"),
-    ]
-)
+PROFILE_INFO_TYPES = np.dtype([("height_top_layers", f"{N_LAYERS}f4")])
 
 SCAN_HEADER_TYPES = np.dtype(
     [
@@ -92,13 +81,22 @@ DATA_RECORD_TYPES = np.dtype(
         ("pixel_status", "i1"),
         ("quality_flag", "i1"),
         ("l1c_quality_flag", "i1"),
-        ("surface_type", "i1"),
-        ("total_column_water_vapor", "i1"),
-        ("pop", "i1"),
-        ("two_meter_temperature", "i2"),
-        ("airmass_type", "i2"),
+        ("total_column_water_vapor", "f4"),
+        ("two_meter_temperature", "f4"),
+        ("convective_precipitation", "f4"),
+        ("moisture_convergence", "f4"),
+        ("leaf_area_index", "f4"),
+        ("snow_depth", "f4"),
+        ("orographic_wind", "f4"),
+        ("10m_wind", "f4"),
+        ("mountain_type", "i2"),
+        ("land_fraction", "i2"),
+        ("ice_fraction", "i2"),
+        ("elevation", "i2"),
+        ("snow_mask", "i1"),
         ("sunglint_angle", "i1"),
-        ("precip_flag", "i1"),
+        ("probability_of_precipitation", "i1"),
+        ("precipitation_flag", "i1"),
         ("latitude", "f4"),
         ("longitude", "f4"),
         ("surface_precip", "f4"),
@@ -107,74 +105,13 @@ DATA_RECORD_TYPES = np.dtype(
         ("rain_water_path", "f4"),
         ("cloud_water_path", "f4"),
         ("ice_water_path", "f4"),
+        ("rain_water_content", f"{N_LAYERS}f4"),
+        ("cloud_water_content", f"{N_LAYERS}f4"),
+        ("snow_water_content", f"{N_LAYERS}f4"),
+        ("latent_heating", f"{N_LAYERS}f4"),
         ("most_likely_precip", "f4"),
-        ("precip_1st_tercile", "f4"),
-        ("precip_2nd_tercile", "f4"),
-        ("profile_t2m_index", "i2"),
-        ("profile_index", f"{N_SPECIES}i2"),
-        ("profile_scale", f"{N_SPECIES}f4"),
-    ]
-)
-
-DATA_RECORD_TYPES_PROFILES = np.dtype(
-    [
-        ("pixel_status", "i1"),
-        ("quality_flag", "i1"),
-        ("l1c_quality_flag", "i1"),
-        ("surface_type", "i1"),
-        ("total_column_water_vapor", "i1"),
-        ("pop", "i1"),
-        ("two_meter_temperature", "i2"),
-        ("airmass_type", "i2"),
-        ("sunglint_angle", "i1"),
-        ("precip_flag", "i1"),
-        ("latitude", "f4"),
-        ("longitude", "f4"),
-        ("surface_precip", "f4"),
-        ("frozen_precip", "f4"),
-        ("convective_precip", "f4"),
-        ("rain_water_path", "f4"),
-        ("cloud_water_path", "f4"),
-        ("ice_water_path", "f4"),
-        ("most_likely_precip", "f4"),
-        ("precip_1st_tercile", "f4"),
-        ("precip_2nd_tercile", "f4"),
-        ("profile_t2m_index", "i2"),
-        ("profile_index", f"{N_SPECIES}i2"),
-        ("profile_scale", f"{N_SPECIES}f4"),
-        ("profiles", f"{4 * N_LAYERS}f4"),
-    ]
-)
-
-DATA_RECORD_TYPES_SENSITIVITY = np.dtype(
-    [
-        ("pixel_status", "i1"),
-        ("quality_flag", "i1"),
-        ("l1c_quality_flag", "i1"),
-        ("surface_type", "i1"),
-        ("total_column_water_vapor", "i1"),
-        ("pop", "i1"),
-        ("two_meter_temperature", "i2"),
-        ("airmass_type", "i2"),
-        ("sun_glint_angle", "i1"),
-        ("precip_flag", "i1"),
-        ("latitude", "f4"),
-        ("longitude", "f4"),
-        ("surface_precip", "f4"),
-        ("surface_precip_1", "f4"),
-        ("surface_precip_2", "f4"),
-        ("dsurface_precip_dy", "15f4"),
-        ("frozen_precip", "f4"),
-        ("convective_precip", "f4"),
-        ("rain_water_path", "f4"),
-        ("cloud_water_path", "f4"),
-        ("ice_water_path", "f4"),
-        ("most_likely_precip", "f4"),
-        ("precip_1st_tercile", "f4"),
-        ("precip_2nd_tercile", "f4"),
-        ("profile_t2m_index", "i2"),
-        ("profile_index", f"{N_SPECIES}i2"),
-        ("profile_scale", f"{N_SPECIES}f4"),
+        ("surface_precip_1st_tercile", "f4"),
+        ("surface_precip_2nd_tercile", "f4"),
     ]
 )
 
@@ -221,12 +158,7 @@ class RetrievalFile:
         self.scan_indices = np.random.permutation(np.arange(self.n_scans))
         self.pixel_indices = np.random.permutation(np.arange(self.n_pixels))
 
-        if has_sensitivity:
-            self.data_record_types = DATA_RECORD_TYPES_SENSITIVITY
-        elif has_profiles:
-            self.data_record_types = DATA_RECORD_TYPES_PROFILES
-        else:
-            self.data_record_types = DATA_RECORD_TYPES
+        self.data_record_types = DATA_RECORD_TYPES
 
     @property
     def satellite(self):
