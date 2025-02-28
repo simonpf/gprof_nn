@@ -1264,6 +1264,15 @@ def load_training_data_3d_xtrack_sim(
     anc = load_ancillary_data(scene, configuration=cfg, stack_dim=0)
     anc[..., invalid] = torch.nan
 
+    if augment:
+        if 0.9 < rng.random():
+            n_scans = rng.integers(1, 40)
+            scan_start = rng.integers(0, 128 - n_scans)
+            scan_end = scan_start + n_scans
+            tbs_full[sensor.gprof_channel_indices, scan_start:scan_end] = torch.nan
+            angs_full[sensor.gprof_channel_indices, scan_start:scan_end] = torch.nan
+            anc[:] = torch.nan
+
     x = {
         "brightness_temperatures": tbs_full,
         "earth_incidence_angles": angs_full,
