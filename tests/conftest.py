@@ -8,6 +8,7 @@ from typing import Any, Dict, List
 
 import pytest
 
+from pansat import TimeRange
 import numpy as np
 from pytorch_retrieve.utils import (
     read_model_config,
@@ -25,7 +26,7 @@ import xarray as xr
 from gprof_nn import sensors
 from gprof_nn import training
 from gprof_nn.data.preprocessor import run_preprocessor
-from gprof_nn.data import sim, mrms, era5, l1c, cloudsat, combined
+from gprof_nn.data import sim, mrms, era5, l1c, cloudsat, combined, pretraining
 from gprof_nn.training import load_inference_config
 
 
@@ -52,6 +53,7 @@ HAS_TEST_DATA = "GPROF_NN_TEST_DATA" in os.environ
 NEEDS_TEST_DATA = pytest.mark.skipif(
     not HAS_TEST_DATA, reason="Test data not available."
 )
+
 
 TEST_DATA_PATH = Path(__file__).parent / "test_data"
 TEST_DATA_PATH.mkdir(exist_ok=True)
@@ -123,7 +125,7 @@ def training_files_1d_gmi_sim(
         sim_collocations_gmi: xr.Dataset
 ) -> List[Path]:
     """
-    Provides GPROF-NN 3D training data for gmi.
+    Provides GPROF-NN 1D training data for gmi.
     """
     output_path = tmp_path_factory.mktemp("1d")
     sim.write_training_samples_1d(output_path, "sim", sim_collocations_gmi)
@@ -260,7 +262,7 @@ def training_files_1d_atms_sim(
         sim_collocations_atms: xr.Dataset
 ) -> List[Path]:
     """
-    Provides GPROF-NN 3D training data for ATMS.
+    Provides GPROF-NN 1D training data for ATMS.
     """
     output_path = tmp_path_factory.mktemp("1d")
     sim.write_training_samples_1d(output_path, "sim", sim_collocations_atms)
@@ -437,7 +439,7 @@ def training_files_1d_amsr2_sim(
         sim_collocations_amsr2: xr.Dataset
 ) -> List[Path]:
     """
-    Provides GPROF-NN 3D training data for AMSR2.
+    Provides GPROF-NN 1D training data for AMSR2.
     """
     output_path = tmp_path_factory.mktemp("1d")
     sim.write_training_samples_1d(output_path, "sim", sim_collocations_amsr2)
@@ -628,3 +630,44 @@ def gprof_nn_3d(tmpdir_factory) -> Path:
     )
     model.inference_config = inference_config
     return model
+
+
+@pytest.fixture(scope="session")
+def satformer_data_gmi_mhs() -> Path:
+    """
+    Provides Satformer training data for translating GMI to MHS observations.
+    """
+    output_path = TEST_DATA_PATH / "satformer" / "training_data"
+    output_path.mkdir(exist_ok=True, parents=True)
+    start_time = end_time = np.datetime64("2020-07-06T22:25:11")
+    files = sorted(list(output_path.glob("gmi_mhs*.nc")))
+    if len(files) == 0:
+        pretraining.extract_samples(
+            sensors.GMI,
+            sensors.MHS,
+            start_time,
+            end_time,
+            output_path=output_path,
+            scene_size=(128, 128)
+        )
+
+
+@pytest.fixture(scope="session")
+def satformer_data_mhs_gmi() -> Path:
+    """
+    Provides Satformer training data for translating GMI to MHS observations.
+    """
+    output_path = TEST_DATA_PATH / "satformer" / "training_data"
+    output_path.mkdir(exist_ok=True, parents=True)
+    start_time = end_time = np.datetime64("2020-07-06T22:25:11")
+    files = sorted(list(output_path.glob("mhs_gmi*.nc")))
+    if len(files) == 0:
+        pretraining.extract_samples(
+            sensors.MHS,
+            sensors.GMI,
+            start_time,
+            end_time,
+            output_path=output_path,
+            scene_size=(128, 128)
+        )
+    return output_path

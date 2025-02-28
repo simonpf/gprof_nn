@@ -9,7 +9,7 @@ altitude = 726.9e3
 earth_incidence_angle = 55.32936
 scan_range = 140.0
 pixels_per_scan = 492
-scan_offset = 5e3
+scan_offset = 10.2e3
 
 [sensor]
 kind = "ConstellationScanner"

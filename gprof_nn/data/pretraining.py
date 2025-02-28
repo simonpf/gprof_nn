@@ -40,6 +40,7 @@ from rich.progress import Progress, track
 import torch
 import xarray as xr
 
+from gprof_nn.definitions import ANCILLARY_VARIABLES
 from gprof_nn.sensors import Sensor
 from gprof_nn.data.utils import (
     save_scene,
@@ -99,12 +100,7 @@ def extract_pretraining_scenes(
     for target_granule in target_granules:
 
         input_data = run_preprocessor(input_granule)
-        mask_invalid_values(input_data)
-
-        for var in input_data:
-            if np.issubdtype(input_data[var].data.dtype, np.floating):
-                invalid = input_data[var].data < -1_000
-                input_data[var].data[invalid] = np.nan
+        input_data = mask_invalid_values(input_data)
 
         upsampling_factors = UPSAMPLING_FACTORS[input_sensor.name.lower()]
         input_data = upsample_data(input_data, upsampling_factors)
@@ -121,14 +117,10 @@ def extract_pretraining_scenes(
             "input_meta_data": input_obs.meta_data.rename(channels="input_channels"),
             "target_observations": target_obs.observations.rename(channels="target_channels"),
             "target_meta_data": target_obs.meta_data.rename(channels="target_channels"),
-            "two_meter_temperature": input_data.two_meter_temperature,
-            "total_column_water_vapor": input_data.total_column_water_vapor,
-            "leaf_area_index": input_data.leaf_area_index,
-            "land_fraction": input_data.land_fraction,
-            "ice_fraction": input_data.ice_fraction,
-            "elevation": input_data.elevation,
             "ir_observations": input_data.ir_observations,
         })
+        for var in ANCILLARY_VARIABLES:
+            training_data[var] = input_data[var]
 
         tbs = training_data.input_observations.data
         tbs[tbs < 0] = np.nan

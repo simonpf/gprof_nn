@@ -5,7 +5,7 @@ data.
 import os
 
 from gprof_nn import sensors
-from gprof_nn.definitions import ALL_TARGETS
+from gprof_nn.definitions import ALL_TARGETS, ANCILLARY_VARIABLES
 from gprof_nn.data.training_data import (
     load_tbs_1d_gmi,
     load_tbs_1d_xtrack_sim,
@@ -22,6 +22,7 @@ from gprof_nn.data.training_data import (
     GPROFNN1DDataset,
     GPROFNN3DDataset,
     SimulatorDataset,
+    SatformerDataset,
     interpolate_angles
 )
 
@@ -41,6 +42,8 @@ from conftest import (
     training_files_3d_atms_sim,
     training_files_hr_gmi_cloudsat,
     training_files_hr_gmi_combined,
+    satformer_data_gmi_mhs,
+    satformer_data_mhs_gmi
 )
 
 
@@ -82,7 +85,7 @@ def test_load_ancillary_data_gmi_1d(training_files_1d_gmi_sim):
     dataset = xr.load_dataset(training_files_1d_gmi_sim[0])
     ancillary_data = load_ancillary_data(dataset, "CLI", 1)
     assert isinstance(ancillary_data, torch.Tensor)
-    assert ancillary_data.shape[-1] == 13
+    assert ancillary_data.shape[-1] == 14
 
 
 def test_load_targets_gmi_1d(training_files_1d_gmi_sim):
@@ -128,7 +131,7 @@ def test_load_training_data_1d_gmi(training_files, request):
         anc = x["ancillary_data"]
         anc = anc[torch.isfinite(anc)]
         assert anc.min() > -999
-        assert anc.max() < 350
+        assert anc.max() < 10_000
 
         for target in ALL_TARGETS:
             assert target in y
@@ -250,7 +253,7 @@ def test_load_training_data_3d_gmi(training_files_3d, request):
     assert "earth_incidence_angles" in x
     assert x["earth_incidence_angles"].shape == ((15, 128, 64))
     assert "ancillary_data" in x
-    assert x["ancillary_data"].shape == ((13, 128, 64))
+    assert x["ancillary_data"].shape == ((14, 128, 64))
 
 
 @pytest.mark.parametrize(
@@ -264,7 +267,7 @@ def test_gprof_nn_3d_dataset_gmi(training_files_3d, request):
     Ensure that the GPROFNN3DDataset correctly loads the GPROF-NN 3D training data.
     """
     training_files = request.getfixturevalue(training_files_3d)
-    training_data = GPROFNN3DDataset(training_files[0].parent)
+    training_data = GPROFNN3DDataset(training_files[0].parent.parent)
 
     x, y = training_data[0]
     assert "brightness_temperatures" in x
@@ -359,7 +362,7 @@ def test_load_ancillary_data_atms(training_files_1d_atms_sim):
     dataset = xr.load_dataset(training_files_1d_atms_sim[0])
     ancillary_data = load_ancillary_data(dataset, "CLI", 1)
     assert isinstance(ancillary_data, torch.Tensor)
-    assert ancillary_data.shape[-1] == 13
+    assert ancillary_data.shape[-1] == 14
 
 
 @pytest.mark.parametrize(
@@ -396,7 +399,7 @@ def test_gprof_nn_1d_dataset_atms(training_files, request):
 
         anc = x["ancillary_data"]
         assert anc[mask.any(-1)].min() > -999
-        assert anc[mask.any(-1)].max() < 350
+        assert anc[mask.any(-1)].max() < 10_000
 
         for target in ALL_TARGETS:
             assert target in y
@@ -423,7 +426,7 @@ def test_load_training_data_3d_xtrack_sim(training_files_3d_atms_sim):
     assert "earth_incidence_angles" in x
     assert x["earth_incidence_angles"].shape == ((15, 128, 64))
     assert "ancillary_data" in x
-    assert x["ancillary_data"].shape == ((13, 128, 64))
+    assert x["ancillary_data"].shape == ((14, 128, 64))
 
 
 @pytest.mark.parametrize(
@@ -452,7 +455,7 @@ def test_load_training_data_3d_xtrack_other(training_files, request):
     assert "earth_incidence_angles" in x
     assert x["earth_incidence_angles"].shape == ((15, 128, 64))
     assert "ancillary_data" in x
-    assert x["ancillary_data"].shape == ((13, 128, 64))
+    assert x["ancillary_data"].shape == ((14, 128, 64))
 
 
 @pytest.mark.parametrize(
@@ -467,7 +470,7 @@ def test_gprof_nn_3d_dataset_atms(training_files_3d, request):
     Ensure that the GPROFNN3DDataset correctly loads the GPROF-NN 3D training data.
     """
     training_files = request.getfixturevalue(training_files_3d)
-    training_data = GPROFNN3DDataset(training_files[0].parent)
+    training_data = GPROFNN3DDataset(training_files[0].parent.parent)
 
     x, y = training_data[0]
     assert "brightness_temperatures" in x
@@ -480,7 +483,7 @@ def test_gprof_nn_3d_dataset_atms(training_files_3d, request):
     assert x["brightness_temperatures"].shape == (15, 128, 64)
     assert "ancillary_data" in x
     assert x["ancillary_data"].ndim == 3
-    assert x["ancillary_data"].shape == (13, 128, 64)
+    assert x["ancillary_data"].shape == (14, 128, 64)
 
     assert "surface_precip" in y
     sp = y["surface_precip"]
@@ -595,7 +598,7 @@ def test_gprof_nn_1d_dataset_amsr2(training_files_1d, request):
             assert torch.isnan(angs[..., ind]).all()
 
     assert "ancillary_data" in x
-    assert x["ancillary_data"].shape[1:] == (13,)
+    assert x["ancillary_data"].shape[1:] == (14,)
 
     assert "surface_precip" in y
     sp = y["surface_precip"]
@@ -629,7 +632,7 @@ def test_load_training_data_3d_conical_sim(training_files_3d_amsr2_sim):
         else:
             assert torch.isnan(angs[ind]).all()
 
-    assert x["ancillary_data"].shape == ((13, 128, 64))
+    assert x["ancillary_data"].shape == ((14, 128, 64))
 
 
 @pytest.mark.parametrize(
@@ -667,7 +670,7 @@ def test_load_training_data_3d_conical_other(training_files, request):
             assert torch.isnan(angs[ind]).all()
 
     assert "ancillary_data" in x
-    assert x["ancillary_data"].shape == ((13, 128, 64))
+    assert x["ancillary_data"].shape == ((14, 128, 64))
 
 
 @pytest.mark.parametrize(
@@ -682,7 +685,7 @@ def test_gprof_nn_3d_dataset_amsr2(training_files_3d, request):
     Ensure that the GPROFNN3DDataset correctly loads the GPROF-NN 3D training data.
     """
     training_files = request.getfixturevalue(training_files_3d)
-    training_data = GPROFNN3DDataset(training_files[0].parent)
+    training_data = GPROFNN3DDataset(training_files[0].parent.parent)
 
     x, y = training_data[0]
     assert "brightness_temperatures" in x
@@ -748,3 +751,35 @@ def test_angle_interpolation():
 
     assert tbs_i.shape == (100, 5)
     assert np.isclose(tbs_i[..., 0], angs / 10).all()
+
+
+@NEEDS_PANSAT_PASSWORD
+def test_satformer_training_loader(
+        satformer_data_mhs_gmi,
+        satformer_data_gmi_mhs,
+):
+    """
+    Test loading of Satformer training data.
+    """
+    training_files = satformer_data_mhs_gmi.glob("*.nc")
+    dataset = SatformerDataset(
+        path=satformer_data_mhs_gmi,
+        seq_len_in=13,
+        channel_dropout=0.1
+    )
+
+    assert len(dataset) > 0
+
+    x, y = dataset[0]
+
+    assert "observations" in x
+    assert "input_observation_props" in x
+    assert "output_observation_props" in x
+
+    for anc_var in ANCILLARY_VARIABLES:
+        assert anc_var in x
+        assert x[anc_var].dtype == torch.float32
+        assert anc_var + "_mask" in x
+
+    assert "ir_observations" in x
+    assert "ir_observations_mask" in x

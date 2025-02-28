@@ -2,6 +2,7 @@ tile_size = [96, 96]
 spatial_overlap = 32
 input_loader = "gprof_nn.retrieval.GPROFNNHRInputLoader"
 input_loader_args = {}
+exclude_from_tiling = ["input_observation_mask", "two_meter_temperature_mask", "total_column_water_vapor_mask", "land_fraction_mask", "ice_fraction_mask", "leaf_area_index_mask", "elevation_mask", "ir_observations_mask"]
 
 [retrieval_output.surface_precip]
 surface_precip = "ExpectedValue"
