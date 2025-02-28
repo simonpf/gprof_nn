@@ -698,6 +698,7 @@ def load_targets_1d(
 
         if data_t.ndim == 1:
             data_t = data_t[..., None]
+        data_t[data_t < -900] = np.nan
         targs[var] = torch.tensor(data_t.astype("float32"))
     return targs
 
@@ -727,6 +728,7 @@ def load_targets_1d_xtrack(
         data_t = training_data[var].data
         if data_t.ndim == 1:
             data_t = data_t[..., None]
+        data_t[data_t < -900] = np.nan
         targs[var] = torch.tensor(data_t.astype("float32"))
     return targs
 
@@ -1146,6 +1148,7 @@ def load_training_data_3d_gmi(
         data_t = scene[target].data
         if data_t.ndim < 3:
             data_t = data_t[None]
+        data_t[data_t < -900] = np.nan
         data = torch.tensor(data_t.astype("float32"))
         y[target] = data.squeeze()
 
@@ -1304,6 +1307,8 @@ def load_training_data_3d_xtrack_sim(
 
         if data.ndim < 3:
             data = data[..., None]
+
+        data[data < -900] = np.nan
         data = torch.tensor(data)
         y[target] = data.squeeze()
 
@@ -1419,6 +1424,7 @@ def load_training_data_3d_conical_sim(
             continue
 
         data = scene[target].data
+        data[data < -900] = np.nan
         if data.ndim < 3:
             data = data[None]
         data = torch.tensor(scene[target].data.astype("float32"))
@@ -1542,6 +1548,7 @@ def load_training_data_3d_other(
 
 
         data = scene[target].data.astype("float32")
+        data[data < -900] = np.nan
         if data.ndim < 3:
             data = data[None]
 
