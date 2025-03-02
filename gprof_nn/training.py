@@ -71,7 +71,8 @@ def init(
                 tb_sim_shape=f"[{n_chans}]",
                 tb_bias_shape=f"[{n_chans}]",
             )
-            with open(path / "model.toml", "w") as output: output.write(model_config)
+    with open(path / "model.toml", "w") as output:
+        output.write(model_config)
 
 
 def load_inference_config(
