@@ -20,12 +20,12 @@ n_layers = 8
 n_features = 15
 normalize = "minmax"
 
-[input.viewing_angles]
+[input.earth_incidence_angles]
 n_features = 15
 normalize = "minmax"
 
 [input.ancillary_data]
-n_features = 13
+n_features = 14
 normalize = "minmax"
 
 # The remaining sections define the retrieval outputs.

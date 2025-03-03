@@ -537,7 +537,8 @@ def load_tbs_1d_xtrack_sim(
 
 def load_tbs_1d_conical_sim(
         training_data: xr.Dataset,
-        sensor: sensors.Sensor
+        sensor: sensors.Sensor,
+        satformer: bool = True
 ) -> torch.Tensor:
     """
     Load brightness temperatures for cross-track scanning sensors from simulator
@@ -546,27 +547,27 @@ def load_tbs_1d_conical_sim(
     Args:
         training_data: An xarray.Dataset containing training data extracted from
             GPROF simulator files.
-        angles: A np.ndarray cotaining the viewing angle of the tbs to load.
         sensor: The sensor from which the TBs are loaded
+        satformer: Whether or not to load the Satformer Tbs
 
     Return:
         A torch tensor containing the loaded brightness temperatures.
 
     """
-    training_data = training_data[
-        [
-            "simulated_brightness_temperatures",
-            "brightness_temperature_biases",
-        ]
-    ]
-
-    tbs = training_data.simulated_brightness_temperatures.data
-    biases = training_data.brightness_temperature_biases.data
     gmi_inds = list(sensor.gprof_channels.keys())
-    gmi_angs = sensors.GMI.earth_incidence_angle[gmi_inds]
-    angs = sensor.earth_incidence_angle
-    corr = np.cos(np.deg2rad(gmi_angs)) / np.cos(np.deg2rad(angs)) * biases
-    tbs = tbs - biases
+
+    if satformer:
+        training_data = training_data[["satformer_tbs_rand"]]
+        tbs = training_data.satformer_tbs_rand
+    else:
+        training_data = training_data[["simulated_brightness_temperatures", "brightness_temperature_biases",]]
+        tbs = training_data.simulated_brightness_temperatures.data
+        biases = training_data.brightness_temperature_biases.data
+        gmi_angs = sensors.GMI.earth_incidence_angle[gmi_inds]
+        angs = sensor.earth_incidence_angle
+        corr = np.cos(np.deg2rad(gmi_angs)) / np.cos(np.deg2rad(angs)) * biases
+        tbs = tbs - biases
+
     tbs_full = np.nan * np.zeros((tbs.shape[0], 15), dtype=np.float32)
     tbs_full[:, gmi_inds] = tbs
     return torch.tensor(tbs_full)
@@ -691,15 +692,19 @@ def load_targets_1d(
         else:
             n_samples = training_data.samples.size
             if var in PROFILE_TARGETS:
-                shape = (n_samples, 1, 28)
+                shape = (n_samples, 28)
             else:
-                shape = (n_samples, 1, 28)
+                shape = (n_samples)
             data_t = np.zeros(shape, dtype=np.float32)
 
-        if data_t.ndim == 1:
-            data_t = data_t[..., None]
+        if var in PROFILE_TARGETS:
+            if data_t.ndim == 2:
+                data_t = data_t[:, None]
+        else:
+            if data_t.ndim == 1:
+                data_t = data_t[..., None]
         data_t[data_t < -900] = np.nan
-        targs[var] = torch.tensor(data_t.astype("float32"))
+        targs[var] = torch.tensor(data_t.astype("float32").squeeze())
     return targs
 
 
@@ -738,7 +743,7 @@ class GPROFNN1DDataset(IterableDataset):
     Dataset class for loading the training data for GPROF-NN 1D retrieval.
     """
     merge = 8
-    resample_datasets = 2
+    resample_datasets = 1
 
     def __init__(
         self,
@@ -748,7 +753,6 @@ class GPROFNN1DDataset(IterableDataset):
         validation: bool = False,
         satformer: bool = False,
         batch_size: int = 2048
-
     ):
         """
         Create GPROF-NN 1D dataset.
@@ -781,13 +785,13 @@ class GPROFNN1DDataset(IterableDataset):
                 "The provided path does not exists."
             )
 
-        files = sorted(list(self.path.glob("*_*_*.nc")))
+        files = sorted(list(self.path.glob("**/1d/*_*_*.nc")))
         if len(files) == 0:
             raise RuntimeError(
                 "Could not find any GPROF-NN 1D training data files "
                 f"in {self.path}."
             )
-        self.files = files
+        self.files = [str(path) for path in files]
 
         self.init_rng()
         self.files = self.rng.permutation(self.files)
@@ -905,7 +909,7 @@ class GPROFNN1DDataset(IterableDataset):
         elif isinstance(sensor, sensors.ConstellationScanner):
 
             if dataset.source == "sim":
-                tbs = load_tbs_1d_conical_sim(dataset, sensor)
+                tbs = load_tbs_1d_conical_sim(dataset, sensor, satformer=self.satformer)
                 angs = torch.nan * torch.zeros_like(tbs)
                 inds = list(sensor.gprof_channels.keys())
                 angs[:, inds] = torch.tensor(
@@ -939,7 +943,7 @@ class GPROFNN1DDataset(IterableDataset):
 
         for ind, path in enumerate(all_files):
 
-            with xr.open_dataset(path) as input_file:
+            with xr.load_dataset(path) as input_file:
                 try:
                     inputs_f, targets_f = self.load_training_data(input_file)
                 except Exception as exc:
@@ -950,6 +954,9 @@ class GPROFNN1DDataset(IterableDataset):
                     inputs.setdefault(name, []).append(tensor)
                 for name, tensor in targets_f.items():
                     targets.setdefault(name, []).append(tensor)
+
+        input_file.close()
+        del input_file
 
         inputs = {name: torch.cat(data, 0) for name, data in inputs.items()}
         targets = {name: torch.cat(data, 0) for name, data in targets.items()}
@@ -963,7 +970,7 @@ class GPROFNN1DDataset(IterableDataset):
     def __iter__(self):
 
         tasks = []
-        all_files = self.rng.permutation(self.files)
+        all_files = self.rng.permutation(self.files)[::10]
         for ind in range(math.ceil(len(all_files) / self.merge)):
             files = all_files[self.merge * ind : self.merge * (ind + 1)]
             tasks.append(self.pool.submit(self.load_data, files))
@@ -981,6 +988,10 @@ class GPROFNN1DDataset(IterableDataset):
                     batch_targets = {name: data[inds] for name, data in targets.items()}
                     start_ind += self.batch_size
                     yield batch_inputs, batch_targets
+
+            del inputs
+            del targets
+            del task
 
     def __repr__(self):
         return f"GPROFNN1DDataset(path={self.path}, targets={self.targets})"
