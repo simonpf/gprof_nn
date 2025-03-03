@@ -443,8 +443,11 @@ def load_input_data_collocations(
         scene = scene.transpose("scan", "pixel", "channel", "channel_gprof", ...)
 
         tbs = np.transpose(scene.observations_gprof.data.astype(np.float32), (2, 0, 1))
-        tbs_full = np.nan * np.zeros((15,) + tbs.shape[1:])
-        tbs_full[sensor.gprof_channel_indices] = tbs
+        if tbs.shape[0] < 15:
+            tbs_full = np.nan * np.zeros((15,) + tbs.shape[1:])
+            tbs_full[sensor.gprof_channel_indices] = tbs
+        else:
+            tbs_full = tbs
         tbs_full[tbs_full < 0] = np.nan
 
         # Earth incidence angles
