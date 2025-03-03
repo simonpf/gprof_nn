@@ -2,7 +2,7 @@
 gprof_nn.geometry
 =================
 
-This module defines geometric utility functions to manipulate sensor and footpring
+This module defines geometric utility functions to manipulate sensor and footprint
 positions.
 """
 from typing import Tuple
