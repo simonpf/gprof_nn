@@ -436,9 +436,7 @@ def apply_orographic_enhancement(sensor, data, kind="ERA5"):
     mask = (surface_types == 18)
     enh[mask] = sensor.orographic_enhancement[4]
 
-    print("SP BF:: ", np.nanmean(data["surface_precip"].data))
     surface_precip *= enh
-    print("SP AF:: ", np.nanmean(data["surface_precip"].data))
     convective_precip *= enh
 
 

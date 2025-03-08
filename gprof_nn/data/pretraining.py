@@ -35,6 +35,13 @@ from pansat.products.satellite.gpm import (
     l1c_xcal2016_metopb_mhs,
 )
 from pansat.utils import resample_data
+from pytorch_retrieve import load_model
+from pytorch_retrieve.inference import run_inference
+from pytorch_retrieve.config import (
+    OutputConfig,
+    RetrievalOutputConfig,
+    InferenceConfig
+)
 from pyresample.geometry import SwathDefinition
 from rich.progress import Progress, track
 import torch
@@ -54,6 +61,7 @@ from gprof_nn.data.utils import (
     UPSAMPLING_FACTORS
 )
 from gprof_nn.data.l1c import L1CFile
+from gprof_nn.data.training_data import transform_observations_satformer
 from gprof_nn.logging import (
     configure_queue_logging,
     log_messages,
@@ -186,18 +194,44 @@ def extract_pretraining_scenes(
 
 
 class InputLoader:
-    def __init__(self, inputs: List[Any], radius_of_influence: float = 100e3):
+    """
+    Inputloader class to run a GPROF-NN Simulator model on GPM match-ups.
+    """
+    def __init__(
+            self,
+            inputs: List[Any],
+            radius_of_influence: float = 100e3
+    ):
+        """
+        Args:
+            inputs: A match tuple containing the matched granules from two sensors of the GPM
+                constellation.
+        """
         self.inputs = inputs
-        self.radius_of_influence = radius_of_influence
 
     def __len__(self) -> int:
+        """
+        The number of match-ups to process.
+        """
         return len(self.inputs)
 
     def __getitem__(self, index: int) -> int:
+        """
+        Return retrieval input data.
+        """
         return self.load_data(index)
 
     def load_data(self, ind: int) -> Tuple[Dict[str, torch.Tensor], str, xr.Dataset]:
+        """
+        Load data from match-up.
 
+        Args:
+             ind: The index of the match-up to load the data from.
+
+        Return:
+            A tuple ``x, aux, filename`` returning a dictionary containing the retrieval input ``x``,
+            auxiliary data ``aux``, and a output filename ``filename``.
+        """
         inpt_granule, target_granules = self.inputs[ind]
         target_granule = sorted(list(target_granules))[0]
 
@@ -289,8 +323,6 @@ class InputLoader:
         })
 
         filename = "match_" + target_granule.time_range.start.strftime("%Y%m%d%H%M%s") + ".nc"
-
-        print({key: tensor.shape for key,tensor in inpt.items()})
 
         return inpt, filename, training_data
 
@@ -545,3 +577,156 @@ def cli(
             )
             for task in tasks:
                 task.result()
+
+
+class SimulatorInput():
+    def __init__(
+            self,
+            input_sensor,
+            input_granule: Granule,
+            target_sensor,
+            target_granules: List[Granule]):
+        self.input_sensor = input_sensor
+        self.input_granule = input_granule
+        self.target_sensor = target_sensor
+        self.target_granules = merge_granules(sorted(list(target_granules)))
+
+    def __len__(self):
+        return 1
+
+    def __iter__(self):
+        for target_granule in self.target_granules:
+            yield self.load_input_data(target_granule)
+
+
+    def load_input_data(self, target_granule):
+
+        input_granule = self.input_granule
+        input_data = run_preprocessor(input_granule)
+        input_data = mask_invalid_values(input_data)
+
+        upsampling_factors = UPSAMPLING_FACTORS[self.input_sensor.name.lower()]
+        input_data = upsample_data(input_data, upsampling_factors)
+        input_data = add_cpcir_data(input_data)
+
+        rof_in = RADIUS_OF_INFLUENCE[self.input_sensor.name.lower()]
+        rof_targ = RADIUS_OF_INFLUENCE[self.target_sensor.name.lower()]
+        input_obs = calculate_obs_properties(input_data, input_granule, radius_of_influence=rof_in)
+        target_obs = calculate_obs_properties(input_data, target_granule, radius_of_influence=rof_targ)
+
+
+        data = xr.Dataset({
+            "input_observations": input_obs.observations.rename(channels="input_channels"),
+            "input_meta_data": input_obs.meta_data.rename(channels="input_channels"),
+            "target_observations": target_obs.observations.rename(channels="target_channels"),
+            "target_meta_data": target_obs.meta_data.rename(channels="target_channels"),
+            "ir_observations": input_data.ir_observations,
+        })
+        for var in ANCILLARY_VARIABLES:
+            data[var] = input_data[var]
+
+        tbs = data.input_observations.data
+        tbs[tbs < 0] = np.nan
+        valid = np.isfinite(tbs).any(0)
+        tbs = data.target_observations.data
+        tbs[tbs < 0] = np.nan
+        valid *= np.isfinite(tbs).any(0)
+        data["valid"] = (("scans", "pixels"), np.zeros_like(valid, dtype="float32"))
+
+        scan_time_input = input_obs.scan_time
+        scan_time_target = input_obs.scan_time
+        time_diff = scan_time_input - scan_time_target
+        valid *= np.abs(time_diff.data) < np.timedelta64(15, "m")
+
+        data.valid.data[~valid] = np.nan
+
+        n_chans_in = data.input_channels.size
+        n_chans_out = data.target_channels.size
+
+        obs_in = []
+        meta_in = []
+        for input_ind in range(n_chans_in):
+            obs = data.input_observations.data[input_ind]
+            meta = data.input_meta_data.data[input_ind]
+            obs, meta = transform_observations_satformer(obs, meta)
+            obs_in.append(torch.tensor(obs.astype(np.float32)))
+            meta_in.append(torch.tensor(meta.astype(np.float32)))
+
+
+        obs_out = []
+        meta_out = []
+        for output_ind in range(n_chans_out):
+            obs_out.append(torch.tensor(data.target_observations.data[[output_ind]]))
+            meta_out.append(torch.tensor(data.target_meta_data.data[output_ind]))
+
+        inpt = {
+            "observations": torch.stack(obs_in, 1)[None],
+            "input_observation_props": torch.stack(meta_in, 1)[None],
+            "output_observation_props": torch.stack(meta_out, 1)[None],
+        }
+
+        for anc_var in ANCILLARY_VARIABLES + ["ir_observations"]:
+            anc_data = torch.tensor(data[anc_var].data).to(dtype=torch.float32)
+            if anc_data.ndim < 3:
+                anc_data = anc_data[None]
+            if anc_data.ndim < 4:
+                anc_data = anc_data[:, None]
+
+            n_chans, n_seq, n_y, n_x = anc_data.shape
+            anc_mask = torch.isnan(anc_data).all()[None]
+            inpt[anc_var] = anc_data[None]
+            inpt[anc_var + "_mask"] = anc_mask[None]
+
+        mask = torch.isnan(inpt["observations"]).all(0).all(-1).all(-1)
+        inpt["input_observation_mask"] = mask
+
+        return inpt, {}, "results.nc"
+
+
+def simulate_tbs(
+        model_path: Path,
+        input_sensor,
+        input_granule,
+        target_sensor,
+        target_granules,
+        device: Optional[str] = None
+
+):
+    input_loader = SimulatorInput(input_sensor, input_granule, target_sensor, target_granules)
+    model = load_model(model_path).eval()
+
+    expected_value = RetrievalOutputConfig(model.output_config["output_observations"], "ExpectedValue", {})
+    random_sample = RetrievalOutputConfig(model.output_config["output_observations"], "RandomSample", {"n_samples": 1})
+    retrieval_output = {
+        "output_observations": {
+            "output_observations": expected_value,
+            "output_observations_rand": random_sample
+        }
+    }
+
+    mask_vars = [
+        "input_observation_mask",
+    ]
+    for var in ANCILLARY_VARIABLES:
+        mask_vars.append(f"{var}_mask")
+    mask_vars.append("ir_observations_mask")
+
+    inference_config = InferenceConfig(
+        tile_size=128,
+        spatial_overlap=32,
+        retrieval_output=retrieval_output,
+        batch_size=1,
+        exclude_from_tiling=mask_vars
+    )
+
+    if device is None:
+        device = "cuda:0"
+
+    results = run_inference(
+        model,
+        input_loader,
+        inference_config,
+        device=device,
+    )
+    results = results[0]
+    return results

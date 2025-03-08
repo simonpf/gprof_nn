@@ -86,6 +86,81 @@ def run_retrieval(
     return results
 
 
+def process_match(
+        target_sensor: sensors.Sensor,
+        target_granule: Granule,
+        reference_sensor: sensors.Sensor,
+        reference_granules: List[Granule],
+        retrieval_model: nn.Module,
+        output_path_1d: Path,
+        output_path_3d: Path
+) -> None:
+    """
+    Process granule.
+
+    Args:
+        target_sensor: The sensor for which to extract the training data.
+        target_granule: The target-sensor granule defining the match.
+        reference_sensor: The sensor from which to extract the reference data.
+        reference_granules: The reference-sensor granules defining the match.
+        retrieval_model: The retrieval model to use to generate the reference retrievals.
+        output_path_1d: The path to which to write the GPROF-NN 1D training data.
+        output_path_3d: The path to which to write the GPROF-NN 3D training data.
+    """
+    if len(reference_granules) == 0:
+        raise ValueError(
+            "Empty match."
+        )
+    retrieval_results = []
+    for reference_granule in reference_granules:
+        retrieval_results.append(run_retrieval(reference_granule, retrieval_model))
+    retrieval_results = xr.concat(retrieval_results, dim="scans")
+    retrieval_results = retrieval_results.rename(latent_heating="latent_heat")[
+        ALL_TARGETS + ["scan_time", "longitude", "latitude"]
+    ]
+
+    input_data = run_preprocessor(target_granule)
+    swath = SwathDefinition(lons=input_data.longitude.data, lats=input_data.latitude.data)
+    retrieval_results = resample_data(
+        retrieval_results,
+        swath,
+        new_dims=("scans", "pixels"),
+        radius_of_influence=RADIUS_OF_INFLUENCE[reference_sensor.name.lower()]
+    )
+    scan_time = retrieval_results.scan_time
+    input_data = xr.merge([input_data, retrieval_results.drop_vars(["scan_time"])])
+
+    time_diff = retrieval_results.scan_time - input_data.scan_time
+    valid = (np.abs(time_diff) < np.timedelta64(15, "m")) * np.isfinite(input_data.surface_precip)
+    valid = valid.data.astype(np.float32)
+    valid[valid < 1.0] = np.nan
+    input_data["valid"] = (("scans", "pixels"), valid)
+
+    ref_name = reference_sensor.name.lower()
+    targ_name = target_sensor.name.lower()
+    prefix = f"{targ_name}_{ref_name}"
+
+    input_data["source"] = "finetuning"
+
+    if output_path_3d is not None:
+        write_training_samples_3d(
+            output_path_3d,
+            prefix,
+            input_data,
+            n_scans=128,
+            n_pixels=64,
+            min_valid=10,
+            reference_var="valid"
+        )
+    if output_path_1d is not None:
+        write_training_samples_1d(
+            output_path_1d,
+            prefix,
+            input_data,
+            reference_var="valid"
+        )
+
+
 def extract_finetuning_samples(
         reference_sensor: sensors.Sensor,
         retrieval_model: nn.Module,
@@ -134,49 +209,21 @@ def extract_finetuning_samples(
                 len(matches), ref_prod, targ_prod
             )
 
-            for targ_granule, input_granules in matches:
-                retrieval_results = [run_retrieval(input_granule, retrieval_model) for input_granule in input_granules]
-                retrieval_results = xr.concat(retrieval_results, dim="scans")
-                retrieval_results = retrieval_results.rename(latent_heating="latent_heat")[
-                    ALL_TARGETS + ["scan_time", "longitude", "latitude"]
-                ]
-                input_data = run_preprocessor(targ_granule)
-                swath = SwathDefinition(lons=input_data.longitude.data, lats=input_data.latitude.data)
-                retrieval_results = resample_data(
-                    retrieval_results,
-                    swath,
-                    new_dims=("scans", "pixels"),
-                    radius_of_influence=RADIUS_OF_INFLUENCE[reference_sensor.name.lower()]
-                )
-                scan_time = retrieval_results.scan_time
-                input_data = xr.merge([input_data, retrieval_results.drop_vars(["scan_time"])])
-
-                time_diff = retrieval_results.scan_time - input_data.scan_time
-                valid = (np.abs(time_diff) < np.timedelta64(15, "m")) * np.isfinite(input_data.surface_precip)
-                valid = valid.data.astype(np.float32)
-                valid[valid < 1.0] = np.nan
-                input_data["valid"] = (("scans", "pixels"), valid)
-
-                ref_name = reference_sensor.name.lower()
-                targ_name = target_sensor.name.lower()
-                prefix = f"{targ_name}_{ref_name}"
-
-                if output_path_3d is not None:
-                    write_training_samples_3d(
-                        output_path_3d,
-                        prefix,
-                        input_data,
-                        n_scans=128,
-                        n_pixels=64,
-                        min_valid=10,
-                        reference_var="valid"
-                    )
-                if output_path_1d is not None:
-                    write_training_samples_1d(
+            for targ_granule, reference_granules in matches:
+                try:
+                    process_match(
+                        target_sensor,
+                        targ_granule,
+                        reference_sensor,
+                        reference_granules,
+                        retrieval_model,
                         output_path_1d,
-                        prefix,
-                        input_data,
-                        reference_var="valid"
+                        output_path_3d
+                    )
+                except Exception:
+                    LOGGER.exception(
+                        "Encountered an error when processing match %s.",
+                        targ_granule
                     )
 
 
