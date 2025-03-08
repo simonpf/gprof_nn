@@ -12,15 +12,20 @@ metric's ``compute`` function. The metrics use shared memory to track required
 quantities so that evaluation can be performed in parallel using multiple
 processes.
 """
-
+import logging
 from multiprocessing import shared_memory, Lock, Manager
-from typing import Any, Dict, Optional, Tuple
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
 import warnings
 
 import numpy as np
+from rich.progress import Progress
 from scipy.ndimage import binary_erosion
 from scipy.fftpack import dctn
 import xarray as xr
+
+
+LOGGER = logging.getLogger()
 
 
 _MANAGER = None
@@ -595,7 +600,7 @@ class SpectralCoherence(QuantificationMetric):
                 self.coeffs_diff_sum2 += (w_pred - w_target) * (w_pred - w_target)
                 self.counts += np.isfinite(w_pred)
 
-    def compute(self):
+    def compute(self, full: bool = False):
         """
         Calculate error statistics for correlation coefficients by scale.
 
@@ -668,6 +673,10 @@ class SpectralCoherence(QuantificationMetric):
                 "effective_resolution": res,
             }
         )
+
+        if full:
+            results["energy_pred"] = (("scales"), energy_pred)
+            results["energy_target"] = (("scales"), energy_target)
         results.spectral_coherence.attrs["full_name"] = "Spectral coherence"
         results.spectral_coherence.attrs["unit"] = ""
         results.effective_resolution.attrs["full_name"] = "Effective resolution"
@@ -975,59 +984,252 @@ class Evaluator():
     """
     The evaluator handle the evaluation of retrieval results.
     """
-    def __init__(self, collocation_files: List[Path]):
+    def __init__(
+            self,
+            retrieval_callback,
+            collocation_files: List[Path],
+            min_rqi: float = 0.8
+    ):
         """
         Args:
              collocation_files: the collocation files to use for validation.
         """
         self.collocation_files = collocation_files
+        self.retrieval_callback = retrieval_callback
+        self.metrics_coast = [Bias(), MSE(), MAE(), CorrelationCoef()]
+        self.metrics_land = [Bias(), MSE(), MAE(), CorrelationCoef()]
+        self.metrics_ocean = [Bias(), MSE(), MAE(), CorrelationCoef()]
+        self.metrics_snow = [Bias(), MSE(), MAE(), CorrelationCoef()]
+        self.metrics_coast = [Bias(), MSE(), MAE(), CorrelationCoef()]
+        self.metrics_mtn = [Bias(), MSE(), MAE(), CorrelationCoef()]
+        self.metrics_mtn_snow = [Bias(), MSE(), MAE(), CorrelationCoef()]
         self.metrics = [Bias(), MSE(), MAE(), CorrelationCoef(), SpectralCoherence()]
+        self.min_rqi = min_rqi
 
+
+    def get_retrieval_results(self, index: int) -> xr.Dataset:
+        """
+        Get retrieval results from callback.
+
+        """
+        with xr.open_dataset(self.collocation_files[index], group="reference_data") as reference_data:
+            pixel_inds = reference_data.pixel_index
+            scan_inds = reference_data.scan_index
+            results = self.retrieval_callback(self.collocation_files[index])
+            results = results[{"scans": scan_inds, "pixels": pixel_inds}]
+            mask = pixel_inds < 0
+            sp_ret = results.surface_precip.data
+            sp_ret[mask] = np.nan
+            return results
+
+    def get_reference_results(self, index: int) -> xr.Dataset:
+        return xr.load_dataset(self.collocation_files[index], group="reference_data")
 
     def evaluate_collocation(self, collocation_file: Path, retrieval_callback) -> None:
         """
-        Evaluate retrievalf or a single collocation.
+        Evaluate retrieval for a single collocation.
 
         Args:
              collocation_file: The name of the collocation file to evaluate the retrieval on.
         """
+        with xr.open_dataset(collocation_file, group="input_data") as input_data:
+            surface_type = input_data.surface_type.data
 
         with xr.open_dataset(collocation_file, group="reference_data") as reference_data:
-            pixel_inds = reference_data.pixel_inds
-            scan_inds = reference_data.scan_inds
+            pixel_inds = reference_data.pixel_index
+            scan_inds = reference_data.scan_index
             results = retrieval_callback(collocation_file)
             results = results[{"scans": scan_inds, "pixels": pixel_inds}]
 
+            mask = pixel_inds < 0
             sp_ret = results.surface_precip.data
-            sp_ref = collocation_data.surface_precip.data
+            sp_ret[mask] = np.nan
+
+            sp_ref = reference_data.surface_precip.data
+
             valid = np.isfinite(sp_ret) * np.isfinite(sp_ref)
-            for metic in self.metrics:
+            if "radar_quality_index" in reference_data:
+                valid *= self.min_rqi < reference_data["radar_quality_index"].data
+            sp_ref[~valid] = np.nan
+            sp_ret[~valid] = np.nan
+
+            for metric in self.metrics:
                 metric.update(sp_ret, sp_ref)
 
+            # Ocean
+            ocean_mask = (1 == surface_type)
+            sp_ocean = sp_ref.copy()
+            sp_ocean[~ocean_mask] = np.nan
+            for metric in self.metrics_ocean:
+                metric.update(sp_ret, sp_ocean)
+
+            # Land
+            land_mask = (2 < surface_type) * (surface_type < 8)
+            sp_land = sp_ref.copy()
+            sp_land[~land_mask] = np.nan
+            for metric in self.metrics_land:
+                metric.update(sp_ret, sp_land)
+
+            # Snow
+            snow_mask = (7 < surface_type) * (surface_type < 12)
+            sp_snow = sp_ref.copy()
+            sp_snow[~snow_mask] = np.nan
+            for metric in self.metrics_snow:
+                metric.update(sp_ret, sp_snow)
+
+            # Coast
+            coast_mask = (11 < surface_type) * (surface_type < 16)
+            sp_coast = sp_ref.copy()
+            sp_coast[~coast_mask] = np.nan
+            for metric in self.metrics_coast:
+                metric.update(sp_ret, sp_coast)
+
+            # Mtn
+            mtn_mask = (surface_type == 16)
+            sp_mtn = sp_ref.copy()
+            sp_mtn[~mtn_mask] = np.nan
+            for metric in self.metrics_mtn:
+                metric.update(sp_ret, sp_mtn)
+
+            # Mtn Snow
+            snow_mask = (surface_type == 17)
+            sp_mtn_snow = sp_ref.copy()
+            sp_mtn_snow[~snow_mask] = np.nan
+            for metric in self.metrics_mtn_snow:
+                metric.update(sp_ret, sp_mtn_snow)
 
 
-    def evaluate(self, retrieval_callback) -> None:
 
-        for collocation_file in collocation_files:
-            with Progress() as progress:
-                evaluation = progress.add_task(
-                    "Evaluating retrieval:", total=(len(collocation_files))
-                )
+    def plot_results(self, index: int) -> None:
+        """
+        Plot retrieval results for a given collocation scene.
+        """
+        import matplotlib.pyplot as plt
+        import cartopy.crs as ccrs
+        from matplotlib.gridspec import GridSpec
+        from matplotlib.colors import LogNorm
+
+        with xr.open_dataset(self.collocation_files[index], group="reference_data") as reference_data:
+            pixel_inds = reference_data.pixel_index
+            scan_inds = reference_data.scan_index
+            results = self.retrieval_callback(self.collocation_files[index])
+            results = results[{"scans": scan_inds, "pixels": pixel_inds}]
+            mask = pixel_inds < 0
+            sp_ret = results.surface_precip.data
+            sp_ret[mask] = np.nan
+            sp_ref = reference_data.surface_precip.data
+
+        norm = LogNorm(1e-1, 1e2)
+        fig = plt.figure(figsize=(17, 5))
+        gs = GridSpec(1, 3, width_ratios=[1.0, 1.0, 0.1])
+        crs = ccrs.PlateCarree()
+
+        ax = fig.add_subplot(gs[0, 0], projection=crs)
+        lons = reference_data.longitude.data
+        lats = reference_data.latitude.data
+        sp_mrms = np.maximum(sp_ref, 1e-3)
+        ax.pcolormesh(lons, lats, sp_mrms, norm=norm)
+        ax.coastlines(color="grey")
+        ax.set_title("(a) Reference", loc="left")
+
+        ax = fig.add_subplot(gs[0, 1], projection=crs)
+        ax.set_title(f"(b) Retrieved", loc="left")
+        m = ax.pcolormesh(lons, lats, sp_ret, norm=norm)
+        ax.coastlines(color="grey")
+
+        cax = fig.add_subplot(gs[0, -1])
+        plt.colorbar(m, cax=cax, label="Surface precip [mm h$^{-1}$]")
+
+
+    def evaluate(self) -> None:
+        """
+        Evaluate all collocations.
+
+        Args:
+             retrieval_callback: A Python callable the returns the retrieval results for a given
+                 collocation file.
+        """
+        with Progress() as progress:
+            evaluation = progress.add_task(
+                "Evaluating retrieval:", total=(len(self.collocation_files))
+            )
+            for collocation_file in self.collocation_files:
                 try:
-                    self.evaluate_collocation(collocation_file)
+                    self.evaluate_collocation(collocation_file, self.retrieval_callback)
                 except Exception:
                     LOGGER.exception(
-                        f"Encountered an error when processing scene {scenes[task]}."
+                        f"Encountered an error when processing scene {collocation_file}."
                     )
-                    progress.update(evaluation, advance=1)
+                progress.update(evaluation, advance=1)
 
             
     def get_results(self) -> xr.Dataset:
         """
-        Combind results from all tracked metrics into a single xarray.Dataset.
+        Combine results from all tracked metrics into a single xarray.Dataset.
         """
         results = []
-        for metric in self.metrics
+        for metric in self.metrics:
+            results.append(metric.compute())
+        results = xr.merge(results)
+        return results
+
+
+    def get_results_ocean(self) -> xr.Dataset:
+        """
+        Combine results from all tracked metrics into a single xarray.Dataset.
+        """
+        results = []
+        for metric in self.metrics_ocean:
+            results.append(metric.compute())
+        results = xr.merge(results)
+        return results
+
+    def get_results_land(self) -> xr.Dataset:
+        """
+        Combine results from all tracked metrics into a single xarray.Dataset.
+        """
+        results = []
+        for metric in self.metrics_land:
+            results.append(metric.compute())
+        results = xr.merge(results)
+        return results
+
+    def get_results_snow(self) -> xr.Dataset:
+        """
+        Combine results from all tracked metrics into a single xarray.Dataset.
+        """
+        results = []
+        for metric in self.metrics_snow:
+            results.append(metric.compute())
+        results = xr.merge(results)
+        return results
+
+    def get_results_coast(self) -> xr.Dataset:
+        """
+        Combine results from all tracked metrics into a single xarray.Dataset.
+        """
+        results = []
+        for metric in self.metrics_coast:
+            results.append(metric.compute())
+        results = xr.merge(results)
+        return results
+
+    def get_results_mtn(self) -> xr.Dataset:
+        """
+        Combine results from all tracked metrics into a single xarray.Dataset.
+        """
+        results = []
+        for metric in self.metrics_mtn:
+            results.append(metric.compute())
+        results = xr.merge(results)
+        return results
+
+    def get_results_mtn_snow(self) -> xr.Dataset:
+        """
+        Combine results from all tracked metrics into a single xarray.Dataset.
+        """
+        results = []
+        for metric in self.metrics_mtn:
             results.append(metric.compute())
         results = xr.merge(results)
         return results
