@@ -7,6 +7,7 @@ Utility functions for plotting.
 """
 import pathlib
 from typing import List
+import urllib
 
 import cartopy.crs as ccrs
 from matplotlib import rc
@@ -18,6 +19,9 @@ from matplotlib.colors import to_rgba, to_hex, LogNorm
 from matplotlib.cm import ScalarMappable
 from matplotlib.gridspec import GridSpec
 import numpy as np
+from PIL import Image
+from pyresample.geometry import AreaDefinition
+from pansat.utils import resample_data
 import torch
 import xarray as xr
 
@@ -35,6 +39,37 @@ def set_style(latex=False):
     """
     plt.style.use(str(_STYLE_FILE))
     rc("text", usetex=latex)
+
+
+def download_blue_marble(texture_file: pathlib.Path) -> pathlib.Path:
+    """
+    Download the texture file if it doesn't exist.
+
+    Args:
+        url: String specifying the URL of the texture file.
+        texture_file: Path object pointing to the file to which to download the texture image.
+    """
+    url = "https://eoimages.gsfc.nasa.gov/images/imagerecords/73000/73751/world.topo.bathy.200407.3x21600x10800.jpg"
+    if not texture_file.exists():
+        urllib.request.urlretrieve(url, texture_file)
+    return texture_file
+
+def get_blue_marble(area: AreaDefinition) -> Image:
+    """
+    Get NASA Blue Marble background image.
+    """
+    Image.MAX_IMAGE_PIXELS = None   # disables the warning
+    texture_file = pathlib.Path(".") / "blue_marble_hires.jpg"
+    img = np.array(Image.open(download_blue_marble(texture_file)))
+    lats = np.linspace(90, -90, img.shape[0])
+    lons = np.linspace(-180, 180, img.shape[1])
+    blue_marble = xr.Dataset({
+        "longitude": (("longitude"), lons),
+        "latitude": (("latitude"), lats),
+        "img": (("latitude", "longitude", "channels"), img / 256)
+    })
+    blue_marble_r = resample_data(blue_marble, area)
+    return Image.fromarray((blue_marble_r.img.data * 255).astype("uint8"))
 
 
 def scale_bar(
