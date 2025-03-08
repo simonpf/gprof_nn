@@ -6,7 +6,7 @@ validation_dataset_args = {{path="{validation_data_path}"}}
 n_epochs = 20
 batch_size = 32
 optimizer = "AdamW"
-optimize_args = {{lr = 5e-4}}
+optimizer_args = {{lr = 5e-4}}
 scheduler = "CosineAnnealingLR"
 scheduler_args = {{T_max = 20}}
 metrics = ["CorrelationCoef", "MSE", "Bias"]
@@ -19,7 +19,7 @@ validation_dataset_args = {{path="{validation_data_path}"}}
 n_epochs = 40
 batch_size = 32
 optimizer = "AdamW"
-optimize_args = {{lr = 5e-4}}
+optimizer_args = {{lr = 5e-4}}
 scheduler = "CosineAnnealingLR"
 scheduler_args = {{T_max = 40}}
 metrics = ["CorrelationCoef", "MSE", "Bias"]
@@ -32,7 +32,7 @@ validation_dataset_args = {{path="{validation_data_path}"}}
 n_epochs = 60
 batch_size = 32
 optimizer = "AdamW"
-optimize_args = {{lr = 5e-4}}
+optimizer_args = {{lr = 5e-4}}
 scheduler = "CosineAnnealingLR"
 scheduler_args = {{T_max = 60}}
 metrics = ["CorrelationCoef", "MSE", "Bias"]
