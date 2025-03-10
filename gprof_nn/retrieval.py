@@ -103,7 +103,7 @@ def calculate_quality_flag_and_pixel_status(
     qflag = -99.0 * np.ones_like(any_missing)
 
     all_good = (~any_missing) * (~invalid_coords) * (~snow_or_ice)
-    qflag[snow_or_ice] = 2
+    qflag[snow_or_ice * ~all_missing] = 2
     qflag[any_missing * ~all_missing] = 1
     qflag[all_good] = 0
 
