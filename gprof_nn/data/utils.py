@@ -349,7 +349,7 @@ def save_scene(
         encoding[var] = {"dtype": "float32", "zlib": True}
 
     for var in scene.variables:
-        if not var in encoding:
+        if not var in encoding and var not in ["source", "sensor"]:
             encoding[var] = {"zlib": True}
 
     encoding = {key: val for key, val in encoding.items() if key in scene}
@@ -568,7 +568,7 @@ def extract_scans(
     n_scans = scan_end - scan_start
     if min_scans is not None and n_scans < min_scans:
         scan_c = (scan_end + scan_start) // 2
-        scan_start = scan_c - min_scans // 2
+        scan_start = max(scan_c - min_scans // 2, 0)
         scan_end = scan_start + min_scans
     l1c_path = granule.file_record.local_path
     l1c_file = L1CFile(granule.file_record.local_path)

@@ -352,6 +352,8 @@ class L1CFile:
             with h5py.File(output_filename, "w") as output:
 
                 n_scans_total = input["S1/Latitude"].shape[0]
+                scan_start = max(scan_start, 0)
+                scan_den = min(scan_end, n_scans_total)
 
                 i = 1
                 while f"S{i}" in input:
@@ -370,6 +372,7 @@ class L1CFile:
                     for name, item in input[group_name].items():
                         if isinstance(item, h5py.Dataset):
                             shape = item.shape
+                            print("EXTRACT :: ", shape, scan_range)
                             g.create_dataset(
                                 name,
                                 shape=(n_scans,) + shape[1:],
