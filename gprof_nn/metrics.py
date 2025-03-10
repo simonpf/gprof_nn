@@ -1005,6 +1005,7 @@ class Evaluator():
         self.metrics_mtn_snow = [Bias(), MSE(), MAE(), CorrelationCoef()]
         self.metrics = [Bias(), MSE(), MAE(), CorrelationCoef(), SpectralCoherence()]
         self.min_rqi = min_rqi
+        self.max_error = None
 
 
     def get_retrieval_results(self, index: int) -> xr.Dataset:
@@ -1055,6 +1056,10 @@ class Evaluator():
 
             for metric in self.metrics:
                 metric.update(sp_ret, sp_ref)
+
+            mse = ((sp_ref[valid] - sp_ret[valid]) ** 2).mean()
+            if self.max_error is None or mse > self.max_error[0]:
+                self.max_error = (mse, collocation_file)
 
             # Ocean
             ocean_mask = (1 == surface_type)
@@ -1141,26 +1146,54 @@ class Evaluator():
         plt.colorbar(m, cax=cax, label="Surface precip [mm h$^{-1}$]")
 
 
-    def evaluate(self) -> None:
+    def evaluate(self, n_processes: Optional[int] = None) -> None:
         """
         Evaluate all collocations.
 
         Args:
              retrieval_callback: A Python callable the returns the retrieval results for a given
                  collocation file.
+             n_processes: The number of processes to use to run the evaluation in parallel.
+
         """
-        with Progress() as progress:
-            evaluation = progress.add_task(
-                "Evaluating retrieval:", total=(len(self.collocation_files))
-            )
+        if n_processes is None or n_processes < 2:
+            with Progress() as progress:
+                evaluation = progress.add_task(
+                    "Evaluating retrieval:", total=(len(self.collocation_files))
+                )
+                for collocation_file in self.collocation_files:
+                    try:
+                        self.evaluate_collocation(collocation_file, self.retrieval_callback)
+                    except Exception:
+                        LOGGER.exception(
+                            f"Encountered an error when processing scene {collocation_file}."
+                        )
+                    progress.update(evaluation, advance=1)
+        else:
+            pool = ProcessPoolExecutor(max_workers=n_processes)
+            tasks = []
+            scenes = {}
             for collocation_file in self.collocation_files:
-                try:
-                    self.evaluate_collocation(collocation_file, self.retrieval_callback)
-                except Exception:
-                    LOGGER.exception(
-                        f"Encountered an error when processing scene {collocation_file}."
+                tasks.append(
+                    pool.submit(
+                        self.evaluate_collocation,
+                        self.retrieval_callback,
                     )
-                progress.update(evaluation, advance=1)
+                )
+                scenes[tasks[-1]] = collocation_file
+
+            with Progress() as progress:
+                evaluation = progress.add_task(
+                    "Evaluating retrieval:", total=(len(tasks))
+                )
+                for task in as_completed(tasks):
+                    try:
+                        task.result()
+                    except Exception:
+                        LOGGER.exception(
+                            f"Encountered an error when processing scene {scenes[task]}."
+                        )
+                    progress.update(evaluation, advance=1)
 
             
     def get_results(self) -> xr.Dataset:
