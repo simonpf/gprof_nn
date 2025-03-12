@@ -78,9 +78,9 @@ SCAN_HEADER_TYPES = np.dtype(
 
 DATA_RECORD_TYPES = np.dtype(
     [
-        ("pixel_status", "i2"),
-        ("quality_flag", "i2"),
-        ("l1c_quality_flag", "i2"),
+        ("pixel_status", "i4"),
+        ("quality_flag", "i4"),
+        ("l1c_quality_flag", "i4"),
         ("total_column_water_vapor", "f4"),
         ("two_meter_temperature", "f4"),
         ("convective_precipitation", "f4"),
