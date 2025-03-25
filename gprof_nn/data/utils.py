@@ -28,6 +28,12 @@ from pansat.products.satellite.gpm import (
     l1c_npp_atms,
     l1c_noaa20_atms,
     l1c_gcomw1_amsr2,
+    l1c_xcal2016v_noaa18_mhs_v07a,
+    l1c_xcal2016v_noaa19_mhs_v07a,
+    l1c_xcal2016v_metopb_mhs_v07a,
+    l1c_xcal2019v_metopc_mhs_v07a,
+    l1c_xcal2021v_f17_ssmis_v07a,
+    l1c_xcal2021v_f18_ssmis_v07a,
     merged_ir
 )
 
@@ -35,7 +41,14 @@ from pansat.products.satellite.gpm import (
 PANSAT_PRODUCTS = {
     "gmi": (l1c_r_gpm_gmi,),
     "atms": (l1c_npp_atms, l1c_noaa20_atms),
-    "amsr2": (l1c_gcomw1_amsr2,)
+    "mhs": (
+        l1c_xcal2016v_noaa18_mhs_v07a,
+        l1c_xcal2016v_noaa19_mhs_v07a,
+        l1c_xcal2019v_metopc_mhs_v07a,
+        l1c_xcal2016v_metopb_mhs_v07a,
+    ),
+    "amsr2": (l1c_gcomw1_amsr2,),
+    "ssmis": (l1c_xcal2021v_f17_ssmis_v07a, l1c_xcal2021v_f18_ssmis_v07a),
 }
 
 

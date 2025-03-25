@@ -32,7 +32,6 @@ from pansat.products.satellite.gpm import (
     l1c_xcal2016v_noaa19_mhs_v07a,
     l1c_xcal2016v_noaa18_mhs_v07a,
     l1c_xcal2019v_metopc_mhs_v07a,
-    l1c_xcal2016_metopb_mhs,
 )
 from pansat.utils import resample_data
 from pytorch_retrieve import load_model
@@ -58,7 +57,8 @@ from gprof_nn.data.utils import (
     calculate_obs_properties,
     mask_invalid_values,
     RADIUS_OF_INFLUENCE,
-    UPSAMPLING_FACTORS
+    UPSAMPLING_FACTORS,
+    PANSAT_PRODUCTS
 )
 from gprof_nn.data.l1c import L1CFile
 from gprof_nn.data.training_data import transform_observations_satformer
@@ -72,19 +72,6 @@ from gprof_nn.logging import (
 
 LOGGER = logging.getLogger(__name__)
 
-
-# pansat products for each sensor.
-PRODUCTS = {
-    "gmi": (l1c_r_gpm_gmi,),
-    "atms": (l1c_npp_atms, l1c_noaa20_atms),
-    "amsr2": (l1c_gcomw1_amsr2,),
-    "mhs": (
-        l1c_xcal2016v_noaa18_mhs_v07a,
-        l1c_xcal2016v_noaa19_mhs_v07a,
-        l1c_xcal2019v_metopc_mhs_v07a,
-        l1c_xcal2016_metopb_mhs,
-    )
-}
 
 def extract_pretraining_scenes(
         input_sensor: Sensor,
@@ -348,8 +335,8 @@ def extract_samples(
         scene_size: The size of the training scenes to extract.
     """
 
-    input_products = PRODUCTS[input_sensor.name.lower()]
-    target_products = PRODUCTS[target_sensor.name.lower()]
+    input_products = PANSAT_PRODUCTS[input_sensor.name.lower()]
+    target_products = PANSAT_PRODUCTS[target_sensor.name.lower()]
     for input_product in input_products:
         for target_product in target_products:
             input_recs = input_product.get(TimeRange(start_time, end_time))
@@ -522,12 +509,12 @@ def cli(
     # Check sensors
     input_sensor_obj = getattr(sensors, input_sensor.strip().upper(), None)
     if input_sensor_obj is None:
-        LOGGER.error("The sensor '%s' is not known.", sensor)
+        LOGGER.error("The sensor '%s' is not known.", input_sensor)
         return 1
     input_sensor = input_sensor_obj
     target_sensor_obj = getattr(sensors, target_sensor.strip().upper(), None)
     if target_sensor_obj is None:
-        LOGGER.error("The sensor '%s' is not known.", sensor)
+        LOGGER.error("The sensor '%s' is not known.", target_sensor)
         return 1
     target_sensor = target_sensor_obj
 
