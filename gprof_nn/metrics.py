@@ -12,6 +12,7 @@ metric's ``compute`` function. The metrics use shared memory to track required
 quantities so that evaluation can be performed in parallel using multiple
 processes.
 """
+from concurrent.futures import ProcessPoolExecutor, as_completed
 import logging
 from multiprocessing import shared_memory, Lock, Manager
 from pathlib import Path
@@ -19,10 +20,12 @@ from typing import Any, Dict, List, Optional, Tuple
 import warnings
 
 import numpy as np
+from pansat.products.satellite.gpm import l2a_gprof_gpm_gmi_v07a
 from rich.progress import Progress
 from scipy.ndimage import binary_erosion
 from scipy.fftpack import dctn
 import xarray as xr
+
 
 
 LOGGER = logging.getLogger()
@@ -1266,3 +1269,137 @@ class Evaluator():
             results.append(metric.compute())
         results = xr.merge(results)
         return results
+
+
+class MeanPrecip(Metric):
+    """
+    Calculates various precipitation metrics.
+    """
+    def __init__(
+        self,
+        resolution: float = 1.0,
+    ):
+        n_lat = int(180 / resolution)
+        self.lat_bins = np.linspace(-90, 90, n_lat + 1)
+        n_lon = 2 * n_lat
+        self.lon_bins = np.linspace(-180, 180, 2 * n_lat + 1)
+
+        super().__init__(
+            buffers={
+                "global_sum": ((n_lat, n_lon), np.float64),
+                "global_cts": ((n_lat, n_lon), np.float64),
+                "zonal_sum": ((n_lat,), np.float64),
+                "zonal_cts": ((n_lat), np.float64),
+                "surface_type_sum": ((18,), np.float64),
+                "surface_type_cts": ((18,), np.float64),
+            }
+        )
+
+    def update(
+            self,
+            lons: np.ndarray,
+            lats: np.ndarray,
+            surface_precip: np.ndarray
+    ):
+        """
+        Args:
+            lons: The longitude coordinates.
+            lats: The latitude coordinates.
+            surface_precip: The surface precip estimates.
+        """
+        valid = 0 <= surface_precip
+        lons = lons[valid]
+        lats = lats[valid]
+        surface_precip = surface_precip[valid]
+
+        with self.lock:
+            self.global_sum += np.histogram2d(
+                lons,
+                lats,
+                weights=surface_precip,
+                bins=(self.lon_bins, self.lat_bins,)
+            )[0].T
+            self.global_cts += np.histogram2d(
+                lons,
+                lats,
+                bins=(self.lon_bins, self.lat_bins,)
+            )[0].T
+            self.zonal_sum += np.histogram(lats, weights=surface_precip, bins=self.lat_bins)[0]
+            self.zonal_cts += np.histogram(lats, bins=self.lat_bins)[0]
+
+    def evaluate_results(self, result_file: Path):
+        """
+        Evaluate files for a single result file.
+        """
+        if result_file.suffix == ".nc":
+            with xr.open_dataset(result_file) as results:
+                lons = results.longitude.data
+                lats = results.latitude.data
+                sp = results.surface_precip.data
+                self.update(lons, lats, sp)
+        else:
+            results = l2a_gprof_gpm_gmi_v07a.open(result_file)
+            lons = results.longitude.data
+            lats = results.latitude.data
+            sp = results.surface_precipitation.data
+            self.update(lons, lats, sp)
+
+    def compute(self, result_files: List[Path], n_processes: int = 1):
+        """
+        Compute global and zonal means.
+        """
+        if n_processes is None or n_processes < 2:
+            with Progress() as progress:
+                evaluation = progress.add_task(
+                    "Evaluating retrieval:", total=(len(result_files))
+                )
+                for result_file in result_files:
+                    try:
+                        self.evaluate_results(result_file)
+                    except Exception:
+                        LOGGER.exception(
+                            f"Encountered an error when processing scene {result_file}."
+                        )
+                    progress.update(evaluation, advance=1)
+        else:
+            pool = ProcessPoolExecutor(max_workers=n_processes)
+            tasks = []
+            scenes = {}
+            for result_file in result_files:
+                tasks.append(
+                    pool.submit(
+                        self.evaluate_results,
+                        result_file
+                    )
+                )
+                scenes[tasks[-1]] = result_file
+
+            with Progress() as progress:
+                evaluation = progress.add_task(
+                    "Evaluating retrieval:", total=(len(tasks))
+                )
+                for task in as_completed(tasks):
+                    try:
+                        task.result()
+                    except Exception:
+                        LOGGER.exception(
+                            f"Encountered an error when processing scene {scenes[task]}."
+                        )
+                    progress.update(evaluation, advance=1)
+
+    def get_results(self, name: Optional[str] = None):
+        """
+        Return:
+            An 'xarray.Dataset' containing the the precision and recall values for all
+            assessed threshold values as well as the area under the PR-curve.
+        """
+        lons = 0.5 * (self.lon_bins[1:] + self.lon_bins[:-1])
+        lats = 0.5 * (self.lat_bins[1:] + self.lat_bins[:-1])
+        global_mean = self.global_sum / self.global_cts
+        zonal_mean = self.zonal_sum / self.zonal_cts
+        return xr.Dataset({
+            "longitude": (("longitude",), lons),
+            "latitude": (("latitude",), lats),
+            "global_mean": (("latitude", "longitude"), global_mean),
+            "zonal_mean": (("latitude",), zonal_mean),
+        })
