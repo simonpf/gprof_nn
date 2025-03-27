@@ -1483,8 +1483,6 @@ def load_training_data_3d_other(
     required = [
         "latitude",
         "longitude",
-        "simulated_brightness_temperatures",
-        "brightness_temperature_biases"
     ]
     variables = [
         name for name in targets + required
