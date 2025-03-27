@@ -1465,7 +1465,7 @@ def load_training_data_3d_other(
 ) -> Tuple[Dict[str, torch.Tensor]]:
     """
     Load training data for non-GMI sensors that are training scenes extracted
-    from actualy observations, i.e., not .sim-file derived.
+    from actual observations, i.e., not .sim-file derived.
 
     Args:
         sensor: The sensor object from which the training data was extracted.
@@ -1534,6 +1534,32 @@ def load_training_data_3d_other(
     else:
         cfg = "CLI"
     anc = load_ancillary_data(scene, configuration=cfg, stack_dim=0)
+
+    # Drop channels
+    if self.channel_drop is not None:
+        p = self.channel_drop
+        n_chans = tbs_full.shape[0]
+        for chan in range(n_chans):
+            if self.rng.random() <= p:
+                tbs_full[chan] = torch.nan
+                angs_full[chan] = torch.nan
+
+    # Drop scanlines
+    if self.scanline_drop is not None:
+        p = self.scanline_drop
+        n_chans = tbs_full.shape[0]
+        if self.rng.random() <= p:
+
+            n_lines = self.rng.integers(1, 30)
+            start = self.rng.integers(0, tbs_full.shape[1] - n_lines)
+            end = start + n_lines
+
+            chans = self.rng.permutation(n_chans)
+            drop = self.rng.integers(1, n_chans + 1)
+            chans = chans[:drop]
+            for chan_ind in chans:
+                tbs_full[chan_ind, start:end] = torch.nan
+                angs_full[chan_ind, start:end] = torch.nan
 
     x = {
         "brightness_temperatures": tbs_full,
