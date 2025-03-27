@@ -206,7 +206,9 @@ class Sensor(ABC):
             polarization: List[str],
             orographic_enhancement: List[float],
             earth_incidence_angle: Optional[List[float]],
-            sim_file_pattern: str = "*.sim"
+            sim_file_pattern: str = "*.sim",
+            channel_drop: Optional[float] = None,
+            scanline_drop: Optional[float] = None
     ):
         self.kind = kind
         self._name = name
@@ -248,6 +250,9 @@ class Sensor(ABC):
 
         # MRMS types
         self._mrms_file_record = types.get_mrms_file_record(self.n_chans, self.n_angles, kind)
+
+        self.channel_drop = channel_drop
+        self.scanline_drop = scanline_drop
 
     def __eq__(self, other):
         return self.name == other.name and self.platform == other.platform
@@ -394,12 +399,15 @@ class ConicalScanner(Sensor):
             polarization: List[float],
             orographic_enhancement: List[float],
             earth_incidence_angle: Optional[List[float]],
-            sim_file_pattern: str = "*.sim"
+            sim_file_pattern: str = "*.sim",
+            channel_drop: Optional[float] = None,
+            scanline_drop: Optional[float] = None
     ):
         super().__init__(
             types.CONICAL, name, platform, viewing_geometry, gprof_channels,
             frequencies, offsets, polarization, orographic_enhancement,
-            earth_incidence_angle, sim_file_pattern=sim_file_pattern
+            earth_incidence_angle, sim_file_pattern=sim_file_pattern,
+            channel_drop=channel_drop, scanline_drop=scanline_drop
         )
         self._n_angles = 1
 
@@ -427,13 +435,17 @@ class CrossTrackScanner(Sensor):
             polarization: List[str],
             orographic_enhancement: List[float],
             earth_incidence_angle: Optional[List[float]] = None,
-            sim_file_pattern: str = "*.sim"
+            sim_file_pattern: str = "*.sim",
+            scanline_drop: Optional[float] = None,
+            channel_drop: Optional[float] = None
     ):
         super().__init__(
             types.XTRACK, name, platform, viewing_geometry, gprof_channels,
             frequencies, offsets, polarization, orographic_enhancement,
             earth_incidence_angle=earth_incidence_angle,
-            sim_file_pattern=sim_file_pattern
+            sim_file_pattern=sim_file_pattern,
+            scanline_drop: Optional[float] = 0.0,
+            channel_drop: Optional[float] = 0.0
         )
 
     def __repr__(self):
@@ -458,7 +470,9 @@ class ConstellationScanner(Sensor):
             polarization: List[str],
             orographic_enhancement: List[float],
             earth_incidence_angle: Optional[List[float]] = None,
-            sim_file_pattern: str = "*.sim"
+            sim_file_pattern: str = "*.sim",
+            channel_drop: Optional[float] = None,
+            scanline_drop: Optional[float] = None
     ):
         super().__init__(
             types.CONICAL_CONST,
@@ -471,7 +485,9 @@ class ConstellationScanner(Sensor):
             polarization,
             orographic_enhancement,
             earth_incidence_angle=earth_incidence_angle,
-            sim_file_pattern=sim_file_pattern
+            sim_file_pattern=sim_file_pattern,
+            channel_drop=channel_drop,
+            scanline_drop=scanline_drop
         )
 
 
