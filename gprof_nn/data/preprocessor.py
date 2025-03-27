@@ -609,7 +609,7 @@ PREPROCESSOR_EXECUTABLES = {
     "TMIPR": "gprof2021pp_TMI_L1C",
     "TMIPO": "gprof2021pp_TMI_L1C",
     "SSMI": "gprof2021pp_SSMI_L1C",
-    "SSMIS": "gprof2021pp_SSMIS_L1C",
+    "SSMIS": "gprof2024pp_SSMIS_L1C",
     "AMSR2": "gprof2024pp_AMSR2_L1C",
     "AMSRE": "gprof2021pp_AMSRE_L1C",
     "ATMS": "gprof2024pp_ATMS_L1C",
