@@ -1283,15 +1283,17 @@ class MeanPrecip(Metric):
         self.lat_bins = np.linspace(-90, 90, n_lat + 1)
         n_lon = 2 * n_lat
         self.lon_bins = np.linspace(-180, 180, 2 * n_lat + 1)
+        self.month_bins = np.arange(13) + 0.5
+        self.surface_type_bins = np.arange(6) + 0.5
 
         super().__init__(
             buffers={
-                "global_sum": ((n_lat, n_lon), np.float64),
-                "global_cts": ((n_lat, n_lon), np.float64),
-                "zonal_sum": ((n_lat,), np.float64),
-                "zonal_cts": ((n_lat), np.float64),
-                "surface_type_sum": ((18,), np.float64),
-                "surface_type_cts": ((18,), np.float64),
+                "global_sum": ((5, 12, n_lat, n_lon), np.float64),
+                "global_cts": ((5, 12, n_lat, n_lon), np.float64),
+                "zonal_sum": ((5, n_lat,), np.float64),
+                "zonal_cts": ((5, n_lat), np.float64),
+                "surface_type_sum": ((5,), np.float64),
+                "surface_type_cts": ((5,), np.float64),
             }
         )
 
@@ -1299,6 +1301,8 @@ class MeanPrecip(Metric):
             self,
             lons: np.ndarray,
             lats: np.ndarray,
+            month: np.ndarray,
+            surface_type: np.ndarray,
             surface_precip: np.ndarray
     ):
         """
@@ -1310,39 +1314,87 @@ class MeanPrecip(Metric):
         valid = 0 <= surface_precip
         lons = lons[valid]
         lats = lats[valid]
+        month = month[valid]
+        surface_type = surface_type[valid]
         surface_precip = surface_precip[valid]
 
         with self.lock:
-            self.global_sum += np.histogram2d(
-                lons,
+            self.global_sum += np.histogramdd(
+                np.stack((surface_type, month, lats, lons), -1),
+                weights=surface_precip,
+                bins=(self.surface_type_bins, self.month_bins, self.lat_bins, self.lon_bins,)
+            )[0]
+            self.global_cts += np.histogramdd(
+                np.stack((surface_type, month, lats, lons), -1),
+                bins=(self.surface_type_bins, self.month_bins, self.lat_bins, self.lon_bins,)
+            )[0]
+            self.zonal_sum += np.histogram2d(
+                surface_type,
                 lats,
                 weights=surface_precip,
-                bins=(self.lon_bins, self.lat_bins,)
-            )[0].T
-            self.global_cts += np.histogram2d(
-                lons,
+                bins=(self.surface_type_bins, self.lat_bins)
+            )[0]
+            self.zonal_cts += np.histogram2d(
+                surface_type,
                 lats,
-                bins=(self.lon_bins, self.lat_bins,)
-            )[0].T
-            self.zonal_sum += np.histogram(lats, weights=surface_precip, bins=self.lat_bins)[0]
-            self.zonal_cts += np.histogram(lats, bins=self.lat_bins)[0]
+                bins=(self.surface_type_bins, self.lat_bins)
+            )[0]
+            self.surface_type_sum += np.histogram(surface_type, weights=surface_precip, bins=self.surface_type_bins)[0]
+            self.surface_type_cts += np.histogram(surface_type, bins=self.surface_type_bins)[0]
 
     def evaluate_results(self, result_file: Path):
         """
         Evaluate files for a single result file.
         """
+        # Load results from GPROF-NN retrieval resutls in NetCDF4 format.
         if result_file.suffix == ".nc":
             with xr.open_dataset(result_file) as results:
                 lons = results.longitude.data
                 lats = results.latitude.data
                 sp = results.surface_precip.data
-                self.update(lons, lats, sp)
+
+                month = results.scan_time.dt.month.data
+                month = np.broadcast_to(month[..., None], lons.shape)
+
+                surface_type = np.zeros_like(lons, dtype=np.int8)
+                sea_ice = results.ice_fraction.data > 50
+                snow = (results.snow_mask.data > 0) + (results.snow_depth.data > 0)
+                land = (results.land_fraction.data > 80)
+                ocean = (results.land_fraction.data == 0)
+                mtn = (results.mountain_index.data > 0)
+
+                surface_type[ocean] = 1
+                surface_type[land] = 2
+                surface_type[mtn] = 3
+                surface_type[snow] = 4
+                surface_type[sea_ice] = 5
+
+                self.update(lons, lats, month, surface_type, sp)
+        # Load results from GPROF V7 HDF5 files.
         else:
             results = l2a_gprof_gpm_gmi_v07a.open(result_file)
             lons = results.longitude.data
             lats = results.latitude.data
             sp = results.surface_precipitation.data
-            self.update(lons, lats, sp)
+            month = results.scan_time.dt.month.data
+            month = np.broadcast_to(month[:, None], lons.shape)
+
+            surface_type_index = results.surface_type_index.data
+            surface_type = np.zeros_like(surface_type_index)
+            ocean = surface_type_index == 1
+            sea_ice = (surface_type_index == 2) + (surface_type_index == 16)
+            mtn = (surface_type_index > 16)
+            snow = (8 <= surface_type_index) * (surface_type_index <= 11)
+            land = (
+                (2 < surface_type_index) * (surface_type_index < 8) +
+                (11 < surface_type_index) * (surface_type_index < 16)
+            )
+            surface_type[ocean] = 1
+            surface_type[land] = 2
+            surface_type[mtn] = 3
+            surface_type[snow] = 4
+            surface_type[sea_ice] = 5
+            self.update(lons, lats, month, surface_type, sp)
 
     def compute(self, result_files: List[Path], n_processes: int = 1):
         """
@@ -1395,11 +1447,17 @@ class MeanPrecip(Metric):
         """
         lons = 0.5 * (self.lon_bins[1:] + self.lon_bins[:-1])
         lats = 0.5 * (self.lat_bins[1:] + self.lat_bins[:-1])
-        global_mean = self.global_sum / self.global_cts
+        monthly_mean = self.global_sum.sum(0) / self.global_cts.sum(0)
+        global_mean = self.global_sum.sum(1) / self.global_cts.sum(1)
         zonal_mean = self.zonal_sum / self.zonal_cts
+        surface_type_mean = self.global_sum.sum((1)) / self.global_cts.sum((1))
+
         return xr.Dataset({
             "longitude": (("longitude",), lons),
             "latitude": (("latitude",), lats),
-            "global_mean": (("latitude", "longitude"), global_mean),
-            "zonal_mean": (("latitude",), zonal_mean),
+            "month": (("month",), np.arange(1, 13)),
+            "monthly_mean": (("month", "latitude", "longitude"), monthly_mean),
+            "global_mean": (("surface_type", "latitude", "longitude"), global_mean),
+            "zonal_mean": (("surace_type", "latitude",), zonal_mean),
+            "surface_type_mean": (("surface_type", "latitude", "longitude"), surface_type_mean),
         })
