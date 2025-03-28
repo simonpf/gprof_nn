@@ -444,8 +444,8 @@ class CrossTrackScanner(Sensor):
             frequencies, offsets, polarization, orographic_enhancement,
             earth_incidence_angle=earth_incidence_angle,
             sim_file_pattern=sim_file_pattern,
-            scanline_drop: Optional[float] = 0.0,
-            channel_drop: Optional[float] = 0.0
+            scanline_drop=scanline_drop,
+            channel_drop=channel_drop
         )
 
     def __repr__(self):
@@ -582,11 +582,13 @@ def parse_sensor(sensor_file: Path) -> Sensor:
         "offsets",
         "polarization",
         "orographic_enhancement",
-        "earth_incidence_angle"
+        "earth_incidence_angle",
     ]
     args = [sensor.get(arg, None) for arg in args]
     kwargs = {
-        "sim_file_pattern": "*.sim"
+        "sim_file_pattern": "*.sim",
+        "channel_drop": None,
+        "scanline_drop": None
     }
     kwargs = {key: sensor.get(key, value) for key, value in kwargs.items()}
     sensor = sensor_class(name.split('_')[0], platform, viewing_geometry, *args, **kwargs)
