@@ -17,6 +17,8 @@ frequencies = [88.2, 165.5, 183.31, 183.31, 183.31]
 offsets = [0.0, 0.0, 1.0, 3.0, 7.0]
 polarization = ["QV", "QH", "QH", "QH", "QH"]
 orographic_enhancement = [1.06241, 1.69921, 1.47471, 1.74373, 2.74331]
+channel_drop = 0.1
+scanline_drop = 0.1
 
 [sensor.gprof_channels]
 8 = [0, 0]

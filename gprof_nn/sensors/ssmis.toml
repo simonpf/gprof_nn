@@ -1,0 +1,33 @@
+[platform]
+name = "F18"
+l1c_file_path = "/pdata4/archive/GPM/1C_F18_V7"
+l1c_file_prefix = "1C-R.F18.SSMIS"
+
+[viewing_geometry]
+kind = "Conical"
+altitude = 848e3
+earth_incidence_angle = 53.1
+scan_range = 140.0
+pixels_per_scan = 221
+scan_offset = 12.5e3
+
+[sensor]
+kind = "ConicalScanner"
+frequencies = [19.35, 19.35, 22.235, 37.0, 37.0, 91.0, 91.0, 150.0, 183.0, 183.0, 183.0]
+offsets = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 3.0, 6.6]
+polarization = ["V", "H", "V", "V", "H", "V", "H", "H", "H", "H", "H"]
+orographic_enhancement = [1.13392, 1.69444, 1.44406, 1.68295, 2.89360]
+earth_incidence_angle = [53.59, 53.59, 53.59, 53.54, 53.54, 53.05, 53.05, 52.90, 52.90, 52.90, 52.90]
+
+[sensor.gprof_channels]
+2 = [0, 0]
+3 = [0, 1]
+4 = [0, 2]
+6 = [1, 0]
+7 = [1, 1]
+8 = [3, 0]
+9 = [3, 1]
+11 = [2, 0]
+12 = [2, 1]
+13 = [2, 2]
+14 = [2, 3]
