@@ -7,11 +7,12 @@ Implements functionality to extract finetune datasets for the GPROF-NN retrieval
 from calendar import monthrange
 from concurrent.futures import ProcessPoolExecutor
 from datetime import datetime, timedelta
+from functools import cache
 import logging
 import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 import click
 from filelock import FileLock
@@ -48,6 +49,31 @@ from gprof_nn.data.utils import (
 
 
 LOGGER = logging.getLogger(__name__)
+
+
+@cache
+def get_retrieval_results(path: Path) -> Dict[int, Path]:
+    """
+    Create a mapping of orbit number to corresponding retrieval result files.
+
+    Args:
+         path: A path object pointing to the directory containing the retrieval results.
+
+    Return:
+        A mapping of orbit numbers to the corresponding result file.
+    """
+    result_files = path.glob("**/*.nc")
+    orbit_to_files = {}
+    for path in result_files:
+        try:
+            orbit_num = int(path.name.split(".")[-3])
+            orbit_to_files[orbit_num] = path
+        except ValueError:
+            pass
+    LOGGER.info(
+        "Found %s retrieval files.", len(orbit_to_files)
+    )
+    return orbit_to_files
 
 
 def run_retrieval(
@@ -91,7 +117,8 @@ def process_match(
         target_granule: Granule,
         reference_sensor: sensors.Sensor,
         reference_granules: List[Granule],
-        retrieval_model: nn.Module,
+        retrieval_model: Optional[nn.Module],
+        retrieval_path: Optional[nn.Module],
         output_path_1d: Path,
         output_path_3d: Path
 ) -> None:
@@ -112,8 +139,15 @@ def process_match(
             "Empty match."
         )
     retrieval_results = []
+
     for reference_granule in reference_granules:
-        retrieval_results.append(run_retrieval(reference_granule, retrieval_model))
+        if retrieval_model is not None:
+            retrieval_results.append(run_retrieval(reference_granule, retrieval_model))
+        else:
+            orbit_num = int(reference_granule.file_record.filename.split(".")[-3])
+            all_results = get_retrieval_results(retrieval_path)
+            retrieval_results.append(xr.load_dataset(all_results[orbit_num]))
+
     retrieval_results = xr.concat(retrieval_results, dim="scans")
     retrieval_results = retrieval_results.rename(latent_heating="latent_heat")[
         ALL_TARGETS + ["scan_time", "longitude", "latitude"]
@@ -163,7 +197,8 @@ def process_match(
 
 def extract_finetuning_samples(
         reference_sensor: sensors.Sensor,
-        retrieval_model: nn.Module,
+        retrieval_model: Optional[Path],
+        retrieval_path: Optional[Path],
         target_sensor: sensors.Sensor,
         year: int,
         month: int,
@@ -183,10 +218,18 @@ def extract_finetuning_samples(
         output_path_1d: The path to write the 1D training data to.
         output_path_3d: The path to write the 3D training data to.
     """
+    if retrieval_path is None and retrieval_model is None:
+        raise ValueError(
+            "One of 'retrieval_path' or 'retrieval_model' must not be None."
+        )
+
     ref_prods = PANSAT_PRODUCTS[reference_sensor.name.lower()]
     targ_prods = PANSAT_PRODUCTS[target_sensor.name.lower()]
 
-    retrieval_model = load_model(retrieval_model)
+    if retrieval_model is not None:
+        retrieval_model = load_model(retrieval_model)
+    if retrieval_path is not None:
+        retrieval_path = Path(retrieval_path)
 
     start_time = datetime(year, month, day)
     end_time = start_time + timedelta(hours=23, minutes=59)
@@ -217,6 +260,7 @@ def extract_finetuning_samples(
                         reference_sensor,
                         reference_granules,
                         retrieval_model,
+                        retrieval_path,
                         output_path_1d,
                         output_path_3d
                     )
@@ -228,7 +272,6 @@ def extract_finetuning_samples(
 
 
 @click.argument("reference_sensor", type=str)
-@click.argument("retrieval_model", type=str)
 @click.argument("target_sensor", type=str)
 @click.argument("year", type=int)
 @click.argument("month", type=int)
@@ -236,16 +279,19 @@ def extract_finetuning_samples(
 @click.argument("output_path_1d", type=str)
 @click.argument("output_path_3d", type=str)
 @click.option("--n_processes", type=int, default=1)
+@click.option("--retrieval_model", type=str, default=None)
+@click.option("--retrieval_path", type=str, default=None)
 def cli(
         reference_sensor: str,
-        retrieval_model: str,
         target_sensor: str,
         year: int,
         month: int,
         days: List[int],
         output_path_1d: str,
         output_path_3d: str,
-        n_processes: int = 1
+        n_processes: int = 1,
+        retrieval_model: Optional[str] = None,
+        retrieval_path: Optional[str] = None,
 ) -> None:
     """
     Extract samples to fine-tune GPROF retrievals for TARGET_SENSOR using retrieval from
@@ -254,12 +300,20 @@ def cli(
     reference_sensor = getattr(sensors, reference_sensor.upper())
     target_sensor = getattr(sensors, target_sensor.upper())
 
-    retrieval_model = Path(retrieval_model)
-    if not retrieval_model.exists():
-        LOGGER.error(
-            "'retrieval model' argument must point to an existing retrieval model."
-        )
-        return 1
+    if retrieval_model is not None:
+        retrieval_model = Path(retrieval_model)
+        if not retrieval_model.exists():
+            LOGGER.error(
+                "'retrieval model' argument must point to an existing retrieval model."
+            )
+            return 1
+    if retrieval_path is not None:
+        retrieval_path = Path(retrieval_path)
+        if not retrieval_path.exists():
+            LOGGER.error(
+                "'retrieval path' argument must point to a directory containing retrieval results."
+            )
+            return 1
 
     if len(days) == 0:
         _, n_days = monthrange(year, month)
@@ -284,6 +338,7 @@ def cli(
             extract_finetuning_samples(
                 reference_sensor,
                 retrieval_model,
+                retrieval_path,
                 target_sensor,
                 year,
                 month,
@@ -299,6 +354,7 @@ def cli(
                 extract_finetuning_samples,
                 reference_sensor,
                 retrieval_model,
+                retrieval_path,
                 target_sensor,
                 year,
                 month,

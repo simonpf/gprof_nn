@@ -372,7 +372,6 @@ class L1CFile:
                     for name, item in input[group_name].items():
                         if isinstance(item, h5py.Dataset):
                             shape = item.shape
-                            print("EXTRACT :: ", shape, scan_range)
                             g.create_dataset(
                                 name,
                                 shape=(n_scans,) + shape[1:],
