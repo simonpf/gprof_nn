@@ -9,4 +9,4 @@ hydrometeor profiles for all sensors of the GPM constellation.
 
 ## Overview
 
-The ``gprof_nn`` python package implements the GPROF-NN retrieval. The package contains the code for the full training, evaluation, and inference pipeline. Trained retrieval models for all major sensor types are available from the corresponding [Hugging Face repository](hf.co/simonpf/gprof_nn).
+The ``gprof_nn`` python package implements the GPROF-NN retrieval. The package contains the code for the full training, evaluation, and inference pipeline. Trained retrieval models for all major sensor types are available from the corresponding [Hugging Face repository](https://hf.co/simonpf/gprof_nn).

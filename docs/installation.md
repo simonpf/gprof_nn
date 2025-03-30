@@ -14,7 +14,7 @@ pip install git+https://github.com/simonpf/gprof_nn@gprof_v8
 The development installation comprises additional packages required for training and evaluation of GPROF-NN models.
 
 
-## Obtaining the code
+### Obtaining the code
 
 The first step in installing ``gprof_nn`` consists of cloning the source code from GitHub.
 
@@ -22,13 +22,12 @@ The first step in installing ``gprof_nn`` consists of cloning the source code fr
 git clone -b gprof_v8 git@github.com:simonpf/gprof_nn
 ```
 
-This will clone the source code for the V8 version of GPROF-NN into a new folder named ``gprof_nn``.
 
+### Dependencies
 
-## Dependencies
-
-The recommended way to install the external depencies required for using ``gprof_nn`` is through
-the conda environment provided in the base directory of the source code.
+The recommended way to install the external depencies required for using
+``gprof_nn`` is through the conda environment provided in the base directory of
+the source code.
 
 ```
 # Swith to folder if not already done
@@ -43,7 +42,7 @@ conda activate gprof_v8
 ```
 
 
-## Installation
+### Installation
 
 Finally, the ``gprof_nn`` package can be installed using
 
