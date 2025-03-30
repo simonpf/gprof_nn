@@ -27,13 +27,14 @@ dependencies = [
 docs = ["jupyter-book", "sphinx"]
 
 [project.urls]
-Homepage = "gprof_nn.readthedocs.io"
+Homepage = "https://gprof_nn.readthedocs.io"
 
 [project.scripts]
 gprof_nn = "gprof_nn.cli:gprof_nn"
 
 [tool.setuptools]
-include-pakcage-data = true
+packages = ["gprof_nn"]
+include-package-data = true
 
 [tool.setuptools.package-data]
 "gprof_nn" = ["config_files/*.toml", "sensors/*.toml"]
