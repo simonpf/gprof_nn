@@ -10,6 +10,7 @@ from datetime import datetime
 import logging
 from pathlib import Path
 import re
+from typing import Dict
 
 import numpy as np
 import scipy as sp
@@ -25,6 +26,64 @@ from gprof_nn.logging import get_console
 _RE_META_INFO = re.compile(r"NumberScansGranule=(\d*);")
 
 LOGGER = logging.getLogger(__name__)
+
+
+def consolidate_swath_data_gmi(swath_data: Dict[str, xr.Dataset]) -> xr.Dataset:
+    """
+    Combines data from multiple swaths into a single xarray.Dataset in the way
+    it is done by the GPROF preprocessor.
+
+    Args:
+        swath_data: A dictionary containing the observations from the separate swaths.
+
+    Return:
+        A new xarray.Dataset containing the combined observations and incidence angles.
+    """
+    pixels = swath_data[1].pixels.data
+    scans = swath_data[1].scans.data
+
+    full_data = xr.Dataset({
+        "pixels": (("pixels",), pixels),
+        "scans": (("scans",), scans)
+    })
+
+    full_tbs = np.nan * np.zeros((scans.size, pixels.size, 15), dtype=np.float32)
+    full_eia = np.nan * np.zeros((scans.size, pixels.size, 15), dtype=np.float32)
+
+    chan_ind_in = 0
+    for chan_ind_out in [0, 1, 2, 3, 4, 6, 7, 8, 9]:
+        full_tbs[..., chan_ind_out] = swath_data[1].brightness_temperatures[..., chan_ind_in]
+        full_eia[..., chan_ind_out] = swath_data[1].earth_incidence_angle[..., chan_ind_in]
+        chan_ind_in += 1
+
+    chan_ind_in = 0
+    for chan_ind_out in [10, 11, 13, 14]:
+        full_tbs[..., chan_ind_out] = swath_data[2].brightness_temperatures[..., chan_ind_in]
+        full_eia[..., chan_ind_out] = swath_data[2].earth_incidence_angle[..., chan_ind_in]
+        chan_ind_in += 1
+
+    scan_time = swath_data[1].scan_time.data
+
+    qflag1 = swath_data[1].quality_flag.data
+    qflag2 = swath_data[2].quality_flag.data
+    qflag = np.minimum(qflag1, qflag2)
+    pos_qflag = (0 < qflag1) * (0 < qflag2)
+    qflag[pos_qflag] = np.maximum(qflag1, qflag2)[pos_qflag]
+
+    full_data["brightness_temperatures"] = (("scans", "pixels", "channels"), full_tbs)
+    full_data["earth_incidence_angle"] = (("scans", "pixels", "channels"), full_eia)
+    full_data["scan_time"] = (("scans",), scan_time)
+    full_data["quality_flag"] = (("scans", "pixels"), qflag)
+
+    full_data["longitude"] = (("scans", "pixels"), swath_data[1].longitude.data)
+    full_data["latitude"] = (("scans", "pixels"), swath_data[1].latitude.data)
+
+    return full_data
+
+
+CONSOLIDATION_FUNCTIONS = {
+    "gmi": consolidate_swath_data_gmi,
+}
 
 
 class L1CFile:
@@ -431,173 +490,95 @@ class L1CFile:
                 * (lats < lat_max)
             )
 
-    def to_xarray_dataset(self, roi=None):
+    def to_xarray_dataset(self):
         """
         Read data into xarray.Dataset.
-
-        Args:
-            roi: If provided should be a tuple
-                 ``(lon_min, lat_min, lon_max, lat_max)`` defining a
-                 rectangular bounding box around a region of interest. In this
-                 case only swaths that at least partially cover the give ROI
-                 will be loaded
 
         Returns:
             An xarray.Dataset containing the data from this L1C file.
         """
         import h5py
-        with h5py.File(self.path, "r") as input:
+        with h5py.File(self.path, "r") as inpt:
 
-            swath = "S1"
-            n_pixels = input["S1/Latitude"].shape[1]
-            if "S2" in input.keys():
-                if input["S2/Latitude"].shape[1] > n_pixels:
-                    swath = "S2"
-            if "S3" in input.keys():
-                if input["S3/Latitude"].shape[1] > n_pixels:
-                    swath = "S3"
+            swath_data = {}
 
-            lats = input[f"{swath}/Latitude"][:]
-            lons = input[f"{swath}/Longitude"][:]
+            swath_ind = 1
+            while f"S{swath_ind}" in inpt.keys():
+                swath = f"S{swath_ind}"
+                lats = inpt[f"{swath}/Latitude"][:]
+                lons = inpt[f"{swath}/Longitude"][:]
+                tbs = inpt[f"{swath}/Tc"][:]
+                eia = inpt[f"{swath}/incidenceAngle"][:]
+                qual = inpt[f"{swath}/Quality"][:]
 
-            if roi is not None:
-                lon_min, lat_min, lon_max, lat_max = roi
-                indices = np.any(
-                    (lons >= lon_min)
-                    * (lons < lon_max)
-                    * (lats >= lat_min)
-                    * (lats < lat_max),
-                    axis=-1,
-                )
-            else:
-                indices = slice(0, None)
+                tbs[tbs < 0] = np.nan
+                eia[eia < 0] = np.nan
 
-            lats = lats[indices]
-            lons = lons[indices]
+                lats_sc = inpt[f"{swath}/SCstatus/SClatitude"]
+                lons_sc = inpt[f"{swath}/SCstatus/SClongitude"]
+                alt_sc = inpt[f"{swath}/SCstatus/SCaltitude"]
 
-            lats_sc = input[f"{swath}/SCstatus/SClatitude"][indices]
-            lons_sc = input[f"{swath}/SCstatus/SClongitude"][indices]
-            alt_sc = input[f"{swath}/SCstatus/SCaltitude"][indices]
-
-            # Handle case that observations are split up.
-            tbs = []
-            eia = []
-            tbs.append(input[f"{swath}/Tc"][:][indices])
-            eia_s = input[f"{swath}/incidenceAngle"][:][indices]
-            eia_s = np.broadcast_to(eia_s, tbs[-1].shape)
-            eia.append(eia_s)
-            if "S2" in input.keys():
-                tbs.append(input["S2/Tc"][:][indices])
-                eia_s = input[f"S2/incidenceAngle"][:][indices]
-                eia_s = np.broadcast_to(eia_s, tbs[-1].shape)
-                eia.append(eia_s)
-            if "S3" in input.keys():
-                tbs.append(input["S3/Tc"][:][indices])
-                eia_s = input[f"S3/incidenceAngle"][:][indices]
-                eia_s = np.broadcast_to(eia_s, tbs[-1].shape)
-                eia.append(eia_s)
-            if "S4" in input.keys():
-                tbs.append(input["S4/Tc"][:][indices])
-                eia_s = input[f"S4/incidenceAngle"][:][indices]
-                eia_s = np.broadcast_to(eia_s, tbs[-1].shape)
-                eia.append(eia_s)
-            if "S5" in input.keys():
-                tbs_s = input["S5/Tc"][:][indices]
-                eia_s = input[f"S5/incidenceAngle"][:][indices]
-                tbs.append(tbs_s)
-                eia_s = np.broadcast_to(eia_s, tbs[-1].shape)
-                eia.append(eia_s)
-            if "S6" in input.keys():
-                tbs_s = input["S6/Tc"][:][indices]
-                eia_s = input[f"S6/incidenceAngle"][:][indices]
-                tbs.append(tbs_s)
-                eia_s = input[f"S6/incidenceAngle"][:][indices]
-                eia_s = np.broadcast_to(eia_s, tbs[-1].shape)
-                eia.append(eia_s)
-
-            n_pixels = max([array.shape[1] for array in tbs])
-            tbs_r = []
-            eia_r = []
-            for tbs_s, eia_s in zip(tbs, eia):
-                if tbs_s.shape[1] < n_pixels:
-                    f = interp1d(
-                        np.linspace(0, n_pixels - 1, tbs_s.shape[1]),
-                        tbs_s,
-                        axis=1
+                data_s = xr.Dataset({
+                    "longitude": (("scans", "pixels"), lons),
+                    "latitude": (("scans", "pixels"), lats),
+                    "brightness_temperatures": (("scans", "pixels", "channels"), tbs),
+                    "quality_flag": (("scans", "pixels"), qual)
+                })
+                n_chans = tbs.shape[-1]
+                if eia.ndim == 3:
+                    eia = np.broadcast_to(eia, lons.shape + (n_chans,))
+                    data_s["earth_incidence_angle"] = (
+                        ("scans", "pixels", "channels"),
+                        eia
                     )
-                    x = np.arange(n_pixels)
-                    tbs_s = f(x)
-                    f = interp1d(
-                        np.linspace(0, n_pixels - 1, eia_s.shape[1]),
-                        eia_s,
-                        axis=1
+                else:
+                    data_s["earth_incidence_angle"] = (
+                        ("scans", "pixels"),
+                        eia
                     )
-                    eia_s = f(x)
-                tbs_r.append(tbs_s)
-                eia_r.append(eia_s)
-            tbs = np.concatenate(tbs_r, axis=-1)
-            eia = np.concatenate(eia_r, axis=-1)
 
-            if lats.shape != tbs.shape[:-1]:
-                n_pixels = tbs.shape[1]
-                x = np.arange(n_pixels)
-                f = interp1d(
-                    np.linspace(0, n_pixels - 1, lats.shape[1]),
-                    lats,
-                    axis=1
-                )
-                lats = f(x)
-                f = interp1d(
-                    np.linspace(0, n_pixels - 1, lons.shape[1]),
-                    lons,
-                    axis=1
-                )
-                lons = f(x)
+                year = inpt[f"{swath}/ScanTime/Year"][:] - 1970
+                month = inpt[f"{swath}/ScanTime/Month"][:] - 1
+                day = inpt[f"{swath}/ScanTime/DayOfMonth"][:] - 1
+                hour = inpt[f"{swath}/ScanTime/Hour"][:]
+                minute = inpt[f"{swath}/ScanTime/Minute"][:]
+                second = inpt[f"{swath}/ScanTime/Second"][:]
+                milli_second = inpt[f"{swath}/ScanTime/MilliSecond"][:]
+                time = year.astype("datetime64[Y]").astype("datetime64[M]")
+                time += month.astype("timedelta64[M]")
+                time = time.astype("datetime64[D]")
+                time += day.astype("timedelta64[D]")
+                time = time.astype("datetime64[h]")
+                time += hour.astype("timedelta64[h]")
+                time = time.astype("datetime64[m]")
+                time += minute.astype("timedelta64[m]")
+                time = time.astype("datetime64[s]")
+                time += second.astype("timedelta64[s]")
+                time = time.astype("datetime64[ms]")
+                time += milli_second.astype("timedelta64[ms]")
+                times = time.astype("datetime64[ns]")
+                data_s["scan_time"] = (("scans",), times)
 
-            n_scans = lats.shape[0]
+                swath_data[swath_ind] = data_s
 
-            year = input[f"{swath}/ScanTime/Year"][indices] - 1970
-            month = input[f"{swath}/ScanTime/Month"][indices] - 1
-            day = input[f"{swath}/ScanTime/DayOfMonth"][indices] - 1
-            hour = input[f"{swath}/ScanTime/Hour"][indices]
-            minute = input[f"{swath}/ScanTime/Minute"][indices]
-            second = input[f"{swath}/ScanTime/Second"][indices]
-            milli_second = input[f"{swath}/ScanTime/MilliSecond"][indices]
+                swath_ind += 1
 
-            time = year.astype("datetime64[Y]").astype("datetime64[M]")
-            time += month.astype("timedelta64[M]")
-            time = time.astype("datetime64[D]")
-            time += day.astype("timedelta64[D]")
-            time = time.astype("datetime64[h]")
-            time += hour.astype("timedelta64[h]")
-            time = time.astype("datetime64[m]")
-            time += minute.astype("timedelta64[m]")
-            time = time.astype("datetime64[s]")
-            time += second.astype("timedelta64[s]")
-            time = time.astype("datetime64[ms]")
-            time += milli_second.astype("timedelta64[ms]")
+            consolidation_fn = CONSOLIDATION_FUNCTIONS[self.sensor.name.lower()]
+            data =  consolidation_fn(swath_data)
 
-            times = time.astype("datetime64[ns]")
+            if "FileHeader" in inpt.keys():
+                granule = inpt["FileHeader/GranuleNumber"][:]
+                satellite = inpt["FileHeader/SatelliteName"][:]
+                sensor = inpt["FileHeader/InstrumentName"][:]
+                l1c_file = inpt["FileHeader/FileName"][:]
+                data.attrs = {
+                    "granule": granule,
+                    "platform": satellite,
+                    "sensor": sensor,
+                    "l1c_file": l1c_file,
+                }
 
-            dims = ("scans", "pixels")
-            data = {
-                "latitude": (dims, lats),
-                "longitude": (dims, lons),
-                "spacecraft_latitude": (dims[:1], lats_sc),
-                "spacecraft_longitude": (dims[:1], lons_sc),
-                "spacecraft_altitude": (dims[:1], alt_sc),
-                "brightness_temperatures": (dims + ("channels",), tbs),
-                "incidence_angle": (dims + ("channels",), eia),
-                "scan_time": (dims[:1], times),
-            }
-
-            if "SCorientation" in input[f"{swath}/SCstatus"]:
-                data["sensor_orientation"] = (
-                    ("scans",),
-                    input[f"{swath}/SCstatus/SCorientation"][indices],
-                )
-
-        return xr.Dataset(data)
+        return data
 
 
 def extract_scenes(data):

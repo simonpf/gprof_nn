@@ -10,43 +10,49 @@ import gprof_nn.logging
 import gprof_nn.config as conf
 from gprof_nn import training
 from gprof_nn import retrieval, testing
-from gprof_nn.data import (
-    sim,
-    pretraining,
-    mrms,
-    era5,
-    finetuning,
-    cloudsat,
-    combined
-)
 
 @click.group()
 def gprof_nn():
     pass
 
-@gprof_nn.group(name="extract_training_data")
-def extract_training_data():
+# Make data extraction commands available only if pansat is installed.
+try:
+    from gprof_nn.data import (
+        sim,
+        pretraining,
+        mrms,
+        era5,
+        finetuning,
+        cloudsat,
+        combined
+    )
+
+    @gprof_nn.group(name="extract_training_data")
+    def extract_training_data():
+        pass
+
+    extract_training_data.command(name="sim")(sim.cli)
+    extract_training_data.command(name="pre")(pretraining.cli)
+    extract_training_data.command(name="mrms")(mrms.cli)
+    extract_training_data.command(name="era5")(era5.cli)
+    extract_training_data.command(name="finetuning")(finetuning.cli)
+    extract_training_data.command(name="cloudsat")(cloudsat.cli)
+    extract_training_data.command(name="combined")(combined.cli)
+except ImportError:
     pass
 
-extract_training_data.command(name="sim")(sim.cli)
-extract_training_data.command(name="pre")(pretraining.cli)
-extract_training_data.command(name="mrms")(mrms.cli)
-extract_training_data.command(name="era5")(era5.cli)
-extract_training_data.command(name="finetuning")(finetuning.cli)
-extract_training_data.command(name="cloudsat")(cloudsat.cli)
-extract_training_data.command(name="combined")(combined.cli)
 
 ######################################################################
 # gprof_nn config
 ######################################################################
 
-@gprof_nn.group()
+@gprof_nn.group(help="Inspect and change the local GPROF-NN configuration.")
 def config():
     pass
 
-config.command(name="file")(conf.file)
-config.command(name="show")(conf.show_config)
-config.command(name="set")(conf.set_config)
+config.command(name="file", help="Show location of configuration file.")(conf.file)
+config.command(name="show", help="Show current configuration.")(conf.show_config)
+config.command(name="set", help="Modify the configuration.")(conf.set_config)
 
 
 ######################################################################

@@ -16,21 +16,28 @@ from typing import Dict, List, Optional, Union, Tuple
 
 import click
 import hdf5plugin
+from huggingface_hub import hf_hub_download
 import numpy as np
 import xarray as xr
 
 import torch
 from torch import nn
 import numpy as np
-from pansat import Granule, FileRecord
 import pandas as pd
 from pytorch_retrieve import load_model
 from pytorch_retrieve.architectures import MLP, EncoderDecoder
 from pytorch_retrieve.inference import InferenceRunner
 
+try:
+    from pansat import Granule, FileRecord
+except ImportError:
+    pass
+
 import gprof_nn.logging
 from gprof_nn import sensors
 from gprof_nn.data.l1c import L1CFile
+from gprof_nn.config import CONFIG
+from gprof_nn.data import preprocessor
 from gprof_nn.data.preprocessor import PreprocessorFile, run_preprocessor
 from gprof_nn.definitions import ANCILLARY_VARIABLES, ALL_TARGETS, ALL_OUTPUTS
 from gprof_nn.data.training_data import (
@@ -48,17 +55,34 @@ from gprof_nn.data.training_data import (
     determine_ancillary_config,
     load_ancillary_data
 )
-from gprof_nn.data.utils import (
-    upsample_data,
-    add_cpcir_data,
-    calculate_obs_properties,
-    PANSAT_PRODUCTS,
-    RADIUS_OF_INFLUENCE,
-    UPSAMPLING_FACTORS
-)
 
 
 LOGGER = logging.getLogger(__name__)
+
+
+def get_model(sensor) -> nn.Module:
+    """
+    Download and load the retrieval model for a given sensor.
+
+    Args:
+        sensor: The sensor object representing the sensor.
+
+    Return:
+        The loaded retrieval model.
+    """
+    model = f"gprof_nn_3d_{sensor.name.lower()}.pt"
+    model_path = CONFIG.data.model_path
+    if not (model_path / model).exists():
+        LOGGER.info(
+            "Downloading model file %s to model path %s",
+            model, model_path
+        )
+        hf_hub_download(
+            "simonpf/gprof_nn",
+            filename=model,
+            local_dir=model_path
+        )
+    return load_model(model_path / model)
 
 
 def calculate_quality_flag_and_pixel_status(
@@ -90,14 +114,17 @@ def calculate_quality_flag_and_pixel_status(
         axis=0
     )
 
-    snow_mask = input_data.snow_mask.data
-    snow_depth = input_data.snow_depth.data
-    ice_fraction = input_data.ice_fraction.data
+    if "snow_mask" in input_data:
+        snow_mask = input_data.snow_mask.data
+        snow_depth = input_data.snow_depth.data
+        ice_fraction = input_data.ice_fraction.data
 
-    snow_or_ice = np.zeros_like(any_missing)
-    snow_or_ice[0.0 < snow_mask] = True
-    snow_or_ice[0.0 < snow_depth] = True
-    snow_or_ice[0.0 < ice_fraction] = True
+        snow_or_ice = np.zeros_like(any_missing)
+        snow_or_ice[0.0 < snow_mask] = True
+        snow_or_ice[0.0 < snow_depth] = True
+        snow_or_ice[0.0 < ice_fraction] = True
+    else:
+        snow_or_ice = np.zeros_like(any_missing)
 
     status = -99.0 * np.ones_like(any_missing)
     qflag = -99.0 * np.ones_like(any_missing)
@@ -211,47 +238,58 @@ def load_input_data_l1c(
         'earth_incidence_angles', and 'ancillary_data'.
     """
     sensor = L1CFile(l1c_file).sensor
-    try:
-        with TemporaryDirectory() as tmp:
-            tmp_path = Path(tmp)
-            pp_path = tmp_path / l1c_file.with_suffix(".pp").name
-            run_preprocessor(l1c_file, sensor, output_file=pp_path)
-            pp_data = load_input_data_preprocessor(pp_path, ancillary_config=ancillary_config)
-            return pp_data
-    except RuntimeError:
-        LOGGER.warning(
-            "Encountered and error running the preprocessor. Running retrieval without ancillary "
-            "data."
-        )
+
+    if preprocessor.is_available(sensor):
+        try:
+            with TemporaryDirectory() as tmp:
+                tmp_path = Path(tmp)
+                pp_path = tmp_path / l1c_file.with_suffix(".pp").name
+                run_preprocessor(l1c_file, sensor, output_file=pp_path)
+                pp_data = load_input_data_preprocessor(pp_path, ancillary_config=ancillary_config)
+                return pp_data
+        except RuntimeError:
+            LOGGER.warning(
+                "Encountered and error running the preprocessor. Running retrieval without ancillary "
+                "data."
+            )
 
     l1c_data = L1CFile(l1c_file).to_xarray_dataset()
     tbs = np.transpose(l1c_data.brightness_temperatures.data.astype(np.float32), (2, 0, 1))
     tbs[tbs < 0] = np.nan
     tbs[tbs > 350.0] = np.nan
 
-    tbs_full = np.nan * np.zeros((15,) + tbs.shape[1:], dtype=np.float32)
-    tbs_full[sensor.gprof_channel_indices] = tbs
-    anc = np.nan * np.zeros((14,) + tbs.shape[1:])
-    eia = l1c_data.earth_incidence_angle
-    angs_full = np.nan * np.zeros_like(tbs_full)
-    if eia.ndim == 2:
-        angs_full[sensor.gprof_channel_indices] = eia
+    if tbs.shape[0] == 15:
+        tbs_full = tbs
     else:
-        angs_full[sensor.gprof_channel_indices] = eia[None]
+        tbs_full = np.nan * np.zeros((15,) + tbs.shape[1:], dtype=np.float32)
+        tbs_full[sensor.gprof_channel_indices] = tbs
+
+    anc = np.nan * np.zeros((14,) + tbs.shape[1:])
+
+    eia = l1c_data.earth_incidence_angle.data
+    if eia.shape[-1] == 15:
+        angs_full = np.transpose(eia, (2, 0, 1))
+    else:
+        angs_full = np.nan * np.zeros_like(tbs_full)
+        if eia.ndim == 2:
+            angs_full[sensor.gprof_channel_indices] = eia
+        else:
+            angs_full[sensor.gprof_channel_indices] = eia[None]
+
     inpt = {
         "brightness_temperatures": tbs_full,
         "ancillary_data": anc,
         "earth_incidence_angles": angs_full
     }
 
-    qflag, status = calculate_quality_flag_and_pixel_status(sensor, tbs_full, data_pp)
+    qflag, status = calculate_quality_flag_and_pixel_status(sensor, tbs_full, l1c_data)
     missing = np.nan * np.zeros_like(tbs_full[0])
     aux = {
         "pixel_status": status,
         "quality_flag": qflag,
-        "scan_time": data_pp.scan_time.data,
-        "longitude": data_pp.longitude.data,
-        "latitude": data_pp.latitude.data,
+        "scan_time": l1c_data.scan_time.data,
+        "longitude": l1c_data.longitude.data,
+        "latitude": l1c_data.latitude.data,
         "total_column_water_vapor": missing,
         "two_meter_temperature": missing,
         "convective_precipitation": missing,
@@ -547,6 +585,23 @@ class GPROFNNInputLoader:
         """
         return len(self.input_files)
 
+    def infer_sensor(self) -> sensors.Sensor:
+        """
+        Infer sensor from input file.
+        """
+        inpt = self.input_files[0]
+        if inpt.suffix == ".HDF5":
+            return L1CFile(inpt).sensor
+        elif inpt.suffix == ".pp":
+            return PreprocessorFile(inpt).sensor
+        elif inpt.suffix == ".nc":
+            with xr.open_dataset(inpt) as smpl:
+                sensors.get_sensor(smpl.attrs["sensor"])
+        else:
+            raise ValueError(
+                "Failed to infer sensor from input file '%s'.",
+                inpt
+            )
 
     def load_input_data(self, path: Path) -> Dict[str, torch.Tensor]:
         """
@@ -720,228 +775,86 @@ class GPROFNNInputLoader:
         return preprocessor_file.write_retrieval_results(output_path, output)
 
 
-class GPROFNNHRInputLoader:
-    def __init__(
-            self,
-            path: str | Path | List[str | Path],
-    ):
+def run_retrieval(
+        input_path: Path,
+        output_path: Optional[Path] = None,
+        device: str = "cpu",
+        dtype: str = "float32",
+        ancillary_config: Optional[str] = None,
+        output_format: str = "NETCDF",
+        n_input_loaders: int = 1,
+        retrieval_model: Optional[str] = None
+) -> Union[List[xr.Dataset], List[Path]]:
+    """
+    Run GPROF-NN retrieval.
 
-        # Determine input files.
-        if isinstance(path, list):
-            self.input_files = [Path(fle) for fle in path]
+    Args:
+        input_path: A path object pointing to a single input file or a directory tree
+            containing multiple input files.
+        output_path: If given, output files will written to the given directory.
+        device: A string identifying the torch device to run the retrieval on.
+        dtype: A string identifying the floating point type to use to run the
+            retrieval.
+        ancillary_config: Optional ancillary configuration to use to run the retrieval.
+            Shoule be one of ['NONE', 'NRT', 'STD', 'CLI']. NOTE: This only has
+            an effect if run on preprocessor files or if the GPROF preprocessor
+            is available.
+        output_format: The output format to use for the output files. Should be one
+            of ['NETCDF', 'BINARY']
+        n_input_loader: The number of processes to use to load the input data.
+        retrieval_model: Optional path to an existing retrieval model. If not given
+            the default retrieval for each sensor is used.
+
+    Return:
+        If no 'output_path' is given, will return a list of xarray.Datasets containing
+        the retrieval results for all files found in the 'input_path'. If 'output_path'
+        is given, will return a list of path objects pointing to the files containing
+        the results for each input file found in 'input_path'.
+    """
+    if retrieval_model is None:
+        input_loader = GPROFNNInputLoader(
+            input_path,
+            config="3d",
+            ancillary_config=ancillary_config,
+            output_format=output_format
+        )
+        sensor = input_loader.infer_sensor()
+        model = get_model(sensor)
+    else:
+        model = load_model(retrieval_model).eval()
+        if isinstance(model, MLP):
+            config = "1d"
+        elif isinstance(model, EncoderDecoder):
+            config = "3d"
         else:
-            path = Path(path)
-            if path.is_dir():
-                input_files = sorted(list(path.glob("**/*.HDF5")))
-                self.input_files = input_files
-            else:
-                self.input_files = [path]
+            raise ValueError(
+                f"Encountered unsupported model type '{type(model)}'.",
+            )
 
-
-    def __len__(self) -> int:
-        """
-        The number of files to process.
-        """
-        return len(self.input_files)
-
-
-    def load_input_data(self, path: Path) -> Dict[str, torch.Tensor]:
-        """
-        Load retrieval input data.
-
-        Args:
-            path: A path object pointing to the file from which to load the input data.
-
-        Return:
-            A dictionary mapping the names of the retrieval inputs ('brightness_temperatures',
-            'earth_incidence_angles', 'ancillary_data') for tensor containing the corresponding data.
-        """
-
-        l1c_file = L1CFile(path)
-        sensor = l1c_file.sensor
-        data_pp = run_preprocessor(path, sensor)
-
-        upsampling_factors = UPSAMPLING_FACTORS[sensor.name.lower()]
-        input_data = upsample_data(data_pp, upsampling_factors)
-        input_data = add_cpcir_data(input_data)
-
-        rof_in = RADIUS_OF_INFLUENCE[sensor.name.lower()]
-        rec = FileRecord(path, product=PANSAT_PRODUCTS[sensor.name.lower()][0])
-        granule = Granule(rec, rec.temporal_coverage, None)
-        rof_in = RADIUS_OF_INFLUENCE["gmi"]
-        input_obs = calculate_obs_properties(input_data, granule, radius_of_influence=rof_in)
-        observations = torch.tensor(input_obs.observations.data)
-        input_observation_props = torch.tensor(input_obs.meta_data.data).transpose(0, 1)[None]
-
-        obs_in = []
-        for ind, obs in enumerate(input_obs.observations.data):
-            valid = obs >= 0.0
-            obs[..., ~valid] = np.nan
-            mean = np.mean(obs[valid])
-            std = np.std(obs[valid])
-            obs_n = (obs - mean) / std
-            obs = np.stack([
-                np.ones_like(obs_n) * mean,
-                np.ones_like(obs_n) * std,
-                obs_n
-            ])
-            obs_in.append(torch.tensor(obs))
-
-            input_observation_props[..., ind, torch.tensor(~valid)] = np.nan
-
-        obs_in = torch.stack(obs_in, 1)[None]
-        obs_in_mask = torch.isnan(obs_in).all(1).all(-1).all(-1)
-
-        inpt = {
-            "observations": obs_in,
-            "input_observation_props": input_observation_props,
-            "input_observation_mask": obs_in_mask,
-        }
-
-        anc_vars = [
-            "two_meter_temperature",
-            "total_column_water_vapor",
-            "leaf_area_index",
-            "land_fraction",
-            "ice_fraction",
-            "elevation",
-            "ir_observations",
-        ]
-        for anc_var in anc_vars:
-            anc_data = torch.tensor(input_data[anc_var].data).to(dtype=torch.float32)
-            if anc_data.dim() < 3:
-                anc_data = anc_data[None]
-            anc_data = anc_data[None, :, None]
-            anc_mask = torch.isnan(anc_data).all()[None, None]
-            inpt[anc_var] = anc_data
-            inpt[anc_var + "_mask"] = anc_mask
-
-
-
-        aux = {
-            "scan_time": input_data.scan_time.data,
-            "longitude": input_data.longitude.data,
-            "latitude": input_data.latitude.data,
-            "total_column_water_vapor": input_data.total_column_water_vapor.data,
-            "two_meter_temperature": input_data.two_meter_temperature.data,
-            #"convective_fraction": input_data.convective_precipitation.data,
-            #"moisture_convergence": input_data.moisture_convergence.data,
-            "leaf_area_index": input_data.leaf_area_index.data,
-            #"snow_depth": input_data.snow_depth.data,
-            #"orographic_wind": input_data.orographic_wind.data,
-            #"wind_speed_10m": input_data["10m_wind"].data,
-            #"mountain_index": input_data.mountain_type.data,
-            "land_fraction": input_data.land_fraction.data,
-            "ice_fraction": input_data.ice_fraction.data,
-            "elevation": input_data.elevation.data
-        }
-        return inpt, aux
-
-
-    def __getitem__(self, ind: int):
-        input_data, aux = self.load_input_data(self.input_files[ind])
-        return input_data, aux, self.input_files[ind].name
-
-    def __iter__(self):
-        for path in self.input_files:
-            input_data, aux = self.load_input_data(path)
-            yield input_data, aux, path.name
-
-    def finalize_results(
-            self,
-            results: Dict[str, torch.Tensor],
-            aux: Dict[str, np.ndarray],
-            filename: str
-    ) -> Tuple[xr.Dataset, str]:
-        """
-        Combines retrieval results with auxiliary data into orbit-based retrieval
-        result files. This method does is called as part of the inference method
-        provided by pytorch_retrieve.
-
-        Args:
-            results: A dictionary mapping retrieval output names to tensor containing
-                corresponding results.
-            aux: A dictionary containing auxiliary data passed along from the
-                retrieval input.
-            filename: The filename of the input file.
-
-        Return:
-            A tuple ``(results, filename)`` containing the retrieval results as
-            xarray.Dataset in ``results`` and the filename to use to store the
-            results in ``filename``.
-        """
-        lons = aux["longitude"]
-        lats = aux["latitude"]
-        shape = lons.shape
-
-        if lons.ndim == 2:
-            dims = ("scans", "pixels", "levels")
-        else:
-            dims = ("samples", "levels")
-
-        output = xr.Dataset()
-        for name, data in aux.items():
-            data = data.squeeze()
-            if data.ndim > 2 and data.shape[-1] != 28:
-                data = data.transpose((1, 2, 0))
-            dims_v = dims[:data.ndim]
-
-            output[name] = (dims_v, data)
-
-        if lons.ndim == 2:
-            dims = ("scans", "pixels", "levels")
-        else:
-            dims = ("samples", "levels")
-        for var, tensor in results.items():
-
-            # Discard dummy dimensions.
-            tensor = tensor[0].squeeze()
-
-
-            if var == "surface_precip_terciles":
-                tensor = torch.permute(tensor, (1, 2, 0))
-                if lons.ndim < 2:
-                    dims_v = ("samples",)
-                else:
-                    dims_v = ("scans", "pixels")
-                output["surface_precip_1st_tercile"] = (
-                    dims_v, tensor[..., 0].numpy()
-                )
-                output["surface_precip_1st_tercile"].encoding = {"dtype": "float32", "zlib": True}
-                output["surface_precip_2nd_tercile"] = (
-                    dims_v,
-                    tensor[..., 1].numpy()
-                )
-                output["surface_precip_2nd_tercile"].encoding = {"dtype": "float32", "zlib": True}
-
-            else:
-                if tensor.dim() > 2:
-                    tensor = tensor.squeeze()
-                    tensor = torch.permute(tensor, (1, 2, 0))
-                dims_v = dims[:tensor.dim()]
-
-                tensor = tensor.numpy()
-                if "valid_input" in aux:
-                    tensor[~aux["valid_input"]] = -9999.9
-
-                output[var] = (dims_v, tensor)
-                # Use compressiong to keep file size reasonable.
-                output[var].encoding = {"dtype": "float32", "zlib": True}
-
-
-        # Quick and dirty way to transform 1C filename to 2A filename
-        output_filename = (
-            filename.replace("1C-R", "2A")
-            .replace("1C", "2A")
-            .replace("pp", "nc")
-            .replace("HDF5", "nc")
+        input_loader = GPROFNNInputLoader(
+            input_path,
+            config=config,
+            ancillary_config=ancillary_config,
+            output_format=output_format
         )
 
-        # Return outputs as xr.Dataset and filename to use to save data.
-        return output, output_filename
+    inference_config = model.inference_config
+
+    if output_path is not None:
+        output_path = Path(output_path)
+
+    device = torch.device(device)
+    dtype = getattr(torch, dtype)
+
+    runner = InferenceRunner(
+        model,
+        input_loader,
+        inference_config,
+        n_input_loaders=n_input_loaders,
+    )
+    return runner.run(output_path=output_path, device=device, dtype=dtype)
 
 
-@click.argument("retrieval_model", type=str,)
 @click.argument("input_path", type=str)
 @click.option(
     "--output_path",
@@ -993,8 +906,12 @@ class GPROFNNHRInputLoader:
         "The number of processes to use to load the input data."
     )
 )
+@click.option(
+    "--retrieval_model",
+    type=str,
+    help="Path pointing to a model file to use for the retrieval."
+)
 def cli(
-        retrieval_model: str,
         input_path: Path,
         output_path: Optional[Path] = None,
         device: str = "cpu",
@@ -1002,39 +919,52 @@ def cli(
         ancillary_config: Optional[str] = None,
         output_format: str = "NETCDF",
         n_input_loaders: int = 1,
+        retrieval_model: Optional[str] = None
 ) -> None:
     """
     Run GPROF-NN retrieval using the retrieval model RETRIEVAL_MODEL on all input
     files located in INPUT_PATH.
     """
-    try:
-        model = load_model(retrieval_model).eval()
-    except Exception:
-        LOGGER.exception(
-            "Encountered the following error when trying to load the model from "
-            " file '%s'.",
-            model
+
+    if retrieval_model is None:
+        input_loader = GPROFNNInputLoader(
+            input_path,
+            config="3d",
+            ancillary_config=ancillary_config,
+            output_format=output_format
         )
-        return 1
-
-    inference_config = model.inference_config
-
-    if isinstance(model, MLP):
-        config = "1d"
-    elif isinstance(model, EncoderDecoder):
-        config = "3d"
+        sensor = input_loader.infer_sensor()
+        model = get_model(sensor)
     else:
-        config = "hr"
+        try:
+            model = load_model(retrieval_model).eval()
+        except Exception:
+            LOGGER.exception(
+                "Encountered the following error when trying to load the model from "
+                " file '%s'.",
+                model
+            )
+            return 1
 
-    if config == "hr":
-        input_loader = GPROFNNHRInputLoader(input_path)
-    else:
+        if isinstance(model, MLP):
+            config = "1d"
+        elif isinstance(model, EncoderDecoder):
+            config = "3d"
+        else:
+            LOGGER.error(
+                "Encountered unsupported model type '%s'.",
+                type(model)
+            )
+            return 1
+
         input_loader = GPROFNNInputLoader(
             input_path,
             config=config,
             ancillary_config=ancillary_config,
             output_format=output_format
         )
+
+    inference_config = model.inference_config
 
     if output_path is None:
         output_path = Path(".")

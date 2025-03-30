@@ -32,7 +32,7 @@ def run_tests(
         dtype: str = "float32"
 ) -> xr.Dataset:
     """
-    Evaluate retrieval module on test set.
+    Evaluate retrieval model on test set.
 
     Args:
         model: A trained retrieval model.

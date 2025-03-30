@@ -104,6 +104,17 @@ ORBIT_HEADER = np.dtype(
 )
 
 
+def is_available(sensor: "sensors.Sensor") -> bool:
+    """
+    Check whether preprocessor for given sensor is available.
+    """
+    key = sensor.sensor_id
+    executable = PREPROCESSOR_EXECUTABLES.get(key, None)
+    if executable is None:
+        return False
+    return Path(executable).exists()
+
+
 def write_orbit_header(output, data, sensor, template=None):
     """
     Write header into preprocessor file.

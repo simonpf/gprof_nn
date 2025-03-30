@@ -25,8 +25,6 @@ import torch
 from torch.utils.data import Dataset, IterableDataset
 import xarray as xr
 
-from quantnn.normalizer import MinMaxNormalizer
-
 from gprof_nn import sensors
 from gprof_nn.utils import (
     calculate_interpolation_weights,

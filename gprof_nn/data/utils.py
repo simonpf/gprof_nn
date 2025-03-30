@@ -14,42 +14,47 @@ from typing import List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
-from pansat import Granule, TimeRange
-from pansat.utils import resample_data
-from pyresample.geometry import SwathDefinition
+
 import xarray as xr
 
 from gprof_nn.augmentation import extract_domain
 from gprof_nn.definitions import LIMITS, ANCILLARY_VARIABLES
 from gprof_nn.utils import apply_limits
 from gprof_nn.data import preprocessor
-from pansat.products.satellite.gpm import (
-    l1c_r_gpm_gmi,
-    l1c_npp_atms,
-    l1c_noaa20_atms,
-    l1c_gcomw1_amsr2,
-    l1c_xcal2016v_noaa18_mhs_v07a,
-    l1c_xcal2016v_noaa19_mhs_v07a,
-    l1c_xcal2016v_metopb_mhs_v07a,
-    l1c_xcal2019v_metopc_mhs_v07a,
-    l1c_xcal2021v_f17_ssmis_v07a,
-    l1c_xcal2021v_f18_ssmis_v07a,
-    merged_ir
-)
 
 
-PANSAT_PRODUCTS = {
-    "gmi": (l1c_r_gpm_gmi,),
-    "atms": (l1c_npp_atms, l1c_noaa20_atms),
-    "mhs": (
+try:
+    from pansat import Granule, TimeRange
+    from pansat.utils import resample_data
+    from pansat.products.satellite.gpm import (
+        l1c_r_gpm_gmi,
+        l1c_npp_atms,
+        l1c_noaa20_atms,
+        l1c_gcomw1_amsr2,
         l1c_xcal2016v_noaa18_mhs_v07a,
         l1c_xcal2016v_noaa19_mhs_v07a,
-        l1c_xcal2019v_metopc_mhs_v07a,
         l1c_xcal2016v_metopb_mhs_v07a,
-    ),
-    "amsr2": (l1c_gcomw1_amsr2,),
-    "ssmis": (l1c_xcal2021v_f17_ssmis_v07a, l1c_xcal2021v_f18_ssmis_v07a),
-}
+        l1c_xcal2019v_metopc_mhs_v07a,
+        l1c_xcal2021v_f17_ssmis_v07a,
+        l1c_xcal2021v_f18_ssmis_v07a,
+        merged_ir
+    )
+    from pyresample.geometry import SwathDefinition
+
+    PANSAT_PRODUCTS = {
+        "gmi": (l1c_r_gpm_gmi,),
+        "atms": (l1c_npp_atms, l1c_noaa20_atms),
+        "mhs": (
+            l1c_xcal2016v_noaa18_mhs_v07a,
+            l1c_xcal2016v_noaa19_mhs_v07a,
+            l1c_xcal2019v_metopc_mhs_v07a,
+            l1c_xcal2016v_metopb_mhs_v07a,
+        ),
+        "amsr2": (l1c_gcomw1_amsr2,),
+        "ssmis": (l1c_xcal2021v_f17_ssmis_v07a, l1c_xcal2021v_f18_ssmis_v07a),
+    }
+except ImportError:
+    pass
 
 
 UPSAMPLING_FACTORS = {
@@ -561,7 +566,7 @@ def write_training_samples_3d(
 
 
 def extract_scans(
-        granule: Granule,
+        granule: "Granule",
         dest: Path,
         min_scans: Optional[int] = None
 ) -> Path:
@@ -590,7 +595,7 @@ def extract_scans(
     return output_filename
 
 
-def run_preprocessor(gpm_granule: Granule) -> xr.Dataset:
+def run_preprocessor(gpm_granule: "Granule") -> xr.Dataset:
     """
     Run preprocessor on a GPM granule.
 
@@ -907,7 +912,7 @@ def calculate_polarization_weights(polarization, viewing_angles):
 
 def calculate_obs_properties(
         preprocessor_data: xr.Dataset,
-        granule: Granule,
+        granule: "Granule",
         radius_of_influence: float = 5e3,
 ) -> xr.Dataset:
     """

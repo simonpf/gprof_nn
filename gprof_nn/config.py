@@ -82,9 +82,9 @@ class DataConfig(ConfigBase):
 
     def print(self):
         txt = "[data]\n"
-        txt += f"era5_path  = {self.era5_path}\n"
-        txt += f"model_path = {self.model_path}\n"
-        txt += f"mrms_path = {self.mrms_path}\n"
+        txt += f"era5_path:  {self.era5_path}\n"
+        txt += f"model_path: {self.model_path}\n"
+        txt += f"mrms_path:  {self.mrms_path}\n"
         return txt
 
 
@@ -170,6 +170,9 @@ def file() -> None:
 @click.argument("property_name")
 @click.argument("value")
 def set_config(config_type, property_name, value) -> None:
+    """
+    Set configuration PROPERTY_NAME of CONFIGU_TYPE to VALUE.
+    """
 
     if not config_type.lower() in ["data", "preprocessor"]:
         LOGGER.error(
