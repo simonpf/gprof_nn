@@ -8,7 +8,6 @@ version = "0.8"
 description = "The GPROF-NN satellite precipitation retrieval."
 readme = "README.md"
 requires-python = ">=3.7"
-license = {text = "MIT"}
 authors = [
     {name = "Simon Pfreundschuh", email = "simon.pfreundschuh@colostate.edu"}
 ]
@@ -38,7 +37,7 @@ gprof_nn = "gprof_nn.cli:gprof_nn"
 include-package-data = true
 
 [tool.setuptools.packages.find]
-where = ["gprof_nn"]
+where = ["src"]
 
 [tool.setuptools.package-data]
 "gprof_nn" = ["config_files/*.toml", "sensors/*.toml"]
