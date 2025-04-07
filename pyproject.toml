@@ -19,7 +19,7 @@ dependencies = [
     "filelock",
     "matplotlib",
     "numpy",
-    "pytorch_retrieve",
+    "pytorch_retrieve>=0.1.1",
     "xarray[io]",
     "huggingface-hub",
     "ipywidgets"

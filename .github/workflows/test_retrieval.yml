@@ -1,18 +1,30 @@
-name: test_retrieval
-on: [push]
+name: integration_test
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
 jobs:
-  run_retrieval_gmi:
+  build:
+
     runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        python-version: ["3.9", "3.11"]
+
     steps:
-      - uses: actions/checkout@v2
-      - uses: actions/setup-python@v2
-        with:
-          python-version: '3.8'
-      - run: pip install -e .
-      - run: cd test; ./test_retrieval_gmi.sh
-      - run: cd test; ./test_retrieval_gmi_hr.sh
-      - run: cd test; ./test_retrieval_tmi.sh
-      - run: cd test; ./test_retrieval_f15.sh
-      - run: cd test; ./test_retrieval_f17.sh
-      - run: cd test; ./test_retrieval_amsre.sh
-      - run: cd test; ./test_retrieval_amsr2.sh
+    - uses: actions/checkout@v3
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ matrix.python-version }}
+    - name: Install dependencies
+      run: |
+        pip install pytest pytest-cov
+        pip install -e .
+    - name: Run tests with pytest
+      run: |
+        python -m pytest tests/test_integration.py

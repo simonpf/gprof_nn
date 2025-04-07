@@ -8,7 +8,6 @@ from typing import Any, Dict, List
 
 import pytest
 
-from pansat import TimeRange
 import numpy as np
 from pytorch_retrieve.utils import (
     read_model_config,
@@ -26,8 +25,12 @@ import xarray as xr
 from gprof_nn import sensors
 from gprof_nn import training
 from gprof_nn.data.preprocessor import run_preprocessor
-from gprof_nn.data import sim, mrms, era5, l1c, cloudsat, combined, pretraining
-from gprof_nn.training import load_inference_config
+
+try:
+    from gprof_nn.data import sim, mrms, era5, l1c, cloudsat, combined, pretraining
+    from gprof_nn.training import load_inference_config
+except ImportError:
+    pass
 
 
 LOGGER = logging.getLogger(__name__)
