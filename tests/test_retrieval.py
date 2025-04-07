@@ -8,7 +8,6 @@ import pytest
 import torch
 import xarray as xr
 
-
 from conftest import NEEDS_ARCHIVES
 from pytorch_retrieve.inference import run_inference
 
