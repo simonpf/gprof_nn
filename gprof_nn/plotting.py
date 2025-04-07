@@ -20,8 +20,6 @@ from matplotlib.cm import ScalarMappable
 from matplotlib.gridspec import GridSpec
 import numpy as np
 from PIL import Image
-from pyresample.geometry import AreaDefinition
-from pansat.utils import resample_data
 import torch
 import xarray as xr
 
@@ -54,10 +52,12 @@ def download_blue_marble(texture_file: pathlib.Path) -> pathlib.Path:
         urllib.request.urlretrieve(url, texture_file)
     return texture_file
 
-def get_blue_marble(area: AreaDefinition) -> Image:
+
+def get_blue_marble(area: "pyresample.AreaDefinition") -> Image:
     """
     Get NASA Blue Marble background image.
     """
+    from pansat.utils import resample_data
     Image.MAX_IMAGE_PIXELS = None   # disables the warning
     texture_file = pathlib.Path(".") / "blue_marble_hires.jpg"
     img = np.array(Image.open(download_blue_marble(texture_file)))
