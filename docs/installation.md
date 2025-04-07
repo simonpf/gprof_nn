@@ -3,7 +3,10 @@
 
 ## Basic installation
 
-The basic install of ``gprof_nn`` provides all functionality to run the GPROF-NN retrieval on observations from the GPM constellation. It is also the easiest way to install the ``gprof_nn`` package.
+
+The basic installation of gprof_nn provides all the necessary functionality to run the GPROF-NN retrieval on observations from the GPM constellation. This is the easiest and recommended method for most users.
+
+To install, run:
 
 ```
 pip install git+https://github.com/simonpf/gprof_nn@gprof_v8
@@ -11,12 +14,12 @@ pip install git+https://github.com/simonpf/gprof_nn@gprof_v8
 
 ## Development installation
 
-The development installation comprises additional packages required for training and evaluation of GPROF-NN models.
+The development installation includes additional dependencies required for training and evaluating GPROF-NN models. Follow these steps if you plan to contribute to development or train models.
 
 
 ### Obtaining the code
 
-The first step in installing ``gprof_nn`` consists of cloning the source code from GitHub.
+First, obtain the source code by cloning the repository:
 
 ```
 git clone -b gprof_v8 git@github.com:simonpf/gprof_nn
