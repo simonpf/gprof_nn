@@ -17,6 +17,7 @@ import pickle
 import shutil
 import subprocess
 import tempfile
+from typing import Union
 
 import numpy as np
 import scipy as sp
@@ -108,11 +109,9 @@ def is_available(sensor: "sensors.Sensor") -> bool:
     """
     Check whether preprocessor for given sensor is available.
     """
-    key = sensor.sensor_id
-    executable = PREPROCESSOR_EXECUTABLES.get(key, None)
-    if executable is None:
-        return False
-    return Path(executable).exists()
+    executable = get_preprocessor_executable(sensor)
+    path = shutil.which(executable)
+    return path is not None
 
 
 def write_orbit_header(output, data, sensor, template=None):
@@ -614,18 +613,13 @@ def has_preprocessor():
 
 
 # Dictionary mapping sensor IDs to preprocessor executables.
-PREPROCESSOR_EXECUTABLES = {
-    "GMI": "gprof2024pp_GMI_L1C",
-    "MHS": "gprof2024pp_MHS_L1C",
-    "TMIPR": "gprof2021pp_TMI_L1C",
-    "TMIPO": "gprof2021pp_TMI_L1C",
-    "SSMI": "gprof2021pp_SSMI_L1C",
-    "SSMIS": "gprof2024pp_SSMIS_L1C",
-    "AMSR2": "gprof2024pp_AMSR2_L1C",
-    "AMSRE": "gprof2021pp_AMSRE_L1C",
-    "ATMS": "gprof2024pp_ATMS_L1C",
-    "TMS": "gprof2023pp_TMS_L1C",
-}
+def get_preprocessor_executable(sensor: "gprof_nn.sensors.Sensor") -> Union[str, None]:
+    """
+    Get name of the preprocessor executable from local GPROF-NN configuration.
+    """
+    from gprof_nn.config import CONFIG
+    path = getattr(CONFIG.preprocessor, sensor.sensor_id.lower(), None)
+    return str(path)
 
 
 # The default preprocessor settings for CSU computers.
@@ -664,12 +658,11 @@ def run_preprocessor(
         output_file = file.name
     try:
         sensor_l1c = L1CFile(l1c_file).sensor
-        key = sensor_l1c.sensor_id
-        executable = PREPROCESSOR_EXECUTABLES.get(key, None)
+        executable = get_preprocessor_executable(sensor_l1c)
 
         if executable is None:
             raise ValueError(
-                f"Could not find preprocessor executable for the key '{key}'."
+                f"Could not find preprocessor executable for the sensor '{sensor}'."
             )
 
         jobid = str(os.getpid()) + "_pp"

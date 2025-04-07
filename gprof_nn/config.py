@@ -47,27 +47,27 @@ class PreprocessorConfig(ConfigBase):
     """
     Dataclass holding the preprocessor executables.
     """
-    GMI: Path = Path("gprof2023pp_GMI_L1C")
-    MHS: Path = Path("gprof2021pp_MHS_L1C")
-    TMIPR: Path = Path("gprof2021pp_TMI_L1C")
-    TMIPO: Path = Path("gprof2021pp_TMI_L1C")
-    SSMI: Path = Path("gprof2021pp_SSMI_L1C")
-    SSMIS: Path = Path("gprof2021pp_SSMIS_L1C")
-    AMSR2: Path = Path("gprof2023pp_AMSR2_L1C")
-    AMSRE: Path = Path("gprof2021pp_AMSRE_L1C")
-    ATMS: Path = Path("gprof2021pp_ATMS_L1C")
+    gmi: Path = Path("gprof2024pp_GMI_L1C")
+    mhs: Path = Path("gprof2024pp_MHS_L1C")
+    tmipr: Path = Path("gprof2024pp_TMI_L1C")
+    tmipo: Path = Path("gprof2024pp_TMI_L1C")
+    ssmi: Path = Path("gprof2024pp_SSMI_L1C")
+    ssmis: Path = Path("gprof2024pp_SSMIS_L1C")
+    amsr2: Path = Path("gprof2024pp_AMSR2_L1C")
+    amsre: Path = Path("gprof2024pp_AMSRE_L1C")
+    atms: Path = Path("gprof2024pp_ATMS_L1C")
 
     def print(self):
         txt = "[preprocessor]\n"
-        txt += f"AMSRE = {self.AMSRE}\n"
-        txt += f"AMSR2 = {self.AMSR2}\n"
-        txt += f"ATMS  = {self.ATMS}\n"
-        txt += f"GMI   = {self.GMI}\n"
-        txt += f"MHS   = {self.MHS}\n"
-        txt += f"SSMI  = {self.SSMI}\n"
-        txt += f"SSMIS = {self.SSMIS}\n"
-        txt += f"TMIPR = {self.TMIPR}\n"
-        txt += f"TMIPO = {self.TMIPO}\n"
+        txt += f"amsre = {self.amsre}\n"
+        txt += f"amsr2 = {self.amsr2}\n"
+        txt += f"atms  = {self.atms}\n"
+        txt += f"gmi   = {self.gmi}\n"
+        txt += f"mhs   = {self.mhs}\n"
+        txt += f"ssmi  = {self.ssmi}\n"
+        txt += f"ssmis = {self.ssmis}\n"
+        txt += f"tmipr = {self.tmipr}\n"
+        txt += f"tmipo = {self.tmipo}\n"
         return txt
 
 
@@ -166,9 +166,9 @@ def file() -> None:
     print(get_config_file())
 
 
-@click.argument("config_type")
-@click.argument("property_name")
-@click.argument("value")
+@click.argument("config_type", type=str)
+@click.argument("property_name", type=str)
+@click.argument("value", type=str)
 def set_config(config_type, property_name, value) -> None:
     """
     Set configuration PROPERTY_NAME of CONFIGU_TYPE to VALUE.

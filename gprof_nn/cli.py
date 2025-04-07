@@ -12,6 +12,7 @@ import gprof_nn.config as conf
 from gprof_nn import training
 from gprof_nn import retrieval, testing
 from gprof_nn import download as dl
+from gprof_nn import sensors
 
 
 @click.group()
@@ -81,7 +82,7 @@ def download_model(sensor: str):
     else:
         sensor_list = sensor.get_sensor(sensor)
     for sensor in sensor_list:
-        dl.download_model(sensor.name)
+        dl.download_model(sensor)
 
 
 @download.command(name="test_data")
@@ -93,10 +94,6 @@ def download_test_data(sensor: str, kind: str):
     """
     dl.download_test_file(sensor, kind)
 
-
-config.command(name="file", help="Show location of configuration file.")(conf.file)
-config.command(name="show", help="Show current configuration.")(conf.show_config)
-config.command(name="set", help="Modify the configuration.")(conf.set_config)
 
 
 ######################################################################

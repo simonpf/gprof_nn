@@ -35,7 +35,14 @@ def download_model(sensor: str) -> Path:
         LOGGER.info("Downloading model file %s to model path %s", model, model_path)
         lock = FileLock((model_path / model).with_suffix(".lock"))
         with lock:
-            hf_hub_download("simonpf/gprof_nn", filename=model, local_dir=model_path)
+            try:
+                hf_hub_download("simonpf/gprof_nn", filename=model, local_dir=model_path)
+            except Exception:
+                LOGGER.warning(
+                    "Didn't find a model for sensor '%s'.",
+                    sensor.name
+                )
+
     return model_path / model
 
 

@@ -2,6 +2,7 @@ format: jb-book
 root: intro
 chapters:
 - file: installation
+- file: configuration
 - file: retrieval
 - file: training
   sections:

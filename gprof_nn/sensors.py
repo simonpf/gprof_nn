@@ -651,7 +651,7 @@ def all_sensors() -> List[Sensor]:
     Get all sensors.
     """
     sensors = []
-    for obj in globals():
-        if isinstance(obs, Sensor):
-            sensors.append(obs)
+    for obj in globals().values():
+        if isinstance(obj, Sensor):
+            sensors.append(obj)
     return sensors
