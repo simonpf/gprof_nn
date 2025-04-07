@@ -35,6 +35,7 @@ except ImportError:
 import gprof_nn.logging
 from gprof_nn import sensors
 from gprof_nn.data.l1c import L1CFile
+from gprof_nn.data.utils import UPSAMPLING_FACTORS
 from gprof_nn.config import CONFIG
 from gprof_nn.download import download_model
 from gprof_nn.data import preprocessor
