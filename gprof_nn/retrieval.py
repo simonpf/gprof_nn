@@ -539,7 +539,7 @@ def determine_input_format(path: Path) -> str:
 class GPROFNNInputLoader:
     def __init__(
             self,
-            path: str | Path | List[str | Path],
+            path: Union[str, Path, List[Union[str, Path]]],
             input_format: Optional[str] = None,
             config: str = "3d",
             ancillary_config: str = "CLI",

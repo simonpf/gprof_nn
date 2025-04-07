@@ -47,12 +47,12 @@ DATE7_TYPE = np.dtype(
 
 ORBIT_HEADER_TYPES = np.dtype(
     [
-        ("satellite", "a12"),
-        ("sensor", "a12"),
-        ("preprocessor", "a12"),
-        ("algorithm", "a12"),
-        ("radiometer_file", "a128"),
-        ("profile_database_file", "a128"),
+        ("satellite", "S12"),
+        ("sensor", "S12"),
+        ("preprocessor", "S12"),
+        ("algorithm", "S12"),
+        ("radiometer_file", "S128"),
+        ("profile_database_file", "S128"),
         ("creation_date", DATE6_TYPE),
         ("granule_start_date", DATE6_TYPE),
         ("granule_end_date", DATE6_TYPE),
@@ -60,7 +60,7 @@ ORBIT_HEADER_TYPES = np.dtype(
         ("number_of_scans", "i2"),
         ("number_of_pixels", "i2"),
         ("profile_struct", "i1"),
-        ("spares", "a51"),
+        ("spares", "S51"),
     ]
 )
 

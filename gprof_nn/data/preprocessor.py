@@ -88,18 +88,18 @@ SCAN_HEADER_TYPE = np.dtype(
 # for all sensors.
 ORBIT_HEADER = np.dtype(
     [
-        ("satellite", "a12"),
-        ("sensor", "a12"),
-        ("preprocessor", "a12"),
-        ("profile_database_file", "a128"),
-        ("radiometer_file", "a128"),
-        ("calibration_file", "a128"),
+        ("satellite", "S12"),
+        ("sensor", "S12"),
+        ("preprocessor", "S12"),
+        ("profile_database_file", "S128"),
+        ("radiometer_file", "S128"),
+        ("calibration_file", "S128"),
         ("granule_number", "i"),
         ("number_of_scans", "i"),
         ("number_of_pixels", "i"),
         ("n_channels", "i"),
         ("chan_freq", "f4", 15),
-        ("comment", "a40"),
+        ("comment", "S40"),
     ]
 )
 
