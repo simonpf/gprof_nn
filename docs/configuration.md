@@ -32,7 +32,7 @@ gprof_nn config set data model_path /path/to/new/model_path
 ## Specifying the Preprocessor Executable
 
 
-To preprocess Level 1C (L1C) files, gprof_nn requires the path to the appropriate preprocessor executable for each sensor. By default, it attempts to use a built-in command. To specify a custom executable for a particular sensor, run:
+To preprocess Level 1C (L1C) files, gprof_nn requires the path to the appropriate preprocessor executable for each sensor. By default, it attempts to run the preprocessor by invoking the command using the name of the corresponding executable. To specify a custom executable for a particular sensor, run:
 
 
 ```
