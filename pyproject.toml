@@ -35,8 +35,10 @@ Homepage = "https://gprof_nn.readthedocs.io"
 gprof_nn = "gprof_nn.cli:gprof_nn"
 
 [tool.setuptools]
-packages = ["gprof_nn"]
 include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["gprof_nn"]
 
 [tool.setuptools.package-data]
 "gprof_nn" = ["config_files/*.toml", "sensors/*.toml"]
