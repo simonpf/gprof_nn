@@ -16,7 +16,6 @@ from typing import Dict, List, Optional, Union, Tuple
 
 import click
 import hdf5plugin
-from huggingface_hub import hf_hub_download
 import numpy as np
 import xarray as xr
 
@@ -26,7 +25,7 @@ import numpy as np
 import pandas as pd
 from pytorch_retrieve import load_model
 from pytorch_retrieve.architectures import MLP, EncoderDecoder
-from pytorch_retrieve.inference import InferenceRunner
+from pytorch_retrieve.inference import InferenceRunner, SequentialInferenceRunner
 
 try:
     from pansat import Granule, FileRecord
@@ -37,6 +36,7 @@ import gprof_nn.logging
 from gprof_nn import sensors
 from gprof_nn.data.l1c import L1CFile
 from gprof_nn.config import CONFIG
+from gprof_nn.download import download_model
 from gprof_nn.data import preprocessor
 from gprof_nn.data.preprocessor import PreprocessorFile, run_preprocessor
 from gprof_nn.definitions import ANCILLARY_VARIABLES, ALL_TARGETS, ALL_OUTPUTS
@@ -70,19 +70,7 @@ def get_model(sensor) -> nn.Module:
     Return:
         The loaded retrieval model.
     """
-    model = f"gprof_nn_3d_{sensor.name.lower()}.pt"
-    model_path = CONFIG.data.model_path
-    if not (model_path / model).exists():
-        LOGGER.info(
-            "Downloading model file %s to model path %s",
-            model, model_path
-        )
-        hf_hub_download(
-            "simonpf/gprof_nn",
-            filename=model,
-            local_dir=model_path
-        )
-    return load_model(model_path / model)
+    return load_model(download_model(sensor))
 
 
 def calculate_quality_flag_and_pixel_status(
@@ -252,6 +240,10 @@ def load_input_data_l1c(
                 "Encountered and error running the preprocessor. Running retrieval without ancillary "
                 "data."
             )
+    else:
+        LOGGER.warning(
+            "No preprocessor found on the current system. Running retrieval without ancillary data."
+        )
 
     l1c_data = L1CFile(l1c_file).to_xarray_dataset()
     tbs = np.transpose(l1c_data.brightness_temperatures.data.astype(np.float32), (2, 0, 1))
@@ -267,14 +259,14 @@ def load_input_data_l1c(
     anc = np.nan * np.zeros((14,) + tbs.shape[1:])
 
     eia = l1c_data.earth_incidence_angle.data
-    if eia.shape[-1] == 15:
-        angs_full = np.transpose(eia, (2, 0, 1))
+    angs_full = np.nan * np.zeros_like(tbs_full)
+    if eia.ndim == 2:
+        angs_full[sensor.gprof_channel_indices] = eia
     else:
-        angs_full = np.nan * np.zeros_like(tbs_full)
-        if eia.ndim == 2:
-            angs_full[sensor.gprof_channel_indices] = eia
+        if eia.shape[-1] == 15:
+            angs_full = np.transpose(eia, (2, 0, 1))
         else:
-            angs_full[sensor.gprof_channel_indices] = eia[None]
+            angs_full[sensor.gprof_channel_indices] = np.transpose(eia, (2, 0, 1))
 
     inpt = {
         "brightness_temperatures": tbs_full,
@@ -801,7 +793,7 @@ def run_retrieval(
             is available.
         output_format: The output format to use for the output files. Should be one
             of ['NETCDF', 'BINARY']
-        n_input_loader: The number of processes to use to load the input data.
+        n_input_loaders: The number of processes to use to load the input data.
         retrieval_model: Optional path to an existing retrieval model. If not given
             the default retrieval for each sensor is used.
 
@@ -846,12 +838,19 @@ def run_retrieval(
     device = torch.device(device)
     dtype = getattr(torch, dtype)
 
-    runner = InferenceRunner(
-        model,
-        input_loader,
-        inference_config,
-        n_input_loaders=n_input_loaders,
-    )
+    if n_input_loaders > 1:
+        runner = InferenceRunner(
+            model,
+            input_loader,
+            inference_config,
+            n_input_loaders=n_input_loaders,
+        )
+    else:
+        runner = SequentialInferenceRunner(
+            model,
+            input_loader,
+            inference_config,
+        )
     return runner.run(output_path=output_path, device=device, dtype=dtype)
 
 
@@ -862,7 +861,7 @@ def run_retrieval(
     metavar="PATH",
     default=None,
     help=(
-        "An optional destination to which to write the inference results."
+        "A directory to which write the retrieval results to."
     )
 )
 @click.option(
@@ -870,7 +869,7 @@ def run_retrieval(
     type=str,
     default="cpu",
     help=(
-        "The device on which to perform inference."
+        "The torch device on which to perform inference, i.e., 'cpu', 'cuda', etc."
     )
 )
 @click.option(
@@ -922,10 +921,8 @@ def cli(
         retrieval_model: Optional[str] = None
 ) -> None:
     """
-    Run GPROF-NN retrieval using the retrieval model RETRIEVAL_MODEL on all input
-    files located in INPUT_PATH.
+    Run the GPROF-NN retrieval on a single input file or a folder of input files located at INPUT_PATH and write the results to the current working directory.
     """
-
     if retrieval_model is None:
         input_loader = GPROFNNInputLoader(
             input_path,
@@ -974,10 +971,17 @@ def cli(
     device = torch.device(device)
     dtype = getattr(torch, dtype)
 
-    runner = InferenceRunner(
-        model,
-        input_loader,
-        inference_config,
-        n_input_loaders=n_input_loaders,
-    )
+    if n_input_loaders > 1:
+        runner = InferenceRunner(
+            model,
+            input_loader,
+            inference_config,
+            n_input_loaders=n_input_loaders,
+        )
+    else:
+        runner = SequentialInferenceRunner(
+            model,
+            input_loader,
+            inference_config,
+        )
     runner.run(output_path=output_path, device=device, dtype=dtype)

@@ -81,8 +81,100 @@ def consolidate_swath_data_gmi(swath_data: Dict[str, xr.Dataset]) -> xr.Dataset:
     return full_data
 
 
+def consolidate_swath_data_atms(swath_data: Dict[str, xr.Dataset]) -> xr.Dataset:
+    """
+    Combines data from multiple swaths into a single xarray.Dataset in the way
+    it is done by the GPROF preprocessor.
+
+    Args:
+        swath_data: A dictionary containing the observations from the separate swaths.
+
+    Return:
+        A new xarray.Dataset containing the combined observations and incidence angles.
+    """
+    pixels = swath_data[1].pixels.data
+    scans = swath_data[1].scans.data
+
+    full_data = xr.Dataset({
+        "pixels": (("pixels",), pixels),
+        "scans": (("scans",), scans)
+    })
+
+    full_tbs = np.nan * np.zeros((scans.size, pixels.size, 5))
+    full_tbs[..., 0] = swath_data[3].brightness_temperatures.data[..., 0]
+    full_tbs[..., 1] = swath_data[4].brightness_temperatures.data[..., 0]
+    full_tbs[..., 2] = swath_data[4].brightness_temperatures.data[..., 5]
+    full_tbs[..., 3] = swath_data[4].brightness_temperatures.data[..., 3]
+    full_tbs[..., 4] = swath_data[4].brightness_temperatures.data[..., 1]
+
+    eia = swath_data[3].earth_incidence_angle.data[..., 0]
+    scan_time = swath_data[1].scan_time.data
+    qflag = swath_data[1].quality_flag.data
+
+    full_data["brightness_temperatures"] = (("scans", "pixels", "channels"), full_tbs)
+    full_data["earth_incidence_angle"] = (("scans", "pixels"), eia)
+    full_data["scan_time"] = (("scans",), scan_time)
+    full_data["quality_flag"] = (("scans", "pixels"), qflag)
+
+    full_data["longitude"] = (("scans", "pixels"), swath_data[1].longitude.data)
+    full_data["latitude"] = (("scans", "pixels"), swath_data[1].latitude.data)
+
+    return full_data
+
+
+def consolidate_swath_data_amsr2(swath_data: Dict[str, xr.Dataset]) -> xr.Dataset:
+    """
+    Combines data from multiple swaths into a single xarray.Dataset in the way
+    it is done by the GPROF preprocessor.
+
+    Args:
+        swath_data: A dictionary containing the observations from the separate swaths.
+
+    Return:
+        A new xarray.Dataset containing the combined observations and incidence angles.
+    """
+    pixels = swath_data[5].pixels.data
+    scans = swath_data[5].scans.data
+
+    full_data = xr.Dataset({
+        "pixels": (("pixels",), pixels),
+        "scans": (("scans",), scans)
+    })
+
+    full_tbs = np.nan * np.zeros((scans.size, pixels.size, 10))
+    full_eia = np.nan * np.zeros((scans.size, pixels.size, 10))
+
+    full_tbs[..., 8] = swath_data[5].brightness_temperatures.data[..., 0]
+    full_tbs[..., 9] = swath_data[5].brightness_temperatures.data[..., 1]
+    full_eia[..., 8:] = swath_data[5].earth_incidence_angle.data
+
+    # Duplicate low-res channels.
+    for chan, swath in zip([0, 2, 4, 6], [1, 2, 3, 4]):
+        full_tbs[:, ::2, chan] = swath_data[swath].brightness_temperatures.data[..., 0]
+        full_tbs[:, 1::2, chan] = swath_data[swath].brightness_temperatures.data[..., 0]
+        full_tbs[:, ::2, chan + 1] = swath_data[swath].brightness_temperatures.data[..., 1]
+        full_tbs[:, 1::2, chan + 1] = swath_data[swath].brightness_temperatures.data[..., 1]
+
+        full_eia[:, ::2, chan:chan+2] = swath_data[swath].earth_incidence_angle.data
+        full_eia[:, 1::2, chan:chan+2] = swath_data[swath].earth_incidence_angle.data
+
+    scan_time = swath_data[5].scan_time.data
+    qflag = swath_data[5].quality_flag.data
+
+    full_data["brightness_temperatures"] = (("scans", "pixels", "channels"), full_tbs)
+    full_data["earth_incidence_angle"] = (("scans", "pixels", "channels"), full_eia)
+    full_data["scan_time"] = (("scans",), scan_time)
+    full_data["quality_flag"] = (("scans", "pixels"), qflag)
+
+    full_data["longitude"] = (("scans", "pixels"), swath_data[5].longitude.data)
+    full_data["latitude"] = (("scans", "pixels"), swath_data[5].latitude.data)
+
+    return full_data
+
 CONSOLIDATION_FUNCTIONS = {
     "gmi": consolidate_swath_data_gmi,
+    "atms": consolidate_swath_data_atms,
+    "amsr2": consolidate_swath_data_amsr2,
 }
 
 

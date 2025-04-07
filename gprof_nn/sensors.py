@@ -45,6 +45,7 @@ Channel index | Frequency
 from abc import ABC, abstractmethod, abstractproperty
 from concurrent.futures import ProcessPoolExecutor
 from copy import copy
+from functools import cache
 import logging
 from pathlib import Path
 from typing import List, Optional
@@ -610,10 +611,22 @@ for sensor_file in sensor_files:
             sensor_file
         )
 
+def get_sensor(
+        sensor: str,
+        platform: Optional[str] = None,
+        date: Optional[str] = None
+) -> Sensor:
+    """
+    Retrieve sensor object by name.
 
+    Args:
+        sensor: The sensor name.
+        platform: The sensor platform.
+        date: An optional date for sensors like TMI and GMI that have pre-boost and post-boost versions.
 
-
-def get_sensor(sensor, platform=None, date=None):
+    Return:
+        The sensor object representing the sensor.
+    """
     if platform is not None:
         platform = platform.upper().replace("-", "")
         key = f"{sensor.upper()}_{platform.upper()}"
@@ -630,3 +643,15 @@ def get_sensor(sensor, platform=None, date=None):
                 sensor = TMIPR
 
     return sensor
+
+
+@cache
+def all_sensors() -> List[Sensor]:
+    """
+    Get all sensors.
+    """
+    sensors = []
+    for obj in globals():
+        if isinstance(obs, Sensor):
+            sensors.append(obs)
+    return sensors
