@@ -16,11 +16,13 @@ dependencies = [
     "appdirs",
     "cartopy",
     "hdf5plugin",
+    "filelock",
     "matplotlib",
     "numpy",
     "pytorch_retrieve",
     "xarray[io]",
-    "huggingface-hub"
+    "huggingface-hub",
+    "ipywidgets"
 ]
 
 [project.optional-dependencies]
