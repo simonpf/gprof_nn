@@ -656,7 +656,8 @@ class GPROFNNInputLoader:
             results: Dict[str, torch.Tensor],
             aux: Dict[str, np.ndarray],
             filename: str,
-            output_path: Path
+            output_path: Path,
+            no_profiles: bool = False
     ) -> Tuple[xr.Dataset, str]:
         """
         Combines retrieval results with auxiliary data into orbit-based retrieval
@@ -705,7 +706,7 @@ class GPROFNNInputLoader:
         for var, tensor in results.items():
 
             # Discard dummy dimensions.
-            tensor = tensor.squeeze()
+            tensor = tensor.cpu().float().squeeze()
             if self.config.lower() == "1d":
                 tensor = tensor.reshape(shape + tensor.shape[1:])
 
@@ -743,8 +744,8 @@ class GPROFNNInputLoader:
 
         qflag = aux["quality_flag"]
         for name in ALL_OUTPUTS:
-            output[name].data[qflag < 0] = np.nan
-
+            if name in output:
+                output[name].data[qflag < 0] = np.nan
 
         for var in output:
             var_data = output[var].data
@@ -778,7 +779,9 @@ def run_retrieval(
         ancillary_config: Optional[str] = None,
         output_format: str = "NETCDF",
         n_input_loaders: int = 1,
-        retrieval_model: Optional[str] = None
+        retrieval_model: Optional[str] = None,
+        batch_size: Optional[int] = None,
+        no_profiles: bool = False
 ) -> Union[List[xr.Dataset], List[Path]]:
     """
     Run GPROF-NN retrieval.
@@ -799,6 +802,7 @@ def run_retrieval(
         n_input_loaders: The number of processes to use to load the input data.
         retrieval_model: Optional path to an existing retrieval model. If not given
             the default retrieval for each sensor is used.
+        no_profiles: Set to 'True' to disable calculation of profiles.
 
     Return:
         If no 'output_path' is given, will return a list of xarray.Datasets containing
@@ -833,6 +837,24 @@ def run_retrieval(
             output_format=output_format
         )
 
+    if batch_size is not None:
+        model.inference_config.batch_size = batch_size
+
+    if no_profiles:
+        profiles = [
+            "snow_water_content",
+            "rain_water_content",
+            "cloud_water_content",
+            "latent_heat"
+        ]
+        iconf = model.inference_config
+        retrieval_output = {
+            name: outputs for name, outputs in iconf.retrieval_output.items()
+            if not name in profiles
+        }
+        model.inference_config.retrieval_output = retrieval_output
+        for prof in profiles:
+            model.heads.pop(prof)
     inference_config = model.inference_config
 
     if output_path is not None:
@@ -913,6 +935,10 @@ def run_retrieval(
     type=str,
     help="Path pointing to a model file to use for the retrieval."
 )
+@click.option(
+    "--no_profiles",
+    is_flag=True
+)
 def cli(
         input_path: Path,
         output_path: Optional[Path] = None,
@@ -921,7 +947,8 @@ def cli(
         ancillary_config: Optional[str] = None,
         output_format: str = "NETCDF",
         n_input_loaders: int = 1,
-        retrieval_model: Optional[str] = None
+        retrieval_model: Optional[str] = None,
+        no_profiles: bool = False
 ) -> None:
     """
     Run the GPROF-NN retrieval on a single input file or a folder of input files located at INPUT_PATH and write the results to the current working directory.
@@ -963,6 +990,22 @@ def cli(
             ancillary_config=ancillary_config,
             output_format=output_format
         )
+
+    if no_profiles:
+        profiles = [
+            "snow_water_content",
+            "rain_water_content",
+            "cloud_water_content",
+            "latent_heat"
+        ]
+        iconf = model.inference_config
+        retrieval_output = {
+            name: outputs for name, outputs in iconf.retrieval_output.items()
+            if not name in profiles
+        }
+        model.inference_config.retrieval_output = retrieval_output
+        for prof in profiles:
+            model.heads.pop(prof)
 
     inference_config = model.inference_config
 
