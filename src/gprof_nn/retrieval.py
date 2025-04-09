@@ -259,7 +259,7 @@ def load_input_data_l1c(
         tbs_full[sensor.gprof_channel_indices] = tbs
 
     anc = np.nan * np.zeros((14,) + tbs.shape[1:])
-    eia = l1c_data.earth_incidence_angle.copy()
+    eia = l1c_data.earth_incidence_angle.data.copy()
     eia[eia < -100] = np.nan
     angs_full = np.nan * np.zeros_like(tbs_full)
     if eia.ndim == 2:
