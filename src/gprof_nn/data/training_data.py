@@ -1543,19 +1543,36 @@ def load_training_data_3d_other(
     # Drop scanlines
     if sensor.scanline_drop is not None:
         p = sensor.scanline_drop
-        n_chans = tbs_full.shape[0]
+        chans = torch.where(torch.isfinite(tbs_full).any(1).any(1))
         if rng.random() <= p:
 
             n_lines = rng.integers(1, 30)
             start = rng.integers(0, tbs_full.shape[1] - n_lines)
             end = start + n_lines
 
-            chans = rng.permutation(n_chans)
-            drop = rng.integers(1, n_chans + 1)
-            chans = chans[:drop]
             for chan_ind in chans:
                 tbs_full[chan_ind, start:end] = torch.nan
                 angs_full[chan_ind, start:end] = torch.nan
+
+            if rng.random() <= 0.5:
+                anc[:, start:end] = torch.nan
+
+    # Erroneous scan lines
+    if sensor.scanline_drop is not None:
+        p = sensor.scanline_drop
+        chans = torch.where(torch.isfinite(tbs_full).any(1).any(1))
+        val = 330.0 + 20.0 * rng.random()
+        if rng.random() <= p:
+
+            n_lines = rng.integers(1, 10)
+            start = rng.integers(0, tbs_full.shape[1] - n_lines)
+            end = start + n_lines
+
+            for chan_ind in chans:
+                tbs_full[chan_ind, start:end] = val
+
+            if rng.random() <= 0.5:
+                anc[:, start:end] = torch.nan
 
     x = {
         "brightness_temperatures": tbs_full,

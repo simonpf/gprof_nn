@@ -170,7 +170,8 @@ def load_input_data_preprocessor(
     angs_full = np.nan * np.ones_like(tbs_full)
     chan_inds = list(sensor.gprof_channels.keys())
     if isinstance(sensor, sensors.CrossTrackScanner):
-        eia = data_pp.earth_incidence_angle.data.astype(np.float32)
+        eia = data_pp.earth_incidence_angle.data.astype(np.float32).copy()
+        eia[eia < -100] = np.nan
         angs_full[chan_inds] = eia[None]
     else:
         angs_full[chan_inds] = torch.tensor(sensor.earth_incidence_angle[..., None, None], dtype=torch.float32)
@@ -258,8 +259,8 @@ def load_input_data_l1c(
         tbs_full[sensor.gprof_channel_indices] = tbs
 
     anc = np.nan * np.zeros((14,) + tbs.shape[1:])
-
-    eia = l1c_data.earth_incidence_angle.data
+    eia = l1c_data.earth_incidence_angle.copy()
+    eia[eia < -100] = np.nan
     angs_full = np.nan * np.zeros_like(tbs_full)
     if eia.ndim == 2:
         angs_full[sensor.gprof_channel_indices] = eia
@@ -485,7 +486,8 @@ def load_input_data_collocations(
         angs_full = np.nan * np.ones_like(tbs_full)
         chan_inds = list(sensor.gprof_channels.keys())
         if isinstance(sensor, sensors.CrossTrackScanner):
-            eia = scene.earth_incidence_angle_gprof.data.astype(np.float32)
+            eia = scene.earth_incidence_angle_gprof.data.astype(np.float32).copy()
+            eia[eia < -100] = np.nan
             angs_full[chan_inds] = eia[None]
         else:
             angs_full[chan_inds] = sensor.earth_incidence_angle[..., None, None].astype(np.float32)
