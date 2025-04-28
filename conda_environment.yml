@@ -4,6 +4,13 @@ channels:
   - nvidia
   - conda-forge
 dependencies:
+  - appdirs
+  - beautifulsoup4
+  - boto3
+  - cdsapi
+  - cfgrib
+  - cryptography
+  - filelock
   - python
   - pytorch::pytorch
   - pytorch::torchvision
@@ -29,9 +36,18 @@ dependencies:
   - shapely
   - cartopy
   - llvm-openmp
+  - lxml
   - ipywidgets
+  - ipyleaflet
   - lightning
+  - paramiko
+  - pyproj
   - protobuf
+  - requests
+  - satpy
+  - scipy
+  - shapely
+  - tomlkit
   - geopandas
   - jupyter-book
   - pywavelets
