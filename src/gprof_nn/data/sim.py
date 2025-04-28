@@ -41,6 +41,7 @@ from pytorch_retrieve.retrieval_output import ExpectedValue
 import gprof_nn
 from gprof_nn import sensors
 from gprof_nn.config import CONFIG
+from gprof_nn.geometry import incidence_angle_to_viewing_angle
 from gprof_nn.definitions import (
     ANCILLARY_VARIABLES,
     ALL_TARGETS,
@@ -59,8 +60,8 @@ from gprof_nn.data.mrms import MRMSMatchFile
 from gprof_nn.data.preprocessor import run_preprocessor
 from gprof_nn.data.training_data import transform_observations_satformer
 from gprof_nn.data.utils import (
+    BEAM_WIDTHS,
     compressed_pixel_range,
-    N_PIXELS_CENTER,
     save_scene,
     write_training_samples_1d,
     write_training_samples_3d,
@@ -71,21 +72,6 @@ from gprof_nn.data.utils import (
     RADIUS_OF_INFLUENCE,
     calculate_polarization_weights,
 )
-
-BEAM_WIDTHS = {
-    "gmi": [1.75, 1.75, 1.0, 1.0, 0.9, 0.9, 0.9, 0.4, 0.4, 0.4, 0.4, 0.4, 0.4],
-    "atms": [2.2, 1.1, 1.1, 1.1, 1.1],
-    "amsr2": [1.2, 1.2, 0.65, 0.65, 0.75, 0.75, 0.35, 0.35, 0.15, 0.15]
-}
-
-EIA = {
-    "amsr2": [55.33, 55.3, 55.3, 55.28, 55.28, 55.28, 55.28, 55.3, 54.78, 54.78]
-}
-
-from gprof_nn.geometry import incidence_angle_to_viewing_angle
-from gprof_nn.logging import get_console
-from gprof_nn.utils import CONUS
-from gprof_nn.sensors import Sensor
 
 
 LOGGER = logging.getLogger(__name__)
@@ -649,7 +635,7 @@ def collocate_targets(
 
 
 class SimulatorInput():
-    def __init__(self, data: xr.Dataset, target_sensor: Sensor):
+    def __init__(self, data: xr.Dataset, target_sensor: sensors.Sensor):
         self.data = data
         self.target_sensor = target_sensor
         if self.target_sensor.kind in ["CONICAL", "CONICAL_CONSTELLATION"]:
@@ -684,6 +670,7 @@ class SimulatorInput():
         shape = observations.shape[-2:]
 
         sensor = self.target_sensor
+        angles = self.data.angles.data.copy()
         for eia in self.data.angles.data:
             vang = incidence_angle_to_viewing_angle(eia, sensor.viewing_geometry.altitude)
             for chan in range(n_chans):
@@ -781,7 +768,7 @@ class SimulatorInput():
             pol = calculate_polarization_weights(sensor.polarization[chan], 0.0).item() * torch.ones(shape)
             beam_width = BEAM_WIDTHS[self.target_sensor.name.lower()][chan] * torch.ones(shape)
             alt = sensor.viewing_geometry.altitude / 100e3 * torch.ones(shape)
-            zenith = EIA[self.target_sensor.name.lower()][chan] * torch.ones(shape)
+            zenith = self.target_sensor.earth_incidence_angle[chan] * torch.ones(shape)
             #sin_az = 1.0 + np.sin(np.arcsin(input_observation_props[0, -2, chan] - 1) + direction * np.pi / 2.0)
             #cos_az = 1.0 + np.cos(np.arccos(input_observation_props[0, -1, chan] - 1) + direction * np.pi / 2.0)
             sin_az = input_observation_props[0, -2, chan]
@@ -832,7 +819,6 @@ class SimulatorInput():
             inpt[anc_var] = anc_data
             inpt[anc_var + "_mask"] = anc_mask
             valid = torch.isfinite(anc_data)
-            print(anc_var, anc_mask, anc_data[valid].min(), anc_data[valid].max())
 
         inpt["output_observation_props"] = output_observation_props
         return inpt, "None", {}
@@ -841,9 +827,8 @@ class SimulatorInput():
 def simulate_tbs_satformer(
         model_path: Path,
         data: xr.Dataset,
-        sensor: Sensor,
+        sensor: sensors.Sensor,
         device: Optional[str] = None
-
 ):
     input_loader = SimulatorInput(data, sensor)
     model = load_model(model_path).eval()
@@ -882,6 +867,7 @@ def simulate_tbs_satformer(
             input_loader,
             inference_config,
             device=device,
+            dtype="float16"
         )
         results = results[0]
 
@@ -908,7 +894,7 @@ def simulate_tbs_satformer(
 
 
 def process_sim_file(
-        sensor: Sensor,
+        sensor: sensors.Sensor,
         sim_file: Path,
         era5_path: Optional[Path],
         output_path_1d: Path,
@@ -980,7 +966,7 @@ def process_sim_file(
 
 
 def process_files(
-        sensor: Sensor,
+        sensor: sensors.Sensor,
         path: Path,
         output_path_1d: Path,
         output_path_3d: Path,
@@ -1127,7 +1113,7 @@ def process_files(
     metavar="lon_min,lat_min,lon_max,lat_max"
 )
 @click.option(
-    "--satformer_model",
+    "--simulator_model",
     default=None,
     help=(
         "Optional path pointing to a satformer model to use to simulated Tbs."
@@ -1142,7 +1128,7 @@ def process_files(
     ),
     metavar="device"
 )
-def cli(sensor: Sensor,
+def cli(sensor: sensors.Sensor,
         sim_file_path: Path,
         split: str,
         output_1d: Path,
@@ -1152,7 +1138,7 @@ def cli(sensor: Sensor,
         n_processes: int = 1,
         include_cmb_precip: bool = False,
         bounds: Tuple[float, float, float, float] = None,
-        satformer_model: Optional[Path] = None,
+        simulator_model: Optional[Path] = None,
         device: str = "cuda:0"
 ) -> None:
     """
@@ -1235,6 +1221,6 @@ def cli(sensor: Sensor,
         n_processes=n_processes,
         include_cmb_precip=include_cmb_precip,
         lonlat_bounds=lonlat_bounds,
-        satformer_model=satformer_model,
+        satformer_model=simulator_model,
         device=device
     )

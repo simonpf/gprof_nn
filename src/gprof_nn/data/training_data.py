@@ -658,6 +658,7 @@ def load_ancillary_data(
         A torch tensor containign the ancillary data stacked along the
         'stack_dim'.
     """
+    LOGGER.debug("Loading ancillary data for configuration %s.", configuration)
     data = []
     var_inds = ANCILLARY_CFGS.get(configuration, [])
     for ind, var in enumerate(ANCILLARY_VARIABLES):
@@ -1840,100 +1841,6 @@ class GPROFNNSimInputLoader(GPROFNN3DDataset):
         return output_data, input_file.name
 
 
-
-class SimulatorDataset(Dataset):
-    """
-    Dataset class for loading the training data for training GPROF-NN observation
-    emulators.
-    """
-    def __init__(
-        self,
-        path: Path,
-        augment: bool = True,
-        validation: bool = False
-    ):
-        """
-        Create GPROF-NN 3D dataset.
-
-        The training data for the GPROF-NN 3D retrieval consists of 2D scenes
-        in separate files.
-
-        Args:
-            path: The path containing the training data files.
-            transform_zeros: Whether or not to replace zeros in the output
-                with small random values.
-            augment: Whether or not to apply data augmentation to the loaded
-                data.
-            validation: If set to 'True', data  loaded in consecutive iterations
-                over the dataset will be identical.
-        """
-        super().__init__()
-
-        self.validation = validation
-        self.augment = augment and not validation
-        self.validation = validation
-
-        self.path = Path(path)
-        if not self.path.exists():
-            raise RuntimeError(
-                "The provided path does not exists."
-            )
-
-        files = sorted(list(self.path.glob("sim_*_*.nc")))
-        if len(files) == 0:
-            raise RuntimeError(
-                "Could not find any GPROF-NN Simulator training data files "
-                f"in {self.path}."
-            )
-        self.files = files
-
-        self.init_rng()
-        self.files = self.rng.permutation(self.files)
-
-
-    def init_rng(self, w_id=0):
-        """
-        Initialize random number generator.
-
-        Args:
-            w_id: The worker ID which of the worker process..
-        """
-        if self.validation:
-            seed = 42
-        else:
-            seed = int.from_bytes(os.urandom(4), "big") + w_id
-        self.rng = np.random.default_rng(seed)
-
-    def worker_init_fn(self, w_id: int):
-        """
-        Pytorch retrieve interface.
-        """
-        self.init_rng(w_id)
-        winfo = torch.utils.data.get_worker_info()
-        n_workers = winfo.num_workers
-
-    def __repr__(self):
-        return f"SimulatorDataset(path={self.path})"
-
-    def __len__(self):
-        return len(self.files)
-
-    def __getitem__(self, ind):
-        with xr.open_dataset(self.files[ind]) as scene:
-            sensor = scene.attrs["sensor"]
-            sensor = getattr(sensors, sensor)
-
-            return load_training_data_3d_gmi(
-                scene,
-                targets=[
-                    "simulated_brightness_temperatures",
-                    "brightness_temperature_biases"
-                ],
-                augment=self.augment,
-                rng=self.rng
-            )
-
-
 def transform_observations_satformer(
         observations: np.ndarray,
         meta: np.ndarray
@@ -2013,6 +1920,7 @@ class SatformerDataset:
             seq_len_out: int = 6,
             validation: bool = False,
             channel_dropout: float = 0.1,
+            sampling_rate: float = 1.0
     ):
         """
         Args:
@@ -2027,6 +1935,7 @@ class SatformerDataset:
         self.seq_len_out = seq_len_out
         self.validation = validation
         self.channel_dropout = channel_dropout
+        self.sampling_rate = sampling_rate
         self.init_rng()
 
     def init_rng(self, w_id=0):
@@ -2051,12 +1960,17 @@ class SatformerDataset:
         n_workers = winfo.num_workers
 
 
-    def __len__(self):
-        return len(self.input_files)
+    def __len__(self) -> int:
+        return int(self.sampling_rate * len(self.input_files))
 
-    def __getitem__(self, ind: int):
+    def __getitem__(self, ind: int) -> Dict[str, torch.Tensor]:
 
-        #ind = min(ind * 10 + self.rng.integers(0, 10), len(self) * 10 - 1)
+        lower = math.trunc(ind / self.sampling_rate)
+        upper = min(math.trunc((ind  + 1) / self.sampling_rate), len(self.input_files) - 1)
+        if upper > lower:
+            ind = self.rng.integers(lower, upper)
+        else:
+            ind = lower
 
         try:
             data = xr.open_dataset(self.input_files[ind])
