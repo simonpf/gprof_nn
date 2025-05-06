@@ -17,7 +17,7 @@ import pickle
 import shutil
 import subprocess
 import tempfile
-from typing import Union
+from typing import Dict, Optional, Union
 
 import numpy as np
 import scipy as sp
@@ -633,7 +633,11 @@ PREPROCESSOR_SETTINGS = {
 
 
 def run_preprocessor(
-    l1c_file, sensor, output_file=None, robust=True
+    l1c_file,
+    sensor,
+    output_file=None,
+    robust=True,
+    settings: Optional[Dict[str, str]] = None
 ):
     """
     Run preprocessor on L1C GMI file.
@@ -666,7 +670,11 @@ def run_preprocessor(
             )
 
         jobid = str(os.getpid()) + "_pp"
-        args = [jobid] + list(PREPROCESSOR_SETTINGS.values())
+        args = [jobid] + [
+            settings.get(argname, PREPROCESSOR_SETTINGS[argname])
+            for argname in PREPROCESSOR_SETTINGS.keys()
+        ]
+
         args.insert(2, str(l1c_file))
         args.append(str(output_file))
 

@@ -234,7 +234,18 @@ def load_input_data_l1c(
             with TemporaryDirectory() as tmp:
                 tmp_path = Path(tmp)
                 pp_path = tmp_path / l1c_file.with_suffix(".pp").name
-                run_preprocessor(l1c_file, sensor, output_file=pp_path)
+                prodtype = {
+                    "STD": "STANDARD",
+                    "CLI": "CLIMATOLOGY",
+                    "NRT": "NRT"
+                }
+                settings = {"prodtype": prodtype.get(ancillary_config, "CLIMATOLOGY")}
+                run_preprocessor(
+                    l1c_file,
+                    sensor,
+                    output_file=pp_path,
+                    settings=settings
+                )
                 pp_data = load_input_data_preprocessor(pp_path, ancillary_config=ancillary_config)
                 return pp_data
         except RuntimeError:
