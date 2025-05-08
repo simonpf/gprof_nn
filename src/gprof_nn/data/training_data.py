@@ -751,7 +751,9 @@ class GPROFNN1DDataset(IterableDataset):
         augment: bool = True,
         validation: bool = False,
         satformer: bool = False,
-        batch_size: int = 2048
+        batch_size: int = 2048,
+        ancillary_cfg: Optional[str] = None
+
     ):
         """
         Create GPROF-NN 1D dataset.
@@ -767,6 +769,8 @@ class GPROFNN1DDataset(IterableDataset):
                 data.
             validation: If set to 'True', data  loaded in consecutive iterations
                 over the dataset will be identical.
+            ancillary_cfg: Optional ancillary configuration to use. If not given,
+                the configuration is chosen randomly for each batch.
         """
         super().__init__()
 
@@ -777,6 +781,7 @@ class GPROFNN1DDataset(IterableDataset):
         self.validation = validation
         self.satformer = satformer
         self.augment = augment
+        self.ancillary_cfg = ancillary_cfg
 
         self.path = Path(path)
         if not self.path.exists():
@@ -835,6 +840,13 @@ class GPROFNN1DDataset(IterableDataset):
         targets = self.targets
         ref_target = targets[0]
 
+        if self.ancillary_cfg is not none:
+            cfg = self.ancillary_cfg
+        elif self.validation:
+            cfg = "cli"
+        else:
+            cfg = self.rng.choice(["none", "nrt", "nrt_snow", "std", "cli"])
+
         if sensor == sensors.GMI:
             tbs = dataset["brightness_temperatures"].data
             y_t = dataset[ref_target].data
@@ -845,10 +857,6 @@ class GPROFNN1DDataset(IterableDataset):
 
             tbs = load_tbs_1d_gmi(dataset)
 
-            if self.validation:
-                cfg = "CLI"
-            else:
-                cfg = self.rng.choice(["None", "NRT", "NRT_SNOW", "STD", "CLI"])
             anc = load_ancillary_data(dataset, configuration=cfg, stack_dim=1)
 
             targets = load_targets_1d(dataset, self.targets)
@@ -899,10 +907,6 @@ class GPROFNN1DDataset(IterableDataset):
                 tbs, angs = load_tbs_1d_xtrack_other(dataset, sensor)
                 targets = load_targets_1d(dataset, self.targets)
 
-            if self.validation:
-                cfg = "CLI"
-            else:
-                cfg = self.rng.choice(["None", "NRT", "NRT_SNOW", "STD", "CLI"])
             anc = load_ancillary_data(dataset, configuration=cfg, stack_dim=1)
 
         elif isinstance(sensor, sensors.ConstellationScanner):
@@ -917,10 +921,6 @@ class GPROFNN1DDataset(IterableDataset):
                 )
             else:
                 tbs, angs = load_tbs_1d_conical_other(dataset, sensor)
-            if self.validation:
-                cfg = "CLI"
-            else:
-                cfg = self.rng.choice(["None", "NRT", "NRT_SNOW", "STD", "CLI"])
             anc = load_ancillary_data(dataset, configuration=cfg, stack_dim=1)
             targets = load_targets_1d(dataset, self.targets)
 
