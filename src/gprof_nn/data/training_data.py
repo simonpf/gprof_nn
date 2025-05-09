@@ -660,9 +660,20 @@ def load_ancillary_data(
     """
     LOGGER.debug("Loading ancillary data for configuration %s.", configuration)
     data = []
+    if configuration not in ANCILLARY_CFGS:
+        LOGGER.warning(
+            "Ancillary-data configuration '%s' is not known. Known configurations are "
+            "'%s'.",
+            configuration,
+            list(ANCILLARY_CFGS.keys())
+        )
     var_inds = ANCILLARY_CFGS.get(configuration, [])
     for ind, var in enumerate(ANCILLARY_VARIABLES):
-        data_v = training_data[var].data.copy().astype(np.float32)
+        if var in training_data:
+            data_v = training_data[var].data.copy().astype(np.float32)
+        else:
+            data_v = training_data["two_meter_temperature"].data.copy().astype(np.float32)
+
         data_v[data_v < -9000] = np.nan
         if ind in var_inds:
             data.append(data_v)
@@ -840,7 +851,7 @@ class GPROFNN1DDataset(IterableDataset):
         targets = self.targets
         ref_target = targets[0]
 
-        if self.ancillary_cfg is not none:
+        if self.ancillary_cfg is not None:
             cfg = self.ancillary_cfg
         elif self.validation:
             cfg = "cli"
@@ -1099,7 +1110,7 @@ def load_training_data_3d_gmi(
     if ancillary_config is not None:
         cfg = ancillary_config
     elif augment:
-        cfg = rng.choice(["None", "NRT", "NRT_SNOW", "STD", "CLI"])
+        cfg = rng.choice(["NONE", "NRT", "NRT_SNOW", "STD", "CLI"])
     else:
         cfg = "CLI"
     anc = load_ancillary_data(scene, configuration=cfg, stack_dim=0)
@@ -1271,7 +1282,7 @@ def load_training_data_3d_xtrack_sim(
     if ancillary_config is not None:
         cfg = ancillary_config
     elif augment:
-        cfg = rng.choice(["None", "NRT", "NRT_SNOW", "STD", "CLI"])
+        cfg = rng.choice(["NONE", "NRT", "NRT_SNOW", "STD", "CLI"])
     else:
         cfg = "CLI"
     anc = load_ancillary_data(scene, configuration=cfg, stack_dim=0)
@@ -1394,10 +1405,13 @@ def load_training_data_3d_conical_sim(
     scene = remap_scene(scene, coords, variables).transpose("levels", "scans", "pixels", ...)
 
     # Calculate brightness temperatures
-    tbs_sim = scene.satformer_tbs_rand
+    tbs_sim = scene.satformer_tbs_rand.data
     full_shape = tbs_sim.shape[:2] + (15,)
-    tbs_full = np.nan * np.ones(full_shape, dtype="float32")
-    tbs_full[:, :, sensor.gprof_channel_indices] = tbs_sim
+    if tbs_sim.shape[-1] < 15:
+        tbs_full = np.nan * np.ones(full_shape, dtype="float32")
+        tbs_full[:, :, sensor.gprof_channel_indices] = tbs_sim
+    else:
+        tbs_full = tbs_sim
     tbs_full = torch.permute(torch.tensor(tbs_full), (2, 0, 1))
     tbs_full[tbs_full > 350] = np.nan
 
@@ -1410,7 +1424,7 @@ def load_training_data_3d_conical_sim(
     if ancillary_config is not None:
         cfg = ancillary_config
     elif augment:
-        cfg = rng.choice(["None", "NRT", "NRT_SNOW", "STD", "CLI"])
+        cfg = rng.choice(["NONE", "NRT", "NRT_SNOW", "STD", "CLI"])
     else:
         cfg = "CLI"
     anc = load_ancillary_data(scene, configuration=cfg, stack_dim=0)
@@ -1527,7 +1541,7 @@ def load_training_data_3d_other(
     if ancillary_config is not None:
         cfg = ancillary_config
     elif augment:
-        cfg = rng.choice(["None", "NRT", "NRT_SNOW", "STD", "CLI"])
+        cfg = rng.choice(["NONE", "NRT", "NRT_SNOW", "STD", "CLI"])
     else:
         cfg = "CLI"
     anc = load_ancillary_data(scene, configuration=cfg, stack_dim=0)
