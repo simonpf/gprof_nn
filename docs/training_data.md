@@ -65,7 +65,7 @@ gprof_nn extract_training_data mrms <sensor_name> /path/to/mrms_collocation_fold
 Similarly, training data from ERA5 collocations are extracted using the ``gprof_nn extract_training_data era5`` sub-command.
 
 ````
-gprof_nn extract_training_data ERA <sensor_name> path/to/l1c_files training 1d 3d
+gprof_nn extract_training_data era5 <sensor_name> path/to/l1c_files training 1d 3d
 ````
 
 ## Finetuning data
