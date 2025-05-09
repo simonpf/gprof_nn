@@ -365,6 +365,8 @@ def cli(
         return 1
 
     try:
+        if start_time is None:
+            start_time = "2018-10-01"
         start_time = np.datetime64(start_time)
     except ValueError:
         LOGGER.error(
@@ -375,6 +377,8 @@ def cli(
         return 1
 
     try:
+        if end_time is None:
+            end_time = "2019-10-01"
         end_time = np.datetime64(end_time)
     except ValueError:
         LOGGER.error(
