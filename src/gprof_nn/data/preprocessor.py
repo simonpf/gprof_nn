@@ -656,6 +656,9 @@ def run_preprocessor(
     """
     from gprof_nn.data.l1c import L1CFile
 
+    if settings is None:
+        settings = {}
+
     file = None
     if output_file is None:
         file = tempfile.NamedTemporaryFile()
