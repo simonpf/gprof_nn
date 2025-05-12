@@ -37,7 +37,7 @@ The development installation includes additional dependencies required for train
 First, obtain the source code by cloning the repository:
 
 ```
-git clone -b gprof_v8 git@github.com:simonpf/gprof_nn
+git clone -b gprof_v8 https://github.com/simonpf/gprof_nn
 ```
 
 
