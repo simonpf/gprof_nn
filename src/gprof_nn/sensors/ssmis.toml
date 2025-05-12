@@ -1,7 +1,7 @@
 [platform]
-name = "F18"
-l1c_file_path = "/pdata4/archive/GPM/1C_F18_V7"
-l1c_file_prefix = "1C-R.F18.SSMIS"
+name = "F17"
+l1c_file_path = "/pdata4/archive/GPM/1C_F17_V7"
+l1c_file_prefix = "1C-R.F17.SSMIS"
 
 [viewing_geometry]
 kind = "Conical"
