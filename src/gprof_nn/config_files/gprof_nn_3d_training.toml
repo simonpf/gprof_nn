@@ -1,38 +1,38 @@
 [stage_1]
 dataset_module = "gprof_nn.data.training_data"
 training_dataset = "GPROFNN3DDataset"
-training_dataset_args = {{path="{training_data_path}"}}
-validation_dataset_args = {{path="{validation_data_path}"}}
+training_dataset_args = {{path={training_data_path}}}
+validation_dataset_args = {{path={validation_data_path}}}
 n_epochs = 20
 batch_size = 32
 optimizer = "AdamW"
 optimizer_args = {{lr = 5e-4}}
 scheduler = "CosineAnnealingLR"
 scheduler_args = {{T_max = 20}}
-metrics = ["CorrelationCoef", "MSE", "Bias"]
+metrics = ["CorrelationCoef", "MSE", "Bias", "PlotSamples", "PlotMeans"]
 
 [stage_2]
 dataset_module = "gprof_nn.data.training_data"
 training_dataset = "GPROFNN3DDataset"
-training_dataset_args = {{path="{training_data_path}"}}
-validation_dataset_args = {{path="{validation_data_path}"}}
+training_dataset_args = {{path={training_data_path}}}
+validation_dataset_args = {{path={validation_data_path}}}
 n_epochs = 40
 batch_size = 32
 optimizer = "AdamW"
 optimizer_args = {{lr = 5e-4}}
 scheduler = "CosineAnnealingLR"
 scheduler_args = {{T_max = 40}}
-metrics = ["CorrelationCoef", "MSE", "Bias"]
+metrics = ["CorrelationCoef", "MSE", "Bias", "PlotSamples", "PlotMeans"]
 
-[stage_2]
+[stage_3]
 dataset_module = "gprof_nn.data.training_data"
 training_dataset = "GPROFNN3DDataset"
-training_dataset_args = {{path="{training_data_path}"}}
-validation_dataset_args = {{path="{validation_data_path}"}}
+training_dataset_args = {{path={training_data_path}}}
+validation_dataset_args = {{path={validation_data_path}}}
 n_epochs = 60
 batch_size = 32
 optimizer = "AdamW"
 optimizer_args = {{lr = 5e-4}}
 scheduler = "CosineAnnealingLR"
 scheduler_args = {{T_max = 60}}
-metrics = ["CorrelationCoef", "MSE", "Bias"]
+metrics = ["CorrelationCoef", "MSE", "Bias", "PlotSamples", "PlotMeans"]

@@ -8,7 +8,7 @@ preset = "EfficientNetV2-S"
 n_features = 15
 normalize = "minmax"
 
-[input.viewing_angles]
+[input.earth_incidence_angles]
 n_features = 15
 normalize = "minmax"
 

@@ -1,8 +1,6 @@
 name = "gprof_nn_1d"
 
-# The GPROF-NN 1D retrievals use a multi-layer perceptron (MLP),
-# aka fully-connected neural network, as underlying model.
-#
+# The GPROF-NN 1D retrievals use a multi-layer perceptron (MLP), aka fully-connected neural network, as underlying model.
 # As defines below the model comprises 8 hidden layers with 512 neurons
 # each.
 #

@@ -4,9 +4,9 @@ training_dataset = "GPROFNN1DDataset"
 training_dataset_args = {{path="{training_data_path}"}}
 validation_dataset_args = {{path="{validation_data_path}"}}
 n_epochs = 20
-batch_size = 2048
+batch_size = 0
 optimizer = "AdamW"
-optimizer_args = {{lr = 1e-3}}
+optimizer_args = {{lr = 5e-4}}
 scheduler = "CosineAnnealingLR"
 scheduler_args = {{T_max = 20}}
 metrics = ["CorrelationCoef", "MSE", "Bias"]
@@ -18,9 +18,9 @@ training_dataset = "GPROFNN1DDataset"
 training_dataset_args = {{path="{training_data_path}"}}
 validation_dataset_args = {{path="{validation_data_path}"}}
 n_epochs = 20
-batch_size = 2048
+batch_size = 0
 optimizer = "AdamW"
-optimizer_args = {{lr = 1e-3}}
+optimizer_args = {{lr = 5e-4}}
 scheduler = "CosineAnnealingLR"
 scheduler_args = {{T_max = 20}}
 metrics = ["CorrelationCoef", "MSE", "Bias"]
@@ -33,9 +33,9 @@ training_dataset = "GPROFNN1DDataset"
 training_dataset_args = {{path="{training_data_path}"}}
 validation_dataset_args = {{path="{validation_data_path}"}}
 n_epochs = 20
-batch_size = 2048
+batch_size = 0
 optimizer = "AdamW"
-optimizer_args = {{lr = 1e-3}}
+optimizer_args = {{lr = 5e-4}}
 scheduler = "CosineAnnealingLR"
 scheduler_args = {{T_max = 20}}
 metrics = ["CorrelationCoef", "MSE", "Bias"]

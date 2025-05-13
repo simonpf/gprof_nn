@@ -24,8 +24,8 @@ def init(
         sensor: str,
         path: Path,
         config: str,
-        training_data_path: Path,
-        validation_data_path: Optional[Path] = None,
+        training_data_paths: Path,
+        validation_data_paths: Optional[Path] = None,
         targets: List[str] = None,
         ancillary_data: bool = True,
 ) -> None:
@@ -38,8 +38,8 @@ def init(
         path: A path object pointing to the location in which to writhe
             the model and training configuration files.
         config: A string specifying the model configuration: '1d', '3d' or 'sim'.
-        training_data_path: The path containing the training data.
-        validation_data_path: The path containing the validation data.
+        training_data_paths: A list containing the training data paths.
+        validation_data_paths: A list containing the validation data paths.
         targets: If given, the model will only be trained to retrieve the
              given subset of retrieval targets.
         ancillary_data: Whether or not to include ancillary the model
@@ -50,8 +50,8 @@ def init(
     training_config = config_path / f"gprof_nn_{config.lower()}_training.toml"
     training_config = open(training_config, "r").read()
     training_config = training_config.format(**{
-        "training_data_path": str(training_data_path),
-        "validation_data_path": str(validation_data_path)
+        "training_data_path": [str(path) for path in training_data_paths],
+        "validation_data_path": [str(path) for path in validation_data_paths],
     })
     with open(path / "training.toml", "w") as output:
         output.write(training_config)
@@ -145,26 +145,30 @@ def init_cli(
         )
         return 1
 
-    training_data_path = Path(training_data_path)
-    if not training_data_path.exists() or not training_data_path.is_dir():
-        LOGGER.error(
-            "'training_data_path' must point to an existing directory."
-        )
-        return 1
+    training_data_paths = [Path(path) for path in training_data_path.split(",")]
+    for path in training_data_paths:
+        if not path.exists() or not path.is_dir():
+            LOGGER.error(
+                "All training data paths must point to existing directories. '%s' does not.",
+                path
+            )
+            return 1
 
-    validation_data_path = Path(validation_data_path)
-    if not validation_data_path.exists() or not validation_data_path.is_dir():
-        LOGGER.error(
-            "'validation_data_path' must point to an existing directory."
-        )
-        return 1
+    validation_data_paths = [Path(path) for path in validation_data_path.split(",")]
+    for path in validation_data_paths:
+        if not path.exists() or not path.is_dir():
+            LOGGER.error(
+                "All validation data paths must point to existing directories. '%s' does not.",
+                path
+            )
+            return 1
 
     init(
         sensor,
         Path(os.getcwd()),
         configuration,
-        training_data_path,
-        validation_data_path,
+        training_data_paths,
+        validation_data_paths,
         None,
         None
     )
