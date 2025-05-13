@@ -6,6 +6,7 @@ gprof_nn.retrieval
 This module contains classes and functionality that drive the execution
 of the retrieval.
 """
+from functools import cache
 import logging
 import math
 import subprocess
@@ -72,6 +73,21 @@ def get_model(sensor) -> nn.Module:
         The loaded retrieval model.
     """
     return load_model(download_model(sensor))
+
+
+def load_scaling_factors(sensor: sensors.Sensor) -> xr.Dataset:
+    """
+    Load scaling factors for given sensor.
+
+    Args:
+        sensor: The sensor object for which to load the scaling factors.
+
+    Return:
+        A xarray.Dataset containing the loaded scaling factors.
+    """
+    filename = f"{sensor.name}_pixel_adj.nc"
+    data = xr.load_dataset(__file__.parent / "files" / filename)
+    return data
 
 
 def calculate_quality_flag_and_pixel_status(
@@ -190,6 +206,7 @@ def load_input_data_preprocessor(
     }
 
     aux = {
+        "sensor": sensor,
         "pixel_status": status,
         "quality_flag": qflag,
         "scan_time": data_pp.scan_time.data,
@@ -279,6 +296,7 @@ def load_input_data_l1c(
     qflag, status = calculate_quality_flag_and_pixel_status(sensor, tbs_full, l1c_data)
     missing = np.nan * np.zeros_like(tbs_full[0])
     aux = {
+        "sensor": sensor,
         "pixel_status": status,
         "quality_flag": qflag,
         "scan_time": l1c_data.scan_time.data,
@@ -360,6 +378,7 @@ def load_input_data_training_1d(
         qflag, status = calculate_quality_flag_and_pixel_status(sensor, tbs, data)
 
         aux = {
+            "sensor": sensor,
             "pixel_status": status,
             "quality_flag": qflag,
             "longitude": data.longitude.data,
@@ -438,6 +457,7 @@ def load_input_data_training_3d(
         qflag, status = calculate_quality_flag_and_pixel_status(sensor, tbs_full, scene)
 
         aux = {
+            "sensor": sensor,
             "quality_flag": qflag,
             "pixel_status": status,
             "longitude": targets.pop("longitude").numpy(),
@@ -503,6 +523,7 @@ def load_input_data_collocations(
 
         qflag, status = calculate_quality_flag_and_pixel_status(sensor, tbs_full, scene)
         aux = {
+            "sensor": sensor,
             "pixel_status": status,
             "quality_flag": qflag,
             "longitude": scene.longitude.data,
@@ -680,6 +701,8 @@ class GPROFNNInputLoader:
         lats = aux["latitude"]
         shape = lons.shape
 
+        sensor = aux.pop("sensor")
+
         if lons.ndim == 2:
             dims = ("scans", "pixels", "levels")
         else:
@@ -690,6 +713,7 @@ class GPROFNNInputLoader:
         preprocessor_file = aux.pop("preprocessor_file", None)
         output_format = aux.pop("output_format", "NETCDF")
 
+        # Copy relevant input data.
         for name, data in aux.items():
             data = data.squeeze()
             if data.ndim > 2 and data.shape[-1] != 28:
@@ -697,6 +721,7 @@ class GPROFNNInputLoader:
             dims_v = dims[:data.ndim]
 
             output[name] = (dims_v, data)
+
 
         if lons.ndim == 2:
             dims = ("scans", "pixels", "levels")
@@ -741,6 +766,26 @@ class GPROFNNInputLoader:
                 # Use compressiong to keep file size reasonable.
                 output[var].encoding = {"dtype": "float32", "zlib": True}
 
+        # Apply bias correction
+        land_fraction = output.land_fraction.data
+        ice_fraction = output.ice_fraction.data
+        snow_mask = output.snow_mask.data
+        scaling = np.ones_like(output["surface_precip"].data)
+        adjustment_factors = load_scaling_factors(sensor)
+
+        ocean_mask = (land_fraction <= 2) * (ice_fraction == 0)
+        ocean_scaling = adjustment_factors.ocean_bias.data * adjustment_Factors.ocean_adj.data
+        ocean_scaling = np.broadcast_to(ocean_scaling[None], scaling.shape)
+        scaling[ocean_mask] = ocean_scaling
+
+        landrain_mask = (95 < land_fraction) * (snow_mask == 0)
+        landrain_scaling = adjustment_factors.landrain_bias.data * adjustment_Factors.landrain_adj.data
+        landrain_scaling = np.broadcast_to(landrain_scaling[None], scaling.shape)
+        scaling[landrain_mask] = landrain_scaling
+
+        output["surface_precip"].data *= scaling
+        output["surface_precip_1st_tercile"].data *= scaling
+        output["surface_precip_2nd_tercile"].data *= scaling
 
         qflag = aux["quality_flag"]
         for name in ALL_OUTPUTS:
