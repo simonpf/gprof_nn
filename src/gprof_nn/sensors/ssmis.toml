@@ -1,7 +1,7 @@
 [platform]
-name = "F18"
-l1c_file_path = "/pdata4/archive/GPM/1C_F18_V7"
-l1c_file_prefix = "1C-R.F18.SSMIS"
+name = "F17"
+l1c_file_path = "/pdata4/archive/GPM/1C_F17_V7"
+l1c_file_prefix = "1C.F17.SSMIS"
 
 [viewing_geometry]
 kind = "Conical"
@@ -12,7 +12,7 @@ pixels_per_scan = 221
 scan_offset = 12.5e3
 
 [sensor]
-kind = "ConicalScanner"
+kind = "ConstellationScanner"
 frequencies = [19.35, 19.35, 22.235, 37.0, 37.0, 91.665, 91.665, 150.0, 183.0, 183.0, 183.0]
 offsets = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.25, 1.0, 3.0, 6.6]
 polarization = ["V", "H", "V", "V", "H", "V", "H", "H", "H", "H", "H"]

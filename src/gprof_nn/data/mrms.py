@@ -403,7 +403,8 @@ def process_match_files(
         output_path_3d: The path to which to write the training data for
             the GPROF-NN 3D retrieval.
     """
-    match_files = MRMSMatchFile.find_files(match_path, sensor=sensor)
+    match_files = sorted(list(MRMSMatchFile.find_files(match_path, sensor=sensor)))
+
     for match_file in match_files:
         process_match_file(
             sensor,
