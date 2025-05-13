@@ -33,7 +33,7 @@ try:
 except ImportError:
     pass
 
-import gprof_nn.logging
+from gprof_nn.logging import enable_file_logging
 from gprof_nn import sensors
 from gprof_nn.data.l1c import L1CFile
 from gprof_nn.data.utils import UPSAMPLING_FACTORS
@@ -72,6 +72,7 @@ def get_model(sensor) -> nn.Module:
     Return:
         The loaded retrieval model.
     """
+    LOGGER.debug("Loading standard retrieval model for sensor '%s'.", sensor.name)
     return load_model(download_model(sensor))
 
 
@@ -85,8 +86,8 @@ def load_scaling_factors(sensor: sensors.Sensor) -> xr.Dataset:
     Return:
         A xarray.Dataset containing the loaded scaling factors.
     """
-    filename = f"{sensor.name}_pixel_adj.nc"
-    data = xr.load_dataset(__file__.parent / "files" / filename)
+    filename = f"{sensor.name.lower()}_pixel_adj.nc"
+    data = xr.load_dataset(Path(__file__).parent / "files" / filename)
     return data
 
 
@@ -645,14 +646,19 @@ class GPROFNNInputLoader:
             input_format = determine_input_format(path)
 
         if input_format == "preprocessor":
+            LOGGER.debug("Loading input data from input file '%s' in preprocessor format.", path)
             input_data, aux = load_input_data_preprocessor(path, ancillary_config=self.ancillary_config)
         elif input_format == "l1c":
+            LOGGER.debug("Loading input data from input file '%s' in L1C format.", path)
             input_data, aux = load_input_data_l1c(path, ancillary_config=self.ancillary_config)
         elif input_format == "training_1d":
+            LOGGER.debug("Loading input data from input file '%s' in 1D training data format.", path)
             input_data, aux = load_input_data_training_1d(path, ancillary_config=self.ancillary_config)
         elif input_format == "training_3d":
+            LOGGER.debug("Loading input data from input file '%s' in 3D training data format.", path)
             input_data, aux = load_input_data_training_3d(path, ancillary_config=self.ancillary_config)
         elif input_format == "collocations":
+            LOGGER.debug("Loading input data from input file '%s' in SPEED collocation format.", path)
             input_data, aux = load_input_data_collocations(path, ancillary_config=self.ancillary_config)
         else:
             raise ValueError(
@@ -785,14 +791,14 @@ class GPROFNNInputLoader:
         adjustment_factors = load_scaling_factors(sensor)
 
         ocean_mask = (land_fraction <= 2) * (ice_fraction == 0)
-        ocean_scaling = adjustment_factors.ocean_bias.data * adjustment_Factors.ocean_adj.data
+        ocean_scaling = adjustment_factors.ocean_bias.data * adjustment_factors.ocean_adj.data
         ocean_scaling = np.broadcast_to(ocean_scaling[None], scaling.shape)
-        scaling[ocean_mask] = ocean_scaling
+        scaling[ocean_mask] = ocean_scaling[ocean_mask]
 
         landrain_mask = (95 < land_fraction) * (snow_mask == 0)
-        landrain_scaling = adjustment_factors.landrain_bias.data * adjustment_Factors.landrain_adj.data
+        landrain_scaling = adjustment_factors.landrain_bias.data * adjustment_factors.landrain_adj.data
         landrain_scaling = np.broadcast_to(landrain_scaling[None], scaling.shape)
-        scaling[landrain_mask] = landrain_scaling
+        scaling[landrain_mask] = landrain_scaling[landrain_mask]
 
         output["surface_precip"].data *= scaling
         output["surface_precip_1st_tercile"].data *= scaling
@@ -810,6 +816,8 @@ class GPROFNNInputLoader:
             else:
                 output[var].data = np.nan_to_num(output[var].data, nan=-99)
 
+        LOGGER.debug("Successfully processed %s scans.", output.scans.size)
+
         if output_format.upper() == "NETCDF":
             # Quick and dirty way to transform 1C filename to 2A filename
             output_filename = (
@@ -819,11 +827,13 @@ class GPROFNNInputLoader:
                 .replace("HDF5", "nc")
             )
 
+            LOGGER.debug("Writing retrieval results in NetCDF format to '%s'.", output_filename)
             # Return outputs as xr.Dataset and filename to use to save data.
             return output, output_filename
 
 
         # Output format is binary
+        LOGGER.debug("Writing retrieval results in binary format to '%s'.", output_path)
         return preprocessor_file.write_retrieval_results(output_path, output)
 
 
@@ -995,6 +1005,11 @@ def run_retrieval(
     "--no_profiles",
     is_flag=True
 )
+@click.option(
+    "--log_file",
+    type=str,
+    help="Log retrieval progress to the given file."
+)
 def cli(
         input_path: Path,
         output_path: Optional[Path] = None,
@@ -1004,11 +1019,15 @@ def cli(
         output_format: str = "NETCDF",
         n_input_loaders: int = 1,
         retrieval_model: Optional[str] = None,
-        no_profiles: bool = False
+        no_profiles: bool = False,
+        log_file: Optional[str] = None
 ) -> None:
     """
     Run the GPROF-NN retrieval on a single input file or a folder of input files located at INPUT_PATH and write the results to the current working directory.
     """
+    if log_file is not None:
+        enable_file_logging(log_file)
+
     if retrieval_model is None:
         input_loader = GPROFNNInputLoader(
             input_path,
@@ -1020,6 +1039,7 @@ def cli(
         model = get_model(sensor)
     else:
         try:
+            LOGGER.debug("Loading retrieval model %s.", retrieval_model)
             model = load_model(retrieval_model).eval()
         except Exception:
             LOGGER.exception(
