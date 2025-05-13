@@ -42,6 +42,9 @@ def download_model(sensor: str) -> Path:
                     "Didn't find a model for sensor '%s'.",
                     sensor.name
                 )
+    else:
+        LOGGER.debug("Found model at %s.", model_path / model)
+
 
     return model_path / model
 

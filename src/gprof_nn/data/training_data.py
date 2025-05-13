@@ -658,7 +658,7 @@ def load_ancillary_data(
         A torch tensor containign the ancillary data stacked along the
         'stack_dim'.
     """
-    LOGGER.debug("Loading ancillary data for configuration %s.", configuration)
+    LOGGER.debug("Loading ancillary data for configuration '%s'.", configuration)
     data = []
     if configuration not in ANCILLARY_CFGS:
         LOGGER.warning(

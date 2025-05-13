@@ -21,11 +21,11 @@ from rich.console import Console
 
 _LOG_LEVEL = os.environ.get("GPROF_NN_LOG_LEVEL", "INFO").upper()
 _CONSOLE = Console()
-_HANDLER = RichHandler(console=_CONSOLE)
+_HANDLER = RichHandler(console=_CONSOLE, level=logging.INFO)
 
 # The parent logger for the module.
+logging.basicConfig(level=logging.DEBUG, force=True, handlers=[_HANDLER])
 LOGGER = logging.getLogger("gprof_nn")
-logging.basicConfig(level=_LOG_LEVEL, force=True, handlers=[_HANDLER])
 
 
 def enable_file_logging(filename):
@@ -35,14 +35,15 @@ def enable_file_logging(filename):
     Args:
         filename: Filename of the file to which to write the log.
     """
-    handler = logging.FileHandler(filename)
+    handler = logging.FileHandler(filename, mode="w")
     formatter = logging.Formatter(
-        '{levelname} [{name:<30}] :: {message}',
-        style="{"
+        '%(asctime)s :: %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
     )
-    handler.setLevel("DEBUG")
+    handler.setLevel(logging.DEBUG)
     handler.setFormatter(formatter)
     LOGGER.addHandler(handler)
+    print("HDLRS :: ", LOGGER.handlers)
 
 
 def get_console():
