@@ -249,6 +249,7 @@ def extract_collocations(
             the GPROF-NN 3D training data.
     """
     match_file = MRMSMatchFile(match_file)
+
     with TemporaryDirectory() as tmp:
         tmp_path = Path(tmp)
 
@@ -266,10 +267,20 @@ def extract_collocations(
             return None
 
         data_pp = run_preprocessor(l1c_input, sensor)
+        snow_mask = (8 <= data_pp.surface_type.data) * (data_pp.surface_type.data < 12)
+        if not snow_mask.any():
+            LOGGER.info(
+                "Skipping L1C file '%s' because it doesn't contain any observations over snow surfaces.",
+                l1c_file.path
+            )
+            return None
 
         # Match targets
         match_file.match_targets(data_pp)
         data_pp.attrs["source"] = "mrms"
+
+        surface_precip = data_pp.surface_precip.data
+        surface_precip[~snow_mask] = np.nan
 
         if output_path_1d is not None:
             write_training_samples_1d(
@@ -332,12 +343,19 @@ def process_match_file(
         l1c_files_split = []
         days = DATA_SPLIT[split]
         for l1c_file in l1c_files:
-            time = L1CFile(l1c_file).start_time
-            day_of_month = int(
-                (time - time.astype("datetime64[M]")).astype("timedelta64[D]").astype("int64")
-            )
-            if day_of_month + 1 in days:
-                l1c_files_split.append(l1c_file)
+            try:
+                time = L1CFile(l1c_file).start_time
+                day_of_month = int(
+                    (time - time.astype("datetime64[M]")).astype("timedelta64[D]").astype("int64")
+                )
+                if day_of_month + 1 in days:
+                    l1c_files_split.append(l1c_file)
+            except Exception:
+                LOGGER.warning(
+                    "Encountered an error when loading start time from file '%s'.",
+                    l1c_file
+                )
+                pass
         l1c_files = l1c_files_split
 
     LOGGER.info(
@@ -389,7 +407,9 @@ def process_match_files(
         output_path_1d: Path,
         output_path_3d: Path,
         split: Optional[str] = None,
-        n_processes: int = 4
+        n_processes: int = 4,
+        start_time: Optional[np.datetime64] = None,
+        end_time: Optional[np.datetime64] = None
 ):
     """
     Process all MRMS match-up files in at a given path.
@@ -403,7 +423,16 @@ def process_match_files(
         output_path_3d: The path to which to write the training data for
             the GPROF-NN 3D retrieval.
     """
-    match_files = sorted(list(MRMSMatchFile.find_files(match_path, sensor=sensor)))
+    all_match_files = sorted(list(MRMSMatchFile.find_files(match_path, sensor=sensor)))
+    match_files = []
+    for match_file in all_match_files:
+        yearmonth = match_file.name.split("_")[0]
+        date = np.datetime64(f"20{yearmonth[:2]}-{yearmonth[2:]}-01")
+        if start_time is not None and date < start_time:
+            continue
+        if end_time is not None and end_time < date:
+            continue
+        match_files.append(match_file)
 
     for match_file in match_files:
         process_match_file(
@@ -424,18 +453,32 @@ def process_match_files(
 @click.argument("output_1d")
 @click.argument("output_3d")
 @click.option(
+    "--start_time",
+    type=str,
+    default=None,
+    help="A date in format '%Y-%m-%d' specifying a start date for the data extraction."
+)
+@click.option(
+    "--end_time",
+    type=str,
+    default=None,
+    help="A date in format '%Y-%m-%d' specifying an end date for the data extraction."
+)
+@click.option(
     "--n_processes",
     default=4,
     help="The number of processes to use to parallelize the data extraction."
 )
 def cli(
-    sensor: str,
-    match_path: str,
-    l1c_path: str,
-    split: str,
-    output_1d: str,
-    output_3d: str,
-    n_processes: int = 4
+        sensor: str,
+        match_path: str,
+        l1c_path: str,
+        split: str,
+        output_1d: str,
+        output_3d: str,
+        n_processes: int = 4,
+        start_time: Optional[str] = None,
+        end_time: Optional[str] = None
 ) -> int:
     """
     Extract training/validation/test data for sensor SENSOR from MRMS collocations located in MATCH_PATH and L1C files
@@ -472,6 +515,12 @@ def cli(
         LOGGER.error("The 'output_3d' argument must point to a directory.")
         return 1
 
+    if start_time is not None:
+        start_time = np.datetime64(start_time)
+
+    if end_time is not None:
+        end_time = np.datetime64(end_time)
+
     process_match_files(
         sensor,
         match_path,
@@ -479,7 +528,9 @@ def cli(
         output_path_1d,
         output_path_3d,
         split=split,
-        n_processes=n_processes
+        n_processes=n_processes,
+        start_time=start_time,
+        end_time=end_time
     )
 
 
