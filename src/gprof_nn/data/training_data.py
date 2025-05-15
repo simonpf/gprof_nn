@@ -635,8 +635,8 @@ def determine_ancillary_config(input_data: xr.Dataset) -> bool:
     t2m = input_data.two_meter_temperature.data
     if (t2m < 0).all():
         return "NRT"
-    lai = input_data.leaf_area_index.data
-    if (lai < 0).all():
+    snow_depth = input_data.snow_depth.data
+    if (snow_depth < 0).all():
         return "STD"
     return "CLI"
 
