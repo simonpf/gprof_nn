@@ -208,6 +208,7 @@ def load_input_data_preprocessor(
 
     aux = {
         "sensor": sensor,
+        "ancillary_config": ancillary_config,
         "pixel_status": status,
         "quality_flag": qflag,
         "scan_time": data_pp.scan_time.data,
@@ -258,6 +259,10 @@ def load_input_data_l1c(
                     "NRT": "NRT"
                 }
                 settings = {"prodtype": prodtype.get(ancillary_config, "CLIMATOLOGY")}
+                if ancillary_config == "CLI":
+                    settings["prepdir"] = "/qdata2/archive/ERA5/"
+                else:
+                    settings["prepdir"] = "/qdata1/pbrown/gpm/modelprep/GANALV7/"
                 run_preprocessor(
                     l1c_file,
                     sensor,
@@ -536,6 +541,7 @@ def load_input_data_collocations(
         qflag, status = calculate_quality_flag_and_pixel_status(sensor, tbs_full, scene)
         aux = {
             "sensor": sensor,
+            "ancillary_config": ancillary_config,
             "pixel_status": status,
             "quality_flag": qflag,
             "longitude": scene.longitude.data,
@@ -579,7 +585,8 @@ class GPROFNNInputLoader:
             input_format: Optional[str] = None,
             config: str = "3d",
             ancillary_config: str = "CLI",
-            output_format: str = "NETCDF"
+            output_format: str = "NETCDF",
+            bias_correction: bool = True
     ):
 
         # Determine input files.
@@ -605,6 +612,7 @@ class GPROFNNInputLoader:
         self.input_format = input_format
         self.ancillary_config = ancillary_config
         self.output_format = output_format.upper()
+        self.bias_correction = bias_correction
 
 
     def __len__(self) -> int:
@@ -719,6 +727,7 @@ class GPROFNNInputLoader:
         shape = lons.shape
 
         sensor = aux.pop("sensor")
+        ancillary_config = aux.pop("ancillary_config", "NONE")
 
         if lons.ndim == 2:
             dims = ("scans", "pixels", "levels")
@@ -784,25 +793,29 @@ class GPROFNNInputLoader:
                 output[var].encoding = {"dtype": "float32", "zlib": True}
 
         # Apply bias correction
-        land_fraction = output.land_fraction.data
-        ice_fraction = output.ice_fraction.data
-        snow_mask = output.snow_mask.data
-        scaling = np.ones_like(output["surface_precip"].data)
-        adjustment_factors = load_scaling_factors(sensor)
+        if self.bias_correction:
+            LOGGER.debug("Applying bias correction.")
+            land_fraction = output.land_fraction.data
+            ice_fraction = output.ice_fraction.data
+            snow_mask = output.snow_mask.data
+            scaling = np.ones_like(output["surface_precip"].data)
+            adjustment_factors = load_scaling_factors(sensor)
 
-        ocean_mask = (land_fraction <= 2) * (ice_fraction == 0)
-        ocean_scaling = adjustment_factors.ocean_bias.data * adjustment_factors.ocean_adj.data
-        ocean_scaling = np.broadcast_to(ocean_scaling[None], scaling.shape)
-        scaling[ocean_mask] = ocean_scaling[ocean_mask]
+            ocean_mask = (land_fraction <= 2) * (ice_fraction == 0)
+            ocean_scaling = adjustment_factors.ocean_bias.data * adjustment_factors.ocean_adj.data
+            ocean_scaling = np.broadcast_to(ocean_scaling[None], scaling.shape)
+            scaling[ocean_mask] = ocean_scaling[ocean_mask]
 
-        landrain_mask = (95 < land_fraction) * (snow_mask == 0)
-        landrain_scaling = adjustment_factors.landrain_bias.data * adjustment_factors.landrain_adj.data
-        landrain_scaling = np.broadcast_to(landrain_scaling[None], scaling.shape)
-        scaling[landrain_mask] = landrain_scaling[landrain_mask]
+            landrain_mask = (95 < land_fraction) * (snow_mask == 0)
+            landrain_scaling = adjustment_factors.landrain_bias.data * adjustment_factors.landrain_adj.data
+            landrain_scaling = np.broadcast_to(landrain_scaling[None], scaling.shape)
+            scaling[landrain_mask] = landrain_scaling[landrain_mask]
 
-        output["surface_precip"].data *= scaling
-        output["surface_precip_1st_tercile"].data *= scaling
-        output["surface_precip_2nd_tercile"].data *= scaling
+            output["surface_precip"].data *= scaling
+            output["surface_precip_1st_tercile"].data *= scaling
+            output["surface_precip_2nd_tercile"].data *= scaling
+        else:
+            LOGGER.debug("Skipping bias correction.")
 
         qflag = aux["quality_flag"]
         for name in ALL_OUTPUTS:
@@ -815,6 +828,8 @@ class GPROFNNInputLoader:
                 output[var].data = np.nan_to_num(output[var].data, nan=-9999.9)
             else:
                 output[var].data = np.nan_to_num(output[var].data, nan=-99)
+
+        output.attrs["ancillary_config"] = ancillary_config
 
         LOGGER.debug("Successfully processed %s scans.", output.scans.size)
 
@@ -1010,6 +1025,10 @@ def run_retrieval(
     type=str,
     help="Log retrieval progress to the given file."
 )
+@click.option(
+    "--no_bias_correction",
+    is_flag=True
+)
 def cli(
         input_path: Path,
         output_path: Optional[Path] = None,
@@ -1020,7 +1039,8 @@ def cli(
         n_input_loaders: int = 1,
         retrieval_model: Optional[str] = None,
         no_profiles: bool = False,
-        log_file: Optional[str] = None
+        log_file: Optional[str] = None,
+        no_bias_correction: bool = False
 ) -> None:
     """
     Run the GPROF-NN retrieval on a single input file or a folder of input files located at INPUT_PATH and write the results to the current working directory.
@@ -1033,7 +1053,8 @@ def cli(
             input_path,
             config="3d",
             ancillary_config=ancillary_config,
-            output_format=output_format
+            output_format=output_format,
+            bias_correction=not no_bias_correction
         )
         sensor = input_loader.infer_sensor()
         model = get_model(sensor)
