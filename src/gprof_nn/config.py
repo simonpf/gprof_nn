@@ -49,8 +49,7 @@ class PreprocessorConfig(ConfigBase):
     """
     gmi: Path = Path("gprof2024pp_GMI_L1C")
     mhs: Path = Path("gprof2024pp_MHS_L1C")
-    tmipr: Path = Path("gprof2024pp_TMI_L1C")
-    tmipo: Path = Path("gprof2024pp_TMI_L1C")
+    tmi: Path = Path("gprof2024pp_TMI_L1C")
     ssmi: Path = Path("gprof2024pp_SSMI_L1C")
     ssmis: Path = Path("gprof2024pp_SSMIS_L1C")
     amsr2: Path = Path("gprof2024pp_AMSR2_L1C")
@@ -66,8 +65,7 @@ class PreprocessorConfig(ConfigBase):
         txt += f"mhs   = {self.mhs}\n"
         txt += f"ssmi  = {self.ssmi}\n"
         txt += f"ssmis = {self.ssmis}\n"
-        txt += f"tmipr = {self.tmipr}\n"
-        txt += f"tmipo = {self.tmipo}\n"
+        txt += f"tmi = {self.tmi}\n"
         return txt
 
 

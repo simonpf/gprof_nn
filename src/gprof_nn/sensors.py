@@ -57,7 +57,6 @@ import xarray as xr
 
 from gprof_nn.data import types
 from gprof_nn.definitions import N_LAYERS, LIMITS
-from gprof_nn.data.utils import load_variable, decompress_scene, remap_scene
 from gprof_nn.data.cdf import CdfCorrection
 from gprof_nn.utils import (
     apply_limits,
@@ -65,7 +64,6 @@ from gprof_nn.utils import (
     calculate_interpolation_weights,
     interpolate,
 )
-from gprof_nn.data.utils import expand_pixels
 import gprof_nn.augmentation
 from gprof_nn.augmentation import (
     Conical,
@@ -638,9 +636,9 @@ def get_sensor(
     if sensor == TMI:
         if date is not None:
             if date > np.datetime64("2001-08-22T00:00:00"):
-                sensor = TMIPO
+                sensor = TMI
             else:
-                sensor = TMIPR
+                sensor = TMI
 
     return sensor
 

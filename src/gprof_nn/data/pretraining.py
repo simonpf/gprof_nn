@@ -106,7 +106,6 @@ def extract_pretraining_scenes(
         input_obs = calculate_obs_properties(input_data, input_granule, radius_of_influence=rof_in)
         target_obs = calculate_obs_properties(input_data, target_granule, radius_of_influence=rof_targ)
 
-
         training_data = xr.Dataset({
             "input_observations": input_obs.observations.rename(channels="input_channels"),
             "input_meta_data": input_obs.meta_data.rename(channels="input_channels"),

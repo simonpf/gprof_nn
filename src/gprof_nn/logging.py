@@ -43,7 +43,6 @@ def enable_file_logging(filename):
     handler.setLevel(logging.DEBUG)
     handler.setFormatter(formatter)
     LOGGER.addHandler(handler)
-    print("HDLRS :: ", LOGGER.handlers)
 
 
 def get_console():

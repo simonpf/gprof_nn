@@ -37,7 +37,10 @@ try:
         l1c_xcal2019v_metopc_mhs_v07a,
         l1c_xcal2021v_f17_ssmis_v07a,
         l1c_xcal2021v_f18_ssmis_v07a,
-        merged_ir
+        l1c_aqua_amsre,
+        l1c_trmm_tmi,
+        l1c_f13_ssmi,
+        merged_ir,
     )
     from pyresample.geometry import SwathDefinition
 
@@ -51,7 +54,10 @@ try:
             l1c_xcal2016v_metopb_mhs_v07a,
         ),
         "amsr2": (l1c_gcomw1_amsr2,),
+        "amsre": (l1c_aqua_amsre,),
         "ssmis": (l1c_xcal2021v_f17_ssmis_v07a, l1c_xcal2021v_f18_ssmis_v07a),
+        "ssmi": (l1c_f13_ssmi,),
+        "tmi": (l1c_trmm_tmi,),
     }
 except ImportError:
     pass
@@ -62,7 +68,10 @@ UPSAMPLING_FACTORS = {
     "atms": (3, 3,),
     "mhs": (3, 3,),
     "amsr2": (1, 1),
-    "ssmis": (2, 2)
+    "ssmis": (2, 2),
+    "ssmi": (5, 2),
+    "amsre": (2, 2),
+    "tmi": (2, 3),
 }
 
 
@@ -71,7 +80,10 @@ RADIUS_OF_INFLUENCE = {
     "atms": 100e3,
     "amsr2": 10e3,
     "mhs": 80e3,
-    "ssmis": 15e3
+    "ssmis": 15e3,
+    "ssmi": 30e3,
+    "tmi": 30e3,
+    "amsre": 20e3,
 }
 
 
@@ -846,6 +858,12 @@ def calculate_angles(
         A tuple ``zenith, azimuth, viewing_angle`` containing the zenith, azimuth, and
         sensor viewing angles in degree for all lines of sights.
     """
+    if sensor_lons.shape[0] < fp_lons.shape[0]:
+        fac = fp_lons.shape[0] // sensor_lons.shape[0]
+        sensor_lons = np.repeat(sensor_lons, fac, axis=0)
+        sensor_lats = np.repeat(sensor_lats, fac, axis=0)
+        sensor_alts = np.repeat(sensor_alts, fac, axis=0)
+    print(sensor_lons.shape, sensor_lats.shape, sensor_alts.shape)
     sensor_lla = np.stack((sensor_lons, sensor_lats, sensor_alts), -1)
     sensor_ecef = lla_to_ecef(sensor_lla)
     sensor_down = np.stack((sensor_lons, sensor_lats, np.zeros_like(sensor_lons)), -1) - sensor_ecef
@@ -890,10 +908,13 @@ POLARIZATIONS = {
 
 BEAM_WIDTHS = {
     "gmi": [1.75, 1.75, 1.0, 1.0, 0.9, 0.9, 0.9, 0.4, 0.4, 0.4, 0.4, 0.4, 0.4],
+    "tmi": [3.68, 3.75, 1.9, 1.88, 1.7, 1.0, 1.0, 0.42, 0.43],
     "atms": [5.2, 5.2, 2.2, 1.1, 1.1, 1.1, 1.1, 1.1, 1.1],
     "amsr2": [1.2, 1.2, 0.65, 0.65, 0.75, 0.75, 0.35, 0.35, 0.15, 0.15, 0.15, 0.15],
+    "amsre": [1.5, 1.5, 0.8, 0.8, 0.92, 0.92, 0.42, 0.42, 0.19, 0.19, 0.19, 0.19],
     "mhs": [1.1, 1.1, 1.1, 1.1, 1.1],
-    "ssmis": [1.92, 1.94, 1.85, 1.2, 1.19, 0.4, 0.39, 0.39, 0.39, 0.39, 0.39]
+    "ssmis": [1.92, 1.94, 1.85, 1.2, 1.19, 0.4, 0.39, 0.39, 0.39, 0.39, 0.39],
+    "ssmi": [1.87, 1.87, 1.65, 1.1, 1.1, 0.43, 0.45],
 }
 
 
@@ -940,7 +961,7 @@ def calculate_obs_properties(
 
     tot_chan_ind = 0
 
-    granule_data = granule.open()
+    granule_data = granule.file_record.product.open(granule.file_record)
     if "latitude" in granule_data:
         granule_data = granule_data.rename(
             latitude="latitude_s1",
@@ -978,6 +999,7 @@ def calculate_obs_properties(
         sensor_lons = granule_data["spacecraft_longitude"].data
         sensor_lats = granule_data["spacecraft_latitude"].data
         sensor_alt = granule_data["spacecraft_altitude"].data * 1e3
+
         zenith, azimuth, viewing_angle = calculate_angles(
             fp_lons,
             fp_lats,
@@ -985,6 +1007,9 @@ def calculate_obs_properties(
             sensor_lats,
             sensor_alt
         )
+        if sensor_alt.shape[0] < zenith.shape[0]:
+            fac = zenith.shape[0] // sensor_alt.shape[0]
+            sensor_alt = np.repeat(sensor_alt, fac, axis=0)
         sensor_alt = np.broadcast_to(sensor_alt[..., None], zenith.shape) / 100e3
 
         swath_data = swath_data.rename({
@@ -995,6 +1020,15 @@ def calculate_obs_properties(
         swath_data["zenith"] = (("scans", "pixels"), zenith)
         swath_data["azimuth"] = (("scans", "pixels"), azimuth)
         swath_data["viewing_angle"] = (("scans", "pixels"), viewing_angle)
+
+        scan_time = swath_data["scan_time"].data
+        if scan_time.shape[0] < zenith.shape[0]:
+            fac = zenith.shape[0] // scan_time.shape[0]
+            scan_time = np.repeat(scan_time, fac, axis=0)
+        swath_data["scan_time"] = (("scans",), scan_time)
+
+        scan_time, _ = xr.broadcast(swath_data["scan_time"], swath_data["sensor_alt"])
+        swath_data["scan_time"] = scan_time
 
         swath_data_r = resample_data(
             swath_data,

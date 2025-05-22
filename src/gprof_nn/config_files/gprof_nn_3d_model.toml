@@ -4,9 +4,51 @@ name = "gprof_nn_3d"
 name = "EncoderDecoder"
 preset = "EfficientNetV2-S"
 
-[input.brightness_temperatures]
-n_features = 15
-normalize = "minmax"
+[architecture.encoder]
+channels = [29, 58, 77, 154, 192, 307]
+downsampling_factors = [[1, 1], [2, 2], [2, 2], [2, 2], [2, 1]]
+stage_depths = [1, 3, 3, 4, 6, 21]
+block_factory = [
+    "InvertedBottleneck",
+    "InvertedBottleneck",
+    "InvertedBottleneck",
+    "InvertedBottleneck",
+    "InvertedBottleneck",
+    "InvertedBottleneck",
+]
+block_factory_args = [
+    {activation_factory="GELU", normalization_factory="LayerNormFirst", expansion_factor=1, excitation_ratio=0.0, fused=true, anti_aliasing=false},
+    {activation_factory="GELU", normalization_factory="LayerNormFirst", expansion_factor=4, excitation_ratio=0.0, fused=true, anti_aliasing=false},
+    {activation_factory="GELU", normalization_factory="LayerNormFirst", expansion_factor=4, excitation_ratio=0.0, fused=true, anti_aliasing=false},
+    {activation_factory="GELU", normalization_factory="LayerNormFirst", expansion_factor=4, excitation_ratio=0.0, anti_aliasing=false},
+    {activation_factory="GELU", normalization_factory="LayerNormFirst", expansion_factor=6, excitation_ratio=0.0, anti_aliasing=false},
+    {activation_factory="GELU", normalization_factory="LayerNormFirst", expansion_factor=6, excitation_ratio=0.0, anti_aliasing=false},
+]
+
+[architecture.decoder]
+channels = [192, 154, 128, 128]
+upsampling_factors = [[2, 1], [2, 2], [2, 2], [2, 2]]
+stage_depths = [6, 4, 3, 3]
+block_factory = [
+    "InvertedBottleneck",
+    "InvertedBottleneck",
+    "InvertedBottleneck",
+    "InvertedBottleneck",
+]
+block_factory_args = [
+    {activation_factory="GELU", normalization_factory="LayerNormFirst", expansion_factor=6, excitation_ratio=0.0, anti_aliasing=false, align=True},
+    {activation_factory="GELU", normalization_factory="LayerNormFirst", expansion_factor=4, excitation_ratio=0.0, anti_aliasing=false, align=True},
+    {activation_factory="GELU", normalization_factory="LayerNormFirst", expansion_factor=4, excitation_ratio=0.0, fused=true, anti_aliasing=false, align=True},
+    {activation_factory="GELU", normalization_factory="LayerNormFirst", expansion_factor=4, excitation_ratio=0.0, fused=true, anti_aliasing=false, align=True},
+]
+skip_connections=true
+
+[architecture.head]
+individual = false
+kind = "BasicConv"
+depth = 4
+activation_factory = "GELU"
+normalization_factory = "LayerNormFirst"
 
 [input.earth_incidence_angles]
 n_features = 15

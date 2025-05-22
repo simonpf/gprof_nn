@@ -449,13 +449,16 @@ class L1CFile:
 
                     group_name = f"S{group_index}"
 
+                    scale_fac = input[group_name]["Tc"].shape[0] / input["S1"]["Tc"].shape[0]
+                    scans_scaled = slice(int(i_start * scale_fac), int(i_end * scale_fac))
+
                     g = output.create_group(group_name)
-                    n_scans = i_end - i_start
+                    n_scans = int(scale_fac * (i_end - i_start))
                     for name, item in input[group_name].items():
                         if isinstance(item, h5py.Dataset):
                             shape = item.shape
                             g.create_dataset(
-                                name, shape=(n_scans,) + shape[1:], data=item[scans]
+                                name, shape=(n_scans,) + shape[1:], data=item[scans_scaled]
                             )
 
                     for a in input[group_name].attrs:
@@ -469,7 +472,7 @@ class L1CFile:
                         if isinstance(item, h5py.Dataset):
                             shape = item.shape
                             g_st.create_dataset(
-                                name, shape=(n_scans,) + shape[1:], data=item[scans]
+                                name, shape=(n_scans,) + shape[1:], data=item[scans_scaled]
                             )
 
                     g_sc = g.create_group("SCstatus")

@@ -259,10 +259,10 @@ def load_input_data_l1c(
                     "NRT": "NRT"
                 }
                 settings = {"prodtype": prodtype.get(ancillary_config, "CLIMATOLOGY")}
-                if ancillary_config == "CLI":
-                    settings["prepdir"] = "/qdata2/archive/ERA5/"
-                else:
+                if ancillary_config in ["STD", "NRT"]:
                     settings["prepdir"] = "/qdata1/pbrown/gpm/modelprep/GANALV7/"
+                else:
+                    settings["prepdir"] = "/qdata2/archive/ERA5/"
                 run_preprocessor(
                     l1c_file,
                     sensor,
@@ -471,12 +471,12 @@ def load_input_data_training_3d(
                 )
 
         tbs_full = input_data["brightness_temperatures"]
-        qflag, status = calculate_quality_flag_and_pixel_status(sensor, tbs_full, scene)
+        #qflag, status = calculate_quality_flag_and_pixel_status(sensor, tbs_full, scene)
 
         aux = {
             "sensor": sensor,
-            "quality_flag": qflag,
-            "pixel_status": status,
+            #"quality_flag": qflag,
+            #"pixel_status": status,
             "longitude": targets.pop("longitude").numpy(),
             "latitude": targets.pop("latitude").numpy(),
         }
@@ -794,7 +794,6 @@ class GPROFNNInputLoader:
 
         # Apply bias correction
         if self.bias_correction:
-            LOGGER.debug("Applying bias correction.")
             land_fraction = output.land_fraction.data
             ice_fraction = output.ice_fraction.data
             snow_mask = output.snow_mask.data
@@ -805,11 +804,19 @@ class GPROFNNInputLoader:
             ocean_scaling = adjustment_factors.ocean_bias.data * adjustment_factors.ocean_adj.data
             ocean_scaling = np.broadcast_to(ocean_scaling[None], scaling.shape)
             scaling[ocean_mask] = ocean_scaling[ocean_mask]
+            mean_ocean_scaling = ocean_scaling[ocean_mask].mean()
 
             landrain_mask = (95 < land_fraction) * (snow_mask == 0)
             landrain_scaling = adjustment_factors.landrain_bias.data * adjustment_factors.landrain_adj.data
             landrain_scaling = np.broadcast_to(landrain_scaling[None], scaling.shape)
             scaling[landrain_mask] = landrain_scaling[landrain_mask]
+            mean_land_scaling = landrain_scaling[landrain_mask].mean()
+
+            LOGGER.debug(
+                "Applying bias correction (Ocean = %s, Land = %s)",
+                mean_ocean_scaling,
+                mean_land_scaling
+            )
 
             output["surface_precip"].data *= scaling
             output["surface_precip_1st_tercile"].data *= scaling
