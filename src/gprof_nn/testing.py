@@ -138,7 +138,7 @@ def cli(
 
     scalar_metrics = {
         name: [
-            metrics.Bias(),
+            metrics.RelativeBias(),
             metrics.MSE(),
             metrics.CorrelationCoef()
         ] for name in model.to_config_dict()["output"].keys()
@@ -146,7 +146,7 @@ def cli(
     cond = {"surface_type": (0.5, 18.5, 19)}
     surface_type_metrics = {
         name: [
-            metrics.Bias(conditional=cond),
+            metrics.RelativeBias(conditional=cond),
             metrics.MSE(conditional=cond),
             metrics.CorrelationCoef(conditional=cond)
         ] for name in model.to_config_dict()["output"].keys()

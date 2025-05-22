@@ -1169,7 +1169,8 @@ def load_training_data_3d_gmi(
         data_t = scene[target].data
         if data_t.ndim < 3:
             data_t = data_t[None]
-        data_t[data_t < -900] = np.nan
+        if np.issubdtype(data_t.dtype, np.floating):
+            data_t[data_t < -900] = np.nan
         data = torch.tensor(data_t.astype("float32"))
         y[target] = data.squeeze()
 
