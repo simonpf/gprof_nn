@@ -266,7 +266,18 @@ def extract_collocations(
         if n_scans < 128:
             return None
 
-        data_pp = run_preprocessor(l1c_input, sensor)
+
+        if np.random.rand() > 0.5:
+            settings = {
+                "prodtype": "CLIMATOLOGY",
+                "prepdir": "/qdata2/archive/ERA5/"
+            }
+        else:
+            settings = {
+                "prodtype": "STANDARD",
+                "prepdir": "/qdata1/pbrown/gpm/modelprep/GANALV7/"
+            }
+        data_pp = run_preprocessor(l1c_input, sensor, settings=settings)
         snow_mask = (8 <= data_pp.surface_type.data) * (data_pp.surface_type.data < 12)
         if not snow_mask.any():
             LOGGER.info(

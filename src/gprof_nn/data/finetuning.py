@@ -153,7 +153,17 @@ def process_match(
         ALL_TARGETS + ["scan_time", "longitude", "latitude"]
     ]
 
-    input_data = run_preprocessor(target_granule)
+    if np.random.rand() > 0.5:
+        settings = {
+            "prodtype": "CLIMATOLOGY",
+            "prepdir": "/qdata2/archive/ERA5/"
+        }
+    else:
+        settings = {
+            "prodtype": "STANDARD",
+            "prepdir": "/qdata1/pbrown/gpm/modelprep/GANALV7/"
+        }
+    input_data = run_preprocessor(target_granule, settings=settings)
     swath = SwathDefinition(lons=input_data.longitude.data, lats=input_data.latitude.data)
     retrieval_results = resample_data(
         retrieval_results,
