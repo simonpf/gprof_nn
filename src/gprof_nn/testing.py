@@ -99,6 +99,7 @@ def run_tests(
 @click.option("--device", type=str, default="cuda")
 @click.option("--dtype", type=str, default="bfloat16")
 @click.option("--batch_size", type=int, default=32)
+@click.option("--subsample", type=int, default=1)
 @click.option("-v", "--verbose", count=True)
 def cli(
         kind: str,
@@ -108,6 +109,7 @@ def cli(
         device: str = "cuda",
         dtype: str = "bfloat16",
         batch_size: int = 32,
+        subsample: int = 1,
         verbose: int = 0,
 ) -> int:
     """
@@ -124,9 +126,11 @@ def cli(
     else:
         test_dataset = GPROFNN3DDataset(
             test_data_path,
-            augment=False,
-            validation=True,
-            targets = targets + ["surface_type"]
+            augment=True,
+            validation=False,
+            targets = targets + ["surface_type"],
+            subsample=subsample
+
         )
 
     data_loader = DataLoader(

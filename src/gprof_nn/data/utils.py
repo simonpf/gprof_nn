@@ -10,7 +10,7 @@ import os
 from pathlib import Path
 import re
 from tempfile import TemporaryDirectory
-from typing import List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -609,7 +609,7 @@ def extract_scans(
     return output_filename
 
 
-def run_preprocessor(gpm_granule: "Granule") -> xr.Dataset:
+def run_preprocessor(gpm_granule: "Granule", settings: Optional[Dict[str, Any]] = None) -> xr.Dataset:
     """
     Run preprocessor on a GPM granule.
 
@@ -630,7 +630,7 @@ def run_preprocessor(gpm_granule: "Granule") -> xr.Dataset:
             os.chdir(tmp)
             sensor = L1CFile(l1c_file).sensor
             preprocessor_data = preprocessor.run_preprocessor(
-                l1c_file, sensor, robust=False
+                l1c_file, sensor, robust=False, settings=settings
             )
     finally:
         os.chdir(old_dir)
