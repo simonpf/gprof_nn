@@ -87,7 +87,11 @@ def load_era5_data(
     return xr.concat([data_start, data_end], dim="time")
 
 
-def add_era5_precip(input_data, era5_data):
+def add_era5_precip(
+        input_data: xr.Dataset,
+        era5_data: xr.Dataset,
+        center_only: bool = False
+):
     """
     Adds total precipitation from ERA5 to preprocessor data.
 
@@ -97,6 +101,7 @@ def add_era5_precip(input_data, era5_data):
             variable.
         era5_data: The era5 data covering the time range of observations
             in input data.
+        center_only: Add ERA5 precipitation only where GPM CMB estimates are available.
     """
     l_0 = era5_data[{"longitude": slice(0, 1)}].copy(deep=True)
     l_0 = l_0.assign_coords({"longitude": [360.0]})
@@ -111,6 +116,10 @@ def add_era5_precip(input_data, era5_data):
     tcwv = input_data.total_column_water_vapor.data
     cold_and_dry = (t2m < 260.0) * (tcwv < 6.0)
     indices += cold_and_dry
+
+    if center_only:
+        surface_precip_mask = np.isfinite(input_data.surface_precip.data)
+        indices = indices * surface_precip_mask
 
     lats = xr.DataArray(input_data["latitude"].data[indices], dims="samples")
     lons = input_data["longitude"].data[indices]
@@ -174,8 +183,18 @@ def process_l1c_file(
     LOGGER = logging.getLogger(__name__)
     LOGGER.info("Starting processing L1C file %s.", l1c_file)
 
+    if np.random.rand() > 0.5:
+        settings = {
+            "prodtype": "CLIMATOLOGY",
+            "prepdir": "/qdata2/archive/ERA5/"
+        }
+    else:
+        settings = {
+            "prodtype": "STANDARD",
+            "prepdir": "/qdata1/pbrown/gpm/modelprep/GANALV7/"
+        }
     data_pp = run_preprocessor(
-        l1c_file, sensor=sensor, robust=False
+        l1c_file, sensor=sensor, robust=False, settings=settings
     )
 
     # Drop unneeded variables.
