@@ -560,8 +560,19 @@ def collocate_targets(
     )
 
     LOGGER.info("Running preprocessor for sim file %s.", sim_filename)
+
+    if np.random.rand() > 0.5:
+        settings = {
+            "prodtype": "CLIMATOLOGY",
+            "prepdir": "/qdata2/archive/ERA5/"
+        }
+    else:
+        settings = {
+            "prodtype": "STANDARD",
+            "prepdir": "/qdata1/pbrown/gpm/modelprep/GANALV7/"
+        }
     data_pp = run_preprocessor(
-        l1c_file.filename, sensor=sensor, robust=False
+        l1c_file.filename, sensor=sensor, robust=False, settings=settings
     )
     data_pp = data_pp.drop_vars(
         [
@@ -615,7 +626,7 @@ def collocate_targets(
         end_time = data_pp["scan_time"].data[-1]
         LOGGER.debug("Loading ERA5 data: %s %s", start_time, end_time)
         era5_data = load_era5_data(start_time, end_time)
-        add_era5_precip(data_pp, era5_data)
+        add_era5_precip(data_pp, era5_data, center_only=True)
         LOGGER.debug("Added era5 precip.")
 
     # Else set to missing.
