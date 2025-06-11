@@ -293,16 +293,15 @@ def load_input_data_l1c(
         tbs_full[sensor.gprof_channel_indices] = tbs
 
     anc = np.nan * np.zeros((14,) + tbs.shape[1:])
-    eia = l1c_data.earth_incidence_angle.data.copy()
-    eia[eia < -100] = np.nan
-    angs_full = np.nan * np.zeros_like(tbs_full)
-    if eia.ndim == 2:
-        angs_full[sensor.gprof_channel_indices] = eia
+
+    angs_full = np.nan * np.ones_like(tbs_full)
+    chan_inds = list(sensor.gprof_channels.keys())
+    if isinstance(sensor, sensors.CrossTrackScanner):
+        eia = l1c_data.earth_incidence_angle.data.astype(np.float32).copy()
+        eia[eia < -100] = np.nan
+        angs_full[chan_inds] = eia[None]
     else:
-        if eia.shape[-1] == 15:
-            angs_full = np.transpose(eia, (2, 0, 1))
-        else:
-            angs_full[sensor.gprof_channel_indices] = np.transpose(eia, (2, 0, 1))
+        angs_full[chan_inds] = sensor.earth_incidence_angle[..., None, None].astype(np.float32)
 
     inpt = {
         "brightness_temperatures": tbs_full,
