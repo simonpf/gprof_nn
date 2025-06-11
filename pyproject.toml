@@ -40,4 +40,4 @@ include-package-data = true
 where = ["src"]
 
 [tool.setuptools.package-data]
-"gprof_nn" = ["config_files/*.toml", "sensors/*.toml", "files/*.nc"]
+"gprof_nn" = ["config_files/*.toml", "sensors/*.toml", "files/*.nc", "files/*.rc"]
