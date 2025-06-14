@@ -914,13 +914,21 @@ def simulate_tbs_satformer(
         gprof_inds = list(sensor.gprof_channels.keys())
         obs_full[gprof_inds] = obs
         obs_full = np.transpose(obs_full, (1, 2, 0))
-        data["satformer_tbs"] = (("scans", "pixels", "channels"), obs_full[::3])
+        if data.channels.size == 15:
+            data["satformer_tbs"] = (("scans", "pixels", "channels"), obs_full[::3])
+        else:
+            inds = list(sensor.gprof_channels.keys())
+            data["satformer_tbs"] = (("scans", "pixels", "channels"), obs_full[::3, ..., inds])
 
         obs_rand = obs_rand.reshape((len(sensor.frequencies),) + obs_rand.shape[1:])
         obs_full = np.nan * np.zeros((15,) + obs.shape[1:])
         obs_full[gprof_inds] = obs_rand
         obs_full = np.transpose(obs_full, (1, 2, 0))
-        data["satformer_tbs_rand"] = (("scans", "pixels", "channels"), obs_full[::3])
+        if data.channels.size == 15:
+            data["satformer_tbs"] = (("scans", "pixels", "channels"), obs_full[::3])
+        else:
+            inds = list(sensor.gprof_channels.keys())
+            data["satformer_tbs"] = (("scans", "pixels", "channels"), obs_full[::3, ..., inds])
 
 
 def process_sim_file(
