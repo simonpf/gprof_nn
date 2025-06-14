@@ -60,7 +60,6 @@ from gprof_nn.data.mrms import MRMSMatchFile
 from gprof_nn.data.preprocessor import run_preprocessor
 from gprof_nn.data.training_data import transform_observations_satformer
 from gprof_nn.data.utils import (
-    BEAM_WIDTHS,
     compressed_pixel_range,
     save_scene,
     write_training_samples_1d,
@@ -646,7 +645,19 @@ def collocate_targets(
 
 
 class SimulatorInput():
-    def __init__(self, data: xr.Dataset, target_sensor: sensors.Sensor):
+    """
+    Input loader for simulating brightness temperatures for a given sensor.
+    """
+    def __init__(
+            self,
+            data: xr.Dataset,
+            target_sensor: sensors.Sensor
+    ):
+        """
+        Args:
+            data: The GMI preprocessor data to use as input.
+            target_sensor: The sensor whose observations to simulate.
+        """
         self.data = data
         self.target_sensor = target_sensor
         if self.target_sensor.kind in ["CONICAL", "CONICAL_CONSTELLATION"]:
@@ -663,6 +674,9 @@ class SimulatorInput():
         yield self.input_data
 
     def load_input_data_xtrack(self):
+        """
+        Load input data for a cross-track scanner.
+        """
 
         upsampling_factors = UPSAMPLING_FACTORS["gmi"]
         input_data = upsample_data(self.data, upsampling_factors)
@@ -688,7 +702,7 @@ class SimulatorInput():
                 freq = sensor.frequencies[chan] * torch.ones(shape)
                 offset = sensor.offsets[chan] * torch.ones(shape)
                 pol = calculate_polarization_weights(sensor.polarization[chan], vang).item() * torch.ones(shape)
-                beam_width = BEAM_WIDTHS[self.target_sensor.name.lower()][chan] * torch.ones(shape)
+                beam_width = sensor.beam_width[chan] * torch.ones(shape)
                 alt = sensor.viewing_geometry.altitude / 100e3 * torch.ones(shape)
                 zenith = eia.item() * torch.ones(shape)
                 direction = 1.0 if np.random.rand() < 0.5 else -1.0
@@ -777,7 +791,7 @@ class SimulatorInput():
             freq = sensor.frequencies[chan] * torch.ones(shape)
             offset = sensor.offsets[chan] * torch.ones(shape)
             pol = calculate_polarization_weights(sensor.polarization[chan], 0.0).item() * torch.ones(shape)
-            beam_width = BEAM_WIDTHS[self.target_sensor.name.lower()][chan] * torch.ones(shape)
+            beam_width = sensor.beam_width[chan] * torch.ones(shape)
             alt = sensor.viewing_geometry.altitude / 100e3 * torch.ones(shape)
             zenith = self.target_sensor.earth_incidence_angle[chan] * torch.ones(shape)
             #sin_az = 1.0 + np.sin(np.arcsin(input_observation_props[0, -2, chan] - 1) + direction * np.pi / 2.0)

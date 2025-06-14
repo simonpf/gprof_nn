@@ -19,6 +19,7 @@ polarization = ["QV", "QH", "QH", "QH", "QH"]
 orographic_enhancement = [1.06241, 1.69921, 1.47471, 1.74373, 2.74331]
 channel_drop = 0.1
 scanline_drop = 0.1
+beam_width = [3.68, 3.75, 1.9, 1.88, 1.7, 1.0, 1.0, 0.42, 0.43]
 
 [sensor.gprof_channels]
 8 = [0, 0]

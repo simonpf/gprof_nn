@@ -68,11 +68,11 @@ def run_tests(
 
             mtrcs = surface_type_metrics.get(key, [])
             for metric in mtrcs:
-                metric = metric.to(device=device)
+                metric = metric.to(device="cpu")
                 metric.update(
-                    pred_k.expected_value(),
-                    y[key],
-                    conditional={"surface_type": y["surface_type"]}
+                    pred_k.expected_value().to(device="cpu"),
+                    y[key].to(device="cpu"),
+                    conditional={"surface_type": y["surface_type"].to(device="cpu")}
                 )
 
     retrieval_results = {}

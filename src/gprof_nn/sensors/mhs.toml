@@ -18,6 +18,7 @@ offsets = [0.0, 0.0, 1.0, 3.0, 0.0]
 polarization = ["V", "V", "H", "H", "V"]
 orographic_enhancement = [1.14927, 1.67389, 1.51995, 1.63020, 3.19961]
 sim_file_pattern = "*.sim"
+beam_width = [1.1, 1.1, 1.1, 1.1, 1.1]
 
 [sensor.gprof_channels]
 8 = [0, 0]

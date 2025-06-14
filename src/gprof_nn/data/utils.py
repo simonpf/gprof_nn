@@ -906,16 +906,6 @@ POLARIZATIONS = {
     "QV": 3,
 }
 
-BEAM_WIDTHS = {
-    "gmi": [1.75, 1.75, 1.0, 1.0, 0.9, 0.9, 0.9, 0.4, 0.4, 0.4, 0.4, 0.4, 0.4],
-    "tmi": [3.68, 3.75, 1.9, 1.88, 1.7, 1.0, 1.0, 0.42, 0.43],
-    "atms": [5.2, 5.2, 2.2, 1.1, 1.1, 1.1, 1.1, 1.1, 1.1],
-    "amsr2": [1.2, 1.2, 0.65, 0.65, 0.75, 0.75, 0.35, 0.35, 0.15, 0.15, 0.15, 0.15],
-    "amsre": [1.5, 1.5, 0.8, 0.8, 0.92, 0.92, 0.42, 0.42, 0.19, 0.19, 0.19, 0.19],
-    "mhs": [1.1, 1.1, 1.1, 1.1, 1.1],
-    "ssmis": [1.92, 1.94, 1.85, 1.2, 1.19, 0.4, 0.39, 0.39, 0.39, 0.39, 0.39],
-    "ssmi": [1.87, 1.87, 1.65, 1.1, 1.1, 0.43, 0.45],
-}
 
 
 def calculate_polarization_weights(polarization, viewing_angles):
@@ -958,6 +948,7 @@ def calculate_obs_properties(
 
     l1c_file = L1CFile(granule.file_record.local_path)
     sensor = l1c_file.sensor.name.lower()
+    beam_widths = l1c_file.sensor.beam_width
 
     tot_chan_ind = 0
 
@@ -1046,7 +1037,7 @@ def calculate_obs_properties(
                 freqs[chan_ind] * np.ones_like(observations[-1]),
                 offsets[chan_ind] * np.ones_like(observations[-1]),
                 calculate_polarization_weights(pols[chan_ind], viewing_angle),
-                BEAM_WIDTHS[sensor][tot_chan_ind] * np.ones_like(observations[-1]),
+                beam_widths[tot_chan_ind] * np.ones_like(observations[-1]),
                 sensor_alt,
                 zenith,
                 1.0 + np.sin(np.deg2rad(azimuth)),

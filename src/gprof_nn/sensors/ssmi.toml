@@ -1,0 +1,30 @@
+[platform]
+name = "F13"
+l1c_file_path = "/pdata4/archive/GPM/1C_F13_V7"
+l1c_file_prefix = "1C.F13.SSMI"
+
+[viewing_geometry]
+kind = "Conical"
+altitude = 848e3
+earth_incidence_angle = 53.1
+scan_range = 140.0
+pixels_per_scan = 128
+scan_offset = 12.5e3
+
+[sensor]
+kind = "ConstellationScanner"
+frequencies = [19.35, 19.35, 22.235, 37.0, 37.0, 85.5, 85.5]
+offsets = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+polarization = ["v", "h", "v", "v", "h", "v", "h"]
+orographic_enhancement = [1.12398,1.69201,1.45721,1.68737,2.77979]
+earth_incidence_angle = [53.1, 53.1, 53.1, 53.1, 53.1, 53.1, 53.1]
+beam_width = [1.87, 1.87, 1.65, 1.1, 1.1, 0.43, 0.45]
+
+[sensor.gprof_channels]
+2 = [0, 0]
+3 = [0, 1]
+4 = [0, 2]
+6 = [0, 3]
+7 = [0, 4]
+8 = [1, 0]
+9 = [1, 1]
