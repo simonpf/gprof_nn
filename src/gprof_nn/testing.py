@@ -113,7 +113,7 @@ def cli(
         verbose: int = 0,
 ) -> int:
     """
-    Process input files.
+    Calculate test data accuracy for a given GPROF-NN MODEL using the test data located in TEST_DATA_PATH.
     """
     model = load_model(model).eval()
 

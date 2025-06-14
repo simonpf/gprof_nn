@@ -5,6 +5,7 @@ gprof_nn.cli
 This module implements the command line interfaces for the functionality
 provided by the 'gprof_nn' package.
 """
+import logging
 
 import click
 import gprof_nn.logging
@@ -13,6 +14,9 @@ from gprof_nn import training
 from gprof_nn import retrieval, testing
 from gprof_nn import download as dl
 from gprof_nn import sensors
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 @click.group()
@@ -34,6 +38,9 @@ try:
 
     @gprof_nn.group(name="extract_training_data")
     def extract_training_data():
+        """
+        Extract GPROF-NN training data.
+        """
         pass
 
     extract_training_data.command(name="sim")(sim.cli)
@@ -43,7 +50,10 @@ try:
     extract_training_data.command(name="finetuning")(finetuning.cli)
     extract_training_data.command(name="cloudsat")(cloudsat.cli)
     extract_training_data.command(name="combined")(combined.cli)
-except ImportError:
+except ImportError as err:
+    LOGGER.exception(
+        "Disabling training data extraction because of missing dependencies."
+    )
     pass
 
 
@@ -66,7 +76,7 @@ config.command(name="set", help="Modify the configuration.")(conf.set_config)
 ######################################################################
 
 
-@gprof_nn.group(help="Inspect and change the local GPROF-NN configuration.")
+@gprof_nn.group(help="Download retrieval models and test data.")
 def download():
     pass
 
@@ -101,7 +111,7 @@ def download_test_data(sensor: str, kind: str):
 ######################################################################
 
 
-@gprof_nn.group(name="training")
+@gprof_nn.group(name="training", help="Train GPROF-NN retrieval models.")
 def train():
     pass
 
