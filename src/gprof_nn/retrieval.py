@@ -855,7 +855,12 @@ class GPROFNNInputLoader:
 
         # Output format is binary
         LOGGER.debug("Writing retrieval results in binary format to '%s'.", output_path)
-        return preprocessor_file.write_retrieval_results(output_path, output)
+        suffix = {
+            "STD": "STD",
+            "CLI": "CLIM",
+            "NRT": "NRT"
+        }.get(self.ancillary_config, "")
+        return preprocessor_file.write_retrieval_results(output_path, output, suffix=suffix)
 
 
 def run_retrieval(
@@ -995,7 +1000,7 @@ def run_retrieval(
 @click.option(
     "--ancillary_config",
     type=str,
-    default=None,
+    default="CLI",
     help=(
         "The ancillary data configuration to use for inference."
     )
@@ -1040,7 +1045,7 @@ def cli(
         output_path: Optional[Path] = None,
         device: str = "cpu",
         dtype: str = "float32",
-        ancillary_config: Optional[str] = None,
+        ancillary_config: str = "CLI",
         output_format: str = "NETCDF",
         n_input_loaders: int = 1,
         retrieval_model: Optional[str] = None,

@@ -441,10 +441,12 @@ class PreprocessorFile:
         """
         start_date = self.get_scan_header(0)["scan_date"]
         end_date = self.get_scan_header(-1)["scan_date"]
+        sensor = self.orbit_header["sensor"][0].decode().strip()
+        platform = self.orbit_header["satellite"][0].decode().strip()
 
         if suffix != "":
-            suffix = "_" + suffix
-        name = f"2A.GPROF-NN{suffix}.GMI.V0."
+            suffix = "-" + suffix
+        name = f"2A{suffix}.{platform}.{sensor}.GPROF-NN."
 
         year, month, day = [start_date[k][0] for k in ["year", "month", "day"]]
         name += f"{year:02}{month:02}{day:02}-"
@@ -456,7 +458,7 @@ class PreprocessorFile:
         name += f"E{hour:02}{minute:02}{second:02}."
 
         granule_number = self.orbit_header["granule_number"][0]
-        name += f"{granule_number:06}.BIN"
+        name += f"{granule_number:06}.V08A.BIN"
 
         return name
 
