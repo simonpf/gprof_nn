@@ -51,7 +51,7 @@ try:
     extract_training_data.command(name="cloudsat")(cloudsat.cli)
     extract_training_data.command(name="combined")(combined.cli)
 except ImportError as err:
-    LOGGER.exception(
+    LOGGER.debug(
         "Disabling training data extraction because of missing dependencies."
     )
     pass
