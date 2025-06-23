@@ -161,7 +161,7 @@ def file() -> None:
     """
     Print the file from which the config is read.
     """
-    print(get_config_file())
+    print("gprof-nn config file:", get_config_file())
 
 
 @click.argument("config_type", type=str)
