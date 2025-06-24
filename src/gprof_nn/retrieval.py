@@ -631,7 +631,7 @@ class GPROFNNInputLoader:
             return PreprocessorFile(inpt).sensor
         elif inpt.suffix == ".nc":
             with xr.open_dataset(inpt) as smpl:
-                sensors.get_sensor(smpl.attrs["sensor"])
+                return sensors.get_sensor(smpl.attrs["sensor"])
         else:
             raise ValueError(
                 "Failed to infer sensor from input file '%s'.",
