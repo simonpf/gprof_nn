@@ -910,7 +910,7 @@ def run_retrieval(
             output_format=output_format
         )
         sensor = input_loader.infer_sensor()
-        model = get_model(sensor)
+        model = get_model(sensor).eval()
     else:
         model = load_model(retrieval_model).eval()
         if isinstance(model, MLP):
