@@ -792,34 +792,47 @@ class GPROFNNInputLoader:
                 output[var].encoding = {"dtype": "float32", "zlib": True}
 
         # Apply bias correction
+
         if self.bias_correction:
-            land_fraction = output.land_fraction.data
-            ice_fraction = output.ice_fraction.data
-            snow_mask = output.snow_mask.data
-            scaling = np.ones_like(output["surface_precip"].data)
-            adjustment_factors = load_scaling_factors(sensor)
 
-            ocean_mask = (land_fraction <= 2) * (ice_fraction == 0)
-            ocean_scaling = adjustment_factors.ocean_bias.data * adjustment_factors.ocean_adj.data
-            ocean_scaling = np.broadcast_to(ocean_scaling[None], scaling.shape)
-            scaling[ocean_mask] = ocean_scaling[ocean_mask]
-            mean_ocean_scaling = ocean_scaling[ocean_mask].mean()
+            try:
+                adjustment_factors = load_scaling_factors(sensor)
+            except FileNotFoundError:
+                adjustment_factors = None
+                LOGGER.warning(
+                    "No bias adjustment factors for sensor %s (%s)",
+                    sensor.name,
+                    sensor.platform.name
+                )
 
-            landrain_mask = (95 < land_fraction) * (snow_mask == 0)
-            landrain_scaling = adjustment_factors.landrain_bias.data * adjustment_factors.landrain_adj.data
-            landrain_scaling = np.broadcast_to(landrain_scaling[None], scaling.shape)
-            scaling[landrain_mask] = landrain_scaling[landrain_mask]
-            mean_land_scaling = landrain_scaling[landrain_mask].mean()
+            if adjustment_factors is not None:
 
-            LOGGER.debug(
-                "Applying bias correction (Ocean = %s, Land = %s)",
-                mean_ocean_scaling,
-                mean_land_scaling
-            )
+                land_fraction = output.land_fraction.data
+                ice_fraction = output.ice_fraction.data
+                snow_mask = output.snow_mask.data
+                scaling = np.ones_like(output["surface_precip"].data)
 
-            output["surface_precip"].data *= scaling
-            output["surface_precip_1st_tercile"].data *= scaling
-            output["surface_precip_2nd_tercile"].data *= scaling
+                ocean_mask = (land_fraction <= 2) * (ice_fraction == 0)
+                ocean_scaling = adjustment_factors.ocean_bias.data * adjustment_factors.ocean_adj.data
+                ocean_scaling = np.broadcast_to(ocean_scaling[None], scaling.shape)
+                scaling[ocean_mask] = ocean_scaling[ocean_mask]
+                mean_ocean_scaling = ocean_scaling[ocean_mask].mean()
+
+                landrain_mask = (95 < land_fraction) * (snow_mask == 0)
+                landrain_scaling = adjustment_factors.landrain_bias.data * adjustment_factors.landrain_adj.data
+                landrain_scaling = np.broadcast_to(landrain_scaling[None], scaling.shape)
+                scaling[landrain_mask] = landrain_scaling[landrain_mask]
+                mean_land_scaling = landrain_scaling[landrain_mask].mean()
+
+                LOGGER.debug(
+                    "Applying bias correction (Ocean = %s, Land = %s)",
+                    mean_ocean_scaling,
+                    mean_land_scaling
+                )
+
+                output["surface_precip"].data *= scaling
+                output["surface_precip_1st_tercile"].data *= scaling
+                output["surface_precip_2nd_tercile"].data *= scaling
         else:
             LOGGER.debug("Skipping bias correction.")
 
