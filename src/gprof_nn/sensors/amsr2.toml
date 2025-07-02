@@ -19,6 +19,8 @@ polarization = ["V", "H", "V", "H", "V", "H", "V", "H", "V", "H"]
 orographic_enhancement = [1.14100, 1.71287, 1.46721, 1.71271, 2.96671]
 earth_incidence_angle = [55.33, 55.3, 55.3, 55.28, 55.28, 55.28, 55.28, 55.3, 54.78, 54.78]
 beam_width = [1.2, 1.2, 0.65, 0.65, 0.75, 0.75, 0.35, 0.35, 0.15, 0.15, 0.15, 0.15]
+channel_drop = 0.2
+scanline_drop = 0.1
 
 [sensor.gprof_channels]
 0 = [0, 0]
