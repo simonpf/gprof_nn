@@ -23,6 +23,7 @@ from scipy.ndimage import rotate
 from scipy.signal import convolve
 import torch
 from torch.utils.data import Dataset, IterableDataset
+from tqdm import tqdm
 import xarray as xr
 
 from gprof_nn import sensors
@@ -1699,6 +1700,24 @@ class GPROFNN3DDataset(Dataset):
                 f"in {self.path}."
             )
         self.files = files
+
+        if resample_latitudes:
+            centers = []
+            for path in tqdm(self.files):
+                with xr.open_dataset(path) as data:
+                    lats = data.latitude.data
+                    lats = lats[np.isfinite(lats)]
+                    center = lats.mean()
+                    centers.append(center)
+            bins = np.linspace(-90, 90, 91)
+            cts = np.histogram(centers, bins=bins)[0]
+            sampling_weights = 1.0 / cts
+            inds = np.digitize(cts, bins) - 1
+            weights = sampling_weights[inds]
+
+            self.files = np.random.choice(self.files, p=weights)
+
+
 
         self.init_rng()
         self.files = self.rng.permutation(self.files)
