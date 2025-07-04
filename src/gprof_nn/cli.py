@@ -105,6 +105,12 @@ def download_test_data(sensor: str, kind: str):
     dl.download_test_file(sensor, kind)
 
 
+######################################################################
+# gprof_nn update
+######################################################################
+
+gprof_nn.command(name="update")(dl.update_models)
+
 
 ######################################################################
 # gprof_nn training

@@ -49,6 +49,33 @@ def download_model(sensor: str) -> Path:
     return model_path / model
 
 
+def update_models() -> Path:
+    """
+    Update all retrieval models to the latest version.
+    """
+    from gprof_nn import sensors
+    sensor_names = []
+    for value in vars(sensors).values():
+        if isinstance(value, sensors.Sensor):
+            sensor_names.append(value.name)
+
+    for sensor_name in sensor_names:
+        model = f"gprof_nn_3d_{sensor_name.lower()}.pt"
+        model_path = CONFIG.data.model_path
+
+        if (model_path / model).exists():
+            LOGGER.info("Downloading model file %s to model path %s", model, model_path)
+            lock = FileLock((model_path / model).with_suffix(".lock"))
+            with lock:
+                try:
+                    hf_hub_download("simonpf/gprof_nn", filename=model, local_dir=model_path, force_download=True)
+                except Exception:
+                    LOGGER.warning(
+                        "Didn't find a model for sensor '%s'.",
+                        sensor.name
+                    )
+
+
 TEST_FILES = {
     "gmi": {
         "l1c": "1C-R.GPM.GMI.XCAL2016-C.20241008-S051110-E064423.060255.V07B.HDF5",
