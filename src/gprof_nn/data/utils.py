@@ -35,6 +35,7 @@ try:
         l1c_xcal2016v_noaa19_mhs_v07a,
         l1c_xcal2016v_metopb_mhs_v07a,
         l1c_xcal2019v_metopc_mhs_v07a,
+        l1c_xcal2021v_f16_ssmis_v07a,
         l1c_xcal2021v_f17_ssmis_v07a,
         l1c_xcal2021v_f18_ssmis_v07a,
         l1c_aqua_amsre,
@@ -55,7 +56,7 @@ try:
         ),
         "amsr2": (l1c_gcomw1_amsr2,),
         "amsre": (l1c_aqua_amsre,),
-        "ssmis": (l1c_xcal2021v_f17_ssmis_v07a, l1c_xcal2021v_f18_ssmis_v07a),
+        "ssmis": (l1c_xcal2021v_f16_ssmis_v07a, l1c_xcal2021v_f17_ssmis_v07a, l1c_xcal2021v_f18_ssmis_v07a),
         "ssmi": (l1c_f13_ssmi,),
         "tmi": (l1c_trmm_tmi,),
     }
@@ -84,6 +85,7 @@ RADIUS_OF_INFLUENCE = {
     "ssmi": 30e3,
     "tmi": 30e3,
     "amsre": 20e3,
+    "mwi": 20e3,
 }
 
 
@@ -863,7 +865,6 @@ def calculate_angles(
         sensor_lons = np.repeat(sensor_lons, fac, axis=0)
         sensor_lats = np.repeat(sensor_lats, fac, axis=0)
         sensor_alts = np.repeat(sensor_alts, fac, axis=0)
-    print(sensor_lons.shape, sensor_lats.shape, sensor_alts.shape)
     sensor_lla = np.stack((sensor_lons, sensor_lats, sensor_alts), -1)
     sensor_ecef = lla_to_ecef(sensor_lla)
     sensor_down = np.stack((sensor_lons, sensor_lats, np.zeros_like(sensor_lons)), -1) - sensor_ecef
