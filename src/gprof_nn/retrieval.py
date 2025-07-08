@@ -168,7 +168,7 @@ def load_input_data_preprocessor(
     data_pp = file_pp.to_xarray_dataset()
     sensor = file_pp.sensor
 
-    upsampling_factors = UPSAMPLING_FACTORS[sensor.name.lower()]
+    upsampling_factors = UPSAMPLING_FACTORS.get(sensor.name.lower(), (1, 1))
     if high_res and max(upsampling_factors) > 1:
         data_pp = upsample_data(data_pp, upsampling_factors)
 
@@ -854,12 +854,15 @@ class GPROFNNInputLoader:
 
         if output_format.upper() == "NETCDF":
             # Quick and dirty way to transform 1C filename to 2A filename
-            output_filename = (
-                filename.replace("1C-R", "2A")
-                .replace("1C", "2A")
-                .replace("pp", "nc")
-                .replace("HDF5", "nc")
-            )
+            if output_path.is_dir():
+                output_filename = (
+                    filename.replace("1C-R", "2A")
+                    .replace("1C", "2A")
+                    .replace("pp", "nc")
+                    .replace("HDF5", "nc")
+                )
+            else:
+                output_filename = output_path.name
 
             LOGGER.debug("Writing retrieval results in NetCDF format to '%s'.", output_filename)
             # Return outputs as xr.Dataset and filename to use to save data.

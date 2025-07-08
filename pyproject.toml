@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "gprof_nn"
-version = "0.8"
+version = "0.8.1"
 description = "The GPROF-NN satellite precipitation retrieval."
 readme = "README.md"
 requires-python = ">=3.7"
@@ -18,7 +18,7 @@ dependencies = [
     "filelock",
     "matplotlib",
     "numpy",
-    "pytorch_retrieve>=0.1.1",
+    "pytorch_retrieve>=0.1.2",
     "xarray[io]",
     "huggingface-hub",
     "ipywidgets"

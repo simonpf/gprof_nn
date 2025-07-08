@@ -55,6 +55,7 @@ class PreprocessorConfig(ConfigBase):
     amsr2: Path = Path("gprof2024pp_AMSR2_L1C")
     amsre: Path = Path("gprof2024pp_AMSRE_L1C")
     atms: Path = Path("gprof2024pp_ATMS_L1C")
+    mwi: Path = Path("gprof2024pp_MWI_L1C")
 
     def print(self):
         txt = "[preprocessor]\n"

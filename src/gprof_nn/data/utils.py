@@ -898,7 +898,7 @@ def calculate_angles(
     return np.rad2deg(zenith), np.rad2deg(azimuth), np.rad2deg(viewing_angle)
 
 
-_CHANNEL_REGEXP = re.compile("([\d\.]+)\s*(?:GHz)?(?:\+-)?\s*(?:\+\/-)?\s*([\d\.]*)\s*(?:GHz)?\s*(\w+)-Pol")
+_CHANNEL_REGEXP = re.compile(r"([\d\.]+)\s*(?:GHz)?(?:\+-)?\s*(?:\+\/-)?\s*([\d\.]*)\s*(?:GHz)?\s*(\w+)-Pol")
 
 POLARIZATIONS = {
     "H": 0,
