@@ -702,7 +702,6 @@ class GPROFNNInputLoader:
             aux: Dict[str, np.ndarray],
             filename: str,
             output_path: Path,
-            no_profiles: bool = False
     ) -> Tuple[xr.Dataset, str]:
         """
         Combines retrieval results with auxiliary data into orbit-based retrieval

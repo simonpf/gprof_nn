@@ -1,7 +1,7 @@
 [platform]
 name = "F13"
-l1c_file_path = "/pdata4/archive/GPM/1C_F13_V7"
-l1c_file_prefix = "1C.F13.SSMI"
+l1c_file_path = "/pdata4/archive/GPM/1C_F14_V7"
+l1c_file_prefix = "1C.F1?.SSMI"
 
 [viewing_geometry]
 kind = "Conical"
