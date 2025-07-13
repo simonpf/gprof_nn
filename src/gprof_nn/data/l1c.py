@@ -201,7 +201,7 @@ class L1CFile:
         """
         if date is not None:
             date = pd.Timestamp(date)
-            year = date.year - 2000
+            year = date.year % 100
             month = date.month
             day = date.day
             path = Path(path) / f"{year:02}{month:02}" / f"{year:02}{month:02}{day:02}"
@@ -243,7 +243,7 @@ class L1CFile:
         path = Path(path)
 
         date = pd.Timestamp(date)
-        year = date.year - 2000
+        year = date.year % 100
         month = date.month
         day = date.day
         data_path = Path(path) / f"{year:02}{month:02}" / f"{year:02}{month:02}{day:02}"
@@ -251,7 +251,7 @@ class L1CFile:
 
         # Add files from following day.
         date_f = date + pd.DateOffset(1)
-        year = date_f.year - 2000
+        year = date_f.year % 100
         month = date_f.month
         day = date_f.day
         data_path = Path(path) / f"{year:02}{month:02}" / f"{year:02}{month:02}{day:02}"
@@ -259,7 +259,7 @@ class L1CFile:
 
         # Add files from previous day.
         date_f = date - pd.DateOffset(1)
-        year = date_f.year - 2000
+        year = date_f.year % 100
         month = date_f.month
         day = date_f.day
         data_path = Path(path) / f"{year:02}{month:02}" / f"{year:02}{month:02}{day:02}"
@@ -315,7 +315,7 @@ class L1CFile:
         path = Path(path)
 
         date = pd.Timestamp(date)
-        year = date.year - 2000
+        year = date.year % 100
         month = date.month
         day = date.day
         data_path = Path(path) / f"{year:02}{month:02}" / f"{year:02}{month:02}{day:02}"
