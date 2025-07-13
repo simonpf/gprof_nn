@@ -606,9 +606,9 @@ def parse_sensor(sensor_file: Path) -> Sensor:
 
 sensor_files = (Path(__file__).parent / "sensors").glob("*toml")
 for sensor_file in sensor_files:
-    sensor_config = toml.loads(open(sensor_file).read())
     sensor_name = sensor_file.stem.upper()
     try:
+        sensor_config = toml.loads(open(sensor_file).read())
         sensor = parse_sensor(sensor_file)
         name = sensor_file.stem.upper()
         globals()[name] = sensor
