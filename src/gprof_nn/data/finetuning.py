@@ -120,7 +120,8 @@ def process_match(
         retrieval_model: Optional[nn.Module],
         retrieval_path: Optional[nn.Module],
         output_path_1d: Path,
-        output_path_3d: Path
+        output_path_3d: Path,
+        climate_only: bool = False
 ) -> None:
     """
     Process granule.
@@ -133,6 +134,7 @@ def process_match(
         retrieval_model: The retrieval model to use to generate the reference retrievals.
         output_path_1d: The path to which to write the GPROF-NN 1D training data.
         output_path_3d: The path to which to write the GPROF-NN 3D training data.
+        climate_only: Set to True to use only CLIM preprocessor.
     """
     if len(reference_granules) == 0:
         raise ValueError(
@@ -153,7 +155,7 @@ def process_match(
         ALL_TARGETS + ["scan_time", "longitude", "latitude"]
     ]
 
-    if np.random.rand() > 0.5:
+    if climate_only or np.random.rand() > 0.5:
         settings = {
             "prodtype": "CLIMATOLOGY",
             "prepdir": "/qdata2/archive/ERA5/"
@@ -215,6 +217,7 @@ def extract_finetuning_samples(
         day: int,
         output_path_1d: Path,
         output_path_3d: Path,
+        climate_only: bool = False
 ) -> None:
     """
     Extract training samples to fine-tune GPROF-NN retrievals.
@@ -227,6 +230,7 @@ def extract_finetuning_samples(
         day: Integer defining the day.
         output_path_1d: The path to write the 1D training data to.
         output_path_3d: The path to write the 3D training data to.
+        climate_only: Set to True to use only CLIM preprocessor.
     """
     if retrieval_path is None and retrieval_model is None:
         raise ValueError(
@@ -272,7 +276,8 @@ def extract_finetuning_samples(
                         retrieval_model,
                         retrieval_path,
                         output_path_1d,
-                        output_path_3d
+                        output_path_3d,
+                        climate_only=climate_only
                     )
                 except Exception:
                     LOGGER.exception(
@@ -288,9 +293,10 @@ def extract_finetuning_samples(
 @click.argument("days", type=int, nargs=-1)
 @click.argument("output_path_1d", type=str)
 @click.argument("output_path_3d", type=str)
-@click.option("--n_processes", type=int, default=1)
-@click.option("--retrieval_model", type=str, default=None)
-@click.option("--retrieval_path", type=str, default=None)
+@click.option("--n_processes", type=int, default=1, help="Number of processes to use to parallelize data extraction.")
+@click.option("--retrieval_model", type=str, default=None, help="Reference retrieval model.")
+@click.option("--retrieval_path", type=str, default=None, help="Path containing reference retrieval results.")
+@click.option("--climate_only", is_flag=True, help="Use only CLIM preprocessor.")
 def cli(
         reference_sensor: str,
         target_sensor: str,
@@ -302,6 +308,7 @@ def cli(
         n_processes: int = 1,
         retrieval_model: Optional[str] = None,
         retrieval_path: Optional[str] = None,
+        climate_only: bool = False
 ) -> None:
     """
     Extract samples to fine-tune GPROF retrievals for TARGET_SENSOR using retrieval from
@@ -355,6 +362,7 @@ def cli(
                 day,
                 output_path_1d,
                 output_path_3d,
+                climate_only=climate_only
             )
     else:
         pool = ProcessPoolExecutor(max_workers=n_processes)
@@ -370,7 +378,8 @@ def cli(
                 month,
                 day,
                 output_path_1d,
-                output_path_3d
+                output_path_3d,
+                climate_only=climate_only
             )
             tasks.append(task)
         for day, task in zip(days, tasks):

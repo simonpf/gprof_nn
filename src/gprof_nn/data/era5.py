@@ -161,7 +161,8 @@ def process_l1c_file(
         l1c_file: Path,
         output_path_1d: Optional[Path] = None,
         output_path_3d: Optional[Path] = None,
-        log_queue=None
+        log_queue=None,
+        climate_only: bool = False
 ):
     """
     Match L1C file with ERA5 surface and convective precipitation for
@@ -175,6 +176,7 @@ def process_l1c_file(
             the training samples for the GPROF-NN 1D retrieval.
         output_path_3d: Path pointing to the folder to which to write
             the training samples for the GPROF-NN 3D retrieval.
+        climate_only: Set to 'True' to run only the CLIM preprocessor.
     """
     import gprof_nn.logging
 
@@ -183,7 +185,7 @@ def process_l1c_file(
     LOGGER = logging.getLogger(__name__)
     LOGGER.info("Starting processing L1C file %s.", l1c_file)
 
-    if np.random.rand() > 0.5:
+    if climate_only or np.random.rand() > 0.5:
         settings = {
             "prodtype": "CLIMATOLOGY",
             "prepdir": "/qdata2/archive/ERA5/"
@@ -237,7 +239,8 @@ def process_l1c_files(
         output_path_3d: Optional[Path] = None,
         split: str = None,
         n_processes: int = 4,
-        log_queue: Optional[Queue] = None
+        log_queue: Optional[Queue] = None,
+        climate_only: bool = False
 ):
     """
     Extract ERA5 training samples for all L1C files in a given time interval.
@@ -255,6 +258,7 @@ def process_l1c_files(
         n_processes: The number of processes to use for parallel
             processing.
         log_queue: Queue to use for logging from sub-processes.
+        climate_only: Set to True to run only climate preprocessor.
     """
     import gprof_nn.logging
 
@@ -298,6 +302,7 @@ def process_l1c_files(
                 l1c_file,
                 output_path_1d,
                 output_path_3d,
+                climate_only=climate_only
             )
         )
         tasks[-1].l1c_file = l1c_file
@@ -346,6 +351,11 @@ def process_l1c_files(
     default=4,
     help="The number of processes to use to parallelize the data extraction."
 )
+@click.option(
+    "--climate_only",
+    is_flag=True,
+    help="Run only CLIM preprocessor."
+)
 def cli(
         sensor: sensors.Sensor,
         l1c_file_path: Path,
@@ -354,7 +364,8 @@ def cli(
         output_3d: Path,
         start_time: np.datetime64,
         end_time: np.datetime64,
-        n_processes: int = 4
+        n_processes: int = 4,
+        climate_only: bool = False
 ) -> None:
     """
     Extract training/validation/test data for sensor SENSOR from ERA5 collocations and L1C files
@@ -415,5 +426,6 @@ def cli(
         output_path_1d,
         output_path_3d,
         split=split,
-        n_processes=n_processes
+        n_processes=n_processes,
+        climate_only=climate_only
     )

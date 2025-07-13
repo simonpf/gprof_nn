@@ -231,7 +231,8 @@ def extract_collocations(
         match_file: Path,
         l1c_file: Path,
         output_path_1d: Optional[Path] = None,
-        output_path_3d: Optional[Path] = None
+        output_path_3d: Optional[Path] = None,
+        climate_only: bool = True
 ):
     """
     Extract collocations between a given L1C file and a MRMS match-up
@@ -247,6 +248,7 @@ def extract_collocations(
             the GPROF-NN 1D training data.
         output_path_3d: Path pointing to the folder to which to write
             the GPROF-NN 3D training data.
+        climate_only: Set to 'True' to run preprocessor only CLIM preprocessor.
     """
     match_file = MRMSMatchFile(match_file)
 
@@ -267,7 +269,7 @@ def extract_collocations(
             return None
 
 
-        if np.random.rand() > 0.5:
+        if climate_only or np.random.rand() > 0.5:
             settings = {
                 "prodtype": "CLIMATOLOGY",
                 "prepdir": "/qdata2/archive/ERA5/"
@@ -322,7 +324,8 @@ def process_match_file(
         output_path_1d: Optional[Path] = None,
         output_path_3d: Optional[Path] = None,
         n_processes: int = 4,
-        split: Optional[str] = None
+        split: Optional[str] = None,
+        climate_only: bool = False,
 ):
     """
     Process a single MRMS match-up file.
@@ -385,6 +388,7 @@ def process_match_file(
                 l1c_file,
                 output_path_1d,
                 output_path_3d,
+                climate_only=climate_only
             )
         )
         tasks[-1].l1c_file = l1c_file
@@ -420,7 +424,8 @@ def process_match_files(
         split: Optional[str] = None,
         n_processes: int = 4,
         start_time: Optional[np.datetime64] = None,
-        end_time: Optional[np.datetime64] = None
+        end_time: Optional[np.datetime64] = None,
+        climate_only: bool = False
 ):
     """
     Process all MRMS match-up files in at a given path.
@@ -453,7 +458,8 @@ def process_match_files(
             output_path_1d,
             output_path_3d,
             split=split,
-            n_processes=n_processes
+            n_processes=n_processes,
+            climate_only=climate_only
         )
 
 
@@ -480,6 +486,11 @@ def process_match_files(
     default=4,
     help="The number of processes to use to parallelize the data extraction."
 )
+@click.option(
+    "--climate_only",
+    is_flag=True,
+    help="Run only CLIM preprocessor."
+)
 def cli(
         sensor: str,
         match_path: str,
@@ -489,7 +500,8 @@ def cli(
         output_3d: str,
         n_processes: int = 4,
         start_time: Optional[str] = None,
-        end_time: Optional[str] = None
+        end_time: Optional[str] = None,
+        climate_only: bool = False
 ) -> int:
     """
     Extract training/validation/test data for sensor SENSOR from MRMS collocations located in MATCH_PATH and L1C files
@@ -541,7 +553,8 @@ def cli(
         split=split,
         n_processes=n_processes,
         start_time=start_time,
-        end_time=end_time
+        end_time=end_time,
+        climate_only=climate_only
     )
 
 
