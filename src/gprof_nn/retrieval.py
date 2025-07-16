@@ -853,6 +853,9 @@ class GPROFNNInputLoader:
 
         if output_format.upper() == "NETCDF":
             # Quick and dirty way to transform 1C filename to 2A filename
+            if output_path is None:
+                return output
+
             if output_path.is_dir():
                 output_filename = (
                     filename.replace("1C-R", "2A")

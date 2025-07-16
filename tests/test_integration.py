@@ -34,12 +34,38 @@ def test_retrieval_atms():
 
 def test_retrieval_amsr2():
     """
-    Tests the retrieval for ATMS.
+    Tests the retrieval for AMSR2.
     """
     test_file = download_test_file("amsr2", "l1c")
     results = run_retrieval(test_file)
     assert len(results) > 0
 
     test_file = download_test_file("amsr2", "preprocessor")
+    results = run_retrieval(test_file)
+    assert len(results) > 0
+
+
+def test_retrieval_mhs():
+    """
+    Tests the retrieval for MHS.
+    """
+    test_file = download_test_file("mhs", "l1c")
+    results = run_retrieval(test_file)
+    assert len(results) > 0
+
+    test_file = download_test_file("mhs", "preprocessor")
+    results = run_retrieval(test_file)
+    assert len(results) > 0
+
+
+def test_retrieval_ssmis():
+    """
+    Tests the retrieval for SSMIS.
+    """
+    test_file = download_test_file("ssmis", "l1c")
+    results = run_retrieval(test_file)
+    assert len(results) > 0
+
+    test_file = download_test_file("ssmis", "preprocessor")
     results = run_retrieval(test_file)
     assert len(results) > 0
