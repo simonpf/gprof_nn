@@ -1,0 +1,35 @@
+[platform]
+name = "GCOMW1"
+l1c_file_path = "/pdata4/archive/GPM/1C_AMSR2_V7"
+l1c_file_prefix = "1C.GCOMW1.AMSR2"
+
+[viewing_geometry]
+kind = "Conical"
+altitude = 800e3
+earth_incidence_angle = 55.32936
+scan_range = 140.0
+pixels_per_scan = 400
+scan_offset = 10.2e3
+
+[sensor]
+kind = "ConstellationScanner"
+frequencies = [10.65, 10.65, 18.7, 18.7, 23.8, 23.8, 36.5, 36.5, 89.0, 89.0]
+offsets = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+polarization = ["V", "H", "V", "H", "V", "H", "V", "H", "V", "H"]
+orographic_enhancement = [1.14100, 1.71287, 1.46721, 1.71271, 2.96671]
+earth_incidence_angle = [55.33, 55.3, 55.3, 55.28, 55.28, 55.28, 55.28, 55.3, 54.78, 54.78]
+beam_width = [1.2, 1.2, 0.65, 0.65, 0.75, 0.75, 0.35, 0.35, 0.15, 0.15, 0.15, 0.15]
+channel_drop = 0.2
+scanline_drop = 0.1
+
+[sensor.gprof_channels]
+0 = [0, 0]
+1 = [0, 1]
+2 = [0, 2]
+3 = [0, 3]
+4 = [0, 4]
+5 = [0, 5]
+6 = [0, 6]
+7 = [0, 7]
+8 = [0, 8]
+9 = [0, 9]

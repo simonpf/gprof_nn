@@ -1,0 +1,36 @@
+[platform]
+name = "F16"
+l1c_file_path = "/pdata4/archive/GPM/1C_F16_V7"
+l1c_file_prefix = "1C.F1?.SSMIS"
+
+[viewing_geometry]
+kind = "Conical"
+altitude = 848e3
+earth_incidence_angle = 53.1
+scan_range = 140.0
+pixels_per_scan = 221
+scan_offset = 12.5e3
+
+[sensor]
+kind = "ConstellationScanner"
+frequencies = [19.35, 19.35, 22.235, 37.0, 37.0, 91.665, 91.665, 150.0, 183.0, 183.0, 183.0]
+offsets = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.25, 1.0, 3.0, 6.6]
+polarization = ["V", "H", "V", "V", "H", "V", "H", "H", "H", "H", "H"]
+orographic_enhancement = [1.14814, 1.68884, 1.44993, 1.68777, 2.77401]
+earth_incidence_angle = [53.59, 53.59, 53.59, 53.54, 53.54, 53.05, 53.05, 52.90, 52.90, 52.90, 52.90]
+beam_width = [1.92, 1.94, 1.85, 1.2, 1.19, 0.4, 0.39, 0.39, 0.39, 0.39, 0.39]
+channel_drop = 0.1
+scanline_drop = 0.1
+
+[sensor.gprof_channels]
+2 = [0, 0]
+3 = [0, 1]
+4 = [0, 2]
+6 = [1, 0]
+7 = [1, 1]
+8 = [3, 0]
+9 = [3, 1]
+11 = [2, 0]
+12 = [2, 1]
+13 = [2, 2]
+14 = [2, 3]

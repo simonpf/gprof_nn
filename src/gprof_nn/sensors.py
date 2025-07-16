@@ -258,7 +258,16 @@ class Sensor(ABC):
         self.scanline_drop = scanline_drop
 
     def __eq__(self, other):
+        """
+        Two sensor are equal if they have the same name and are on the same platform.
+        """
         return self.name == other.name and self.platform == other.platform
+
+    def __hash__(self):
+        """
+        Use sensor and platform name to hash sensor.
+        """
+        return hash(self.name + "_" + self.platform.name)
 
     @property
     def name(self):

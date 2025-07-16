@@ -1,0 +1,30 @@
+[platform]
+name = "METOPB"
+l1c_file_path = "/pdata4/archive/GPM/1C_METOPB_V7"
+l1c_file_prefix = "1C.METOPB.MHS"
+
+[viewing_geometry]
+kind = "CrossTrack"
+altitude = 870e3
+scan_range = 99.0
+pixels_per_scan = 90
+scan_offset = 16e3
+beam_width = 1.1
+
+[sensor]
+kind = "CrossTrackScanner"
+frequencies = [89.0, 157.0, 183.31, 183.1, 190.311]
+offsets = [0.0, 0.0, 1.0, 3.0, 0.0]
+polarization = ["V", "V", "H", "H", "V"]
+orographic_enhancement = [1.14927, 1.67389, 1.51995, 1.63020, 3.19961]
+sim_file_pattern = "*.sim"
+beam_width = [1.1, 1.1, 1.1, 1.1, 1.1]
+channel_drop = 0.1
+scanline_drop = 0.1
+
+[sensor.gprof_channels]
+8 = [0, 0]
+10 = [0, 1]
+12 = [0, 2]
+13 = [0, 3]
+14 = [0, 4]

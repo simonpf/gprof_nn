@@ -76,6 +76,7 @@ def get_model(sensor) -> nn.Module:
     return load_model(download_model(sensor))
 
 
+@cache
 def load_scaling_factors(sensor: sensors.Sensor) -> xr.Dataset:
     """
     Load scaling factors for given sensor.
@@ -86,7 +87,7 @@ def load_scaling_factors(sensor: sensors.Sensor) -> xr.Dataset:
     Return:
         A xarray.Dataset containing the loaded scaling factors.
     """
-    filename = f"{sensor.name.lower()}_pixel_adj.nc"
+    filename = f"{sensor.platform.name.upper()}_GPROFV8_pixel_adj.nc"
     data = xr.load_dataset(Path(__file__).parent / "files" / filename)
     return data
 
