@@ -90,7 +90,7 @@ def download_model(sensor: str):
     if sensor.lower() == "all":
         sensor_list = sensors.all_sensors()
     else:
-        sensor_list = sensor.get_sensor(sensor)
+        sensor_list = [sensors.get_sensor(sensor)]
     for sensor in sensor_list:
         dl.download_model(sensor)
 

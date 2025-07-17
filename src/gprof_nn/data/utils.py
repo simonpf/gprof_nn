@@ -41,6 +41,7 @@ try:
         l1c_aqua_amsre,
         l1c_trmm_tmi,
         l1c_f13_ssmi,
+        l1c_f15_ssmi,
         merged_ir,
     )
     from pyresample.geometry import SwathDefinition
@@ -57,7 +58,7 @@ try:
         "amsr2": (l1c_gcomw1_amsr2,),
         "amsre": (l1c_aqua_amsre,),
         "ssmis": (l1c_xcal2021v_f16_ssmis_v07a, l1c_xcal2021v_f17_ssmis_v07a, l1c_xcal2021v_f18_ssmis_v07a),
-        "ssmi": (l1c_f13_ssmi,),
+        "ssmi": (l1c_f15_ssmi,),
         "tmi": (l1c_trmm_tmi,),
     }
 except ImportError:
