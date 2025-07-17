@@ -12,7 +12,7 @@ pixels_per_scan = 221
 scan_offset = 13.2e3
 
 [sensor]
-kind = "ConicalScanner"
+kind = "ConstellationScanner"
 frequencies = [10.6, 10.6, 19.3, 19.3, 21.3, 37.0, 37.0, 85.5, 85.5]
 offsets = [0, 0, 0, 0, 0, 0, 0, 0, 0]
 polarization = ["V", "H", "V", "H", "V", "V", "H", "V", "H"]

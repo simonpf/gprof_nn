@@ -12,13 +12,15 @@ pixels_per_scan = 221
 scan_offset = 13.2e3
 
 [sensor]
-kind = "ConicalScanner"
+kind = "ConstellationScanner"
 frequencies = [10.6, 10.6, 19.3, 19.3, 21.3, 37.0, 37.0, 85.5, 85.5]
 offsets = [0, 0, 0, 0, 0, 0, 0, 0, 0]
 polarization = ["V", "H", "V", "H", "V", "V", "H", "V", "H"]
 orographic_enhancement = [1.13660, 1.70460, 1.47065, 1.70590, 2.85324]
-beam_width = [3.68, 3.75, 1.9, 1.88, 1.7, 1.7, 1.0, 1.0, 0.42, 0.43]
-earth_incidence_angle = [53.35, 53.35, 53.35, 53.35, 53.35, 53.35, 53.35, 53.35, 53.35, 53.35]
+beam_width = [3.68, 3.75, 1.9, 1.88, 1.7, 1.7, 1.0, 1.0, 0.42]
+earth_incidence_angle = [53.35, 53.35, 53.35, 53.35, 53.35, 53.35, 53.35, 53.35, 53.35]
+channel_drop = 0.1
+scanline_drop = 0.1
 
 [sensor.gprof_channels]
 0 = [0, 0]
