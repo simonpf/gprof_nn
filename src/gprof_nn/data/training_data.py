@@ -6,7 +6,8 @@ gprof_nn.data.training_data
 This module defines the dataset classes that provide access to
 the training data for the GPROF-NN retrievals.
 """
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ProcessPoolExecutor
+from functools import cache
 import io
 import itertools
 import math
@@ -89,6 +90,56 @@ _INPUT_DIMENSIONS = {
 EIA_GMI = np.array([
     [52.98] * 10 + [49.16] * 5
 ])
+
+
+def get_central_latitude(path: Path):
+    with xr.open_dataset(path) as data:
+        lats = data.latitude.data
+        mask = -100 < lats
+        lats = lats[mask]
+        center = lats.mean()
+    return center
+
+
+@cache
+def sample_centers(
+        paths: Tuple[Path],
+) -> np.ndarray:
+    """
+    Array contaning the mean latitude coordinates of all training samples.
+    """
+    files = []
+    for path in paths:
+        path = Path(path)
+        if not path.exists():
+            raise RuntimeError(
+                "The provided path %s does not exists.",
+                path
+            )
+        files += sorted(list(path.glob("**/3d*/*_*_*.nc")))
+
+    files = files
+
+    cached = Path("sample_weights.npz")
+    if cached.exists():
+        cached = np.load(cached, allow_pickle=True)
+        files_cached = cached["files"]
+        centers_cached = cached["centers"]
+        if (files_cached.size == len(files)) and (files_cached == np.array(files)).all():
+            return files_cached, centers_cached
+
+    pool = ProcessPoolExecutor(max_workers=4)
+    centers = []
+    tasks = []
+    for path in files:
+        tasks.append(pool.submit(get_central_latitude, path))
+
+    for task in tqdm(tasks, desc="Calculating sample coordinates"):
+        centers.append(task.result())
+
+    np.savez("sample_weights.npz", files=files, centers=centers)
+
+    return files, np.array(centers)
 
 
 def calculate_resampling_indices(latitudes, time, sensor):
@@ -1518,13 +1569,24 @@ def load_training_data_3d_other(
     scene = scene[{"pixels": slice(pix_start, pix_end), "scans": slice(scn_start, scn_end)}]
 
     # Calculate brightness temperatures
-    tbs = scene.brightness_temperatures.data
+    tbs = scene.brightness_temperatures.data.copy()
     full_shape = tbs.shape[:2] + (15,)
     if tbs.shape != full_shape:
         tbs_full = np.nan * np.ones(full_shape, dtype="float32")
-        tbs_full[:, :, sensor.gprof_channel_indices] = tbs
+
+        scene_sensor = sensors.get_sensor(scene.attrs["sensor"])
+        if scene_sensor != sensor:
+            inds_in = scene_sensor.gprof_channel_indices
+            inds_out = [np.searchsorted(inds_in, ind) for ind in sensor.gprof_channel_indices]
+            tbs_full[:, :, sensor.gprof_channel_indices] = tbs[..., inds_out]
+        else:
+            tbs_full[:, :, sensor.gprof_channel_indices] = tbs
     else:
         tbs_full = tbs.astype(np.float32)
+        for ch_ind in range(15):
+            if ch_ind not in sensor.gprof_channel_indices:
+                tbs_full[..., ch_ind] = np.nan
+
     tbs_full = torch.permute(torch.tensor(tbs_full), (2, 0, 1))
 
     angs_full = torch.nan * torch.zeros_like(tbs_full)
@@ -1648,7 +1710,9 @@ class GPROFNN3DDataset(Dataset):
         targets: Optional[List[str]] = None,
         augment: bool = True,
         validation: bool = False,
-        subsample: int = 1
+        subsample: int = 1,
+        resample_latitudes: bool = False,
+        sensor: Optional[str] = None
     ):
         """
         Create GPROF-NN 3D dataset.
@@ -1665,6 +1729,9 @@ class GPROFNN3DDataset(Dataset):
                 over the dataset will be identical.
             subsample: A subsampling factor used to randomly subsample the training
                 data.
+            resample_latitude: Set to 'True' to resample training samples to achieve even latitude
+                coverage.
+            sensor: Optional sensor name in order to force loading of a specific channel configuration.
         """
         super().__init__()
 
@@ -1675,6 +1742,10 @@ class GPROFNN3DDataset(Dataset):
         self.augment = augment and not validation
         self.validation = validation
         self.subsample = subsample
+
+        if sensor is not None:
+            sensor = sensors.get_sensor(sensor)
+        self.sensor = sensor
 
         if isinstance(path, list):
             paths = path
@@ -1702,26 +1773,23 @@ class GPROFNN3DDataset(Dataset):
         self.files = files
 
         if resample_latitudes:
-            centers = []
-            for path in tqdm(self.files):
-                with xr.open_dataset(path) as data:
-                    lats = data.latitude.data
-                    lats = lats[np.isfinite(lats)]
-                    center = lats.mean()
-                    centers.append(center)
+
+            files, centers = sample_centers(tuple(self.path))
             bins = np.linspace(-90, 90, 91)
             cts = np.histogram(centers, bins=bins)[0]
-            sampling_weights = 1.0 / cts
-            inds = np.digitize(cts, bins) - 1
+            k = np.ones(10)
+            cts_s = convolve(cts, k, mode="same")
+            lat_centers = 0.5 * (bins[1:] + bins[:-1])
+            cts_s = cts_s / np.cos(np.deg2rad(lat_centers))
+            sampling_weights = 1.0 / cts_s
+            sampling_weights = np.minimum(10.0, sampling_weights / np.nanmin(sampling_weights))
+            inds = np.digitize(centers, bins) - 1
             weights = sampling_weights[inds]
-
-            self.files = np.random.choice(self.files, p=weights)
-
-
+            weights = weights / weights.sum()
+            self.files = np.random.choice(files, size=len(files), p=weights)
 
         self.init_rng()
         self.files = self.rng.permutation(self.files)
-
 
 
     def init_rng(self, w_id=0):
@@ -1757,51 +1825,64 @@ class GPROFNN3DDataset(Dataset):
         ind_max = ind_min + self.subsample
         ind = min(self.rng.integers(ind_min, ind_max), len(self.files) - 1)
 
-        with xr.open_dataset(self.files[ind]) as scene:
-            sensor = scene.attrs["sensor"]
-            sensor = getattr(sensors, sensor)
+        try:
+            with xr.open_dataset(self.files[ind]) as scene:
 
-            if sensor == sensors.GMI:
-                x, y = load_training_data_3d_gmi(
-                    scene,
-                    targets=self.targets,
-                    augment=self.augment,
-                    rng=self.rng
-                )
-            elif isinstance(sensor, sensors.CrossTrackScanner):
-                if scene.source == "sim":
-                    x, y = load_training_data_3d_xtrack_sim(
-                        sensor,
-                        scene,
-                        targets=self.targets,
-                        augment=self.augment,
-                        rng=self.rng
-                    )
+                if self.sensor is None:
+                    sensor = scene.attrs["sensor"]
+                    sensor = getattr(sensors, sensor)
                 else:
-                    x, y = load_training_data_3d_other(
-                        sensor,
+                    sensor = self.sensor
+
+                if sensor == sensors.GMI:
+                    x, y = load_training_data_3d_gmi(
                         scene,
                         targets=self.targets,
                         augment=self.augment,
                         rng=self.rng
                     )
-            elif isinstance(sensor, sensors.ConstellationScanner):
-                if scene.source == "sim":
-                    x, y = load_training_data_3d_conical_sim(
-                        sensor,
-                        scene,
-                        targets=self.targets,
-                        augment=self.augment,
-                        rng=self.rng
-                    )
-                else:
-                    x, y = load_training_data_3d_other(
-                        sensor,
-                        scene,
-                        targets=self.targets,
-                        augment=self.augment,
-                        rng=self.rng
-                    )
+                elif isinstance(sensor, sensors.CrossTrackScanner):
+                    if scene.source == "sim":
+                        x, y = load_training_data_3d_xtrack_sim(
+                            sensor,
+                            scene,
+                            targets=self.targets,
+                            augment=self.augment,
+                            rng=self.rng
+                        )
+                    else:
+                        x, y = load_training_data_3d_other(
+                            sensor,
+                            scene,
+                            targets=self.targets,
+                            augment=self.augment,
+                            rng=self.rng
+                        )
+                elif isinstance(sensor, sensors.ConstellationScanner):
+                    if scene.source == "sim":
+                        x, y = load_training_data_3d_conical_sim(
+                            sensor,
+                            scene,
+                            targets=self.targets,
+                            augment=self.augment,
+                            rng=self.rng
+                        )
+                    else:
+                        x, y = load_training_data_3d_other(
+                            sensor,
+                            scene,
+                            targets=self.targets,
+                            augment=self.augment,
+                            rng=self.rng
+                        )
+        except Exception as exc:
+            raise exc
+            LOGGER.warning(
+                "Encountered an error when trying to load data from file '%s'.",
+                self.files[ind]
+            )
+            new_ind = self.rng.integers(0, len(self))
+            return self[new_ind]
 
         sp = y["surface_precip"]
         if torch.isfinite(sp).sum() < 10:
@@ -1812,6 +1893,9 @@ class GPROFNN3DDataset(Dataset):
                 self.files[ind]
             )
             return self[new_ind]
+
+        #y["surface_precip_weights"] = 28.0 * torch.ones_like(y["surface_precip"])
+
         return x, y
 
 
