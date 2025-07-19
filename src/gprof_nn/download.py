@@ -57,7 +57,8 @@ def update_models() -> Path:
     sensor_names = []
     for value in vars(sensors).values():
         if isinstance(value, sensors.Sensor):
-            sensor_names.append(value.name)
+            sensor_name = value.sensor_name.split("_")[0]
+            sensor_names.append(sensor_name)
 
     for sensor_name in sensor_names:
         model = f"gprof_nn_3d_{sensor_name.lower()}.pt"
@@ -96,6 +97,10 @@ TEST_FILES = {
     "ssmis": {
         "l1c": "1C.F18.SSMIS.XCAL2021-V.20241007-S210758-E224949.077231.V07B.HDF5",
         "preprocessor": "1C.F18.SSMIS.XCAL2021-V.20241007-S210758-E224949.077231.V07B.pp",
+    },
+    "tmi": {
+        "l1c": "1C.TRMM.TMI.XCAL2021-V.20050829-S013444-E030706.044376.V07A.HDF5",
+        "preprocessor": "1C.TRMM.TMI.XCAL2021-V.20050829-S013444-E030706.044376.V07A.pp",
     },
 }
 

@@ -69,3 +69,16 @@ def test_retrieval_ssmis():
     test_file = download_test_file("ssmis", "preprocessor")
     results = run_retrieval(test_file)
     assert len(results) > 0
+
+
+def test_retrieval_tmi():
+    """
+    Tests the retrieval for TMI.
+    """
+    test_file = download_test_file("tmi", "l1c")
+    results = run_retrieval(test_file)
+    assert len(results) > 0
+
+    test_file = download_test_file("tmi", "preprocessor")
+    results = run_retrieval(test_file)
+    assert len(results) > 0

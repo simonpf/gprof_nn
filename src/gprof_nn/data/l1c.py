@@ -260,12 +260,62 @@ def consolidate_swath_data_ssmis(swath_data: Dict[str, xr.Dataset]) -> xr.Datase
     return full_data
 
 
+def consolidate_swath_data_tmi(swath_data: Dict[str, xr.Dataset]) -> xr.Dataset:
+    """
+    Combines data from TMI L1C files into a single xarray.Dataset in the way
+    it is done by the GPROF preprocessor.
+
+    Args:
+        swath_data: A dictionary containing the observations from the separate swaths.
+
+    Return:
+        A new xarray.Dataset containing the combined observations and incidence angles.
+    """
+    pixels = swath_data[3].pixels.data
+    scans = swath_data[3].scans.data
+
+    full_data = xr.Dataset({
+        "pixels": (("pixels",), pixels),
+        "scans": (("scans",), scans)
+    })
+
+    full_tbs = np.nan * np.zeros((scans.size, pixels.size, 9))
+    full_eia = np.nan * np.zeros((scans.size, pixels.size, 9))
+
+    full_tbs[:, ::2, :2] =  swath_data[1].brightness_temperatures.data
+    full_tbs[:, 1::2, :2] =  swath_data[1].brightness_temperatures.data
+    full_eia[:, ::2, :2] =  swath_data[1].earth_incidence_angle.data
+    full_eia[:, 1::2, :2] =  swath_data[1].earth_incidence_angle.data
+
+    full_tbs[:, ::2, 2:7] =  swath_data[2].brightness_temperatures.data
+    full_tbs[:, 1::2, 2:7] =  swath_data[2].brightness_temperatures.data
+    full_eia[:, ::2, 2:7] =  swath_data[2].earth_incidence_angle.data
+    full_eia[:, 1::2, 2:7] =  swath_data[2].earth_incidence_angle.data
+
+    full_tbs[:, :, 7:9] =  swath_data[3].brightness_temperatures.data
+    full_eia[:, :, 7:9] =  swath_data[3].earth_incidence_angle.data
+
+    scan_time = swath_data[3].scan_time.data
+    qflag = swath_data[3].quality_flag.data
+
+    full_data["brightness_temperatures"] = (("scans", "pixels", "channels"), full_tbs)
+    full_data["earth_incidence_angle"] = (("scans", "pixels", "channels"), full_eia)
+    full_data["scan_time"] = (("scans",), scan_time)
+    full_data["quality_flag"] = (("scans", "pixels"), qflag)
+
+    full_data["longitude"] = (("scans", "pixels"), swath_data[3].longitude.data)
+    full_data["latitude"] = (("scans", "pixels"), swath_data[3].latitude.data)
+
+    return full_data
+
+
 CONSOLIDATION_FUNCTIONS = {
     "gmi": consolidate_swath_data_gmi,
     "atms": consolidate_swath_data_atms,
     "amsr2": consolidate_swath_data_amsr2,
     "mhs": consolidate_swath_data_mhs,
     "ssmis": consolidate_swath_data_ssmis,
+    "tmi": consolidate_swath_data_tmi,
 }
 
 
