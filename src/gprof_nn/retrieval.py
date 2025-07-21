@@ -392,12 +392,9 @@ def load_input_data_training_1d(
             "ancillary_data": anc,
         }
 
-        qflag, status = calculate_quality_flag_and_pixel_status(sensor, tbs, data)
-
         aux = {
+            "quality_flag": np.ones_like(tbs[..., 0].numpy()),
             "sensor": sensor,
-            "pixel_status": status,
-            "quality_flag": qflag,
             "longitude": data.longitude.data,
             "latitude": data.latitude.data,
         }
@@ -471,12 +468,9 @@ def load_input_data_training_3d(
                 )
 
         tbs_full = input_data["brightness_temperatures"]
-        #qflag, status = calculate_quality_flag_and_pixel_status(sensor, tbs_full, scene)
 
         aux = {
             "sensor": sensor,
-            #"quality_flag": qflag,
-            #"pixel_status": status,
             "longitude": targets.pop("longitude").numpy(),
             "latitude": targets.pop("latitude").numpy(),
         }
@@ -679,11 +673,14 @@ class GPROFNNInputLoader:
         }
 
         if self.config == "1d":
-            input_data = {
-                name: torch.permute(tensor, (0, 2, 3, 1)).reshape((-1, tensor.shape[1]))
-                if tensor.ndim == 4 else tensor
-                for name, tensor in input_data.items()
-            }
+            if input_data["brightness_temperatures"].ndim == 3:
+                input_data = {name: tnsr[0] for name, tnsr in input_data.items()}
+            else:
+                input_data = {
+                    name: torch.permute(tensor, (0, 2, 3, 1)).reshape((-1, tensor.shape[1]))
+                    if tensor.ndim == 4 else tensor
+                    for name, tensor in input_data.items()
+                }
         aux["output_format"] = self.output_format
 
         return input_data, aux
@@ -850,7 +847,8 @@ class GPROFNNInputLoader:
 
         output.attrs["ancillary_config"] = ancillary_config
 
-        LOGGER.debug("Successfully processed %s scans.", output.scans.size)
+        if "scans" in output:
+            LOGGER.debug("Successfully processed %s scans.", output.scans.size)
 
         if output_format.upper() == "NETCDF":
             # Quick and dirty way to transform 1C filename to 2A filename
@@ -1115,7 +1113,8 @@ def cli(
             input_path,
             config=config,
             ancillary_config=ancillary_config,
-            output_format=output_format
+            output_format=output_format,
+            bias_correction=not no_bias_correction
         )
 
     if no_profiles:
