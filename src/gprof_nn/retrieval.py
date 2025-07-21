@@ -677,6 +677,10 @@ class GPROFNNInputLoader:
             if input_data["brightness_temperatures"].ndim == 3:
                 input_data = {name: tnsr[0] for name, tnsr in input_data.items()}
             else:
+                angs = input_data["earth_incidence_angles"].numpy()
+                valid = np.where(np.isfinite(angs).any((0, -1, -2)))[0]
+                angs[0] = angs[0, [valid[0]]]
+                input_data["earth_incidence_angles"] = torch.tensor(angs)
                 input_data = {
                     name: torch.permute(tensor, (0, 2, 3, 1)).reshape((-1, tensor.shape[1]))
                     if tensor.ndim == 4 else tensor
