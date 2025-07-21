@@ -123,6 +123,7 @@ def cli(
             test_data_path,
             targets = targets + ["surface_type"]
         )
+        batch_size = None
     else:
         test_dataset = GPROFNN3DDataset(
             test_data_path,

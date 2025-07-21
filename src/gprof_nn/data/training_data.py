@@ -6,7 +6,7 @@ gprof_nn.data.training_data
 This module defines the dataset classes that provide access to
 the training data for the GPROF-NN retrievals.
 """
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
 from functools import cache
 import io
 import itertools
@@ -906,9 +906,9 @@ class GPROFNN1DDataset(IterableDataset):
         if self.ancillary_cfg is not None:
             cfg = self.ancillary_cfg
         elif self.validation:
-            cfg = "cli"
+            cfg = "CLI"
         else:
-            cfg = self.rng.choice(["none", "nrt", "nrt_snow", "std", "cli"])
+            cfg = self.rng.choice(["NONE", "NRT", "STD", "CLI"])
 
         if sensor == sensors.GMI:
             tbs = dataset["brightness_temperatures"].data
