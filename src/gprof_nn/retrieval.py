@@ -471,6 +471,7 @@ def load_input_data_training_3d(
 
         aux = {
             "sensor": sensor,
+            "quality_flag": np.ones_like(tbs_full[0].numpy()),
             "longitude": targets.pop("longitude").numpy(),
             "latitude": targets.pop("latitude").numpy(),
         }

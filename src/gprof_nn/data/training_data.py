@@ -519,7 +519,6 @@ def load_tbs_1d_xtrack_sim(
         angles: np.ndarray,
         sensor: sensors.Sensor,
         targets: List[str],
-        rng,
         satformer: bool = False
 ) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
     """
@@ -576,7 +575,6 @@ def load_tbs_1d_xtrack_sim(
             method="nearest"
         )
         tbs = training_data.satformer_tbs_rand.data
-        #tbs += rng.normal(0.0, 2.0, size=tbs.shape)
         tbs_full = np.nan * np.zeros((tbs.shape[0], 15), dtype=np.float32)
         tbs_full[:, sensor.gprof_channel_indices] = tbs
 
@@ -955,7 +953,6 @@ class GPROFNN1DDataset(IterableDataset):
                     angs,
                     sensor,
                     targets,
-                    rng=self.rng,
                     satformer=self.satformer
                 )
                 angs = torch.tensor(np.broadcast_to(angs[..., None], tbs.shape))
