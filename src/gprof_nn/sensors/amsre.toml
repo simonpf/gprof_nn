@@ -5,7 +5,7 @@ l1c_file_prefix = "1C.AQUA.AMSRE"
 
 [viewing_geometry]
 kind = "Conical"
-altitude = 800e3
+altitude = 705e3
 earth_incidence_angle = 55.32936
 scan_range = 140.0
 pixels_per_scan = 400
@@ -16,9 +16,9 @@ kind = "ConstellationScanner"
 frequencies = [10.65, 10.65, 18.7, 18.7, 23.8, 23.8, 36.5, 36.5, 89.0, 89.0]
 offsets = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 polarization = ["V", "H", "V", "H", "V", "H", "V", "H", "V", "H"]
-orographic_enhancement = [1.13745,1.71178,1.46783,1.71030,2.9006]
+orographic_enhancement = [1.13745, 1.71178, 1.46783, 1.71030, 2.9006]
 earth_incidence_angle = [55.33, 55.3, 55.3, 55.28, 55.28, 55.28, 55.28, 55.3, 54.78, 54.78]
-beam_width = [1.5, 1.5, 0.8, 0.8, 0.92, 0.92, 0.42, 0.42, 0.19, 0.19, 0.19, 0.19]
+beam_width = [1.5, 1.5, 0.8, 0.8, 0.92, 0.92, 0.42, 0.42, 0.19, 0.19]
 
 [sensor.gprof_channels]
 0 = [0, 0]
