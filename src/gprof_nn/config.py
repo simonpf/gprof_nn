@@ -56,11 +56,13 @@ class PreprocessorConfig(ConfigBase):
     amsre: Path = Path("gprof2024pp_AMSRE_L1C")
     atms: Path = Path("gprof2024pp_ATMS_L1C")
     mwi: Path = Path("gprof2024pp_MWI_L1C")
+    amsub: Path = Path("gprof2024pp_AMSUB_L1C")
 
     def print(self):
         txt = "[preprocessor]\n"
         txt += f"amsre = {self.amsre}\n"
         txt += f"amsr2 = {self.amsr2}\n"
+        txt += f"amsub = {self.amsub}\n"
         txt += f"atms  = {self.atms}\n"
         txt += f"gmi   = {self.gmi}\n"
         txt += f"mhs   = {self.mhs}\n"
