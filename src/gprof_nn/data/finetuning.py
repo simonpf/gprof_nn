@@ -140,71 +140,76 @@ def process_match(
         raise ValueError(
             "Empty match."
         )
-    retrieval_results = []
 
     for reference_granule in reference_granules:
+
         if retrieval_model is not None:
-            retrieval_results.append(run_retrieval(reference_granule, retrieval_model))
+            retrieval_results = run_retrieval(reference_granule, retrieval_model)
         else:
             orbit_num = int(reference_granule.file_record.filename.split(".")[-3])
             all_results = get_retrieval_results(retrieval_path)
-            retrieval_results.append(xr.load_dataset(all_results[orbit_num]))
+            retrieval_results = xr.load_dataset(all_results[orbit_num])
 
-    retrieval_results = xr.concat(retrieval_results, dim="scans")
-    retrieval_results = retrieval_results.rename(latent_heating="latent_heat")[
-        ALL_TARGETS + ["scan_time", "longitude", "latitude"]
-    ]
+        retrieval_results = retrieval_results.rename(latent_heating="latent_heat")[
+            ALL_TARGETS + ["scan_time", "longitude", "latitude"]
+        ]
 
-    if climate_only or np.random.rand() > 0.5:
-        settings = {
-            "prodtype": "CLIMATOLOGY",
-            "prepdir": "/qdata2/archive/ERA5/"
-        }
-    else:
-        settings = {
-            "prodtype": "STANDARD",
-            "prepdir": "/qdata1/pbrown/gpm/modelprep/GANALV7/"
-        }
-    input_data = run_preprocessor(target_granule, settings=settings)
-    swath = SwathDefinition(lons=input_data.longitude.data, lats=input_data.latitude.data)
-    retrieval_results = resample_data(
-        retrieval_results,
-        swath,
-        new_dims=("scans", "pixels"),
-        radius_of_influence=RADIUS_OF_INFLUENCE[reference_sensor.name.lower()]
-    )
-    scan_time = retrieval_results.scan_time
-    input_data = xr.merge([input_data, retrieval_results.drop_vars(["scan_time"])])
-
-    time_diff = retrieval_results.scan_time - input_data.scan_time
-    valid = (np.abs(time_diff) < np.timedelta64(15, "m")) * np.isfinite(input_data.surface_precip)
-    valid = valid.data.astype(np.float32)
-    valid[valid < 1.0] = np.nan
-    input_data["valid"] = (("scans", "pixels"), valid)
-
-    ref_name = reference_sensor.name.lower()
-    targ_name = target_sensor.name.lower()
-    prefix = f"{targ_name}_{ref_name}"
-
-    input_data["source"] = "finetuning"
-
-    if output_path_3d is not None:
-        write_training_samples_3d(
-            output_path_3d,
-            prefix,
-            input_data,
-            n_scans=128,
-            n_pixels=64,
-            min_valid=10,
-            reference_var="valid"
+        if climate_only or np.random.rand() > 0.5:
+            settings = {
+                "prodtype": "CLIMATOLOGY",
+                "prepdir": "/qdata2/archive/ERA5/"
+            }
+        else:
+            settings = {
+                "prodtype": "STANDARD",
+                "prepdir": "/qdata1/pbrown/gpm/modelprep/GANALV7/"
+            }
+        input_data = run_preprocessor(target_granule, settings=settings)
+        swath = SwathDefinition(lons=input_data.longitude.data, lats=input_data.latitude.data)
+        retrieval_results = resample_data(
+            retrieval_results,
+            swath,
+            new_dims=("scans", "pixels"),
+            radius_of_influence=RADIUS_OF_INFLUENCE[reference_sensor.name.lower()]
         )
-    if output_path_1d is not None:
-        write_training_samples_1d(
-            output_path_1d,
-            prefix,
-            input_data,
-            reference_var="valid"
-        )
+        scan_time = retrieval_results.scan_time
+        input_data = xr.merge([input_data, retrieval_results.drop_vars(["scan_time"])])
+
+        time_diff = retrieval_results.scan_time - input_data.scan_time
+
+        time_diff.to_netcdf("time_diff.nc")
+        input_data.to_netcdf("input.nc")
+        diff = time_diff.data.astype("timedelta64[m]")
+        print("TIME DIFFS :: ", np.unique(diff))
+
+        valid = (np.abs(time_diff) < np.timedelta64(15, "m")) * np.isfinite(input_data.surface_precip)
+        valid = valid.data.astype(np.float32)
+        valid[valid < 1.0] = np.nan
+        input_data["valid"] = (("scans", "pixels"), valid)
+
+        ref_name = reference_sensor.name.lower()
+        targ_name = target_sensor.name.lower()
+        prefix = f"{targ_name}_{ref_name}"
+
+        input_data["source"] = "finetuning"
+
+        if output_path_3d is not None:
+            write_training_samples_3d(
+                output_path_3d,
+                prefix,
+                input_data,
+                n_scans=128,
+                n_pixels=64,
+                min_valid=10,
+                reference_var="valid"
+            )
+        if output_path_1d is not None:
+            write_training_samples_1d(
+                output_path_1d,
+                prefix,
+                input_data,
+                reference_var="valid"
+            )
 
 
 def extract_finetuning_samples(
@@ -253,11 +258,20 @@ def extract_finetuning_samples(
     )
     for ref_prod in ref_prods:
         for targ_prod in targ_prods:
-            LOGGER.info("Getting reference input files.")
             ref_recs = ref_prod.get(time_range)
+            LOGGER.info(
+                "Found %s files for reference product %s.",
+                len(ref_recs),
+                ref_prod.name
+            )
             ref_index = Index.index(ref_prod, ref_recs)
             LOGGER.info("Getting target input files.")
             targ_recs = targ_prod.get(time_range)
+            LOGGER.info(
+                "Found %s files for target product %s.",
+                len(targ_recs),
+                targ_prod.name
+            )
             targ_index = Index.index(targ_prod, targ_recs)
             matches = find_matches(targ_index, ref_index, np.timedelta64(15, "m"))
 

@@ -38,27 +38,30 @@ try:
         l1c_xcal2021v_f16_ssmis_v07a,
         l1c_xcal2021v_f17_ssmis_v07a,
         l1c_xcal2021v_f18_ssmis_v07a,
+        l1c_xcal2017v_noaa15_amsub_v07a,
         l1c_aqua_amsre,
         l1c_trmm_tmi,
         l1c_f13_ssmi,
+        l1c_f14_ssmi,
         l1c_f15_ssmi,
         merged_ir,
     )
     from pyresample.geometry import SwathDefinition
 
     PANSAT_PRODUCTS = {
-        "gmi": (l1c_r_gpm_gmi,),
         "atms": (l1c_npp_atms, l1c_noaa20_atms),
+        "amsre": (l1c_aqua_amsre,),
+        "amsr2": (l1c_gcomw1_amsr2,),
+        "amsub": (l1c_xcal2017v_noaa15_amsub_v07a,),
+        "gmi": (l1c_r_gpm_gmi,),
         "mhs": (
             l1c_xcal2016v_noaa18_mhs_v07a,
             l1c_xcal2016v_noaa19_mhs_v07a,
             l1c_xcal2019v_metopc_mhs_v07a,
             l1c_xcal2016v_metopb_mhs_v07a,
         ),
-        "amsr2": (l1c_gcomw1_amsr2,),
-        "amsre": (l1c_aqua_amsre,),
+        "ssmi": (l1c_f14_ssmi, l1c_f15_ssmi,),
         "ssmis": (l1c_xcal2021v_f16_ssmis_v07a, l1c_xcal2021v_f17_ssmis_v07a, l1c_xcal2021v_f18_ssmis_v07a),
-        "ssmi": (l1c_f15_ssmi,),
         "tmi": (l1c_trmm_tmi,),
     }
 except ImportError:
@@ -445,6 +448,7 @@ def extract_scenes(
         ind = np.random.choice(valid_inds)
         scan_cntr, pixel_cntr = valid[ind]
 
+
         if offset is not None:
             lower_bound = scan_cntr - offset
             upper_bound = scan_cntr + offset
@@ -469,6 +473,9 @@ def extract_scenes(
                 "pixels": slice(pixel_start, pixel_end),
             }
         ]
+        if (subscene.scans.size < n_scans) or (subscene.pixels.size < n_pixels):
+            continue
+
         n_valid = get_valid(subscene).sum()
         if n_valid >= min_valid:
             scenes.append(subscene)
