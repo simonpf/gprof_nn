@@ -5,7 +5,7 @@ l1c_file_prefix = "1C.F1?.SSMIS"
 
 [viewing_geometry]
 kind = "Conical"
-altitude = 848e3
+altitude = 853e3
 earth_incidence_angle = 53.1
 scan_range = 140.0
 pixels_per_scan = 221
