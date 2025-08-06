@@ -133,15 +133,22 @@ def calculate_quality_flag_and_pixel_status(
     else:
         snow_or_ice = np.zeros_like(any_missing)
 
+    if "quality_flag" in input_data:
+        l1c_qual = input_data.quality_flag.data
+    else:
+        l1c_qual = np.zeros_like(any_missing)
+
     status = -99.0 * np.ones_like(any_missing)
     qflag = -99.0 * np.ones_like(any_missing)
 
     all_good = (~any_missing) * (~invalid_coords) * (~snow_or_ice)
-    qflag[snow_or_ice * ~all_missing] = 2
+    qflag[snow_or_ice * ~all_missing] = 1
     qflag[any_missing * ~all_missing] = 1
     qflag[all_good] = 0
+    qflag[l1c_qual == 1] = 1
+    qflag[l1c_qual == 3] = 2
 
-    status[all_good] = 0
+    status[0 <= qflag] = 0
     status[invalid_coords] = 1
     status[tbs_out_of_range] = 2
 
@@ -838,10 +845,10 @@ class GPROFNNInputLoader:
         else:
             LOGGER.debug("Skipping bias correction.")
 
-        qflag = aux["quality_flag"]
+        status = aux["pixel_status"]
         for name in ALL_OUTPUTS:
             if name in output:
-                output[name].data[qflag < 0] = np.nan
+                output[name].data[0 < status] = np.nan
 
         for var in output:
             var_data = output[var].data
