@@ -797,7 +797,7 @@ class GPROFNNInputLoader:
                 tensor = tensor.numpy()
 
                 if var == "surface_precip":
-                    invalid = tensor < -1e-2
+                    invalid = (tensor < -1e-2) + (tensor > 200)
                 if var != "latent_heating":
                     tensor = np.maximum(tensor, 0.0)
 
@@ -852,6 +852,10 @@ class GPROFNNInputLoader:
 
         status = aux["pixel_status"]
         qflag = aux["quality_flag"]
+
+        # Mark pixels with excessively negative values.
+        output["pixel_status"].data[invalid] = 5
+
         invalid = invalid + (qflag == 2) + (status < 0)
 
         for name in ALL_OUTPUTS:
