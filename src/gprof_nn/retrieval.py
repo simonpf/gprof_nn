@@ -117,7 +117,9 @@ def calculate_quality_flag_and_pixel_status(
     )
 
     tbs_out_of_range = np.any(
-        (tbs_full[sensor.gprof_channel_indices] > 350.0) + (tbs_full[sensor.gprof_channel_indices] < 0.0),
+        (tbs_full[sensor.gprof_channel_indices] > 350.0)
+        + (tbs_full[sensor.gprof_channel_indices] < 0.0)
+        + np.isnan(tbs_full[sensor.gprof_channel_indices]),
         axis=0
     )
 
@@ -793,6 +795,9 @@ class GPROFNNInputLoader:
 
                 dims_v = dims[:tensor.dim()]
                 tensor = tensor.numpy()
+
+                if var == "surface_precip":
+                    invalid = tensor < -1e-2
                 if var != "latent_heating":
                     tensor = np.maximum(tensor, 0.0)
 
@@ -846,9 +851,12 @@ class GPROFNNInputLoader:
             LOGGER.debug("Skipping bias correction.")
 
         status = aux["pixel_status"]
+        qflag = aux["quality_flag"]
+        invalid = invalid + (qflag == 2) + (status < 0)
+
         for name in ALL_OUTPUTS:
             if name in output:
-                output[name].data[0 < status] = np.nan
+                output[name].data[invalid] = np.nan
 
         for var in output:
             var_data = output[var].data
