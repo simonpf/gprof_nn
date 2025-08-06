@@ -228,7 +228,7 @@ def load_input_data_preprocessor(
         "two_meter_temperature": data_pp.two_meter_temperature.data,
         "convective_precipitation": data_pp.convective_precipitation.data,
         "moisture_convergence": data_pp.moisture_convergence.data,
-        "leaf_area_index": data_pp.leaf_area_index.data,
+        "leaf_area_index": data_pp.leaf_area_index_climatology.data,
         "snow_depth": data_pp.snow_depth.data,
         "orographic_wind": data_pp.orographic_wind.data,
         "wind_speed_10m": data_pp["10m_wind"].data,
