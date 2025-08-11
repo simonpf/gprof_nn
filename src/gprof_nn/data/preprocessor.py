@@ -563,13 +563,11 @@ class PreprocessorFile:
             "snow_depth", "orographic_wind", "10m_wind", "mountain_type", "land_fraction", "ice_fraction", "elevation",
             "snow_mask", "sunglint_angle"
         ]
-        lai = scan_data["leaf_area_index"]
-        if np.any(np.isfinite(lai)):
-            carry_over.insert(4, "leaf_area_index")
-        else:
-            carry_over.insert(4, "leaf_area_index_climatology")
         for name in carry_over:
             out_data[name] = scan_data[name]
+
+        lai = scan_data["leaf_area_index"]
+        out_data["leaf_area_index"] = scan_data["leaf_area_index_climatology"]
 
         out_data["probability_of_precipitation"] = data.probability_of_precipitation.data
         out_data["precipitation_flag"] = 0.5 < data.probability_of_precipitation.data
