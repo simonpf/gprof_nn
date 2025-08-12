@@ -117,9 +117,8 @@ def calculate_quality_flag_and_pixel_status(
     )
 
     tbs_out_of_range = np.any(
-        (tbs_full[sensor.gprof_channel_indices] > 350.0)
-        + (tbs_full[sensor.gprof_channel_indices] < 0.0)
-        + np.isnan(tbs_full[sensor.gprof_channel_indices]),
+        ((tbs_full[sensor.gprof_channel_indices] > 325.0) + (tbs_full[sensor.gprof_channel_indices] < 40))
+        * ~(tbs_full[sensor.gprof_channel_indices] < 0),
         axis=0
     )
 
@@ -153,6 +152,7 @@ def calculate_quality_flag_and_pixel_status(
     status[0 <= qflag] = 0
     status[invalid_coords] = 1
     status[tbs_out_of_range] = 2
+    status[all_missing] = -99
 
     return qflag, status
 
@@ -830,13 +830,19 @@ class GPROFNNInputLoader:
                 ocean_scaling = adjustment_factors.ocean_bias.data * adjustment_factors.ocean_adj.data
                 ocean_scaling = np.broadcast_to(ocean_scaling[None], scaling.shape)
                 scaling[ocean_mask] = ocean_scaling[ocean_mask]
-                mean_ocean_scaling = ocean_scaling[ocean_mask].mean()
+                if ocean_mask.any():
+                    mean_ocean_scaling = ocean_scaling[ocean_mask].mean()
+                else:
+                    mean_ocean_scaling = 1.0
 
                 landrain_mask = (95 < land_fraction) * (snow_mask == 0)
                 landrain_scaling = adjustment_factors.landrain_bias.data * adjustment_factors.landrain_adj.data
                 landrain_scaling = np.broadcast_to(landrain_scaling[None], scaling.shape)
                 scaling[landrain_mask] = landrain_scaling[landrain_mask]
-                mean_land_scaling = landrain_scaling[landrain_mask].mean()
+                if landrain_mask.any():
+                    mean_land_scaling = landrain_scaling[landrain_mask].mean()
+                else:
+                    mean_land_scaling = 1.0
 
                 LOGGER.debug(
                     "Applying bias correction (Ocean = %s, Land = %s)",
@@ -856,7 +862,7 @@ class GPROFNNInputLoader:
         # Mark pixels with excessively negative values.
         output["pixel_status"].data[invalid] = 5
 
-        invalid = invalid + (qflag == 2) + (status < 0)
+        invalid = invalid + (qflag == 2) + (status != 0)
 
         for name in ALL_OUTPUTS:
             if name in output:
