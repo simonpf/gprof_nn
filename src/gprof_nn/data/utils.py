@@ -57,9 +57,9 @@ try:
         "amsub": (l1c_xcal2017v_noaa15_amsub_v07a, l1c_xcal2017v_noaa17_amsub_v07a),
         "gmi": (l1c_r_gpm_gmi,),
         "mhs": (
+            l1c_xcal2021v_metopa_mhs_v07a,
             l1c_xcal2016v_noaa18_mhs_v07a,
             l1c_xcal2016v_noaa19_mhs_v07a,
-            l1c_xcal2021v_metopa_mhs_v07a,
             l1c_xcal2016v_metopb_mhs_v07a,
             l1c_xcal2019v_metopc_mhs_v07a,
         ),
