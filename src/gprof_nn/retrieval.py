@@ -366,6 +366,7 @@ def load_input_data_training_1d(
     rng = np.random.default_rng(42)
 
     with xr.open_dataset(training_file) as data:
+
         sensor = sensors.get_sensor(data.attrs["sensor"])
 
         if sensor == sensors.GMI:
@@ -389,6 +390,7 @@ def load_input_data_training_1d(
         elif isinstance(sensor, sensors.ConstellationScanner):
             if data.source == "sim":
                 tbs = load_tbs_1d_conical_sim(data, sensor)
+                targets = load_target_1d(data, ["surface_precip"])
                 angs = torch.tensor(
                     np.broadcast_to(EIA_GMI.astype("float32"), tbs.shape)
                 )
@@ -404,9 +406,10 @@ def load_input_data_training_1d(
         }
 
         aux = {
+            "snow_mask": data.snow_mask.data,
             "quality_flag": np.ones_like(tbs[..., 0].numpy()),
             "pixel_status": np.zeros_like(tbs[..., 0].numpy()),
-            "earth_incidence_angle": angs[0].numpy(),
+            "earth_incidence_angle": angs[..., 0].numpy(),
             "surface_precip_ref": targets["surface_precip"],
             "sensor": sensor,
             "longitude": data.longitude.data,
@@ -436,6 +439,9 @@ def load_input_data_training_3d(
     with xr.open_dataset(training_file) as scene:
         sensor = scene.attrs["sensor"]
         sensor = getattr(sensors, sensor)
+
+        if "satformer_tbs_rand" not in scene:
+            scene["satformer_tbs_rand"] = scene.simulated_brightness_temperatures
 
         targets_aux = ALL_TARGETS + ["longitude", "latitude"]
 
@@ -486,8 +492,8 @@ def load_input_data_training_3d(
         aux = {
             "sensor": sensor,
             "quality_flag": np.ones_like(tbs_full[0].numpy()),
-            "pixel_status": np.zeros_like(tbs[..., 0].numpy()),
-            "earth_incidence_angle": angs[0].numpy(),
+            "pixel_status": np.zeros_like(tbs_full[0].numpy()),
+            "earth_incidence_angle": input_data["earth_incidence_angles"][0].numpy(),
             "surface_precip_ref": targets["surface_precip"],
             "longitude": targets.pop("longitude").numpy(),
             "latitude": targets.pop("latitude").numpy(),
