@@ -55,7 +55,8 @@ from gprof_nn.data.training_data import (
     load_training_data_3d_conical_sim,
     load_training_data_3d_other,
     determine_ancillary_config,
-    load_ancillary_data
+    load_ancillary_data,
+    load_targets_1d
 )
 
 
@@ -379,7 +380,7 @@ def load_input_data_training_1d(
                     angles.max(),
                     size=data.samples.size,
                 ).astype(np.float32)
-                tbs, _ = load_tbs_1d_xtrack_sim(data, angs, sensor, targets=[])
+                tbs, targets = load_tbs_1d_xtrack_sim(data, angs, sensor, targets=["surface_precip"])
                 angs = torch.tensor(angs)
                 angs = torch.tensor(np.broadcast_to(angs[..., None], tbs.shape))
             else:
@@ -394,6 +395,7 @@ def load_input_data_training_1d(
             else:
                 tbs, angs = load_tbs_1d_conical_other(data, sensor)
             anc = load_ancillary_data(data, configuration="CLI", stack_dim=1)
+            targets = load_targets_1d(dataset, ["surface_precip"])
 
         input_data = {
             "brightness_temperatures": tbs,
@@ -403,6 +405,9 @@ def load_input_data_training_1d(
 
         aux = {
             "quality_flag": np.ones_like(tbs[..., 0].numpy()),
+            "pixel_status": np.zeros_like(tbs[..., 0].numpy()),
+            "earth_incidence_angle": angs[0].numpy(),
+            "surface_precip_ref": targets["surface_precip"],
             "sensor": sensor,
             "longitude": data.longitude.data,
             "latitude": data.latitude.data,
@@ -481,6 +486,9 @@ def load_input_data_training_3d(
         aux = {
             "sensor": sensor,
             "quality_flag": np.ones_like(tbs_full[0].numpy()),
+            "pixel_status": np.zeros_like(tbs[..., 0].numpy()),
+            "earth_incidence_angle": angs[0].numpy(),
+            "surface_precip_ref": targets["surface_precip"],
             "longitude": targets.pop("longitude").numpy(),
             "latitude": targets.pop("latitude").numpy(),
         }
@@ -819,7 +827,7 @@ class GPROFNNInputLoader:
                     sensor.platform.name
                 )
 
-            if adjustment_factors is not None:
+            if adjustment_factors is not None and "land_fraction" in output:
 
                 land_fraction = output.land_fraction.data
                 ice_fraction = output.ice_fraction.data
