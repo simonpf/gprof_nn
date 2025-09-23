@@ -1969,14 +1969,7 @@ def transform_observations_satformer(
     """
     obs = observations
     valid = np.isfinite(obs)
-    mean = np.mean(obs[valid])
-    std = np.std(obs[valid])
-    obs_n = (obs - mean) / std
-    obs = np.stack([
-        np.ones_like(obs_n) * mean,
-        np.ones_like(obs_n) * std,
-        obs_n
-    ])
+    obs = observations[None]
     meta[..., ~valid] = np.nan
     return obs, meta
 
@@ -2122,12 +2115,12 @@ class SatformerDataset:
                     obs_in.append(torch.tensor(obs.astype(np.float32)))
                     meta_in.append(torch.tensor(meta.astype(np.float32)))
                 else:
-                    obs_in.append(torch.nan * torch.zeros((3, 128, 128)))
+                    obs_in.append(torch.nan * torch.zeros((1, 128, 128)))
                     meta_in.append(torch.nan * torch.zeros((8, 128, 128)))
                     obs_out.append(torch.tensor(obs.astype(np.float32))[None])
                     meta_out.append(torch.tensor(meta.astype(np.float32)))
             else:
-                obs_in.append(torch.nan * torch.zeros((3, 128, 128)))
+                obs_in.append(torch.nan * torch.zeros((1, 128, 128)))
                 meta_in.append(torch.nan * torch.zeros((8, 128, 128)))
 
         for output_ind in range(self.seq_len_out - len(obs_out)):
@@ -2471,7 +2464,7 @@ class GPROFNNHRDataset:
                 obs_in.append(torch.tensor(obs.astype(np.float32)))
                 meta_in.append(torch.tensor(meta.astype(np.float32)))
             else:
-                obs_in.append(torch.nan * torch.zeros((3, 96, 96)))
+                obs_in.append(torch.nan * torch.zeros((1, 96, 96)))
                 meta_in.append(torch.nan * torch.zeros((8, 96, 96)))
 
 
