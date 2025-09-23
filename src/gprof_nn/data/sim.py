@@ -14,10 +14,11 @@ from copy import copy
 from concurrent import futures
 from dataclasses import dataclass
 from datetime import datetime
+from functools import cache
 import logging
 from pathlib import Path
 import tempfile
-from typing import Optional, Tuple
+from typing import List, Optional, Tuple
 
 import click
 from filelock import FileLock
@@ -86,6 +87,52 @@ GENERIC_HEADER = np.dtype(
         ("sensor", "a5"),
     ]
 )
+
+def add_noise(inpt: np.ndarray, vals: List[float], sigmas: List[float]) -> np.ndarray:
+    """
+    Add noise to numpy array to flatten out specific discrete values.
+
+    Args:
+        vals: A list of the values to which to add noise.
+        sigmas: The standard deviations of the noise to add to each of the values.
+
+    Returns:
+        A copy of the input array with noise added to the values given in ``vals``.
+    """
+    inpt_new = inpt.copy()
+    for val, sigma in zip(vals, sigmas):
+        mask = (inpt_new == val)
+        inpt_new[mask] += sigma * np.random.normal(size=mask.sum())
+    return np.maximum(inpt_new, 0.0)
+
+
+def rainrate_adjustment():
+    """
+    Load rainrate adjustment.
+    """
+    adjustment_file = Path(__file__).parent.parent / "files" / "GMI_GPROFV8_database_cdfadj.nc"
+    adj = xr.load_dataset(adjustment_file)
+    return adj
+
+
+def adjust_surface_precip(surface_precip: np.ndarray):
+    """
+    Apply surface_precip adjustment to remove bump from MiRS precipitation.
+
+    Args:
+        surface_precip: The surface precipitation data to adjust.
+
+    Returns:
+        A new array containing the adjusted precipitation.
+    """
+    adj = rainrate_adjustment()
+    precip_in = adj.cdf_rainrate.data
+    precip_out = adj.cdf_rainrate_adj.data
+    surface_precip_adj = np.interp(surface_precip, precip_in, precip_out)
+    mask = (precip_out[0] < surface_precip)
+    surface_precip_adj[~mask] = surface_precip[~mask]
+    return surface_precip_adj
+
 
 ###############################################################################
 # GPROF GMI Simulation files
@@ -288,7 +335,20 @@ class SimFile:
                     matched = np.zeros(n, dtype=np.float32)
 
             matched[:] = np.nan
-            matched[indices, ...] = self.data[target]
+
+            target_data = self.data[target]
+            # Apply correction for MiRS bump.
+            if target == "surface_precip":
+                ocean_mask = self.data["surface_type"] < 100
+                target_data_ocean = target_data[ocean_mask]
+                mean_prev = target_data_ocean.mean()
+                target_data_ocean = add_noise(target_data_ocean, [0.0162698070, 0.2], [0.005, 0.05])
+                target_data_ocean = adjust_surface_precip(target_data_ocean)
+                target_data[ocean_mask] = target_data_ocean
+                mean_after = target_data_ocean.mean()
+                LOGGER.info("Ocean precipitation before after adjustment: %s / %s", mean_prev, mean_after)
+
+            matched[indices, ...] = target_data
             matched[indices, ...][dists > 5e3] = np.nan
             matched = matched.reshape(shape)
 
@@ -604,6 +664,9 @@ def collocate_targets(
         targets.append("surface_precip_combined")
     sim_file.match_targets(data_pp, targets=targets)
     l1c_data = l1c_file.to_xarray_dataset()
+
+
+
 
     # Orographic enhancement for types 17 and 18.
     apply_orographic_enhancement(sensor, data_pp)
