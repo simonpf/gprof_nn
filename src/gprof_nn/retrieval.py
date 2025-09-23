@@ -259,7 +259,7 @@ def load_input_data_l1c(
     """
     sensor = L1CFile(l1c_file).sensor
 
-    if preprocessor.is_available(sensor):
+    if preprocessor.is_available(sensor) and ancillary_config not in ["none", "NONE"]:
         try:
             with TemporaryDirectory() as tmp:
                 tmp_path = Path(tmp)
@@ -288,9 +288,10 @@ def load_input_data_l1c(
                 "data."
             )
     else:
-        LOGGER.warning(
-            "No preprocessor found on the current system. Running retrieval without ancillary data."
-        )
+        if ancillary_config not in ["none", "NONE"]:
+            LOGGER.warning(
+                "No preprocessor found on the current system. Running retrieval without ancillary data."
+            )
 
     l1c_data = L1CFile(l1c_file).to_xarray_dataset()
     tbs = np.transpose(l1c_data.brightness_temperatures.data.astype(np.float32), (2, 0, 1))
