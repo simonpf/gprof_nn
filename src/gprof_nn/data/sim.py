@@ -580,8 +580,9 @@ def collocate_targets(
         era5_path: Path,
         subset: Optional["SubsetConfig"] = None,
         log_queue: Optional["Queue"] = None,
-        include_cmb_precip: bool = False
-):
+        include_cmb_precip: bool = False,
+        include_sea_ice: bool = False
+) -> None:
     """
     This method collocates retrieval input data from the preprocessor
     with retrieval targets from a sim file.
@@ -600,6 +601,8 @@ def collocate_targets(
         subset: An optional SubsetConfig object limiting that will be
             used to mask samples not to be used in the training.
         log_queue: Optional queue object to use for multi-process logging.
+        include_cmb_precip: Set to 'True' to force inclusion of non-enhanced CMB precipitation.
+        include_sea_ice: Set to 'True' to force inclusion of ERA5 precip.
 
     Return:
         An xarray.Dataset containing GMI preprocessor data collocated with
@@ -682,7 +685,7 @@ def collocate_targets(
             data_pp[var].data[snow] = np.nan
 
     # If we are dealing with GMI add precip from ERA5.
-    if sensor == sensors.GMI:
+    if sensor == sensors.GMI or include_sea_ice:
         LOGGER.debug("Adding ERA5 precip for file %s.", sim_filename)
         start_time = data_pp["scan_time"].data[0]
         end_time = data_pp["scan_time"].data[-1]
@@ -796,13 +799,13 @@ class SimulatorInput():
         for ind, obs in enumerate(input_obs.observations.data):
             obs = observations[ind]
             meta = input_observation_props[ind]
-            obs, meta = transform_observations_satformer(obs, meta)
+            #obs, meta = transform_observations_satformer(obs, meta)
             obs_in.append(torch.tensor(obs))
             meta_in.append(torch.tensor(meta))
 
-        obs_in = torch.stack(obs_in, 1)[None]
+        obs_in = torch.stack(obs_in, 0)[None]
         meta_in = torch.stack(meta_in, 1)[None]
-        obs_in_mask = torch.isnan(obs_in).all(1).all(-1).all(-1)
+        obs_in_mask = torch.isnan(obs_in).all(-1).all(-1)
 
         inpt = {
             "observations": obs_in,
@@ -884,13 +887,13 @@ class SimulatorInput():
         for ind, obs in enumerate(input_obs.observations.data):
             obs = observations[ind]
             meta = input_observation_props[ind]
-            obs, meta = transform_observations_satformer(obs, meta)
+            #obs, meta = transform_observations_satformer(obs, meta)
             obs_in.append(torch.tensor(obs))
             meta_in.append(torch.tensor(meta))
 
-        obs_in = torch.stack(obs_in, 1)[None]
+        obs_in = torch.stack(obs_in, 0)[None]
         meta_in = torch.stack(meta_in, 1)[None]
-        obs_in_mask = torch.isnan(obs_in).all(1).all(-1).all(-1)
+        obs_in_mask = torch.isnan(obs_in).all(-1).all(-1)
 
         inpt = {
             "observations": obs_in,
@@ -948,6 +951,29 @@ def simulate_tbs_satformer(
     if device is None:
         device = "cuda:0"
 
+    def tile_callback(inpt):
+
+        obs_inpt = inpt["observations"]
+        meta_inpt = inpt["input_observation_props"]
+
+        n_chans_in = obs_inpt.shape[1]
+        obs_in = []
+        meta_in = []
+        for input_ind in range(n_chans_in):
+            obs = obs_inpt[0, input_ind].numpy()
+            meta = meta_inpt[0, :, input_ind].numpy()
+            obs, meta = transform_observations_satformer(obs, meta)
+            obs_in.append(torch.tensor(obs.astype(np.float32)))
+            meta_in.append(torch.tensor(meta.astype(np.float32)))
+
+        obs_in = torch.stack(obs_in, 1)[None]
+        meta_in = torch.stack(meta_in, 1)[None]
+
+        inpt["observations"] = obs_in
+        inpt["input_observation_props"] = meta_in
+
+        return inpt
+
     lock = FileLock(f"{device}.lock")
     with lock:
         results = run_inference(
@@ -955,7 +981,8 @@ def simulate_tbs_satformer(
             input_loader,
             inference_config,
             device=device,
-            dtype="float16"
+            dtype="float16",
+            tile_callback=tile_callback
         )
         results = results[0]
 
@@ -1002,6 +1029,7 @@ def process_sim_file(
         output_path_3d: Path,
         include_cmb_precip: bool = False,
         lonlat_bounds: Optional[Tuple[float, float, float, float]] = None,
+        include_sea_ice: bool = False,
         satformer_model: Optional[Path] = None,
         device: str = "cuda:0"
 ) -> None:
@@ -1032,10 +1060,17 @@ def process_sim_file(
         sim_file,
         sensor,
         era5_path,
-        include_cmb_precip=include_cmb_precip
+        include_cmb_precip=include_cmb_precip,
+        include_sea_ice=include_sea_ice
     )
 
     vars = list(data.variables) + list(data.dims)
+
+    sim_sensor = SimFile(sim_file).sensor
+    if sim_sensor.name != sensor.name:
+        inds_in = sim_sensor.gprof_channel_indices
+        inds_out = [np.searchsorted(inds_in, ind) for ind in sensor.gprof_channel_indices]
+        data = data[{"channels": inds_out}]
 
     if sensor.name.lower() != "gmi" and satformer_model is not None:
         simulate_tbs_satformer(
@@ -1076,6 +1111,7 @@ def process_files(
         end_time: Optional[datetime] = None,
         split: Optional[str] = None,
         include_cmb_precip: bool = False,
+        include_sea_ice: bool = False,
         lonlat_bounds: Optional[Tuple[float, float, float, float]] = None,
         satformer_model: Optional[Path] = None,
         device: str = "cuda:0"
@@ -1098,8 +1134,9 @@ def process_files(
             which training scenes will be extracted.
         split: Optional string specifying which split of the data to extract.
             Must be one of 'training', 'validation', 'test'.
-        include_cmb_precip: Flag to trigger include of surface precip derived solely
+        include_cmb_precip: Flag to trigger inclusion of surface precip derived solely
              from cmb.
+        include_sea_ice: Flag to trigger inclusion of precipitation over sea ice.
         lonlat_bounds: Optional coordinate tuple ``(lon_ll, lat_ll, lon_ur, lat_ur)``
             containing the longitude and latitude coordinates of the lower-left corner
             (``lon_ll`` and ``lat_ll``) followed by the longitude and latitude coordinates
@@ -1155,6 +1192,7 @@ def process_files(
                 output_path_1d,
                 output_path_3d,
                 include_cmb_precip=include_cmb_precip,
+                include_sea_ice=include_sea_ice,
                 lonlat_bounds=lonlat_bounds,
                 satformer_model=satformer_model,
                 device=device
@@ -1202,6 +1240,12 @@ def process_files(
     help="If set, non-MIRS-augmented CMB-only precipitation will be included in the training data."
 )
 @click.option(
+    "--include_sea_ice",
+    is_flag=True,
+    default=False,
+    help="If set, force inclusion of ERA5 precipitation over sea ice."
+)
+@click.option(
     "--bounds",
     default=None,
     help=(
@@ -1238,6 +1282,7 @@ def cli(sensor: sensors.Sensor,
         end_time: Optional[np.datetime64] = None,
         n_processes: int = 1,
         include_cmb_precip: bool = False,
+        include_sea_ice: bool = True,
         bounds: Tuple[float, float, float, float] = None,
         simulator_model: Optional[Path] = None,
         device: str = "cuda:0"
@@ -1321,6 +1366,7 @@ def cli(sensor: sensors.Sensor,
         end_time=end_time,
         n_processes=n_processes,
         include_cmb_precip=include_cmb_precip,
+        include_sea_ice=include_sea_ice,
         lonlat_bounds=lonlat_bounds,
         satformer_model=simulator_model,
         device=device

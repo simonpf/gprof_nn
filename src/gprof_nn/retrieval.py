@@ -36,7 +36,7 @@ except ImportError:
 from gprof_nn.logging import enable_file_logging
 from gprof_nn import sensors
 from gprof_nn.data.l1c import L1CFile
-from gprof_nn.data.utils import UPSAMPLING_FACTORS
+from gprof_nn.data.utils import UPSAMPLING_FACTORS, adjust_precip
 from gprof_nn.config import CONFIG
 from gprof_nn.download import download_model
 from gprof_nn.data import preprocessor
@@ -605,7 +605,8 @@ class GPROFNNInputLoader:
             config: str = "3d",
             ancillary_config: str = "CLI",
             output_format: str = "NETCDF",
-            bias_correction: bool = True
+            bias_correction: bool = True,
+            cdf_adjustment: bool = True
     ):
 
         # Determine input files.
@@ -632,6 +633,7 @@ class GPROFNNInputLoader:
         self.ancillary_config = ancillary_config
         self.output_format = output_format.upper()
         self.bias_correction = bias_correction
+        self.cdf_adjustment = cdf_adjustment
 
 
     def __len__(self) -> int:
@@ -820,8 +822,13 @@ class GPROFNNInputLoader:
                 # Use compressiong to keep file size reasonable.
                 output[var].encoding = {"dtype": "float32", "zlib": True}
 
-        # Apply bias correction
+        # Apply CDF adjustment for GMI
+        if self.cdf_adjustment and sensor == sensors.GMI:
+            LOGGER.info("Applying GMI CDF ajustment")
+            for var in ["surface_precip", "surface_precip_1st_tercile", "surface_precip_2nd_tercile"]:
+                output[var].data[:] = adjust_precip(output[var].data)
 
+        # Apply bias correction
         if self.bias_correction:
 
             try:
@@ -1102,6 +1109,10 @@ def run_retrieval(
     "--no_bias_correction",
     is_flag=True
 )
+@click.option(
+    "--no_cdf_adjustment",
+    is_flag=True
+)
 def cli(
         input_path: Path,
         output_path: Optional[Path] = None,
@@ -1113,7 +1124,8 @@ def cli(
         retrieval_model: Optional[str] = None,
         no_profiles: bool = False,
         log_file: Optional[str] = None,
-        no_bias_correction: bool = False
+        no_bias_correction: bool = False,
+        no_cdf_adjustment: bool = False
 ) -> None:
     """
     Run the GPROF-NN retrieval on a single input file or a folder of input files located at INPUT_PATH and write the results to the current working directory.
@@ -1127,7 +1139,8 @@ def cli(
             config="3d",
             ancillary_config=ancillary_config,
             output_format=output_format,
-            bias_correction=not no_bias_correction
+            bias_correction=not no_bias_correction,
+            cdf_ajustment=no_cdf_adjustment,
         )
         sensor = input_loader.infer_sensor()
         model = get_model(sensor)

@@ -625,7 +625,7 @@ def get_preprocessor_executable(sensor: "gprof_nn.sensors.Sensor") -> Union[str,
 # The default preprocessor settings for CSU computers.
 PREPROCESSOR_SETTINGS = {
     "prodtype": "CLIMATOLOGY",
-    "prepdir": "/qdata2/archive/ERA5/",
+    "prepdir": "/edata2/archive/ERA5/",
     "ancdir": "/qdata1/pbrown/gpm/ppancillary/",
     "ingestdir": "/qdata1/pbrown/gpm/ppingest/",
 }

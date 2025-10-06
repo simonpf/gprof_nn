@@ -211,13 +211,23 @@ def calculate_footprints_xtrack(
         of the hypothetic cross-track sensor,  wl
     """
     n_scans_gmi, n_pixels_gmi = lons_fp_gmi.shape
-    central_pixel = n_pixels_gmi // 2 - 1
 
     scan_lons = []
     scan_lats = []
     sat_track = []
 
     eia = np.random.uniform(*eia_range)
+    va = incidence_angle_to_viewing_angle(eia, altitude)
+    va_range = (
+        incidence_angle_to_viewing_angle(eia_range[0], altitude),
+        incidence_angle_to_viewing_angle(eia_range[1], altitude),
+    )
+
+    beta = eia - va
+    R = 6.371e6
+    l_los = R * np.sin(np.deg2rad(beta)) / np.sin(np.deg2rad(va))
+
+    central_pixel = int((n_pixels_gmi - 1) * (1.0 - (eia - eia_range[0]) / (eia_range[1] - eia_range[0])))
 
     for scan_ind in range(n_scans_gmi):
 
@@ -243,12 +253,14 @@ def calculate_footprints_xtrack(
         ])
         sat_track.append(sat_pos)
         sat_pos = lla_to_ecef(sat_pos)
-        sat_pos = curr_pos + rotate_around(sat_pos - curr_pos, flight_dir, eia)
+        sat_pos = curr_pos + l_los / altitude * rotate_around(sat_pos - curr_pos, flight_dir, eia)
 
         los_center = curr_pos - sat_pos
         los_center /= np.linalg.norm(los_center, axis=-1)
 
-        degs = vai * np.arange(-n_pixels // 2, n_pixels // 2)
+        lim_right = va_range[1] - vai * n_pixels
+        va_left = min(va, lim_right)
+        degs = va_left + vai * np.arange(n_pixels) - va
         all_los = [rotate_around(los_center, flight_dir, deg) for deg in degs]
 
         footprints = [calculate_surface_intersection(sat_pos, los) for los in all_los]
@@ -312,11 +324,22 @@ def calculate_footprints_conical(
         of the hypothetic cross-track sensor,  wl
     """
     n_scans_gmi, n_pixels_gmi = lons_fp_gmi.shape
-    central_pixel = n_pixels_gmi // 2
 
     scan_lons = []
     scan_lats = []
     sat_track = []
+
+    va = incidence_angle_to_viewing_angle(eia, altitude)
+    beta = eia - va
+    R = 6.371e6
+    l_los = R * np.sin(np.deg2rad(beta)) / np.sin(np.deg2rad(va))
+        #
+    scan_angle = np.random.uniform(*scan_angle_range)
+
+    #central_pixel = int(
+    #    (n_pixels_gmi - 1) * (scan_angle - scan_angle_range[0]) / (scan_angle_range[1] - scan_angle_range[0])
+    #)
+    central_pixel = n_scans_gmi // 2
 
     for scan_ind in range(n_scans_gmi):
 
@@ -348,18 +371,15 @@ def calculate_footprints_conical(
         sat_pos = lla_to_ecef(sat_pos)
 
         radius = 6371e3
-        rot_ang = eia - np.rad2deg(np.arcsin(radius / (radius + altitude) * np.sin(np.pi - np.deg2rad(eia))))
-        sat_pos = rotate_around(sat_pos, x_track, rot_ang)
-
-        offset = sat_pos - curr_pos
-        scan_angle = np.random.uniform(*scan_angle_range)
-        sat_pos = rotate_around(offset, up, scan_angle)
-        sat_pos = curr_pos + offset
+        sat_pos = curr_pos + l_los / altitude * rotate_around(sat_pos - curr_pos, x_track, -eia)
+        sat_pos = curr_pos + rotate_around(sat_pos - curr_pos, up, scan_angle)
 
         los_center = curr_pos - sat_pos
         los_center /= np.linalg.norm(los_center, axis=-1)
 
-        degs = sai * np.arange(-n_pixels // 2, n_pixels // 2)
+
+        degs = sai * np.arange(n_pixels)
+
         sub_sensor = ecef_to_lla(sat_pos)
         sub_sensor[..., 2] = 0.0
         sub_sensor_up = sub_sensor.copy()

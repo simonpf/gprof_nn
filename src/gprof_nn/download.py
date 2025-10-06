@@ -60,6 +60,8 @@ def update_models() -> Path:
             sensor_name = value.sensor_name.split("_")[0]
             sensor_names.append(sensor_name)
 
+    sensor_names = list(set(sensor_names))
+
     for sensor_name in sensor_names:
         model = f"gprof_nn_3d_{sensor_name.lower()}.pt"
         model_path = CONFIG.data.model_path

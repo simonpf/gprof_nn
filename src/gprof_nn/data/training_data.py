@@ -42,6 +42,7 @@ from gprof_nn.data.utils import (
     upsample_scans
 )
 from gprof_nn.utils import expand_tbs
+from gprof_nn.geometry import calculate_footprints_conical
 from gprof_nn.definitions import (
     ANCILLARY_VARIABLES,
     ANCILLARY_CFGS,
@@ -554,6 +555,7 @@ def load_tbs_1d_xtrack_sim(
         tbs_full = np.nan * np.zeros((tbs.shape[0], 15), dtype=np.float32)
         tbs_full[:, sensor.gprof_channel_indices] = tbs
         biases = training_data.brightness_temperature_biases.data
+        print("BIASES :: ", biases.min(), biases.max())
         biases_full = np.nan * np.zeros((tbs.shape[0], 15), dtype=np.float32)
         biases_full[:, sensor.gprof_channel_indices] = biases
         biases = (
@@ -1444,15 +1446,36 @@ def load_training_data_3d_conical_sim(
     width = 64
     height = 128
 
-    lats = scene.latitude.data
-    lons = scene.longitude.data
-    coords = get_transformation_coordinates(
-        lats, lons, sensor.viewing_geometry, width, height, p_x_i, p_x_o, p_y
-    )
-    for var in ANCILLARY_VARIABLES:
-        scene[var] = scene[var].astype(np.float32)
+    lons_fp_gmi = scene.longitude.data
+    lats_fp_gmi = scene.latitude.data
 
-    scene = remap_scene(scene, coords, variables).transpose("levels", "scans", "pixels", ...)
+    remap_coords = calculate_footprints_conical(
+        lons_fp_gmi,
+        lats_fp_gmi,
+        sensor.viewing_geometry.altitude,
+        55.0,
+        (-65, 65,),
+        130 / 486,
+        64,
+        128,
+        10e3
+    )
+
+    from pansat.utils import resample_data
+    from pyresample import SwathDefinition
+    swath = SwathDefinition(remap_coords.longitude.data, remap_coords.latitude.data)
+    scene = resample_data(scene, swath, radius_of_influence=15e3, new_dims=("scans", "pixels"))
+
+    #lats = scene.latitude.data
+    #lons = scene.longitude.data
+    #coords = get_transformation_coordinates(
+    #    lats, lons, sensor.viewing_geometry, width, height, p_x_i, p_x_o, p_y
+    #)
+    #for var in ANCILLARY_VARIABLES:
+    #    scene[var] = scene[var].astype(np.float32)
+
+    #scene = remap_scene(scene, coords, variables).transpose("levels", "scans", "pixels", ...)
+    scene = scene.transpose("levels", "scans", "pixels", ...)
 
     # Calculate brightness temperatures
     tbs_sim = scene.satformer_tbs_rand.data

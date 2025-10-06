@@ -6,6 +6,7 @@ gprof_nn.data.utils
 Functions that are shared across multiple sub modules of
 the ``gprof_nn.data`` module.
 """
+from functools import cache
 import os
 from pathlib import Path
 import re
@@ -46,6 +47,9 @@ try:
         l1c_f13_ssmi,
         l1c_f14_ssmi,
         l1c_f15_ssmi,
+        l1c_tropicspf_tms,
+        l1c_tropics03_tms,
+        l1c_tropics06_tms,
         merged_ir,
     )
     from pyresample.geometry import SwathDefinition
@@ -66,8 +70,9 @@ try:
         "ssmi": (l1c_f14_ssmi, l1c_f15_ssmi,),
         "ssmis": (l1c_xcal2021v_f16_ssmis_v07a, l1c_xcal2021v_f17_ssmis_v07a, l1c_xcal2021v_f18_ssmis_v07a),
         "tmi": (l1c_trmm_tmi,),
+        "tms": (l1c_tropicspf_tms, l1c_tropics03_tms, l1c_tropics06_tms,),
     }
-except ImportError:
+except ImportError as err:
     pass
 
 
@@ -1067,3 +1072,34 @@ def calculate_obs_properties(
         "meta_data": (("channels", "meta", "scans", "pixels"), meta_data),
         "scan_time": (("scans", "pixels"), swath_data_r.scan_time.data)
     })
+
+
+@cache
+def cdf_adjustment_factors() -> xr.Dataset:
+    """
+    Load CDF adjustment factors.
+    """
+    return xr.load_dataset(Path(__file__).parent.parent / "files" / "GMI_cdfadj.nc")
+
+def adjust_precip(precip: np.ndarray) -> np.ndarray:
+    """
+    Adjust precipitation to remove MiRS bump.
+
+    This function applies a CDF adjustment to raw retrieved precipitation rates to remove the 0.2 mm/hr
+    bump caused by the MiRS cutoff.
+
+    Args:
+        precip: A numpy.ndarray containing raw retrieved precipitation rates.
+
+    Return:
+        A new array containing corrected precipitation rates.
+    """
+    adjustment_factors = cdf_adjustment_factors()
+    x = adjustment_factors.cdf_rainrate.data
+    x_adj = adjustment_factors.cdf_rainrate_adj.data
+    mask = (x.min() < precip) * (precip < x.max())
+    print(mask.sum())
+    precip_adj = np.interp(precip[mask], x, x_adj)
+    precip_new = precip.copy()
+    precip_new[mask] = precip_adj
+    return precip_new

@@ -160,8 +160,6 @@ def extract_pretraining_scenes(
             "ir_observations": {"dtype": "uint16", "zlib": True, "scale_factor": 0.01, "_FillValue": uint16_max},
         }
 
-        for var in training_data:
-            print(var, training_data[var].dtype)
 
         scene_ind = 0
         for scene in scenes:
@@ -588,7 +586,12 @@ class SimulatorInput():
     def load_input_data(self, target_granule):
 
         input_granule = self.input_granule
-        input_data = run_preprocessor(input_granule)
+        settings = {
+            "prodtype": "STANDARD",
+            "prepdir": "/qdata1/pbrown/gpm/modelprep/GANALV7/"
+        }
+        input_data = run_preprocessor(input_granule, settings=settings)
+        #input_data = run_preprocessor(input_granule, settings=None)
         input_data = mask_invalid_values(input_data)
 
         upsampling_factors = UPSAMPLING_FACTORS[self.input_sensor.name.lower()]
@@ -599,7 +602,6 @@ class SimulatorInput():
         rof_targ = RADIUS_OF_INFLUENCE[self.target_sensor.name.lower()]
         input_obs = calculate_obs_properties(input_data, input_granule, radius_of_influence=rof_in)
         target_obs = calculate_obs_properties(input_data, target_granule, radius_of_influence=rof_targ)
-
 
         data = xr.Dataset({
             "input_observations": input_obs.observations.rename(channels="input_channels"),
@@ -634,7 +636,7 @@ class SimulatorInput():
         for input_ind in range(n_chans_in):
             obs = data.input_observations.data[input_ind]
             meta = data.input_meta_data.data[input_ind]
-            obs, meta = transform_observations_satformer(obs, meta)
+            #obs, meta = transform_observations_satformer(obs, meta)
             obs_in.append(torch.tensor(obs.astype(np.float32)))
             meta_in.append(torch.tensor(meta.astype(np.float32)))
 
@@ -646,7 +648,7 @@ class SimulatorInput():
             meta_out.append(torch.tensor(data.target_meta_data.data[output_ind]))
 
         inpt = {
-            "observations": torch.stack(obs_in, 1)[None],
+            "observations": torch.stack(obs_in, 0)[None],
             "input_observation_props": torch.stack(meta_in, 1)[None],
             "output_observation_props": torch.stack(meta_out, 1)[None],
         }
@@ -663,7 +665,7 @@ class SimulatorInput():
             inpt[anc_var] = anc_data[None]
             inpt[anc_var + "_mask"] = anc_mask[None]
 
-        mask = torch.isnan(inpt["observations"]).all(0).all(-1).all(-1)
+        mask = torch.isnan(inpt["observations"]).all(-1).all(-1)
         inpt["input_observation_mask"] = mask
 
         return inpt, {}, "results.nc"
@@ -708,11 +710,35 @@ def simulate_tbs(
     if device is None:
         device = "cuda:0"
 
+    def tile_callback(inpt):
+
+        obs_inpt = inpt["observations"]
+        meta_inpt = inpt["input_observation_props"]
+
+        n_chans_in = obs_inpt.shape[1]
+        obs_in = []
+        meta_in = []
+        for input_ind in range(n_chans_in):
+            obs = obs_inpt[0, input_ind].numpy()
+            meta = meta_inpt[0, :, input_ind].numpy()
+            obs, meta = transform_observations_satformer(obs, meta)
+            obs_in.append(torch.tensor(obs.astype(np.float32)))
+            meta_in.append(torch.tensor(meta.astype(np.float32)))
+
+        obs_in = torch.stack(obs_in, 1)[None]
+        meta_in = torch.stack(meta_in, 1)[None]
+
+        inpt["observations"] = obs_in
+        inpt["input_observation_props"] = meta_in
+
+        return inpt
+
     results = run_inference(
         model,
         input_loader,
         inference_config,
         device=device,
+        tile_callback=tile_callback
     )
     results = results[0]
     return results
