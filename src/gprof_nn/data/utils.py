@@ -1098,7 +1098,6 @@ def adjust_precip(precip: np.ndarray) -> np.ndarray:
     x = adjustment_factors.cdf_rainrate.data
     x_adj = adjustment_factors.cdf_rainrate_adj.data
     mask = (x.min() < precip) * (precip < x.max())
-    print(mask.sum())
     precip_adj = np.interp(precip[mask], x, x_adj)
     precip_new = precip.copy()
     precip_new[mask] = precip_adj

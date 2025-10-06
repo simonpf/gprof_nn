@@ -1140,7 +1140,7 @@ def cli(
             ancillary_config=ancillary_config,
             output_format=output_format,
             bias_correction=not no_bias_correction,
-            cdf_ajustment=no_cdf_adjustment,
+            cdf_adjustment=not no_cdf_adjustment,
         )
         sensor = input_loader.infer_sensor()
         model = get_model(sensor)
