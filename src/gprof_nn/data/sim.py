@@ -106,34 +106,6 @@ def add_noise(inpt: np.ndarray, vals: List[float], sigmas: List[float]) -> np.nd
     return np.maximum(inpt_new, 0.0)
 
 
-def rainrate_adjustment():
-    """
-    Load rainrate adjustment.
-    """
-    adjustment_file = Path(__file__).parent.parent / "files" / "GMI_GPROFV8_database_cdfadj.nc"
-    adj = xr.load_dataset(adjustment_file)
-    return adj
-
-
-def adjust_surface_precip(surface_precip: np.ndarray):
-    """
-    Apply surface_precip adjustment to remove bump from MiRS precipitation.
-
-    Args:
-        surface_precip: The surface precipitation data to adjust.
-
-    Returns:
-        A new array containing the adjusted precipitation.
-    """
-    adj = rainrate_adjustment()
-    precip_in = adj.cdf_rainrate.data
-    precip_out = adj.cdf_rainrate_adj.data
-    surface_precip_adj = np.interp(surface_precip, precip_in, precip_out)
-    mask = (precip_out[0] < surface_precip)
-    surface_precip_adj[~mask] = surface_precip[~mask]
-    return surface_precip_adj
-
-
 ###############################################################################
 # GPROF GMI Simulation files
 ###############################################################################
@@ -302,7 +274,7 @@ class SimFile:
             matched[:] = np.nan
 
             biases = self.data["tbs_bias"]
-            matched[indices, ...] = biases[..., :n_chans]
+            matched[indices, ...] = biases[..., chan_inds]
 
             matched[indices, ...][dists > 10e3] = np.nan
             matched = matched.reshape(shape)
@@ -337,17 +309,6 @@ class SimFile:
             matched[:] = np.nan
 
             target_data = self.data[target]
-            # Apply correction for MiRS bump.
-            if target == "surface_precip":
-                ocean_mask = self.data["surface_type"] < 100
-                target_data_ocean = target_data[ocean_mask]
-                mean_prev = target_data_ocean.mean()
-                target_data_ocean = add_noise(target_data_ocean, [0.0162698070, 0.2], [0.005, 0.05])
-                target_data_ocean = adjust_surface_precip(target_data_ocean)
-                target_data[ocean_mask] = target_data_ocean
-                mean_after = target_data_ocean.mean()
-                LOGGER.info("Ocean precipitation before after adjustment: %s / %s", mean_prev, mean_after)
-
             matched[indices, ...] = target_data
             matched[indices, ...][dists > 5e3] = np.nan
             matched = matched.reshape(shape)
