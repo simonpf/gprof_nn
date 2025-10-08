@@ -13,7 +13,6 @@ scheduler = "CosineAnnealingLR"
 scheduler_args = {{T_max = 40}}
 metrics = ["CorrelationCoef", "MSE", "Bias", "PlotSamples"]
 n_dataloader_workers = 6
-load_weights= "satformer.ckpt"
 
 [stage_2]
 dataset_module = "gprof_nn.data.training_data"

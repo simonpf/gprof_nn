@@ -10,6 +10,7 @@ optimizer_args = {{lr = 5e-4}}
 scheduler = "CosineAnnealingLR"
 scheduler_args = {{T_max = 20}}
 metrics = ["CorrelationCoef", "MSE", "Bias", "PlotSamples", "PlotMeans", "Histogram"]
+n_data_loader_workers = 8
 
 [stage_2]
 dataset_module = "gprof_nn.data.training_data"
@@ -23,6 +24,7 @@ optimizer_args = {{lr = 5e-4}}
 scheduler = "CosineAnnealingLR"
 scheduler_args = {{T_max = 40}}
 metrics = ["CorrelationCoef", "MSE", "Bias", "PlotSamples", "PlotMeans", "Histogram"]
+n_data_loader_workers = 8
 
 [stage_3]
 dataset_module = "gprof_nn.data.training_data"
@@ -37,3 +39,4 @@ scheduler = "CosineAnnealingLR"
 scheduler_args = {{T_max = 80}}
 metrics = ["CorrelationCoef", "MSE", "Bias", "PlotSamples", "PlotMeans", "Histogram"]
 reuse_optimizer = true
+n_data_loader_workers = 8
