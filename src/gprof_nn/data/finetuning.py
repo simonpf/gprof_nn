@@ -150,7 +150,11 @@ def process_match(
             all_results = get_retrieval_results(retrieval_path)
             retrieval_results = xr.load_dataset(all_results[orbit_num])
 
-        retrieval_results = retrieval_results.rename(latent_heating="latent_heat")[
+        retrieval_results = retrieval_results.drop_vars(["surface_precip"])
+        retrieval_results = retrieval_results.rename(
+            latent_heating="latent_heat",
+            surface_precip_rand="surface_precip"
+        )[
             ALL_TARGETS + ["scan_time", "longitude", "latitude"]
         ]
 
@@ -180,7 +184,6 @@ def process_match(
         time_diff.to_netcdf("time_diff.nc")
         input_data.to_netcdf("input.nc")
         diff = time_diff.data.astype("timedelta64[m]")
-        print("TIME DIFFS :: ", np.unique(diff))
 
         valid = (np.abs(time_diff) < np.timedelta64(15, "m")) * np.isfinite(input_data.surface_precip)
         valid = valid.data.astype(np.float32)
