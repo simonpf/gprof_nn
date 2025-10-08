@@ -532,6 +532,8 @@ def load_tbs_1d_xtrack_sim(
         angles: A np.ndarray cotaining the viewing angle of the tbs to load.
         sensor: The sensor from which the TBs are loaded
         targets: A list of the targets to load along with the brightness temperatures.
+        satformer: Set to True to load Satformer Tbs instead of the legacy GPROF V7
+            simulator.
 
     Return:
         A tuple containing the loaded brightness temperatures and a dictionary
@@ -555,7 +557,6 @@ def load_tbs_1d_xtrack_sim(
         tbs_full = np.nan * np.zeros((tbs.shape[0], 15), dtype=np.float32)
         tbs_full[:, sensor.gprof_channel_indices] = tbs
         biases = training_data.brightness_temperature_biases.data
-        print("BIASES :: ", biases.min(), biases.max())
         biases_full = np.nan * np.zeros((tbs.shape[0], 15), dtype=np.float32)
         biases_full[:, sensor.gprof_channel_indices] = biases
         biases = (
@@ -1453,28 +1454,19 @@ def load_training_data_3d_conical_sim(
         lons_fp_gmi,
         lats_fp_gmi,
         sensor.viewing_geometry.altitude,
-        55.0,
-        (-65, 65,),
-        130 / 486,
+        sensor.viewing_geometry.earth_incidence_angle,
+        (-0.5 * sensor.viewing_geometry.scan_range, 0.5 * sensor.viewing_geometry.scan_range),
+        sensor.viewing_geometry.scan_range / sensor.viewing_geometry.pixels_per_scan,
         64,
         128,
-        10e3
+        sensor.viewing_geometry.scan_offset,
+        subsample=10
     )
 
     from pansat.utils import resample_data
     from pyresample import SwathDefinition
     swath = SwathDefinition(remap_coords.longitude.data, remap_coords.latitude.data)
     scene = resample_data(scene, swath, radius_of_influence=15e3, new_dims=("scans", "pixels"))
-
-    #lats = scene.latitude.data
-    #lons = scene.longitude.data
-    #coords = get_transformation_coordinates(
-    #    lats, lons, sensor.viewing_geometry, width, height, p_x_i, p_x_o, p_y
-    #)
-    #for var in ANCILLARY_VARIABLES:
-    #    scene[var] = scene[var].astype(np.float32)
-
-    #scene = remap_scene(scene, coords, variables).transpose("levels", "scans", "pixels", ...)
     scene = scene.transpose("levels", "scans", "pixels", ...)
 
     # Calculate brightness temperatures
