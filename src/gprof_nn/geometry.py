@@ -303,7 +303,8 @@ def calculate_footprints_conical(
     sai: float,
     n_pixels: int,
     n_scans: int,
-    scan_dist: float
+    scan_dist: float,
+    subsample: int = 1
 ):
     """
     Calculate footprints for a conical scanner centered on the GMI swath.
@@ -339,9 +340,9 @@ def calculate_footprints_conical(
     #central_pixel = int(
     #    (n_pixels_gmi - 1) * (scan_angle - scan_angle_range[0]) / (scan_angle_range[1] - scan_angle_range[0])
     #)
-    central_pixel = n_scans_gmi // 2
+    central_pixel = n_scans_gmi  // 2
 
-    for scan_ind in range(n_scans_gmi):
+    for scan_ind in range(0, n_scans_gmi, subsample):
 
         center_lon = lons_fp_gmi[scan_ind, central_pixel]
         center_lat = lats_fp_gmi[scan_ind, central_pixel]
@@ -396,8 +397,8 @@ def calculate_footprints_conical(
     along_track_dist = great_circle_distance(
         lons_fp_gmi[0, central_pixel],
         lats_fp_gmi[0, central_pixel],
-        lons_fp_gmi[:, central_pixel],
-        lats_fp_gmi[:, central_pixel],
+        lons_fp_gmi[::subsample, central_pixel],
+        lats_fp_gmi[::subsample, central_pixel],
     )
     center_dist = along_track_dist[along_track_dist.size // 2]
     target_dists = np.arange(-n_scans // 2, n_scans // 2) * scan_dist + center_dist
