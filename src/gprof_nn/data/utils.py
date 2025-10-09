@@ -7,6 +7,7 @@ Functions that are shared across multiple sub modules of
 the ``gprof_nn.data`` module.
 """
 from functools import cache
+import logging
 import os
 from pathlib import Path
 import re
@@ -22,6 +23,9 @@ from gprof_nn.augmentation import extract_domain
 from gprof_nn.definitions import LIMITS, ANCILLARY_VARIABLES
 from gprof_nn.utils import apply_limits
 from gprof_nn.data import preprocessor
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 try:
@@ -73,7 +77,9 @@ try:
         "tms": (l1c_tropicspf_tms, l1c_tropics03_tms, l1c_tropics06_tms,),
     }
 except ImportError as err:
-    pass
+    LOGGER.exception(
+        "Encountered the following error when importing pansat products."
+    )
 
 
 UPSAMPLING_FACTORS = {
