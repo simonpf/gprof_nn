@@ -591,10 +591,20 @@ class PreprocessorFile:
         out_data["most_likely_precip"] = data["most_likely_precip"]
         out_data["surface_precip_1st_tercile"] = data["surface_precip_1st_tercile"]
         out_data["surface_precip_2nd_tercile"] = data["surface_precip_2nd_tercile"]
-        out_data["rain_water_content"] = data["rain_water_content"]
-        out_data["cloud_water_content"] = data["cloud_water_content"]
-        out_data["snow_water_content"] = data["snow_water_content"]
-        out_data["latent_heating"] = data["latent_heating"]
+
+
+        profiles = [
+            "snow_water_content",
+            "rain_water_content",
+            "cloud_water_content",
+            "latent_heating"
+        ]
+        for profile in profiles:
+            if profile in data:
+                out_data[profile] = data[profile]
+            else:
+                out_data[profile] = MISSING
+
 
         out_data.tofile(file)
 
