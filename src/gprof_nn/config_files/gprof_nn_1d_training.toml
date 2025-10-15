@@ -1,8 +1,8 @@
 [stage_1]
 dataset_module = "gprof_nn.data.training_data"
 training_dataset = "GPROFNN1DDataset"
-training_dataset_args = {{path="{training_data_path}"}}
-validation_dataset_args = {{path="{validation_data_path}"}}
+training_dataset_args = {{paths={training_data_path}}}
+validation_dataset_args = {{paths={validation_data_path}}}
 n_epochs = 20
 batch_size = 0
 optimizer = "AdamW"
@@ -15,8 +15,8 @@ precision = "bfloat16"
 [stage_2]
 dataset_module = "gprof_nn.data.training_data"
 training_dataset = "GPROFNN1DDataset"
-training_dataset_args = {{path="{training_data_path}"}}
-validation_dataset_args = {{path="{validation_data_path}"}}
+training_dataset_args = {{paths={training_data_path}}}
+validation_dataset_args = {{paths={validation_data_path}}}
 n_epochs = 20
 batch_size = 0
 optimizer = "AdamW"
@@ -30,8 +30,8 @@ precision = "bfloat16"
 [stage_3]
 dataset_module = "gprof_nn.data.training_data"
 training_dataset = "GPROFNN1DDataset"
-training_dataset_args = {{path="{training_data_path}"}}
-validation_dataset_args = {{path="{validation_data_path}"}}
+training_dataset_args = {{paths={training_data_path}}}
+validation_dataset_args = {{paths={validation_data_path}}}
 n_epochs = 20
 batch_size = 0
 optimizer = "AdamW"
