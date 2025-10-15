@@ -668,7 +668,43 @@ class SimulatorInput():
         mask = torch.isnan(inpt["observations"]).all(-1).all(-1)
         inpt["input_observation_mask"] = mask
 
-        return inpt, {}, "results.nc"
+        aux = {
+            "latitude": input_data.latitude.data,
+            "longitude": input_data.longitude.data,
+        }
+
+        return inpt, aux, "results.nc"
+
+    def finalize_results(
+            self,
+            results: Dict[str, torch.Tensor],
+            aux: Dict[str, np.ndarray],
+            filename: str,
+            output_path: Path,
+    ) -> Tuple[xr.Dataset, str]:
+        """
+        Combines retrieval results with auxiliary data into an xarray.Dataset
+        result files. This method is called as part of the inference method
+        provided by pytorch_retrieve.
+
+        Args:
+            results: A dictionary mapping retrieval output names to tensor containing
+                corresponding results.
+            aux: A dictionary containing auxiliary data passed along from the
+                retrieval input.
+            filename: The filename of the input file.
+
+        Return:
+            A xarray.Dataset ``results`` containing the retrieval results.
+        """
+        results = xr.Dataset({
+            name: (("scans", "pixels", "channels"), np.stack(data, -1).squeeze()) for name, data in results.items()
+        })
+        lons = aux["longitude"]
+        lats = aux["latitude"]
+        results["latitude"] = (("scans", "pixels"), lats.squeeze())
+        results["longitude"] = (("scans", "pixels"), lons.squeeze())
+        return results
 
 
 def simulate_tbs(
@@ -679,7 +715,23 @@ def simulate_tbs(
         target_granules,
         device: Optional[str] = None
 
-):
+) -> xr.Dataset:
+    """
+    Run Satformer on sensor matchup.
+
+    This helper function runs a given Satformer model on a matchup between to sensor simulating the
+    observations of the target sensor using the observations from the input sensor.
+
+    Args:
+        model_path: Path pointing to the trained satformer model to use to simulate the observations.
+        input_sensor: A gprof_nn sensor object representing the input sensor.
+        input_granule: The matched granule of the input sensor data.
+        target_sensor: A gprof_nn sensor object representing the target sensor.
+        device: Optionla string defining the device to run the simulation on.
+
+    Rerturn:
+        A xarray.Dataset containing the simulation results.
+    """
     input_loader = SimulatorInput(input_sensor, input_granule, target_sensor, target_granules)
     model = load_model(model_path).eval()
 
@@ -744,229 +796,3 @@ def simulate_tbs(
     return results
 
 
-class GPROFNNHRInputLoader:
-    """
-    Inputloader for the experimental GPROF-NN HR retrieval.
-    """
-    def __init__(
-            self,
-            path: str | Path | List[str | Path],
-    ):
-        """
-        Args:
-            path: A path object pointing to a specific input file or a folder
-                hierarchy containing multiple input files.
-        """
-        # Determine input files.
-        if isinstance(path, list):
-            self.input_files = [Path(fle) for fle in path]
-        else:
-            path = Path(path)
-            if path.is_dir():
-                input_files = sorted(list(path.glob("**/*.HDF5")))
-                self.input_files = input_files
-            else:
-                self.input_files = [path]
-
-
-    def __len__(self) -> int:
-        """
-        The number of files to process.
-        """
-        return len(self.input_files)
-
-
-    def load_input_data(self, path: Path) -> Dict[str, torch.Tensor]:
-        """
-        Load retrieval input data.
-
-        Args:
-            path: A path object pointing to the file from which to load the input data.
-
-        Return:
-            A dictionary mapping the names of the retrieval inputs ('brightness_temperatures',
-            'earth_incidence_angles', 'ancillary_data') for tensor containing the corresponding data.
-        """
-
-        l1c_file = L1CFile(path)
-        sensor = l1c_file.sensor
-        data_pp = run_preprocessor(path, sensor)
-
-        upsampling_factors = UPSAMPLING_FACTORS[sensor.name.lower()]
-        input_data = upsample_data(data_pp, upsampling_factors)
-        input_data = add_cpcir_data(input_data)
-
-        rof_in = RADIUS_OF_INFLUENCE[sensor.name.lower()]
-        rec = FileRecord(path, product=PANSAT_PRODUCTS[sensor.name.lower()][0])
-        granule = Granule(rec, rec.temporal_coverage, None)
-        rof_in = RADIUS_OF_INFLUENCE["gmi"]
-        input_obs = calculate_obs_properties(input_data, granule, radius_of_influence=rof_in)
-        observations = torch.tensor(input_obs.observations.data)
-        input_observation_props = torch.tensor(input_obs.meta_data.data).transpose(0, 1)[None]
-
-        obs_in = []
-        for ind, obs in enumerate(input_obs.observations.data):
-            valid = obs >= 0.0
-            obs[..., ~valid] = np.nan
-            mean = np.mean(obs[valid])
-            std = np.std(obs[valid])
-            obs_n = (obs - mean) / std
-            obs = np.stack([
-                np.ones_like(obs_n) * mean,
-                np.ones_like(obs_n) * std,
-                obs_n
-            ])
-            obs_in.append(torch.tensor(obs))
-
-            input_observation_props[..., ind, torch.tensor(~valid)] = np.nan
-
-        obs_in = torch.stack(obs_in, 1)[None]
-        obs_in_mask = torch.isnan(obs_in).all(1).all(-1).all(-1)
-
-        inpt = {
-            "observations": obs_in,
-            "input_observation_props": input_observation_props,
-            "input_observation_mask": obs_in_mask,
-        }
-
-        anc_vars = [
-            "two_meter_temperature",
-            "total_column_water_vapor",
-            "leaf_area_index",
-            "land_fraction",
-            "ice_fraction",
-            "elevation",
-            "ir_observations",
-        ]
-        for anc_var in anc_vars:
-            anc_data = torch.tensor(input_data[anc_var].data).to(dtype=torch.float32)
-            if anc_data.dim() < 3:
-                anc_data = anc_data[None]
-            anc_data = anc_data[None, :, None]
-            anc_mask = torch.isnan(anc_data).all()[None, None]
-            inpt[anc_var] = anc_data
-            inpt[anc_var + "_mask"] = anc_mask
-
-
-
-        aux = {
-            "scan_time": input_data.scan_time.data,
-            "longitude": input_data.longitude.data,
-            "latitude": input_data.latitude.data,
-            "total_column_water_vapor": input_data.total_column_water_vapor.data,
-            "two_meter_temperature": input_data.two_meter_temperature.data,
-            #"convective_fraction": input_data.convective_precipitation.data,
-            #"moisture_convergence": input_data.moisture_convergence.data,
-            "leaf_area_index": input_data.leaf_area_index.data,
-            #"snow_depth": input_data.snow_depth.data,
-            #"orographic_wind": input_data.orographic_wind.data,
-            #"wind_speed_10m": input_data["10m_wind"].data,
-            #"mountain_index": input_data.mountain_type.data,
-            "land_fraction": input_data.land_fraction.data,
-            "ice_fraction": input_data.ice_fraction.data,
-            "elevation": input_data.elevation.data
-        }
-        return inpt, aux
-
-
-    def __getitem__(self, ind: int):
-        input_data, aux = self.load_input_data(self.input_files[ind])
-        return input_data, aux, self.input_files[ind].name
-
-    def __iter__(self):
-        for path in self.input_files:
-            input_data, aux = self.load_input_data(path)
-            yield input_data, aux, path.name
-
-    def finalize_results(
-            self,
-            results: Dict[str, torch.Tensor],
-            aux: Dict[str, np.ndarray],
-            filename: str
-    ) -> Tuple[xr.Dataset, str]:
-        """
-        Combines retrieval results with auxiliary data into orbit-based retrieval
-        result files. This method does is called as part of the inference method
-        provided by pytorch_retrieve.
-
-        Args:
-            results: A dictionary mapping retrieval output names to tensor containing
-                corresponding results.
-            aux: A dictionary containing auxiliary data passed along from the
-                retrieval input.
-            filename: The filename of the input file.
-
-        Return:
-            A tuple ``(results, filename)`` containing the retrieval results as
-            xarray.Dataset in ``results`` and the filename to use to store the
-            results in ``filename``.
-        """
-        lons = aux["longitude"]
-        lats = aux["latitude"]
-        shape = lons.shape
-
-        if lons.ndim == 2:
-            dims = ("scans", "pixels", "levels")
-        else:
-            dims = ("samples", "levels")
-
-        output = xr.Dataset()
-        for name, data in aux.items():
-            data = data.squeeze()
-            if data.ndim > 2 and data.shape[-1] != 28:
-                data = data.transpose((1, 2, 0))
-            dims_v = dims[:data.ndim]
-
-            output[name] = (dims_v, data)
-
-        if lons.ndim == 2:
-            dims = ("scans", "pixels", "levels")
-        else:
-            dims = ("samples", "levels")
-        for var, tensor in results.items():
-
-            # Discard dummy dimensions.
-            tensor = tensor[0].squeeze()
-
-
-            if var == "surface_precip_terciles":
-                tensor = torch.permute(tensor, (1, 2, 0))
-                if lons.ndim < 2:
-                    dims_v = ("samples",)
-                else:
-                    dims_v = ("scans", "pixels")
-                output["surface_precip_1st_tercile"] = (
-                    dims_v, tensor[..., 0].numpy()
-                )
-                output["surface_precip_1st_tercile"].encoding = {"dtype": "float32", "zlib": True}
-                output["surface_precip_2nd_tercile"] = (
-                    dims_v,
-                    tensor[..., 1].numpy()
-                )
-                output["surface_precip_2nd_tercile"].encoding = {"dtype": "float32", "zlib": True}
-
-            else:
-                if tensor.dim() > 2:
-                    tensor = tensor.squeeze()
-                    tensor = torch.permute(tensor, (1, 2, 0))
-                dims_v = dims[:tensor.dim()]
-
-                tensor = tensor.numpy()
-                if "valid_input" in aux:
-                    tensor[~aux["valid_input"]] = -9999.9
-
-                output[var] = (dims_v, tensor)
-                # Use compressiong to keep file size reasonable.
-                output[var].encoding = {"dtype": "float32", "zlib": True}
-
-
-        # Quick and dirty way to transform 1C filename to 2A filename
-        output_filename = (
-            filename.replace("1C-R", "2A")
-            .replace("1C", "2A")
-            .replace("pp", "nc")
-            .replace("HDF5", "nc")
-        )
-
-        # Return outputs as xr.Dataset and filename to use to save data.
-        return output, output_filename
