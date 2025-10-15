@@ -1081,13 +1081,22 @@ def calculate_obs_properties(
 
 
 @cache
-def cdf_adjustment_factors() -> xr.Dataset:
+def cdf_adjustment_factors(rand: bool = False) -> xr.Dataset:
     """
-    Load CDF adjustment factors.
+    Load surface-precip CDF adjustment factors.
+
+    Args:
+        rand: Set to 'True' to load adjustment factors for surface-precip random samples.
+
+    Return:
+        An xarray.Dataset containing the adjustment factors.
     """
+    if rand:
+        return xr.load_dataset(Path(__file__).parent.parent / "files" / "GMI_cdfadj_rand.nc")
     return xr.load_dataset(Path(__file__).parent.parent / "files" / "GMI_cdfadj.nc")
 
-def adjust_precip(precip: np.ndarray) -> np.ndarray:
+
+def adjust_precip(precip: np.ndarray, rand: bool = False) -> np.ndarray:
     """
     Adjust precipitation to remove MiRS bump.
 
@@ -1096,11 +1105,12 @@ def adjust_precip(precip: np.ndarray) -> np.ndarray:
 
     Args:
         precip: A numpy.ndarray containing raw retrieved precipitation rates.
+        rand: Set to 'True' to load adjustment factors for surface-precip random samples.
 
     Return:
         A new array containing corrected precipitation rates.
     """
-    adjustment_factors = cdf_adjustment_factors()
+    adjustment_factors = cdf_adjustment_factors(rand=rand)
     x = adjustment_factors.cdf_rainrate.data
     x_adj = adjustment_factors.cdf_rainrate_adj.data
     mask = (x.min() < precip) * (precip < x.max())

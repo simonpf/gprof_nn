@@ -44,7 +44,7 @@ from gprof_nn.data.utils import (
     run_preprocessor,
     write_training_samples_1d,
     write_training_samples_3d,
-
+    adjust_precip
 )
 
 
@@ -150,10 +150,12 @@ def process_match(
             all_results = get_retrieval_results(retrieval_path)
             retrieval_results = xr.load_dataset(all_results[orbit_num])
 
-        retrieval_results = retrieval_results.drop_vars(["surface_precip"])
+        retrieval_results["surface_precip"].data[:] = adjust_precip(
+            retrieval_results["surface_precip_rand"].data,
+            rand=True
+        )
         retrieval_results = retrieval_results.rename(
             latent_heating="latent_heat",
-            surface_precip_rand="surface_precip"
         )[
             ALL_TARGETS + ["scan_time", "longitude", "latitude"]
         ]

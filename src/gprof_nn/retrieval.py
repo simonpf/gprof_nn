@@ -826,7 +826,7 @@ class GPROFNNInputLoader:
         if self.cdf_adjustment and sensor == sensors.GMI:
             LOGGER.info("Applying GMI CDF ajustment")
             for var in ["surface_precip", "surface_precip_1st_tercile", "surface_precip_2nd_tercile"]:
-                output[var].data[:] = adjust_precip(output[var].data)
+                output[var].data[:] = adjust_precip(output[var].data, rand=False)
 
         # Apply bias correction
         if self.bias_correction:
