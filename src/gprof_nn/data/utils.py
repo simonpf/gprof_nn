@@ -77,8 +77,8 @@ try:
         "tms": (l1c_tropicspf_tms, l1c_tropics03_tms, l1c_tropics06_tms,),
     }
 except ImportError as err:
-    LOGGER.exception(
-        "Encountered the following error when importing pansat products."
+    LOGGER.debug(
+        "Encountered an error when importing pansat products."
     )
 
 
