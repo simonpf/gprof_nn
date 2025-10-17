@@ -11,33 +11,39 @@ scheduler = "CosineAnnealingLR"
 scheduler_args = {{T_max = 20}}
 metrics = ["CorrelationCoef", "MSE", "Bias"]
 precision = "bfloat16"
+persistent_workers = false
+log_every_n_steps = 100
 
 [stage_2]
 dataset_module = "gprof_nn.data.training_data"
 training_dataset = "GPROFNN1DDataset"
 training_dataset_args = {{paths={training_data_path}}}
 validation_dataset_args = {{paths={validation_data_path}}}
-n_epochs = 20
+n_epochs = 40
 batch_size = 0
 optimizer = "AdamW"
 optimizer_args = {{lr = 5e-4}}
 scheduler = "CosineAnnealingLR"
-scheduler_args = {{T_max = 20}}
+scheduler_args = {{T_max = 40}}
 metrics = ["CorrelationCoef", "MSE", "Bias"]
 reuse_optimizer = true
 precision = "bfloat16"
+persistent_workers = false
+log_every_n_steps = 100
 
 [stage_3]
 dataset_module = "gprof_nn.data.training_data"
 training_dataset = "GPROFNN1DDataset"
 training_dataset_args = {{paths={training_data_path}}}
 validation_dataset_args = {{paths={validation_data_path}}}
-n_epochs = 20
+n_epochs = 80
 batch_size = 0
 optimizer = "AdamW"
 optimizer_args = {{lr = 5e-4}}
 scheduler = "CosineAnnealingLR"
-scheduler_args = {{T_max = 20}}
+scheduler_args = {{T_max = 80}}
 metrics = ["CorrelationCoef", "MSE", "Bias"]
 reuse_optimizer = true
 precision = "bfloat16"
+persistent_workers = false
+log_every_n_steps = 100
