@@ -8,27 +8,24 @@ and Kwajalein co-locations and GPROF retrievals.
 """
 from concurrent.futures import ProcessPoolExecutor
 from copy import copy
+from datetime import datetime
 import logging
 from pathlib import Path
+from typing import Dict, Union
 
-from h5py import File
-from matplotlib.colors import to_rgba
+import matplotlib.pyplot as plt
+from matplotlib.colors import LogNorm
+from matplotlib.gridspec import GridSpec
 import numpy as np
-from pyresample import geometry, kd_tree
 import xarray as xr
 from rich.progress import track
-from scipy.ndimage import rotate
-from scipy.signal import convolve
-from scipy.stats import binned_statistic_2d, binned_statistic
-import pandas as pd
-from pykdtree.kdtree import KDTree
+from satrain.metrics import Bias, MSE, CorrelationCoef
 
 from gprof_nn import sensors
 from gprof_nn.coordinates import latlon_to_ecef
 from gprof_nn.data.training_data import decompress_and_load
 from gprof_nn.data.retrieval import RetrievalFile
 from gprof_nn.data.sim import SimFile
-from gprof_nn.data.combined import GPMCMBFile
 from gprof_nn.definitions import LIMITS
 from gprof_nn.data.sim import apply_orographic_enhancement
 from gprof_nn.utils import (
@@ -38,6 +35,177 @@ from gprof_nn.utils import (
     calculate_smoothing_kernel
 )
 from gprof_nn.data.validation import CONUS
+
+
+def get_timestamp(path: Path) -> datetime:
+    """
+    Get timestamp from collocation filename.
+
+    Args:
+        path: A Path object pointing to the collocation files or retrieval result files.
+
+    Return:
+        A Python datetime object representing the timestamp.
+    """
+    path = Path(path)
+    parts = path.name.split("_")
+    return datetime.strptime(parts[-1][:-3], "%Y%m%d%H%M%S")
+
+
+class Evaluator:
+    """
+    The evaluator handles the evaluation of GPROF retrieval against collocation files.
+    """
+    def __init__(
+            self,
+            reference_files: Union[str, Path],
+            retrieval_results: Dict[str, Union[str, Path]],
+    ):
+        """
+        Args:
+            reference_files: Path containing the reference files.
+            retrieval_results: Dictionary mapping retrieval names to reference files.
+        """
+        reference_files = sorted(list(Path(reference_files).glob("**/*.nc")))
+        self.reference_files = {}
+        for path in reference_files:
+            try:
+                timestamp = get_timestamp(path)
+                self.reference_files[timestamp] = path
+            except ValueError as exc:
+                raise exc
+                continue
+
+        self.retrieval_results = {}
+        for name, path in retrieval_results.items():
+            files = sorted(list(Path(path).glob("**/*.nc")))
+            files += sorted(list(Path(path).glob("**/*.HDF5")))
+            result_files = {}
+            for path in files:
+                try:
+                    timestamp = get_timestamp(path)
+                    result_files[timestamp] = path
+                except ValueError:
+                    continue
+            self.retrieval_results[name] = result_files
+
+        matched_times = set(self.reference_files.keys())
+        for retrieval_times in self.retrieval_results.values():
+            matched_times = matched_times.intersection(set(retrieval_times))
+        self.matched_times = list(matched_times)
+
+    def get_reference_results(self, match_ind: int) -> xr.Dataset:
+        """
+        Load reference results for a given match index.
+        """
+        time = self.matched_times[match_ind]
+        return xr.load_dataset(self.reference_files[time], group="reference_data")
+
+    def get_land_ocean_mask(self, match_ind: int) -> xr.Dataset:
+        """
+        Load land and ocean mask from reference data.
+        """
+        time = self.matched_times[match_ind]
+        with xr.open_dataset(self.reference_files[time], group="input_data") as data:
+            surface_type = data["surface_type"].data
+            ocean_mask = surface_type == 1
+            land_mask = (2 < surface_type) * (surface_type < 8)
+        return land_mask, ocean_mask
+
+    def get_retrieval_results(self, match_ind: int) -> xr.Dataset:
+        time = self.matched_times[match_ind]
+        results = {}
+        for name, result_files in self.retrieval_results.items():
+            results[name] = xr.load_dataset(result_files[time])
+        return results
+
+    def plot_results(self, match_ind: int) -> plt.Figure:
+        """
+        Plot results for a given match.
+
+        Args:
+            match_ind: The index of the matched retrieval and reference files.
+
+        Return:
+            The matplotlib.Figure containing the retrieval results.
+        """
+        n_panels = len(self.retrieval_results) + 1
+        fig = plt.figure(figsize=(n_panels * 4, 4))
+        gs = GridSpec(1, n_panels + 1, width_ratios=[1.0] * n_panels + [0.075])
+        norm = LogNorm(1e-1, 1e2)
+
+        reference = self.get_reference_results(match_ind)
+        results = self.get_retrieval_results(match_ind)
+
+        ax = fig.add_subplot(gs[0, 0])
+        lons = reference.longitude.data
+        lats = reference.latitude.data
+        sp_ref = np.maximum(reference.surface_precip.data, 1e-3)
+        m = ax.pcolormesh(lons, lats, sp_ref, norm=norm)
+
+
+        for ind, (name, res) in enumerate(results.items()):
+            ax = fig.add_subplot(gs[0, ind + 1])
+            lons = res.longitude.data
+            lats = res.latitude.data
+            sp = np.maximum(res.surface_precip.data, 1e-3)
+            m = ax.pcolormesh(lons, lats, sp, norm=norm)
+
+            mask = np.isfinite(sp_ref) * np.isfinite(sp)
+            bias = np.mean(sp[mask] - sp_ref[mask]) / np.mean(sp_ref[mask]) * 100.0
+            mse = np.mean((sp[mask] - sp_ref[mask]) ** 2)
+            corr = np.corrcoef(sp[mask], sp_ref[mask])[0, 1]
+            txt = f"MSE = {mse:.2f}\nCorr. coef. = {corr:.2f}"
+            ax.text(0.65, 0.8, txt, transform=ax.transAxes, fontsize=8, color="grey")
+
+
+        cax = fig.add_subplot(gs[0, -1])
+        plt.colorbar(m, label="Surface Precip [mm h$^{-1}$]", cax=cax)
+
+
+    def evaluate(self):
+
+        metrics_land = {
+            name: [Bias(), MSE(), CorrelationCoef()] for name in self.retrieval_results.keys()
+        }
+        metrics_ocean = {
+            name: [Bias(), MSE(), CorrelationCoef()] for name in self.retrieval_results.keys()
+        }
+
+        desc = "Evaluating results"
+        for match_ind in track(np.random.permutation(len(self.matched_times))[:100], description=desc):
+
+            reference = self.get_reference_results(match_ind)
+            results = self.get_retrieval_results(match_ind)
+            sp_ref = reference.surface_precip.data
+
+            valid_mask = 0 <= sp_ref
+            for res in results.values():
+                valid_mask = valid_mask * (0 <= res.surface_precip.data)
+
+            land_mask, ocean_mask = self.get_land_ocean_mask(match_ind)
+
+            for name, res in results.items():
+                sp = res.surface_precip.data
+                for metric in metrics_ocean[name]:
+                    metric.update(sp_ref[valid_mask * ocean_mask], sp[valid_mask * ocean_mask])
+                for metric in metrics_land[name]:
+                    metric.update(sp_ref[valid_mask * land_mask], sp[valid_mask * land_mask])
+
+        results_land = {
+            name: xr.merge([metric.compute() for metric in metrics]) for name, metrics in metrics_land.items()
+        }
+        results_ocean = {
+            name: xr.merge([metric.compute() for metric in metrics]) for name, metrics in metrics_ocean.items()
+        }
+
+        return results_land, results_ocean
+
+
+
+
+
+
 
 
 VALIDATION_VARIABLES = [
@@ -1329,29 +1497,6 @@ def calculate_diurnal_cycles(
     return hours, mean_precip
 
 
-def get_colors():
-    """
-    Return dictionary of plot colors for different retrievals.
-    """
-    c0 = to_rgba("C0")
-    c0_d = np.array(c0).copy()
-    c0_d[:3] *= 0.5
-    c1 = to_rgba("C1")
-    c1_d = np.array(c1).copy()
-    c1_d[:3] *= 0.7
-    c1_dd = np.array(c1).copy()
-    c1_dd[:3] *= 0.4
-    c2 = to_rgba("C2")
-    bar_palette = [c0, c0_d, c1, c1_d, c2]
-
-    return {
-        "gprof_v5": c0,
-        "gprof_v7": c0_d,
-        "gprof_nn_1d": c1,
-        "gprof_nn_3d": c1_d,
-        "gprof_nn_hr": c1_dd,
-        "combined": c2
-    }
 
 def extract_results_from_file(
         filename,

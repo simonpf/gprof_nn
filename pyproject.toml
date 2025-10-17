@@ -1,10 +1,9 @@
 [build-system]
-requires = ["setuptools>=61.0"]
+requires = ["setuptools>=64.0", "setuptools-scm[toml]>=8"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "gprof_nn"
-version = "0.8.1"
 description = "The GPROF-NN satellite precipitation retrieval."
 readme = "README.md"
 requires-python = ">=3.7"
@@ -23,6 +22,7 @@ dependencies = [
     "huggingface-hub",
     "ipywidgets"
 ]
+dynamic = ["version"]
 
 [project.optional-dependencies]
 docs = ["jupyter-book", "sphinx"]
@@ -41,3 +41,6 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 "gprof_nn" = ["config_files/*.toml", "sensors/*.toml", "files/*.nc", "files/*.rc"]
+
+[tool.setuptools_scm]
+fallback_version = "0+unknown"

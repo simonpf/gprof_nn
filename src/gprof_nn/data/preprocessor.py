@@ -592,7 +592,6 @@ class PreprocessorFile:
         out_data["surface_precip_1st_tercile"] = data["surface_precip_1st_tercile"]
         out_data["surface_precip_2nd_tercile"] = data["surface_precip_2nd_tercile"]
 
-
         profiles = [
             "snow_water_content",
             "rain_water_content",

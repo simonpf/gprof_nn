@@ -810,14 +810,13 @@ class GPROFNN1DDataset(IterableDataset):
 
     def __init__(
         self,
-        path: Path,
+        paths: Union[Path, List[Path]],
         targets: Optional[List[str]] = None,
         augment: bool = True,
         validation: bool = False,
         satformer: bool = False,
         batch_size: int = 2048,
         ancillary_cfg: Optional[str] = None
-
     ):
         """
         Create GPROF-NN 1D dataset.
@@ -827,7 +826,7 @@ class GPROFNN1DDataset(IterableDataset):
         an iterable over the samples in the dataset.
 
         Args:
-            path: The path containing the training data files.
+            paths: A single path or a list of paths containing the training files.
             targets: A list of the target variables to load.
             augment: Whether or not to apply data augmentation to the loaded
                 data.
@@ -847,19 +846,25 @@ class GPROFNN1DDataset(IterableDataset):
         self.augment = augment
         self.ancillary_cfg = ancillary_cfg
 
-        self.path = Path(path)
-        if not self.path.exists():
-            raise RuntimeError(
-                "The provided path does not exists."
-            )
+        if not isinstance(paths, list):
+            paths = [Path(paths)]
+        else:
+            paths = [Path(path) for path in paths]
 
-        files = sorted(list(self.path.glob("**/1d/*_*_*.nc")))
-        if len(files) == 0:
-            raise RuntimeError(
-                "Could not find any GPROF-NN 1D training data files "
-                f"in {self.path}."
-            )
-        self.files = [str(path) for path in files]
+        self.files = []
+        for path in paths:
+            if not path.exists():
+                raise RuntimeError(
+                    "The provided path does not exist."
+                )
+
+            files = sorted(list(path.glob("**/1d/*_*_*.nc")))
+            if len(files) == 0:
+                raise RuntimeError(
+                    "Could not find any GPROF-NN 1D training data files "
+                    f"in {path}."
+                )
+            self.files += [str(path) for path in files]
 
         self.init_rng()
         self.files = self.rng.permutation(self.files)
@@ -1005,7 +1010,7 @@ class GPROFNN1DDataset(IterableDataset):
 
         for ind, path in enumerate(all_files):
 
-            with xr.load_dataset(path) as input_file:
+            with xr.load_dataset(path, engine="h5netcdf") as input_file:
                 try:
                     inputs_f, targets_f = self.load_training_data(input_file)
                 except Exception as exc:
@@ -1038,7 +1043,12 @@ class GPROFNN1DDataset(IterableDataset):
             tasks.append(self.pool.submit(self.load_data, files))
 
         for task in tasks:
-            inputs, targets = task.result()
+
+            try:
+                inputs, targets = task.result()
+            except Exception:
+                continue
+
             start_ind = 0
             n_samples = inputs["brightness_temperatures"].shape[0]
             for _ in range(self.resample_datasets):
@@ -1056,7 +1066,7 @@ class GPROFNN1DDataset(IterableDataset):
             del task
 
     def __repr__(self):
-        return f"GPROFNN1DDataset(path={self.path}, targets={self.targets})"
+        return f"GPROFNN1DDataset(path={self.paths}, targets={self.targets})"
 
     #def __len__(self):
     #    """
@@ -1888,7 +1898,6 @@ class GPROFNN3DDataset(Dataset):
                             rng=self.rng
                         )
         except Exception as exc:
-            raise exc
             LOGGER.warning(
                 "Encountered an error when trying to load data from file '%s'.",
                 self.files[ind]
