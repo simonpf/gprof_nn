@@ -7,6 +7,7 @@ Provides objects for managing the 'gprof_nn' system configuration.
 from configparser import ConfigParser, SectionProxy
 from dataclasses import dataclass, asdict
 import logging
+from importlib.metadata import version
 import os
 from pathlib import Path
 from typing import Optional
@@ -159,6 +160,7 @@ def show_config() -> None:
     Show the current gprof_nn system configuration.
 
     """
+    print(f"gprof_nn (version {version('gprof_nn')})")
     print("\n" + CONFIG.print())
 
 

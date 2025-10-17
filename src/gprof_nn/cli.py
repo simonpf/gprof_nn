@@ -5,6 +5,7 @@ gprof_nn.cli
 This module implements the command line interfaces for the functionality
 provided by the 'gprof_nn' package.
 """
+from importlib.metadata import version
 import logging
 
 import click
@@ -20,6 +21,7 @@ LOGGER = logging.getLogger(__name__)
 
 
 @click.group()
+@click.version_option(version("gprof_nn"))
 def gprof_nn():
     pass
 

@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=61.0"]
+requires = ["setuptools>=61.0", "setuptools-scm[toml]>=8"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -23,6 +23,7 @@ dependencies = [
     "huggingface-hub",
     "ipywidgets"
 ]
+dynamic = ["version"]
 
 [project.optional-dependencies]
 docs = ["jupyter-book", "sphinx"]
@@ -41,3 +42,6 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 "gprof_nn" = ["config_files/*.toml", "sensors/*.toml", "files/*.nc", "files/*.rc"]
+
+[tool.setuptools_scm]
+tag_regex = r"^v(?P<version>.*)$"
