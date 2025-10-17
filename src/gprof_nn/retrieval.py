@@ -834,8 +834,8 @@ class GPROFNNInputLoader:
                 )
             else:
                 LOGGER.info("Applying GMI CDF ajustment")
-                land_frac = data.land_fraction.data
-                ice_frac = data.ice_fraction.data
+                land_frac = output.land_fraction.data
+                ice_frac = output.ice_fraction.data
                 ocean_mask = (land_frac < 2) * (ice_frac == 0)
                 for var in ["surface_precip", "surface_precip_1st_tercile", "surface_precip_2nd_tercile"]:
                     output[var].data[:] = adjust_precip(output[var].data, ocean_mask, rand=False)
