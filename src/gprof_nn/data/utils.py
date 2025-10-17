@@ -1096,7 +1096,7 @@ def cdf_adjustment_factors(rand: bool = False) -> xr.Dataset:
     return xr.load_dataset(Path(__file__).parent.parent / "files" / "GMI_cdfadj.nc")
 
 
-def adjust_precip(precip: np.ndarray, rand: bool = False) -> np.ndarray:
+def adjust_precip(precip: np.ndarray, ocean_mask: np.ndarray, rand: bool = False) -> np.ndarray:
     """
     Adjust precipitation to remove MiRS bump.
 
@@ -1113,7 +1113,7 @@ def adjust_precip(precip: np.ndarray, rand: bool = False) -> np.ndarray:
     adjustment_factors = cdf_adjustment_factors(rand=rand)
     x = adjustment_factors.cdf_rainrate.data
     x_adj = adjustment_factors.cdf_rainrate_adj.data
-    mask = (x.min() < precip) * (precip < x.max())
+    mask = (x.min() < precip) * (precip < x.max()) * ocean_mask
     precip_adj = np.interp(precip[mask], x, x_adj)
     precip_new = precip.copy()
     precip_new[mask] = precip_adj

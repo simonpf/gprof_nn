@@ -824,9 +824,26 @@ class GPROFNNInputLoader:
 
         # Apply CDF adjustment for GMI
         if self.cdf_adjustment and sensor == sensors.GMI:
-            LOGGER.info("Applying GMI CDF ajustment")
-            for var in ["surface_precip", "surface_precip_1st_tercile", "surface_precip_2nd_tercile"]:
-                output[var].data[:] = adjust_precip(output[var].data, rand=False)
+            if not "land_fraction" in output:
+                LOGGER.warning(
+                    "No 'land_fraction' in auxiliary data. Skipping CDF adjustment."
+                )
+            elif not "ice_fraction" in output:
+                LOGGER.warning(
+                    "No 'ice_fraction' in auxiliary data. Skipping CDF adjustment."
+                )
+            else:
+                LOGGER.warning("Applying GMI CDF ajustment")
+                land_frac = output.land_fraction.data
+                ice_frac = output.ice_fraction.data
+                ocean_mask = (land_frac < 2) * (ice_frac == 0)
+                for var in ["surface_precip", "surface_precip_1st_tercile", "surface_precip_2nd_tercile"]:
+                    output[var].data[:] = adjust_precip(output[var].data, ocean_mask, rand=False)
+                output["surface_precip_rand"].data[:] = adjust_precip(
+                    output["surface_precip_rand"].data,
+                    ocean_mask,
+                    rand=True
+                )
 
         # Apply bias correction
         if self.bias_correction:
