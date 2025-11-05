@@ -585,7 +585,7 @@ def determine_input_format(path: Path) -> str:
     if path.suffix == ".HDF5":
         return "l1c"
     if path.suffix == ".nc":
-        if path.name.startswith("cmb_") or path.name.startswith("mrms_"):
+        if path.name.startswith("cmb_") or path.name.startswith("mrms_") or path.name.startswith("ocean_rain"):
             return "collocations"
         with xr.open_dataset(path) as input_data:
             if "scans" in input_data.dims:
@@ -1189,7 +1189,8 @@ def cli(
             config=config,
             ancillary_config=ancillary_config,
             output_format=output_format,
-            bias_correction=not no_bias_correction
+            bias_correction=not no_bias_correction,
+            cdf_adjustment=not no_cdf_adjustment,
         )
 
     if no_profiles:
@@ -1206,7 +1207,8 @@ def cli(
         }
         model.inference_config.retrieval_output = retrieval_output
         for prof in profiles:
-            model.heads.pop(prof)
+            if prof in model.heads:
+                model.heads.pop(prof)
 
     inference_config = model.inference_config
 
