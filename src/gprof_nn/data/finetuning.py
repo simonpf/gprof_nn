@@ -178,11 +178,7 @@ def process_match(
         input_data = xr.merge([input_data, retrieval_results.drop_vars(["scan_time"])])
 
         time_diff = retrieval_results.scan_time - input_data.scan_time
-
-        time_diff.to_netcdf("time_diff.nc")
-        input_data.to_netcdf("input.nc")
         diff = time_diff.data.astype("timedelta64[m]")
-
         valid = (np.abs(time_diff) < np.timedelta64(15, "m")) * np.isfinite(input_data.surface_precip)
         valid = valid.data.astype(np.float32)
         valid[valid < 1.0] = np.nan
