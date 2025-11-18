@@ -7,6 +7,7 @@ This module contains classes and functionality that drive the execution
 of the retrieval.
 """
 from functools import cache
+from importlib.metadata import version
 import logging
 import math
 import subprocess
@@ -890,6 +891,7 @@ class GPROFNNInputLoader:
                 output[var].data = np.nan_to_num(output[var].data, nan=-99)
 
         output.attrs["ancillary_config"] = ancillary_config
+        output.attrs["algorithm"] = f"gprof_nn, version {version('gprof_nn')}"
 
         if "scans" in output:
             LOGGER.debug("Successfully processed %s scans.", output.scans.size)
