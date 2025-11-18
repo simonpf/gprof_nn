@@ -36,7 +36,7 @@ except ImportError:
 from gprof_nn.logging import enable_file_logging
 from gprof_nn import sensors
 from gprof_nn.data.l1c import L1CFile
-from gprof_nn.data.utils import UPSAMPLING_FACTORS, adjust_precip
+from gprof_nn.data.utils import UPSAMPLING_FACTORS
 from gprof_nn.config import CONFIG
 from gprof_nn.download import download_model
 from gprof_nn.data import preprocessor
@@ -606,7 +606,6 @@ class GPROFNNInputLoader:
             ancillary_config: str = "CLI",
             output_format: str = "NETCDF",
             bias_correction: bool = True,
-            cdf_adjustment: bool = True
     ):
 
         # Determine input files.
@@ -633,7 +632,6 @@ class GPROFNNInputLoader:
         self.ancillary_config = ancillary_config
         self.output_format = output_format.upper()
         self.bias_correction = bias_correction
-        self.cdf_adjustment = cdf_adjustment
 
 
     def __len__(self) -> int:
@@ -822,29 +820,6 @@ class GPROFNNInputLoader:
                 # Use compressiong to keep file size reasonable.
                 output[var].encoding = {"dtype": "float32", "zlib": True}
 
-        # Apply CDF adjustment for GMI
-        if self.cdf_adjustment and sensor == sensors.GMI:
-            if not "land_fraction" in output:
-                LOGGER.warning(
-                    "No 'land_fraction' in auxiliary data. Skipping CDF adjustment."
-                )
-            elif not "ice_fraction" in output:
-                LOGGER.warning(
-                    "No 'ice_fraction' in auxiliary data. Skipping CDF adjustment."
-                )
-            else:
-                LOGGER.info("Applying GMI CDF ajustment")
-                land_frac = output.land_fraction.data
-                ice_frac = output.ice_fraction.data
-                ocean_mask = (land_frac < 2) * (ice_frac == 0)
-                for var in ["surface_precip", "surface_precip_1st_tercile", "surface_precip_2nd_tercile"]:
-                    output[var].data[:] = adjust_precip(output[var].data, ocean_mask, rand=False)
-                output["surface_precip_rand"].data[:] = adjust_precip(
-                    output["surface_precip_rand"].data,
-                    ocean_mask,
-                    rand=True
-                )
-
         # Apply bias correction
         if self.bias_correction:
 
@@ -1032,7 +1007,8 @@ def run_retrieval(
         }
         model.inference_config.retrieval_output = retrieval_output
         for prof in profiles:
-            model.heads.pop(prof)
+            if prof in model.heads:
+                model.heads.pop(prof)
     inference_config = model.inference_config
 
     if output_path is not None:
@@ -1126,10 +1102,6 @@ def run_retrieval(
     "--no_bias_correction",
     is_flag=True
 )
-@click.option(
-    "--no_cdf_adjustment",
-    is_flag=True
-)
 def cli(
         input_path: Path,
         output_path: Optional[Path] = None,
@@ -1142,7 +1114,6 @@ def cli(
         no_profiles: bool = False,
         log_file: Optional[str] = None,
         no_bias_correction: bool = False,
-        no_cdf_adjustment: bool = False
 ) -> None:
     """
     Run the GPROF-NN retrieval on a single input file or a folder of input files located at INPUT_PATH and write the results to the current working directory.
@@ -1157,7 +1128,6 @@ def cli(
             ancillary_config=ancillary_config,
             output_format=output_format,
             bias_correction=not no_bias_correction,
-            cdf_adjustment=not no_cdf_adjustment,
         )
         sensor = input_loader.infer_sensor()
         model = get_model(sensor)
@@ -1190,7 +1160,6 @@ def cli(
             ancillary_config=ancillary_config,
             output_format=output_format,
             bias_correction=not no_bias_correction,
-            cdf_adjustment=not no_cdf_adjustment,
         )
 
     if no_profiles:
