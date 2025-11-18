@@ -10,6 +10,7 @@ Additionally, it defines functions to run the preprocessor on the CSU
  systems.
 """
 from datetime import datetime
+from importlib.metadata import version
 import logging
 from math import ceil
 import os
@@ -475,7 +476,7 @@ class PreprocessorFile:
                 continue
             new_header[k] = self.orbit_header[k]
 
-        new_header["algorithm"] = "GPROF-NN"
+        new_header["algorithm"] = f"gprofnn{version('gprof_nn')}"
         date = datetime.now()
         creation_date = np.recarray(1, dtype=retrieval.DATE6_TYPE)
         creation_date["year"] = date.year
@@ -634,11 +635,10 @@ def get_preprocessor_executable(sensor: "gprof_nn.sensors.Sensor") -> Union[str,
 # The default preprocessor settings for CSU computers.
 PREPROCESSOR_SETTINGS = {
     "prodtype": "CLIMATOLOGY",
-    "prepdir": "/edata2/archive/ERA5/",
+    "prepdir": "/qdata2/archive/ERA5/",
     "ancdir": "/qdata1/pbrown/gpm/ppancillary/",
     "ingestdir": "/qdata1/pbrown/gpm/ppingest/",
 }
-
 
 
 def run_preprocessor(
