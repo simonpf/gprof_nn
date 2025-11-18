@@ -9,24 +9,35 @@ and Kwajalein co-locations and GPROF retrievals.
 from concurrent.futures import ProcessPoolExecutor
 from copy import copy
 from datetime import datetime
+import hashlib
 import logging
 from pathlib import Path
-from typing import Dict, Union
+from typing import Dict, List, Optional, Tuple, Union
 
+import matplotlib as mpl
 import matplotlib.pyplot as plt
 from matplotlib.colors import LogNorm
 from matplotlib.gridspec import GridSpec
 import numpy as np
 import xarray as xr
+from scipy.integrate import cumulative_trapezoid
+from scipy.signal import convolve
+from pansat.time import to_datetime64, TimeRange
+from pansat.catalog.index import Index, find_matches
+from pansat.utils import resample_data
+from pansat.products.satellite.gpm import l1c_r_gpm_gmi
+from pyresample.geometry import SwathDefinition
 from rich.progress import track
 from satrain.metrics import Bias, MSE, CorrelationCoef
+from tqdm import tqdm
 
 from gprof_nn import sensors
 from gprof_nn.coordinates import latlon_to_ecef
+from gprof_nn.definitions import LIMITS
+from gprof_nn.data.pretraining import simulate_tbs
 from gprof_nn.data.training_data import decompress_and_load
 from gprof_nn.data.retrieval import RetrievalFile
 from gprof_nn.data.sim import SimFile
-from gprof_nn.definitions import LIMITS
 from gprof_nn.data.sim import apply_orographic_enhancement
 from gprof_nn.utils import (
     calculate_interpolation_weights,
@@ -34,6 +45,7 @@ from gprof_nn.utils import (
     get_mask,
     calculate_smoothing_kernel
 )
+from gprof_nn import sensors
 from gprof_nn.data.validation import CONUS
 
 
@@ -50,6 +62,23 @@ def get_timestamp(path: Path) -> datetime:
     path = Path(path)
     parts = path.name.split("_")
     return datetime.strptime(parts[-1][:-3], "%Y%m%d%H%M%S")
+
+
+def _hash_filenames(files: List[Path], length: int = 8) -> str:
+    """
+    Helper function to hash filenames.
+
+    Args:
+        files: A list containing the file paths.
+        length: The length of the hash to product
+
+    Return:
+        A string representing the hash of the filenames in files.
+    """
+    h = hashlib.sha256()
+    for f in sorted(map(str, files)):
+        h.update(f.encode())
+    return h.hexdigest()[:length]
 
 
 class Evaluator:
@@ -94,6 +123,63 @@ class Evaluator:
             matched_times = matched_times.intersection(set(retrieval_times))
         self.matched_times = list(matched_times)
 
+
+    @property
+    def total_precip(self):
+        """
+        Precipitation statistics for reference scenes.
+        """
+        ref_files = [self.reference_files[time] for time in self.matched_times]
+        ref_files = ref_files
+
+        file_hash = _hash_filenames(ref_files)
+        stats = Path(".") / f"total_precip_{file_hash}.nc"
+
+        if not stats.exists():
+            total_precip = []
+            for ref_file in tqdm(ref_files):
+                with xr.open_dataset(ref_file, group="reference_data") as data:
+                    precip = data.surface_precip.data
+                    precip = precip[0 <= precip]
+                    total_precip.append(precip.sum())
+            total_precip = xr.Dataset({
+                "total_precip": (("files",), np.array(total_precip))
+            })
+            total_precip.to_netcdf(stats)
+            return total_precip
+        return xr.load_dataset(stats)
+
+    @property
+    def center_coords(self):
+        """
+        Central coordinates of collocation scenes.
+        """
+        ref_files = [self.reference_files[time] for time in self.matched_times]
+        ref_files = ref_files
+
+        file_hash = _hash_filenames(ref_files)
+        stats = Path(".") / f"center_coords_{file_hash}.nc"
+
+        if not stats.exists():
+            center_lons = []
+            center_lats = []
+            for ref_file in tqdm(ref_files):
+                with xr.open_dataset(ref_file, group="reference_data") as data:
+                    lons = data.longitude.data
+                    lats = data.latitude.data
+                    valid = np.isfinite(lons) * np.isfinite(lats)
+                    center_lons.append(lons[valid].mean())
+                    center_lats.append(lats[valid].mean())
+            coords = xr.Dataset({
+                "latitude": (("files",), np.array(center_lons)),
+                "longitude": (("files",), np.array(center_lats))
+            })
+            coords.to_netcdf(stats)
+            return coords
+        return xr.load_dataset(stats)
+
+
+
     def get_reference_results(self, match_ind: int) -> xr.Dataset:
         """
         Load reference results for a given match index.
@@ -134,15 +220,15 @@ class Evaluator:
         gs = GridSpec(1, n_panels + 1, width_ratios=[1.0] * n_panels + [0.075])
         norm = LogNorm(1e-1, 1e2)
 
+        time = self.matched_times[match_ind]
         reference = self.get_reference_results(match_ind)
         results = self.get_retrieval_results(match_ind)
 
         ax = fig.add_subplot(gs[0, 0])
         lons = reference.longitude.data
         lats = reference.latitude.data
-        sp_ref = np.maximum(reference.surface_precip.data, 1e-3)
-        m = ax.pcolormesh(lons, lats, sp_ref, norm=norm)
-
+        sp_ref = reference.surface_precip.data
+        m = ax.pcolormesh(lons, lats, np.maximum(sp_ref, 1e-3), norm=norm)
 
         for ind, (name, res) in enumerate(results.items()):
             ax = fig.add_subplot(gs[0, ind + 1])
@@ -158,13 +244,16 @@ class Evaluator:
             txt = f"MSE = {mse:.2f}\nCorr. coef. = {corr:.2f}"
             ax.text(0.65, 0.8, txt, transform=ax.transAxes, fontsize=8, color="grey")
 
-
         cax = fig.add_subplot(gs[0, -1])
         plt.colorbar(m, label="Surface Precip [mm h$^{-1}$]", cax=cax)
 
+        fig.suptitle(time)
 
-    def evaluate(self):
 
+    def evaluate(self) -> None:
+        """
+        Iterates over scenes and calculates accuracy metrics for all retrievals.
+        """
         metrics_land = {
             name: [Bias(), MSE(), CorrelationCoef()] for name in self.retrieval_results.keys()
         }
@@ -173,7 +262,7 @@ class Evaluator:
         }
 
         desc = "Evaluating results"
-        for match_ind in track(np.random.permutation(len(self.matched_times))[:100], description=desc):
+        for match_ind in track(np.random.permutation(len(self.matched_times)), description=desc):
 
             reference = self.get_reference_results(match_ind)
             results = self.get_retrieval_results(match_ind)
@@ -188,9 +277,9 @@ class Evaluator:
             for name, res in results.items():
                 sp = res.surface_precip.data
                 for metric in metrics_ocean[name]:
-                    metric.update(sp_ref[valid_mask * ocean_mask], sp[valid_mask * ocean_mask])
+                    metric.update(sp[valid_mask * ocean_mask], sp_ref[valid_mask * ocean_mask])
                 for metric in metrics_land[name]:
-                    metric.update(sp_ref[valid_mask * land_mask], sp[valid_mask * land_mask])
+                    metric.update(sp[valid_mask * land_mask], sp_ref[valid_mask * land_mask])
 
         results_land = {
             name: xr.merge([metric.compute() for metric in metrics]) for name, metrics in metrics_land.items()
@@ -202,1540 +291,391 @@ class Evaluator:
         return results_land, results_ocean
 
 
-
-
-
-
-
-
-VALIDATION_VARIABLES = [
-    "surface_precip",
-    "surface_precip_avg",
-    "frozen_precip",
-    "pop",
-    "precip_1st_tercile",
-    "precip_2nd_tercile",
-    "surface_type",
-    "airmass_type"
-]
-
-
-LOGGER = logging.getLogger(__name__)
-
-
-PRECIP_TYPES = {
-    "Stratiform, warm": [1.0, 2.0],
-    "Stratiform, cool": [10.0],
-    "Snow": [3.0, 4.0],
-    "Convective": [6.0],
-    "Hail": [7.0],
-    "Tropical/stratiform mix": [91.0],
-    "Tropical/convective rain mix": [96.0],
-    "Stratiform": [1.0, 2.0, 10.0, 91.0],
-    "Convective": [6.0, 7.0, 96.0],
-}
-
-FOOTPRINTS = {
-        "GMI": (12.5, 5),
-        "AMSR2": (10.0, 10.0),
-        "SSMIS": (38, 38),
-        "TMIPO": (18, 30),
-}
-
-
-def smooth_reference_field(
-        sensor,
-        surface_precip,
-        angles,
-        steps=11,
-        resolution=5
-):
+def _get_sim_file_start_and_end_time(path: Path) -> Tuple[np.datetime64, np.datetime64]:
     """
-    Smooth the reference precip field using rotating smoothing kernels.
-
-    Rotating smoothing kernels are employed to account for the conical
-    scanning of the sensor.
-
-    Args:
-        surface_precip: The refence precip field interpolated to a
-            5km x 5km grid following the satellite swath.
-        angles: The corresponding orientation angles of the footprints.
-        steps: The number of kernels to use to approximate the changing
-            viewing angles across the scan.
+    Extract start and end time from a sim file.
     """
-    angles[angles > 90] -= 180
-    angles[angles < -90] += 180
-
-    #
-    # Calculate smoothing kernels for different angles.
-    #
-
-    kernels = []
-
-    if isinstance(sensor, sensors.ConicalScanner):
-        along_track, across_track = FOOTPRINTS[sensor.name]
-        kernel_angles = np.linspace(-70, 70, steps)
-        kernel = calculate_smoothing_kernel(
-            along_track,
-            across_track,
-            res_a=resolution,
-            res_x=resolution
-            )
-        for angle in kernel_angles:
-            # Need to inverse angle because y-axis points in
-            # opposite direction.
-            kernels.append(rotate(kernel, -angle, order=1))
-    elif isinstance(sensor, sensors.CrossTrackScanner):
-        angles = np.clip(angles, -np.max(sensor.angles), np.max(sensor.angles))
-        kernel_angles = np.linspace(1e-3, angles.max(), steps)
-        angles = np.abs(angles)
-        along_track = sensor.viewing_geometry.get_resolution_a(kernel_angles)
-        across_track = sensor.viewing_geometry.get_resolution_x(kernel_angles)
-        for fwhm_a, fwhm_x in zip(along_track, across_track):
-            kernels.append(calculate_smoothing_kernel(
-                fwhm_a / 1e3, fwhm_x / 1e3, res_a=resolution, res_x=resolution
-            ))
-    else:
-        raise ValueError(
-            "Sensor object must be either a 'ConicalScanner' or "
-            "a 'CrossTrackScanner'."
-        )
-
-    cts = (surface_precip >= 0).astype(np.float32)
-    sp = np.nan_to_num(surface_precip.copy(), 0.0)
-
-    fields = []
-    for kernel in kernels:
-        kernel = kernel / kernel.sum()
-        counts = convolve(cts, kernel, mode="same", method="direct")
-        smoothed = convolve(sp, kernel, mode="same", method="direct")
-        smoothed = smoothed / counts
-        smoothed[counts < 0.5] = np.nan
-        fields.append(smoothed)
-
-    fields = np.stack(fields, axis=-1)
-    weights = calculate_interpolation_weights(angles, kernel_angles)
-    smoothed = interpolate(fields, weights)
-    smoothed[np.isnan(sp)] = np.nan
-    return smoothed
+    parts = Path(path).name.split('_')
+    start_time = to_datetime64(datetime.strptime(parts[-2], "%Y%m%d%H%M%S"))
+    end_time = to_datetime64(datetime.strptime(parts[-1][:-3], "%Y%m%d%H%M%S"))
+    return start_time, end_time
 
 
-class GPROFNN1DResults:
+class SimulatorEvaluator:
     """
-    Data interface class to collect results from GPROF-NN retrieval.
-    """
-    def __init__(self, path):
-        """
-        Args:
-            path: Path pointing to the root of the directory tree containing
-                the retrieval results.
-        """
-        self.path = Path(path)
-        files = self.path.glob("**/*.bin")
-        self.granules = {}
-        for filename in files:
-            try:
-                granule = int(str(filename).split("_")[-1].split(".")[0])
-                self.granules[granule] = filename
-            except ValueError:
-                pass
-            except IndexError:
-                pass
+    Evaluator class for evaluating simulations
 
-    def __len__(self):
-        return len(self.granules)
-
-    @property
-    def smooth(self):
-        return False
-
-    @property
-    def group_name(self):
-        return "gprof_nn_1d"
-
-    def open_granule(self, granule):
-        #data = RetrievalFile(self.granules[granule]).to_xarray_dataset()
-        data = xr.load_dataset(self.granules[granule])
-        return data
-
-
-class GPROFNN3DResults(GPROFNN1DResults):
-    """
-    Data interface class to collect results from GPROF-NN retrieval.
-    """
-    def __init__(self, path, name=None):
-        """
-        Args:
-            path: Path pointing to the root of the directory tree containing
-                the retrieval results.
-        """
-        super().__init__(path)
-        self.name = name
-
-    @property
-    def group_name(self):
-        if self.name is None:
-            return "gprof_nn_3d"
-        else:
-            return self.name
-
-
-class GPROFResults:
-    """
-    Data interface class to collect results from GPROF V7 result files.
-    """
-    def __init__(self, path):
-        """
-        Args:
-            path: Path pointing to the root of the directory tree containing
-                the retrieval results.
-        """
-        self.path = Path(path)
-        files = self.path.glob("**/*.nc")
-        self.granules = {}
-        for filename in files:
-            try:
-                granule = int(str(filename.name).split("_")[-1].split(".")[0])
-                self.granules[granule] = filename
-            except ValueError:
-                pass
-            except IndexError:
-                pass
-
-    def __len__(self):
-        return len(self.granules)
-
-    @property
-    def smooth(self):
-        return False
-
-    @property
-    def group_name(self):
-        return "gprof_v7"
-
-    def open_granule(self, granule):
-        dataset = xr.load_dataset(self.granules[granule])
-        return dataset
-
-
-class GPROFLegacyResults:
-    """
-    Data interface class to collect results from GPROF V6 result files.
-    """
-    def __init__(self, path):
-        """
-        Args:
-            path: Path pointing to the root of the directory tree containing
-                the retrieval results.
-        """
-        self.path = Path(path)
-        files = self.path.glob("**/*.HDF5")
-        self.granules = {}
-        for filename in files:
-            try:
-                granule = int(str(filename.name).split(".")[-3])
-                self.granules[granule] = filename
-            except ValueError:
-                pass
-            except IndexError:
-                pass
-
-    def __len__(self):
-        return len(self.granules)
-
-    @property
-    def smooth(self):
-        return False
-
-    @property
-    def group_name(self):
-        return "gprof_v5"
-
-    def open_granule(self, granule):
-        with File(str(self.granules[granule]), "r") as data:
-            data = data["S1"]
-            latitude = data["Latitude"][:]
-            longitude = data["Longitude"][:]
-            surface_precip = data["surfacePrecipitation"][:]
-            pop = data["probabilityOfPrecip"][:]
-            frozen_precip = data["frozenPrecipitation"][:]
-            precip_1st_tercile = data["precip1stTertial"][:]
-            precip_2nd_tercile = data["precip2ndTertial"][:]
-            surface_type = data["surfaceTypeIndex"][:]
-
-        dims = ("scans", "pixels")
-        dataset = xr.Dataset({
-            "latitude": (dims, latitude),
-            "longitude": (dims, longitude),
-            "surface_precip": (dims, surface_precip),
-            "pop": (dims, pop),
-            "frozen_precip": (dims, frozen_precip),
-            "precip_1st_tercile": (dims, precip_1st_tercile),
-            "precip_2nd_tercile": (dims, precip_2nd_tercile),
-            "surface_type": (dims, surface_type)
-        })
-        return dataset
-
-
-class GPROFNNHRResults:
-    """
-    Data interface class to collect results from GPROF-NN HR retrieval.
-    """
-    def __init__(self, path):
-        """
-        Args:
-            path: Path pointing to the root of the directory tree containing
-                the retrieval results.
-        """
-        self.path = Path(path)
-        files = self.path.glob("**/*.nc")
-        self.granules = {}
-        for filename in files:
-            try:
-                granule = int(str(filename).split("_")[-1].split(".")[0])
-                self.granules[granule] = filename
-            except ValueError:
-                pass
-            except IndexError:
-                pass
-
-    def __len__(self):
-        return len(self.granules)
-
-    @property
-    def smooth(self):
-        return True
-
-    @property
-    def group_name(self):
-        return "gprof_nn_hr"
-
-    def open_granule(self, granule):
-        data = xr.load_dataset(self.granules[granule])
-        return data
-
-
-class GPMCMBResults(GPROFLegacyResults):
-    """
-    Data interface class to collect results from GPROF V6 result files.
-    """
-    def __init__(self, path):
-        """
-        Args:
-            path: Path pointing to the root of the directory tree containing
-                the retrieval results.
-        """
-        self.path = Path(path)
-        files = self.path.glob("**/*.HDF5")
-        self.granules = {}
-        for filename in files:
-            try:
-                granule = int(str(filename.name).split(".")[-3])
-                self.granules[granule] = filename
-            except ValueError:
-                pass
-            except IndexError:
-                pass
-
-    @property
-    def smooth(self):
-        return False
-
-    def __len__(self):
-        return len(self.granules)
-
-    @property
-    def group_name(self):
-        return "combined"
-
-    def open_granule(self, granule):
-        input_file = GPMCMBFile(self.granules[granule])
-        data = input_file.to_xarray_dataset(
-            profiles=False,
-            smooth=False,
-        )
-        return data
-
-
-class SimulatorFiles():
-    """
-    Interface class to read data from simulator files.
-    """
-    def __init__(self, path):
-        """
-        Args:
-            path: Base path containing the simulator files.
-        """
-        self.path = Path(path)
-        files = self.path.glob("**/*.sim")
-        self.granules = {}
-        for filename in files:
-            try:
-                granule = int(str(filename.name).split(".")[-2])
-                self.granules[granule] = filename
-            except ValueError:
-                pass
-            except IndexError:
-                pass
-
-    @property
-    def smooth(self):
-        return False
-
-    def __len__(self):
-        return len(self.granules)
-
-    @property
-    def group_name(self):
-        return "simulator"
-
-    def open_granule(self, granule):
-        sim_data = SimFile(self.granules[granule]).to_xarray_dataset()
-        return sim_data
-
-
-
-class ResultCollector:
-    """
-    This class collects validation results from MRMS files and combines
-    them with retrieval results from a selection of datasets.
     """
     def __init__(
             self,
-            sensor,
-            reference_path,
-            datasets
+            sim_file_path: Union[str, Path],
+            collocation_path: Union[str, Path],
+            target_product: "pansat.Product",
+            target_sensor: "gprof_nn.sensors.Sensor"
     ):
-        self.sensor = sensor
-        self.reference_path = Path(reference_path)
-        self.datasets = datasets
+        sim_files = sorted(
+            list(Path(sim_file_path).glob("**/*.nc"))
+        )
+        sim_files_valid = []
+        times_valid = []
+        for sim_path in sim_files:
+            try:
+                times = _get_sim_file_start_and_end_time(sim_path)
+            except Exception as exc:
+                raise exc
+                continue
+            sim_files_valid.append(sim_path)
+            times_valid.append(np.array(times))
 
-        self.reference_files = list(self.reference_path.glob("**/*.nc"))
+        self.sim_files = np.stack(sim_files_valid)
+        self.times = np.array(times_valid)
 
+        self.sim_start_times = self.times[:, 0]
+        self.sim_end_times = self.times[:, 1]
+        self.colloc_files = sorted(list(Path(collocation_path).glob("**/*.nc")))
+        self.target_product = target_product
+        self.target_sensor = target_sensor
 
-    def process_reference_file(self, filename, output_file):
+    def load_full_gmi_obs(self, time: np.datetime64) -> Tuple[Path, xr.Dataset]:
         """
-        Extract data from reference file and extract corresponding data from
-        retrieval datasets.
-
-        Results are written in NetCDF4 format to the given output file with
-        each dataset stored in its own group.
+        Load full GPM GMI observations for a given time.
 
         Args:
-            filename: Path to the reference file containing the extract overpass
-                data.
-            output_file: Path to the output file to which to write the combined
-                results.
+            time: The time for which to load the GPM L1C observations.
+
+        Return:
+            A xarray.Dataset containing the observation data.
         """
-        granule = int(str(filename).split("_")[-1].split(".")[0])
-        reference_data = xr.load_dataset(filename)
+        from pansat.products.satellite.gpm import l1c_r_gpm_gmi
+        rec = l1c_r_gpm_gmi.get(time)
+        gmi_data = l1c_r_gpm_gmi.open(rec[0])
+        return rec[0].local_path, gmi_data
 
-        precip_names = ["surface_precip",
-                        "surface_precip_rr",
-                        "surface_precip_rp",
-                        "surface_precip_rc"]
-        for variable in precip_names:
-            if variable in reference_data.variables:
-                surface_precip = reference_data[variable].data
-                angles = reference_data.angles.data
-                surface_precip_smoothed = smooth_reference_field(
-                    self.sensor,
-                    surface_precip,
-                    angles
-                )
-                reference_data[variable + "_avg"] = (
-                    ("along_track", "across_track"),
-                    surface_precip_smoothed
-                )
-
-        if "mask" in reference_data.variables:
-            fields = []
-
-            for values in PRECIP_TYPES.values():
-                mask = reference_data["mask"]
-                mask = np.stack([np.isclose(mask, v) for v in values]).any(axis=0)
-                fields.append(smooth_reference_field(
-                    self.sensor,
-                    mask,
-                    angles
-                ))
-            fields = np.stack(fields)
-            classes_smoothed = np.argmax(fields, axis=0)
-
-            no_rain = (fields.max(axis=0) < 0.5)
-            classes_smoothed[no_rain] = 0
-            mask = reference_data["mask"].data
-            classes_smoothed[mask < 0] = -1
-
-            reference_data["mask_avg"] = (
-                ("along_track", "across_track"),
-                classes_smoothed
-            )
-
-        if "raining_fraction" in reference_data.variables:
-            rf = reference_data["raining_fraction"].data
-            angles = reference_data.angles.data
-            rf_smoothed = smooth_reference_field(
-                self.sensor,
-                rf,
-                angles
-            )
-            reference_data["raining_fraction_avg"] = (
-                ("along_track", "across_track"),
-                rf_smoothed
-            )
-
-        if "surface_precip_rp" in reference_data.variables:
-            reference_data = reference_data.rename({
-                "surface_precip_rc": "surface_precip",
-                "surface_precip_rc_avg": "surface_precip_avg"
-                })
-
-        lats = reference_data.latitude.data
-        lons = reference_data.longitude.data
-        result_grid = geometry.SwathDefinition(lats=lats, lons=lons)
-
-        for dataset in self.datasets:
-            try:
-                data = dataset.open_granule(granule)
-                data_r = xr.Dataset({
-                    "along_track": (("along_track",), reference_data.along_track.data),
-                    "across_track": (("across_track",), reference_data.across_track.data),
-                })
-                def weighting_function(distance):
-                    return np.exp(np.log(0.5) * (2.0  * (distance / 5e3)) ** 2)
-
-                if dataset.group_name == "simulator":
-                    lats = reference_data["latitude"].data.reshape(-1, 1)
-                    lons = reference_data["longitude"].data.reshape(-1, 1)
-                    coords = latlon_to_ecef(lons, lats)
-                    coords = np.concatenate(coords, axis=1)
-
-                    lats_sim = data["latitude"].data.reshape(-1, 1)
-                    lons_sim = data["longitude"].data.reshape(-1, 1)
-                    coords_sim = latlon_to_ecef(lons_sim, lats_sim)
-                    coords_sim = np.concatenate(coords_sim, 1)
-
-                    # Determine indices of matching L1C observations.
-                    kdtree = KDTree(coords)
-                    dists, indices = kdtree.query(coords_sim)
-
-                    # Extract matching data
-                    for variable in VALIDATION_VARIABLES:
-                        if variable in data:
-                            shape = reference_data["latitude"].data.shape
-                            matched = np.zeros(shape, dtype=np.float32).ravel()
-                            matched[:] = np.nan
-                            matched[indices, ...] = data[variable]
-                            matched[indices[dists > 5e3], ...] = np.nan
-                            matched = matched.reshape(shape)
-                            data_r[variable] = (("along_track", "across_track"), matched)
-
-                else:
-                    data_grid = geometry.SwathDefinition(
-                        lats=data.latitude.data,
-                        lons=data.longitude.data
-                    )
-                    resampling_info = kd_tree.get_neighbour_info(
-                        data_grid,
-                        result_grid,
-                        20e3,
-                        neighbours=8
-                    )
-                    valid_inputs, valid_outputs, indices, distances = resampling_info
-
-                    resampling_info = kd_tree.get_neighbour_info(
-                        data_grid,
-                        result_grid,
-                        20e3,
-                        neighbours=1
-                    )
-                    valid_inputs_nn, valid_outputs_nn, indices_nn, distances_nn = resampling_info
-
-
-                    for variable in VALIDATION_VARIABLES:
-                        if variable in data.variables:
-                            missing = np.nan
-                            if data[variable].dtype not in [np.float32, np.float64]:
-                                missing = -999
-                                v_data = data[variable].data
-                                v_data[:, 0] = missing
-                                v_data[:, -1] = missing
-                                resampled = kd_tree.get_sample_from_neighbour_info(
-                                    'nn', result_grid.shape, v_data,
-                                    valid_inputs_nn, valid_outputs_nn, indices_nn,
-                                    fill_value=missing
-                                )
-                            else:
-                                missing = np.nan
-                                v_data = data[variable].data
-                                v_data[:, 0] = missing
-                                v_data[:, -1] = missing
-                                resampled = kd_tree.get_sample_from_neighbour_info(
-                                    'nn', result_grid.shape, v_data,
-                                    valid_inputs_nn, valid_outputs_nn, indices_nn,
-                                    fill_value=missing
-                                )
-                            data_r[variable] = (("along_track", "across_track"), resampled)
-
-                    if dataset.smooth and "surface_precip" in data_r:
-                        surface_precip = data_r["surface_precip"].data
-                        angles = reference_data.angles.data
-                        surface_precip_smoothed = smooth_reference_field(
-                            self.sensor,
-                            surface_precip,
-                            angles
-                        )
-                        data_r["surface_precip_avg"] = (
-                            ("along_track", "across_track"),
-                            surface_precip_smoothed
-                        )
-
-                if "scan_time" in data:
-                    time = data["scan_time"].mean()
-                    data["time"] = (("time",), [time.data])
-                if output_file.exists():
-                    data_r.to_netcdf(output_file, group=dataset.group_name, mode="a")
-                else:
-                    data_r.to_netcdf(output_file, group=dataset.group_name)
-            except KeyError as error:
-                LOGGER.exception(
-                    "The following error was encountered while processing granule "
-                    "'%s' of dataset '%s':\n %s",
-                    granule,
-                    dataset.group_name,
-                    error)
-
-        if output_file.exists():
-            reference_data.to_netcdf(output_file, group="reference", mode="a")
-
-
-
-    def run(self, output_path, start=None, end=None, n_processes=4):
+    def get_sim_file(self, time: np.datetime64) -> Optional[Path]:
         """
-        Run collector.
+        Find sim file coverging a given time.
 
         Args:
-            output_path: Directory to which to write the result files.
-            start: If given, only files after this data will be considered.
-            end: If given, only files before this date will be considered.
-            n_processes: The number of processes to use to collect the
-                validation data.
+            time: A numpy.datetime64 object defining the time.
+
+        Returns:
+            A path pointing to the sim file covering the given time or 'None' if no such file is available.
         """
-        output_path = Path(output_path)
-        pool = ProcessPoolExecutor(max_workers=n_processes)
-
-        tasks = []
-        files = []
-
-        for reference_file in self.reference_files:
-
-            # Process only files in given range
-            parts = reference_file.name.split("_")
-            if len(parts) > 4:
-                yearmonthday, hourminute = reference_file.name.split("_")[2:4]
-                year = yearmonthday[:4]
-                month = yearmonthday[4:6]
-                day = yearmonthday[6:]
-                hour = hourminute[:2]
-                minute = hourminute[2:]
-            else:
-                yearmonthday = reference_file.name.split("_")[2]
-                year = yearmonthday[:4]
-                month = yearmonthday[4:6]
-                day = yearmonthday[6:]
-                hour = "00"
-                minute = "00"
-            date = np.datetime64(f"{year}-{month}-{day}T{hour}:{minute}:00")
-
-            if start is not None and date < start:
-                continue
-            if end is not None and date >= end:
-                continue
-
-            output_filename = output_path / reference_file.name
-            tasks.append(pool.submit(
-                self.process_reference_file, reference_file, output_filename
-            ))
-            files.append(reference_file)
-
-        for filename, task in track(list(zip(files, tasks))):
-            try:
-                task.result()
-            except Exception as e:
-                LOGGER.exception(
-                    "The following error was encountered when processing "
-                    "file %s: \n %s", filename, e
-                )
-
-
-def calculate_precip_contribution(
-        results,
-        precip_type=None,
-        region=None,
-        absolute=False,
-        no_orographic=False):
-    """
-    Calculate contribution of precipitation type to total precipitation.
-    Args:
-        results: xarray.Dataset containing collocated validation data. The
-            'surface_precip_ref' field will be used to calculate the
-            precipitation.
-        precip_type: Name of the precip type.
-        absolute: If true the absolute contribution to the mean precipitation
-            is returned.
-        no_orographic: If True precipitation over mountains will be ignored.
-
-    Return:
-        The fraction r (0 <= r <= 1) that the precipitation type contributed
-        to overall precipitation.
-    """
-    surface_precip = results.surface_precip_ref.data
-    surface_type = results.surface_type.data
-    mask = results.mask.data
-
-    valid = surface_precip >= 0.0
-
-    if no_orographic:
-        sfc_mask = (
-            ((surface_type < 8) + ((surface_type > 11) * (surface_type < 17))) *
-            ~np.isclose(mask, 3.0) *
-            ~np.isclose(mask, 4.0))
-    else:
-        sfc_mask = (
-            ((surface_type < 8) + (surface_type > 11)) *
-            ~np.isclose(mask, 3.0) *
-            ~np.isclose(mask, 4.0))
-    valid *= sfc_mask
-
-    if region is not None:
-        lons = results.longitude
-        lats = results.latitude
-        lon_0, lat_0, lon_1, lat_1 = REGIONS[region]
-        region_mask = ((lons >= lon_0) * (lons < lon_1) *
-                       (lats >= lat_0) * (lats < lat_1))
-        valid *= region_mask
-
-    mean_precip_rate = surface_precip[valid].mean()
-
-    rain_mask = (mask > 0)
-    surface_precip = surface_precip[rain_mask * valid]
-    mask = mask[rain_mask * valid]
-
-    if precip_type is not None:
-        type_mask = np.zeros_like(surface_precip, dtype=bool)
-        for val in PRECIP_TYPES[precip_type]:
-            type_mask += np.isclose(mask, val)
-    else:
-        type_mask = np.ones_like(surface_precip, dtype=bool)
-
-    sp_t = surface_precip[type_mask].sum()
-    sp_t /= surface_precip.sum()
-
-    if absolute:
-        sp_t *= mean_precip_rate
-
-    return sp_t
-
-
-###############################################################################
-# Utilities
-###############################################################################
-
-NAMES = {
-    "gprof_nn_1d": "GPROF-NN 1D",
-    "gprof_nn_3d": "GPROF-NN 3D",
-    "gprof_nn_hr": "GPROF-NN HR",
-    "gprof_v5": "GPROF V5",
-    "gprof_v7": "GPROF V7",
-    "simulator": "Simulator",
-    "combined": "GPM-CMB",
-    "combined_avg": "GPM-CMB (Smoothed)"
-}
-
-REGIONS = {
-    "C": [-102, 35, -91.6, 45.4],
-    "NW": [-124, 38.6, -113.6, 49.0],
-    "SW": [-113, 29, -102.6, 39.4],
-    "NE": [-81.4, 38.6, -71, 49.0],
-    "SE": [-91, 25, -80.6, 35.4],
-    "KWAJ": [163.732, 4.71, 171.731, 12.71]
-}
-
-def open_reference_file(reference_path, granule):
-    """
-    Open the reference data file corresponding to a given granule
-    number.
-
-    Args:
-        reference_path: Root of the directory tree containing the
-            reference data.
-        granule: The granule number.
-
-    Return:
-        An ``xarray.Dataset`` containing the loaded reference data
-    """
-    files = Path(reference_path).glob(f"**/*{granule}.nc")
-    return xr.load_dataset(next(iter(files)))
-
-
-def plot_granule(sensor, reference_path, granule, datasets, n_cols=3, height=4, width=4):
-    """
-    Plot overpass over reference data and corresponding retrieval results
-    for a given granule.
-
-    Args:
-        reference_path: Path to the root of the directory tree containing
-            the reference data.
-        granule: The granule number as an iteger.
-        dataset: List of dataset object providing access to the retrieval
-            results.
-
-    Return:
-        The matplotlib Figure object containing the plotted data.
-    """
-    import matplotlib.pyplot as plt
-    from matplotlib.gridspec import GridSpec
-    from matplotlib.colors import LogNorm
-    from matplotlib import cm
-    import cartopy.crs as ccrs
-
-    n = n_cols
-    m = ((1 + len(datasets)) // n)
-    if ((1 + len(datasets)) % n):
-        m = m + 1
-    f = plt.figure(figsize=(width * n + 1, height * m))
-
-    gs = GridSpec(m, n + 1, width_ratios=[1.0] * n + [0.05])
-    axs = np.array(
-        [[f.add_subplot(gs[i, j], projection=ccrs.PlateCarree())
-          for j in range(n)]
-         for i in range(m)]
-    )
-    axs = axs.ravel()
-
-    precip_norm = LogNorm(1e-1, 1e2)
-    cmap = copy(cm.get_cmap("plasma"))
-    cmap.set_under("#FFFFFF10")
-
-    ref_data = open_reference_file(reference_path, granule)
-    ax = axs[0]
-
-    lats = ref_data.latitude.data
-    lons = ref_data.longitude.data
-    xlims = [lons.min(), lons.max()]
-    ylims = [lats.min(), lats.max()]
-
-    surface_precip = ref_data["surface_precip"].data
-
-    angles = ref_data.angles.data
-    surface_precip_smoothed = smooth_reference_field(
-        sensor,
-        surface_precip,
-        angles
-    )
-    sp = np.maximum(surface_precip_smoothed, 1e-4)
-    ax.stock_img()
-    m = ax.pcolormesh(lons, lats, sp, cmap=cmap, norm=precip_norm)
-    ax.plot(lons[:, 0], lats[:, 0], ls="--", c="k")
-    ax.plot(lons[:, -1], lats[:, -1], ls="--", c="k")
-    ax.set_xlim(xlims)
-    ax.set_ylim(ylims)
-    ax.coastlines()
-    ax.set_title("(a) Reference", loc="left")
-
-    for i, dataset in enumerate(datasets):
-        ax = axs[i + 1]
-
-        data = dataset.open_granule(granule)
-        sp = np.maximum(data.surface_precip.data, 1e-4)
-        valid = sp[sp >= 0]
-        lats = data.latitude.data
-        lons = data.longitude.data
-
-        ax.stock_img()
-        ax.pcolormesh(lons, lats, sp, cmap=cmap, norm=precip_norm)
-        ax.plot(lons[:, 0], lats[:, 0], ls="--", c="k")
-        ax.plot(lons[:, -1], lats[:, -1], ls="--", c="k")
-        ax.set_xlim(xlims)
-        ax.set_ylim(ylims)
-        ax.coastlines()
-
-        ax.set_title(f"({chr(ord('a') + i + 1)}) {dataset.group_name}", loc="left")
-
-    for ax in axs[i + 2:]:
-        ax.set_axis_off()
-
-    ax = f.add_subplot(gs[:, -1])
-    plt.colorbar(m, label="Surface precip. [mm/h]", cax=ax)
-    return f
-
-
-def calculate_scatter_plot(results, group, rqi_threshold=0.8, fpavg=False):
-    """
-    Calculate normalized scatter plot for a given retrieval.
-
-    Uses only observations over surface types 1 - 8 and 12 - 16 and
-    that are not marked as snow by the radar.
-
-    Args:
-        results: Dict of xarray.Dataset containing the matched retrieved
-            and reference precipitation for the different algorithms.
-        group: The key to use to obtain the validation results form 'results'.
-        rqi_threshold: Additional RQI threshold to select subsets of validation
-            samples.
-        fpavg: Whether to use footprint averaged reference data or not.
-
-    Return:
-        A tuple ``(bins, y)`` containing the precipitation bins ``bins`` and the
-        corresponding conditional PDFs ``y``
-    """
-    bins = np.logspace(-2, 2, 101)
-
-    if fpavg:
-        sp_ref = results[group].surface_precip_ref_avg.data
-    else:
-        sp_ref = results[group].surface_precip_ref.data
-    sp = results[group].surface_precip.data
-    valid = (sp_ref >= 0) * (sp >= 0)
-
-    if "surface_type" in results[group]:
-        surface_type = results[group].surface_type.data
-        valid *= ((surface_type < 8) + ((surface_type > 11) * (surface_type < 17)))
-
-    if "mask" in results[group].variables:
-        mask = results[group].mask
-        snow = np.isclose(mask, 3.0) + np.isclose(mask, 4.0)
-        valid *= ~snow
-
-    y, _, _ = np.histogram2d(
-        sp_ref[valid],
-        sp[valid],
-        bins=bins,
-        density=True
-    )
-    dx = np.diff(bins)
-    x = 0.5 * (bins[1:] + bins[:-1])
-    dx = dx.reshape(1, -1)
-    y /= (y * dx).sum(axis=1, keepdims=True)
-
-    return bins, y
-
-
-def calculate_conditional_mean(
-        results,
-        group,
-        rqi_threshold=0.8,
-        fpavg=False
-):
-    """
-    Calculate normalized scatter plot for a given retrieval.
-
-    Uses only observations over surface types 1 - 8 and 12 - 16 and
-    that are not marked as snow by the radar.
-
-    Args:
-        results: Dict of xarray.Dataset containing the matched retrieved
-            and reference precipitation for the different algorithms.
-        group: The key to use to obtain the validation results form 'results'.
-        rqi_threshold: Additional RQI threshold to select subsets of validation
-            samples.
-
-    Return:
-        A tuple ``(x, means)`` containing values of reference precipitation and
-        the corresponding conditional mean.
-    """
-    bins = np.logspace(-2, 2, 101)
-
-    if fpavg:
-        sp_ref = results[group].surface_precip_ref_avg.data
-    else:
-        sp_ref = results[group].surface_precip_ref.data
-    sp = results[group].surface_precip.data
-    valid = (sp_ref >= 0) * (sp >= 0)
-
-    if "surface_type" in results[group]:
-        surface_type = results[group].surface_type.data
-        valid = ((surface_type < 8) + ((surface_type > 11) * (surface_type < 17)))
-
-    if "mask" in results[group]:
-        mask = results[group].mask
-        snow = np.isclose(mask, 3.0) + np.isclose(mask, 4.0)
-        valid *= ~snow
-
-    sp_ref = sp_ref[valid]
-    sp = sp[valid]
-
-    sums, _, = np.histogram(sp_ref, weights=sp, bins=bins)
-    cts, _, = np.histogram(sp_ref, bins=bins)
-    means = sums / cts
-    x = 0.5 * (bins[1:] + bins[:-1])
-    return x, means
-
-
-def calculate_error_metrics(
-        results,
-        groups,
-        rqi_threshold=0.8,
-        region=None,
-        ranges=None,
-        fpa=False,
-        no_orographic=False
-):
-    """
-    Calculate error metrics for validation data.
-
-    Uses only observations over surface types 1 - 8 and 12 - 16 and
-    that are not marked as snow by the radar.
-
-    Args:
-       results: Dictionary holding xr.Datasets with the results for the different retrievals.
-       groups: Names of the retrievals for which to calculate error metrics.
-       rqi_threshold: Optional additional rqi_threshold to filter co-locations.
-       no_orographic: Whether or not to include precipitation over mountain surfaces.
-    """
-    bias = {}
-    correlation = {}
-    mse = {}
-    mae = {}
-    mape = {}
-    far = {}
-    pod = {}
-
-    for group in groups:
-        if fpa:
-            sp_ref = results[group].surface_precip_ref_avg.data
-        else:
-            sp_ref = results[group].surface_precip_ref.data
-        sp = results[group].surface_precip.data
-
-        valid = (sp_ref >= 0) * (sp >= 0)
-
-        if "surface_type" in results[group]:
-            surface_type = results[group].surface_type.data
-            if no_orographic:
-                valid *= ((surface_type < 8) + ((surface_type > 11) * (surface_type < 17)))
-            else:
-                valid *= ((surface_type < 8) + (surface_type > 11))
-
-
-        if isinstance(ranges, tuple):
-            rng = results[group].range.data
-            valid *= (rng >= ranges[0])
-            valid *= (rng <= ranges[1])
-        elif ranges is not None:
-            rng = results[group].range.data
-            valid *= (rng <= ranges)
-
-        lats = results[group].latitude.data
-        lons = results[group].longitude.data
-        if region is not None:
-            lon_0, lat_0, lon_1, lat_1 = REGIONS[region]
-            valid *= ((lons >= lon_0) * (lons < lon_1) *
-                    (lats >= lat_0) * (lats < lat_1))
-
-
-        if "mask" in results[group]:
-            mask = results[group].mask
-            snow = np.isclose(mask, 3.0) + np.isclose(mask, 4.0)
-            valid *= ~snow
-
-        if "rqi" in results[group].variables:
-            rqi = results[group].rqi.data
-            valid *=  (rqi > rqi_threshold)
-
-        sp = sp[valid]
-        sp_ref = sp_ref[valid]
-
-        bias[group] = np.mean(sp - sp_ref) / np.mean(sp_ref) * 100.0
-        mse[group] = np.mean((sp - sp_ref) ** 2)
-        mae[group] = np.mean(np.abs(sp - sp_ref))
-
-        ref = 0.5 * (np.abs(sp) + np.abs(sp_ref))
-        rel_err = np.abs((sp - sp_ref) / ref)
-
-        mape[group] = np.mean(rel_err[sp_ref > 1e-1]) * 100
-        corr = np.corrcoef(x=sp_ref, y=sp)
-        correlation[group] = corr[0, 1]
-
-    data = {
-        "Bias": list(bias.values()),
-        "MAE": list(mae.values()),
-        "MSE": list(mse.values()),
-        "Correlation": list(correlation.values()),
-        "SMAPE": list(mape.values()),
-    }
-    names = [NAMES[g] for g in groups]
-    return pd.DataFrame(data, index=names)
-
-
-def calculate_monthly_statistics(
-        results,
-        group,
-        rqi_threshold=0.8,
-        region=None,
-        ranges=None
-):
-    """
-    Calculates monthly relative biases and correlations.
-
-    Uses only observations over surface types 1 - 8 and 12 - 16 and
-    that are not marked as snow by the radar.
-
-    Args:
-       results: Dictionary holding xr.Datasets with the results for the different retrievals.
-       groups: Names of the retrievals for which to calculate error metrics.
-       rqi_threshold: Optional additional rqi_threshold to filter co-locations.
-    """
-    sp_ref = results[group].surface_precip_ref.data
-    sp = results[group].surface_precip.data
-    valid = (sp_ref >= 0) * (sp >= 0)
-
-    surface_type = results[group].surface_type.data
-    valid *= ((surface_type < 8) + ((surface_type > 11) * (surface_type < 17)))
-
-    mask = results[group].mask
-    snow = np.isclose(mask, 3.0) + np.isclose(mask, 4.0)
-    valid *= ~snow
-
-    if ranges is not None:
-        rng = results[group].range.data
-        valid *= (rng <= ranges)
-
-    lats = results[group].latitude.data
-    lons = results[group].longitude.data
-
-    if region is not None:
-        lon_0, lat_0, lon_1, lat_1 = REGIONS[region]
-        valid *= ((lons >= lon_0) * (lons < lon_1) *
-                  (lats >= lat_0) * (lats < lat_1))
-
-
-    sp_ref = sp_ref[valid]
-    sp = sp[valid]
-
-    months = results[group].time.dt.month[valid]
-
-    bins = np.linspace(0, 12, 13) - 0.5
-    sums, _ = np.histogram(months, weights=sp_ref - sp, bins=bins)
-    cts, _ = np.histogram(months, bins=bins)
-    means = sums / cts
-
-    corrs = []
-    for i in range(1, 13):
-        indices = months == i
-        sp_m = sp[indices]
-        sp_ref_m = sp_ref[indices]
-        corrs.append(np.corrcoef(sp_m, sp_ref_m)[0, 1])
-
-    months = np.arange(1, 13)
-    return months, means, np.array(corrs)
-    return pd.DataFrame(data, index=names)
-
-
-def calculate_seasonal_cycles(
-        results,
-        group,
-        rqi_threshold=0.8,
-        region=None,
-        ranges=None,
-        precip_type=None
-):
-    """
-    Calculates seasonal cycles.
-
-    Uses only observations over surface types 1 - 8 and 12 - 16 and
-    that are not marked as snow by the radar.
-
-    Args:
-       results: Dictionary holding xr.Datasets with the results for the different retrievals.
-       groups: Names of the retrievals for which to calculate error metrics.
-       rqi_threshold: Optional additional rqi_threshold to filter co-locations.
-    """
-    if group == "reference":
-        sp_ref = results["gprof_nn_1d"].surface_precip_ref.data
-        sp = results["gprof_nn_1d"].surface_precip_ref.data
-        group = "gprof_nn_1d"
-    else:
-        sp_ref = results[group].surface_precip_ref.data
-        sp = results[group].surface_precip.data
-    valid = (sp_ref >= 0) * (sp >= 0)
-
-    surface_type = results[group].surface_type.data
-    valid *= ((surface_type < 8) + ((surface_type > 11) * (surface_type < 17)))
-
-    mask = results[group].mask
-    snow = np.isclose(mask, 3.0) + np.isclose(mask, 4.0)
-    valid *= ~snow
-
-    lats = results[group].latitude.data
-    lons = results[group].longitude.data
-
-    if region is not None:
-        lon_0, lat_0, lon_1, lat_1 = REGIONS[region]
-        valid *= ((lons >= lon_0) * (lons < lon_1) *
-                  (lats >= lat_0) * (lats < lat_1))
-
-    if ranges is not None:
-        rng = results[group].range.data
-        valid *= (rng <= ranges)
-
-    sp_ref = sp_ref[valid]
-    sp = sp[valid]
-    mask = mask[valid]
-
-    time = results[group].time[valid]
-    months = time.dt.month.data.astype(float)
-
-    bins = (np.linspace(0, 12, 13) + 0.5)
-
-    mean_precip = binned_statistic(months, sp, bins=bins)[0]
-    if precip_type is not None:
-        tot_precip = binned_statistic(months, sp, bins=bins, statistic=np.sum)[0]
-        t_mask = np.zeros_like(sp, dtype=bool)
-        for val in PRECIP_TYPES[precip_type]:
-            t_mask += np.isclose(mask, val)
-        if np.any(t_mask):
-            t_contrib = binned_statistic(months[t_mask],
-                                         sp[t_mask],
-                                         statistic=np.sum,
-                                         bins=bins)[0]
-            mean_precip *= t_contrib / tot_precip
-        else:
-            mean_precip *= np.nan
-
-    mean_precip = np.concatenate([mean_precip[-1:], mean_precip, mean_precip[:1]])
-    k = np.ones(3) / 3.0
-    mean_precip = convolve(mean_precip, k, mode="valid")
-
-    months = 0.5 * (bins[1:] + bins[:-1])
-    return months, mean_precip
-
-def calculate_diurnal_cycles(
-        results,
-        group,
-        rqi_threshold=0.8,
-        region=None,
-        ranges=None,
-        precip_type=None
-):
-    """
-    Calculates daily cycles.
-
-    Uses only observations over surface types 1 - 8 and 12 - 16 and
-    that are not marked as snow by the radar.
-
-    Args:
-       results: Dictionary holding xr.Datasets with the results for the different retrievals.
-       groups: Names of the retrievals for which to calculate error metrics.
-       rqi_threshold: Optional additional rqi_threshold to filter co-locations.
-       region: Name of a region to restrict the analysis to.
-       ranges: Upper limit for radar range to be included in the analysis.
-       precip_type: If given, only the contribution of the given precipitation type
-           will be calculated.
-    """
-    if group == "reference":
-        sp_ref = results["gprof_nn_1d"].surface_precip_ref_avg.data
-        sp = results["gprof_nn_1d"].surface_precip_ref.data
-        group = "gprof_nn_1d"
-    else:
-        sp_ref = results[group].surface_precip_ref_avg.data
-        sp = results[group].surface_precip.data
-    valid = (sp_ref >= 0) * (sp >= 0)
-
-    surface_type = results[group].surface_type.data
-    valid *= ((surface_type < 8) + ((surface_type > 11) * (surface_type < 17)))
-
-    mask = results[group].mask
-    snow = np.isclose(mask, 3.0) + np.isclose(mask, 4.0)
-    valid *= ~snow
-
-    if ranges is not None:
-        rng = results[group].range.data
-        valid *= (rng <= ranges)
-
-    lats = results[group].latitude.data
-    lons = results[group].longitude.data
-
-    if region is not None:
-        lon_0, lat_0, lon_1, lat_1 = REGIONS[region]
-        valid *= ((lons >= lon_0) * (lons < lon_1) *
-                  (lats >= lat_0) * (lats < lat_1))
-
-    sp_ref = sp_ref[valid]
-    sp = sp[valid]
-    mask = mask[valid]
-
-    time = results[group].time[valid]
-    time = time + (lons[valid] / 360 * 24 * 60 * 60).astype("timedelta64[s]")
-    hours = time.dt.hour.data
-    bins = np.linspace(0, 24, 25)
-
-    mean_precip = binned_statistic(hours, sp, bins=bins)[0]
-
-    if precip_type is not None:
-        tot_precip = binned_statistic(hours, sp, bins=bins, statistic=np.sum)[0]
-        t_mask = np.zeros_like(sp, dtype=bool)
-        for val in PRECIP_TYPES[precip_type]:
-            t_mask += np.isclose(mask, val)
-        if np.any(t_mask):
-            t_contrib = binned_statistic(hours[t_mask],
-                                         sp[t_mask],
-                                         statistic=np.sum,
-                                         bins=bins)[0]
-            mean_precip *= t_contrib / tot_precip
-        else:
-            mean_precip *= np.nan
-
-    hours = bins[:-1]#0.5 * (bins[1:] + bins[:-1]) / 60
-
-    mean_precip = np.concatenate([mean_precip[-3:], mean_precip, mean_precip[:3]])
-    k = np.exp(np.log(0.5) * ((np.ones(7) - 3) / 3) ** 2)
-    k /= k.sum()
-    mean_precip = convolve(mean_precip, k, mode="valid")
-
-    return hours, mean_precip
-
-
-
-def extract_results_from_file(
-        filename,
-        groups,
-        rqi_threshold,
-        mask_group="gprof_v7",
-        reference_group="reference"
-):
-    """
-    Extract results from a combined collocation file.
-
-    This utility function loads all valid pixels from a collocation
-    files into an xarray dataset.
-
-    Args:
-        filename: Path to the collocation file containing the collocated
-            retrieval results as a NetCDF4 file with a separate group
-            for every retrieval.
-        groups: The groups for which to extract the results.
-        rqi_thresholds: If the 'reference' group has a 'radar_quality_index'
-            variable (as is the case for MRMS collocations over CONUS), then
-            only pixels with radar quality indices above this threshold will
-            be extracted.
-        mask_group: Only pixels where this group has valid retrieval results
-            will be extracted.
-        reference_group: The group whose 'surface_precip' values to as the
-            the reference value.
-
-    Return:
-        An xarray.Dataset containing the loaded pixels as a 1D dataset.
-    """
-    ref = xr.load_dataset(filename, group="reference")
-    time_ref, _ = xr.broadcast(ref.time, ref.surface_precip)
-    time_ref = time_ref.data
-
-    try:
-        ref = xr.load_dataset(filename, group = reference_group)
-    except OSError:
-        LOGGER.error("File '%s' has no '%s' group.",
-                     filename,
-                     reference_group)
-        return None
-    sp_ref = ref.surface_precip.data
-    if "surface_precip_avg" in ref:
-        sp_ref_avg = ref.surface_precip_avg.data
-    else:
-        sp_ref_avg = ref.surface_precip.data
-    if "radar_quality_index" in ref.variables:
-        rqi = ref.radar_quality_index.data
-    else:
-        rqi = None
-
-    if "mask" in ref.variables:
-        mask = ref.mask.data
-    else:
-        mask = None
-
-    ref = xr.load_dataset(filename, group="reference")
-    lats = ref.latitude.data
-    lons = ref.longitude.data
-
-    results = {}
-
-    try:
-        gprof = xr.load_dataset(filename, group=mask_group)
-        gprof_mask = gprof.surface_precip.data >= 0
-        if rqi is None and "radar_quality_index" in gprof.variables:
-            rqi = gprof.radar_quality_index.data
-    except OSError:
-        LOGGER.error("File '%s' has no '%s' group.", filename, mask_group)
-        return None
-
-    try:
-        surface_types = xr.load_dataset(filename, group="gprof_nn_1d").surface_type.data
-    except OSError:
-        LOGGER.error("File '%s' has no '%s' group.", filename, "gprof_nn_3d")
-        return None
-
-    for group in groups:
-        try:
-            data = xr.load_dataset(filename, group=group)
-            sp = data.surface_precip.data
-
-            valid = (sp >= 0.0)
-            valid = (sp_ref >= 0.0) * (sp >= 0.0) * (gprof_mask)
-            if rqi is not None:
-                valid = valid * (rqi >= rqi_threshold)
-
-            along_track = data.along_track.data
-            across_track = data.across_track.data
-            across_track, _  = np.meshgrid(across_track, along_track)
-            across_track = across_track[valid]
-
-            samples = xr.Dataset(
-                {
-                    "surface_precip": (("samples",), sp[valid]),
-                    "surface_precip_ref_avg": (("samples",), sp_ref_avg[valid]),
-                    "surface_precip_ref": (("samples",), sp_ref[valid]),
-                    "latitude": (("samples",), lats[valid]),
-                    "longitude": (("samples",), lons[valid]),
-                    "time": (("samples",), time_ref[valid]),
-                    "across_track": (("samples",), across_track),
-                }
-            )
-            if "surface_precip_avg" in data:
-                samples["surface_precip_avg"] = (
-                    ("samples", ), data.surface_precip_avg.data[valid]
-                )
-            else:
-                samples["surface_precip_avg"] = (
-                    ("samples",), data.surface_precip.data[valid]
-                )
-            if "pop" in data.variables:
-                samples["pop"] = (("samples",), data.pop.data[valid])
-            if rqi is not None:
-                samples["rqi"] = (("samples",), rqi[valid])
-            if mask is not None:
-                samples["mask"] = (("samples",), mask[valid])
-            samples["surface_type"] = (("samples"), surface_types[valid])
-            if "airmass_type" in gprof.variables:
-                samples["airmass_type"] = (("samples"), gprof.airmass_type.data[valid])
-            if "range" in ref.variables:
-                ranges, _ = xr.broadcast(ref.range, ref.surface_precip)
-                samples["range"] = (("samples"), ranges.data[valid])
-            results[group] = samples
-        except OSError as e:
-            LOGGER.error(
-                    "The following error occurred during processing of "
-                    " file '%s': \n %s",  filename, e
-            )
+        mask = (self.sim_start_times <= time) * (time <= self.sim_end_times)
+        if not mask.any():
             return None
-    return results
+        ind = np.where(mask)[0][0]
+        return self.sim_files[ind]
 
 
-def extract_results(
-        path,
-        groups,
-        rqi_threshold,
-        mask_group="gprof_v7",
-        reference_group="reference"
+    def run_satformer(
+            self,
+            target_file: Path,
+            gmi_file: Path,
+            time_range: TimeRange
+    ) -> xr.Dataset:
+        """
+        Simulate Tbs for matchup.
+
+        Args:
+            target_file: The  file containing the matchup.
+            gmi_file: The GMI files containing the matchup.
+
+        Return:
+            A xarray.Dataset containing the simulated observations.
+        """
+        target_index = Index.index(self.target_product, [target_file])
+        gmi_index = Index.index(l1c_r_gpm_gmi, [gmi_file]).subset(
+            time_range=time_range
+        )
+        matches = find_matches(gmi_index, target_index)
+        input_granule, target_granules = matches[0]
+        input_data = input_granule.open()
+        lats = input_data.latitude_s1
+        lons = input_data.latitude_s1
+
+        results = simulate_tbs(
+            "/gdata1/simon/gprof_v8/models/simulator_final/gprof_nn_sim.pt",
+            sensors.GMI,
+            input_granule,
+            self.target_sensor,
+            target_granules,
+            device="cuda:1"
+        )
+        return results
+
+    def get_match(
+            self,
+            index,
+            run_sf: bool = False,
+            resample: bool = True
+    ) -> Tuple[xr.Dataset, xr.Dataset, xr.Dataset, Optional[xr.Dataset]]:
+        """
+        Extract observation match.
+
+        Args:
+            index: The index of the collocation to match.
+            run_sf: Set to True to run Satformer to get full swath simulations.
+            resample: Whether to resample the data to the target sensor grid.
+
+        Returns:
+            A four-tuple containing collocation data, the sim-file data, the original GMI observations,
+            and optionally the satformer results.
+        """
+        colloc_file = self.colloc_files[index]
+        with xr.open_dataset(colloc_file, group="input_data") as colloc_data:
+            colloc_data = colloc_data[
+                ["observations_gprof", "latitude", "longitude", "scan_time"]
+            ].compute()
+        lons = colloc_data.longitude.data
+        lats = colloc_data.latitude.data
+        if lons.ndim < 2:
+            lons, lats = np.meshgrid(lons, lats)
+
+        swath = SwathDefinition(lons=lons, lats=lats)
+        time = colloc_data.scan_time.mean().data
+
+        sim_file = self.get_sim_file(time)
+        if sim_file is None:
+            return None
+
+        with xr.open_dataset(sim_file) as sim_data:
+            sim_data = sim_data[[
+                "simulated_brightness_temperatures",
+                "brightness_temperature_biases",
+                "satformer_tbs",
+                "longitude",
+                "latitude"
+            ]].compute()
+        if resample:
+            sim_data = resample_data(sim_data, swath, radius_of_influence=20e3)
+
+        gmi_file, gmi_obs = self.load_full_gmi_obs(time)
+        gmi_obs = gmi_obs.rename(latitude_s1="latitude", longitude_s1="longitude")
+        tbs = xr.concat((gmi_obs.tbs_s1.rename(channels_s1="channels"), gmi_obs.tbs_s2.rename(channels_s2="channels")), dim="channels")
+        gmi_obs["tbs"] = tbs
+        if resample:
+            gmi_obs = resample_data(gmi_obs[["tbs"]], swath, radius_of_influence=20e3)
+        else:
+            gmi_obs = gmi_obs[["tbs"]]
+
+        if not run_sf:
+            return colloc_data, sim_data, gmi_obs, None
+
+        time_range = TimeRange(
+            colloc_data.scan_time.min().data,
+            colloc_data.scan_time.max().data
+        )
+        target_file = self.target_product.get(time)[0]
+        results_satformer = self.run_satformer(target_file, gmi_file, time_range)
+        if resample:
+            results_satformer = resample_data(
+                results_satformer,
+                swath,
+                radius_of_influence=20e3
+            )
+
+        return colloc_data, sim_data, gmi_obs, results_satformer
+
+
+
+class PrecipDist:
+    """
+    Helper class to calculate precipitation distributions.
+    """
+    def __init__(
+            self,
+            resolution: float = 5.0,
+            precip_threshold: float = 1e-2
+    ):
+        """
+        Args:
+            resolution: The resolution at which to collect the distribution.
+        """
+        self.precip_threshold = precip_threshold
+
+        precip_bins = np.logspace(-3, np.log10(200), 101)
+        precip_bins[0] = 0.0
+        self.precip_bins = precip_bins
+
+        self.lon_bins = np.linspace(-180, 180, int(360 / resolution + 1))
+        self.lat_bins = np.linspace(-90, 90, int(360 / resolution + 1))
+
+        m = self.lon_bins.size - 1
+        n = self.lat_bins.size - 1
+
+        self.cts_precip = np.zeros(self.precip_bins.size - 1)
+        self.acc = np.zeros((m, n))
+        self.occ = np.zeros((m, n))
+        self.cts = np.zeros((m, n))
+
+    def update(
+            self,
+            lons: np.ndarray,
+            lats: np.ndarray,
+            precip: np.ndarray,
+    ):
+        """
+        Collect precipitation statistics.
+
+        Args:
+            lons: An array containing the longitudes.
+            lats: An array containingg the latitudes.
+            precip: The precipitation values.
+        """
+
+        valid = (0.0 <= precip)
+        self.acc += np.histogram2d(
+            lats[valid],
+            lons[valid],
+            weights=precip[valid],
+            bins=(self.lat_bins, self.lon_bins)
+        )[0]
+        self.occ += np.histogram2d(
+            lats[valid],
+            lons[valid],
+            weights=self.precip_threshold <= precip[valid],
+            bins=(self.lat_bins, self.lon_bins)
+        )[0]
+        self.cts += np.histogram2d(
+            lats[valid],
+            lons[valid],
+            bins=(self.lat_bins, self.lon_bins)
+        )[0]
+        self.cts_precip += np.histogram(
+            precip[valid],
+            bins=self.precip_bins
+        )[0]
+
+
+    def compute(self) -> xr.Dataset:
+        """
+        Compute precipitation distributions.
+        """
+
+        lons = 0.5 * (self.lon_bins[:-1] + self.lon_bins[1:])
+        lats = 0.5 * (self.lat_bins[:-1] + self.lat_bins[1:])
+
+        d_bins = np.diff(self.precip_bins)
+        pdf = self.cts_precip / self.cts_precip.sum() / d_bins
+        surface_precip = 0.5 * (self.precip_bins[1:] + self.precip_bins[:-1])
+
+        occurrence = self.occ / self.cts
+        occurrence_zonal = self.occ.sum(-1) / self.cts.sum(-1)
+
+        results = xr.Dataset({
+            "longitude": (("longitude",), lons),
+            "latitude": (("latitude",), lats),
+            "surface_precip": (("surface_precip",), surface_precip),
+            "surface_precip_global": (
+                ("latitude", "longitude"), self.acc / self.cts
+            ),
+            "surface_precip_zonal": (
+                ("latitude",), self.acc.sum(-1) / self.cts.sum(-1)
+            ),
+            "occurrence_global": (("latitude", "longitude"), occurrence),
+            "occurrence_zonal": (("latitude",), occurrence_zonal),
+            "surface_precip_dist": (
+                ("surface_precip",), pdf
+            ),
+        })
+        return results
+
+
+def plot_zonal_means(
+        results: Dict[str, xr.Dataset],
+        title: str = "Zonal Means",
+        smooth: Optional[int] = None,
+        totals: bool = False
+) -> plt.Figure:
+
+    fig, ax = plt.subplots(1, 1, figsize=(8, 6))
+
+    lats = next(iter(results.values())).latitude.data
+    weights = np.cos(np.deg2rad(lats))
+    #weights[40 < np.abs(lats)] = 0.0
+
+    totals = {}
+    for name, res in results.items():
+        spz = 24.0 * res.surface_precip_zonal
+
+        if smooth is None:
+            ax.plot(spz, lats, label=name)
+        else:
+            k = np.ones(smooth) / smooth
+            spz_s = convolve(spz, k, mode="same")
+            ax.plot(spz_s, lats, label=name)
+
+        valid = np.isfinite(spz)
+        weights = np.ones_like(weights)
+        total = (spz * weights)[valid].sum() / weights[valid].sum()
+        totals[name] = total
+
+    ax.legend()
+    ax.set_xlim(0, 24 * 0.5)
+    ax.set_xlabel(rf"Precipitation Rate [mm h$^{-1}$]")
+    ax.set_ylabel(rf"Latitude [$^\circ$ N]")
+    ax.set_title(title)
+    ax.set_ylim(-70, 70)
+
+    if totals:
+        txt = "Totals:\n" + "\n".join([f"{name}: {tot:.3} mm D$^{{-1}}$" for name, tot in totals.items()])
+        ax.text(24 * 0.25, -20, txt, va="top")
+
+    return fig
+
+
+def plot_precip_pdfs(
+        results: Dict[str, xr.Dataset],
+        title: str = "Precipitation Distributions",
 ):
     """
-    Extracts collocation results from all collocations files in a given
-    directory.
+    Plot Precipitation PDFs
 
     Args:
-        path: Directory containing the collocated validation resullts.
-        groups: List of the names of the groups containing the retrieval results.
-        rqi_threshold: A threshold for the minimum Radar Quality Index (RQI) of the radar
-            measurements to be included in the results.
+        results: Dictionary containing the precipitation distribution results.
+        title: Title for the plot.
 
-    Return:
-        A dict mapping the group names of the retrieval products to datasets containing the
-        retrieved precipitation 'surface_precip' and the ref precipitation as
-        'surface_precip_ref'.
     """
-    files = list(Path(path).glob("*.nc"))
-    results = {}
-    pool = ProcessPoolExecutor(max_workers=8)
-    tasks = []
-    for filename in files:
-        args = [
-            filename,
-            groups,
-            rqi_threshold
-        ]
-        kwargs = {
-            "mask_group": mask_group,
-            "reference_group": reference_group
-        }
-        tasks.append(pool.submit(extract_results_from_file, *args, **kwargs))
+    fig, ax = plt.subplots(1, 1, figsize=(8, 6))
 
-    for filename, task in zip(files, tasks):
-        try:
-            result = task.result()
-            if result is not None:
-                for k, stats in result.items():
-                    results.setdefault(k, []).append(stats)
+    totals = {}
+    for name, res in results.items():
+        x = res.surface_precip.data
+        y = res.surface_precip_dist.data
+        ax.plot(x, y, label=name)
+        total = 24 * np.trapz(x * y, x=x)
+        totals[name] = total
 
-        except Exception as e:
-            LOGGER.exception(e)
+    ax.set_yscale("log")
+    ax.set_xscale("log")
+    ax.legend()
 
-    for k in results:
-        results[k] = xr.concat(results[k], "samples")
-    pool.shutdown()
-    return results
+    txt = "\n".join([f"{name}: {tot:.3} mm D$^{{-1}}$" for name, tot in totals.items()])
+    ax.text(1e-3, 1e-4, txt, va="top")
 
 
-def gridded_stats(lons, lats, prediction, truth, bins, min_samples=None):
+def plot_precip_vol_dist(
+        results: Dict[str, xr.Dataset],
+        title: str = "Precipitation Distributions"
+):
     """
-    Calculate correlation of retrieval and prediction over lat-lon grid.
+    Plot Precipitation PDFs
 
     Args:
-        lons: The longitude coordinates of the retrieval samples.
-        lats: The latitude coordinates of the retrieval samples.
-        prediction: The retrieved value.
-        truth: The true value.
-        bins: A tuple ``(lon_bins, lats_bins) containing the longitude
-            and latitude bins.
-        min_samples: The minimum numbers of samples in each bin.
-        fpa: If True, the footprint-averaged reference precipitation will be
-            used.
+        results: Dictionary containing the precipitation distribution results.
+        title: Title for the plot.
 
-    Return:
-        A tuple ``(bias, mae, mse, corr)`` containing the bias, mean absolute
-        error, mean-squared error and correlation for the given
-        longitude-latitude.
     """
-    lons = lons.ravel()
-    lats = lats.ravel()
-    prediction = prediction.ravel()
-    truth = truth.ravel()
+    fig, ax = plt.subplots(1, 1, figsize=(8, 6))
 
-    xx = prediction * prediction
-    xy = prediction * truth
-    yy = truth * truth
-    x = prediction
-    y = truth
+    totals = {}
+    for name, res in results.items():
+        x = res.surface_precip.data
+        pdf = res.surface_precip_dist.data
+        y = cumulative_trapezoid(x * pdf, x=x)
+        ax.plot(x[1:], y / y[-1], label=name)
 
-    mae = binned_statistic_2d(lons, lats, np.abs(x - y), bins=bins)[0]
-    mse = binned_statistic_2d(lons, lats, (x - y) ** 2, bins=bins)[0]
-    xx = binned_statistic_2d(lons, lats, xx, bins=bins)[0]
-    xy = binned_statistic_2d(lons, lats, xy, bins=bins)[0]
-    yy = binned_statistic_2d(lons, lats, yy, bins=bins)[0]
-    x = binned_statistic_2d(lons, lats, x, bins=bins)[0]
-    y = binned_statistic_2d(lons, lats, y, bins=bins)[0]
-    n_samples = binned_statistic_2d(lons, lats, lons, "count", bins=bins)[0]
-
-    if min_samples is not None:
-        mae[n_samples < min_samples] = np.nan
-        mse[n_samples < min_samples] = np.nan
-        xx[n_samples < min_samples] = np.nan
-        xy[n_samples < min_samples] = np.nan
-        yy[n_samples < min_samples] = np.nan
-        x[n_samples < min_samples] = np.nan
-        y[n_samples < min_samples] = np.nan
-
-
-    sigma_x = np.sqrt(xx - x ** 2)
-    sigma_y = np.sqrt(yy - y ** 2)
-    corr = (xy - x * y) / (sigma_x * sigma_y)
-    return x - y, mae, mse, corr
+    ax.set_ylim(0, 1)
+    ax.set_xscale("log")
+    ax.legend()
