@@ -18,7 +18,7 @@ from functools import cache
 import logging
 from pathlib import Path
 import tempfile
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import click
 from filelock import FileLock
@@ -109,6 +109,60 @@ def add_noise(inpt: np.ndarray, vals: List[float], sigmas: List[float]) -> np.nd
 ###############################################################################
 # GPROF GMI Simulation files
 ###############################################################################
+
+@cache
+def get_light_precip_results(path: Path) -> Dict[int, Path]:
+    """
+    Get mapping of granule number to light precipitation retrieval results.
+
+    Args:
+        path: The directory containing the light precipitation retrieval results.
+
+    Return:
+        A dictionary mapping granule numbers to the corresponding result files.
+    """
+    files = path.glob("**/*.nc")
+
+    granules = {}
+
+    def get_granule(path: Path) -> int:
+        """
+        Extract granule number from filename.
+        """
+        return int(path.name.split(".")[-3])
+
+    for path in files:
+        try:
+            granule = get_granule(path)
+            granules[granule] = path
+        except IndexError:
+            continue
+
+    return granules
+
+
+def add_light_precip(
+        granule: int,
+        dataset: xr.Dataset,
+        light_precip_path: Path
+) -> None:
+    """
+    Add light precipitation from light precipitation retrieval.
+
+    Args:
+        granule: An integer identifying the granule number.
+        dataset: The xarray.Dataset to which to add the light precipitation results.
+        light_precip_path: Path containing the light precipitation results.
+    """
+    light_precip_results = get_light_precip_results(light_precip_path)
+    with xr.open_dataset(light_precip_results[granule]) as light_precip_data:
+        light_precip = light_precip_data.light_precip.compute().data
+    dataset["light_precip"] = (("scans", "pixels"), light_precip.data)
+    LOGGER.info(
+        "Added light precipitation for granule %s from result file %s.",
+        granule,
+        light_precip_results[granule]
+    )
 
 
 class SimFile:
@@ -444,6 +498,11 @@ def apply_orographic_enhancement(sensor, data, kind="ERA5"):
 
     surface_precip *= enh
     convective_precip *= enh
+    if "surface_precip_combined" in data:
+        LOGGER.info(
+            "Enhancing combined precip."
+        )
+        data["surface_precip_combined"].data *= enh
 
 
 ###############################################################################
@@ -539,6 +598,7 @@ def collocate_targets(
         sim_filename: Path,
         sensor: sensors.Sensor,
         era5_path: Path,
+        light_precip_path: Path = None,
         subset: Optional["SubsetConfig"] = None,
         log_queue: Optional["Queue"] = None,
         include_cmb_precip: bool = False,
@@ -559,6 +619,8 @@ def collocate_targets(
         sim_filename: Filename of the Sim file to process.
         sensor: The sensor for which the training data is extracted.
         era5_path: Base path of the directory containing the ERA5 data.
+        light_precip_path: Optional path pointing to a directory containing results from a light precipitation
+             retrieval.
         subset: An optional SubsetConfig object limiting that will be
             used to mask samples not to be used in the training.
         log_queue: Optional queue object to use for multi-process logging.
@@ -627,13 +689,13 @@ def collocate_targets(
     if include_cmb_precip:
         targets.append("surface_precip_combined")
     sim_file.match_targets(data_pp, targets=targets)
-    l1c_data = l1c_file.to_xarray_dataset()
-
-
-
 
     # Orographic enhancement for types 17 and 18.
     apply_orographic_enhancement(sensor, data_pp)
+
+    # Add light precipitation
+    if light_precip_path is not None:
+        add_light_precip(sim_file.granule, data_pp, light_precip_path)
 
     # Set surface_precip and convective_precip over snow surfaces to missing
     # since these are handled separately.
@@ -644,6 +706,8 @@ def collocate_targets(
     for var in data_pp.variables:
         if var in ["surface_precip", "convective_precip"]:
             data_pp[var].data[snow] = np.nan
+    if "surface_precip_combined" in data_pp:
+        data_pp["surface_precip_combined"].data[snow] = np.nan
 
     # If we are dealing with GMI add precip from ERA5.
     if sensor == sensors.GMI or include_sea_ice:
@@ -989,6 +1053,7 @@ def process_sim_file(
         output_path_1d: Path,
         output_path_3d: Path,
         include_cmb_precip: bool = False,
+        light_precip_path: Optional[Path] = None,
         lonlat_bounds: Optional[Tuple[float, float, float, float]] = None,
         include_sea_ice: bool = False,
         satformer_model: Optional[Path] = None,
@@ -1010,6 +1075,8 @@ def process_sim_file(
             should be written.
         include_cmb_precip: Flag to trigger include of surface precip derived solely
              from cmb.
+        light_precip_path: Optional path pointing to a directory containing light precipitation
+            results.
         lonlat_bounds: Optional coordinate tuple ``(lon_ll, lat_ll, lon_ur, lat_ur)``
             containing the longitude and latitude coordinates of the lower-left corner
             (``lon_ll`` and ``lat_ll``) followed by the longitude and latitude coordinates
@@ -1021,6 +1088,7 @@ def process_sim_file(
         sim_file,
         sensor,
         era5_path,
+        light_precip_path=light_precip_path,
         include_cmb_precip=include_cmb_precip,
         include_sea_ice=include_sea_ice
     )
@@ -1072,6 +1140,7 @@ def process_files(
         end_time: Optional[datetime] = None,
         split: Optional[str] = None,
         include_cmb_precip: bool = False,
+        light_precip_path: Optional[Path] = None,
         include_sea_ice: bool = False,
         lonlat_bounds: Optional[Tuple[float, float, float, float]] = None,
         satformer_model: Optional[Path] = None,
@@ -1153,6 +1222,7 @@ def process_files(
                 output_path_1d,
                 output_path_3d,
                 include_cmb_precip=include_cmb_precip,
+                light_precip_path=light_precip_path,
                 include_sea_ice=include_sea_ice,
                 lonlat_bounds=lonlat_bounds,
                 satformer_model=satformer_model,
@@ -1207,6 +1277,11 @@ def process_files(
     help="If set, force inclusion of ERA5 precipitation over sea ice."
 )
 @click.option(
+    "--light_precip_path",
+    default=None,
+    help="Optional path containing results from a light precipitation retrieval"
+)
+@click.option(
     "--bounds",
     default=None,
     help=(
@@ -1243,6 +1318,7 @@ def cli(sensor: sensors.Sensor,
         end_time: Optional[np.datetime64] = None,
         n_processes: int = 1,
         include_cmb_precip: bool = False,
+        light_precip_path: Optional[Path] = None,
         include_sea_ice: bool = True,
         bounds: Tuple[float, float, float, float] = None,
         simulator_model: Optional[Path] = None,
@@ -1317,6 +1393,14 @@ def cli(sensor: sensors.Sensor,
     else:
         lonlat_bounds = None
 
+    if light_precip_path is not None:
+        light_precip_path = Path(light_precip_path)
+        if not light_precip_path.exists():
+            LOGGER.error(
+                "If provided, 'light_precip_path' must point to an existing directory."
+            )
+            return 1
+
     process_files(
         sensor,
         sim_file_path,
@@ -1327,6 +1411,7 @@ def cli(sensor: sensors.Sensor,
         end_time=end_time,
         n_processes=n_processes,
         include_cmb_precip=include_cmb_precip,
+        light_precip_path=light_precip_path,
         include_sea_ice=include_sea_ice,
         lonlat_bounds=lonlat_bounds,
         satformer_model=simulator_model,

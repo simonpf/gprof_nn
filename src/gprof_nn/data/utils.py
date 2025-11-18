@@ -1118,3 +1118,98 @@ def adjust_precip(precip: np.ndarray, ocean_mask: np.ndarray, rand: bool = False
     precip_new = precip.copy()
     precip_new[mask] = precip_adj
     return precip_new
+
+
+def taper(x: np.ndarray, x_0: float = 0.2) -> np.ndarray:
+    """
+    Taper value within range [0, 2 * x_0].
+
+    This function applies a smooth limited to a value by applying a tanh function for values exceeding x_0.
+
+    Args:
+        x: The array containing the value to taper.
+        x_0: The limit value.
+
+    Return:
+        An array of the same shape as x containing the original values for all x < x_0 and values continuously
+        mapped to [x_0, 2 * x_0] for all values exceeding x_0.
+    """
+    #sigmoid = 1.0 / (1.0 + np.exp(-x / 0.5))
+    #return 2.0 * x_0 * (sigmoid - 0.5)
+    return np.where(x_0 < x, x_0 + x_0 * np.tanh((x - x_0) / x_0), x)
+    #return np.where(x_0 < x, x_0 + (1.0 - np.exp(np.log(0.5) * (x - x_0) ** 2 / x_0)
+
+def taper_exp(x: np.ndarray, fwhm: float = 0.2) -> np.ndarray:
+    """
+    Taper value within range [0, 2 * x_0].
+
+    This function applies a smooth limited to a value by applying a tanh function for values exceeding x_0.
+
+    Args:
+        x: The array containing the value to taper.
+        x_0: The limit value.
+
+    Return:
+        An array of the same shape as x containing the original values for all x < x_0 and values continuously
+        mapped to [x_0, 2 * x_0] for all values exceeding x_0.
+    """
+    #return np.where(x_0 < x, x_0 + x_0 * np.tanh((x - x_0) / x_0), x)
+    #weights = np.exp(np.log(0.5) * (x / fwhm) ** 2)
+    return np.sqrt(x)
+
+
+def exponential_weights(x: np.ndarray, x_0: float = 0.5, fwhm: float = 0.5):
+    """
+    Exponentially decreasing weights.
+
+    Provides a weight function that is one for all values < x_0 and is decreased exponentially towards 0.
+
+    Args:
+         x: Array containing the values based on which to calculate the weights.
+         x_0: The threshold values above which to decrease the weights.
+    """
+    ones = np.ones_like(x)
+    exp_weights = np.exp(np.log(0.5) * (x / fwhm) ** 2)
+    return exp_weights
+
+def linear_weights(
+        x: np.ndarray,
+        x_0: float = 0.3,
+        x_1: float = 1.0
+):
+    """
+    Exponentially decreasing weights.
+
+    Provides a weight function that is one for all values < x_0 and is decreased exponentially towards 0.
+
+    Args:
+         x: Array containing the values based on which to calculate the weights.
+         x_0: The threshold values above which to decrease the weights.
+         x_1: The threshold values above which to decrease the weights.
+    """
+    x = np.minimum(np.maximum(x, x_0), x_1)
+    return 0.5 * (np.cos(np.pi* (x - x_0) / (x_1 - x_0)) + 1) ** 2
+
+    return np.minimum(np.maximum(1.0 - 0.5 * (np.sin(np.pi * (x - x_0) / (x_1 - x_0)) + 1.0), 0.0), 1.0)
+    return np.where(x < x_0, ones, exp_weights)
+
+
+def merge_precipitation(
+        precip_cmb: np.ndarray,
+        precip_light: np.ndarray,
+        light_limit: float = 0.5
+) -> np.ndarray:
+    """
+    Merge heavy and ligh precipitation.
+
+    Args:
+        precip_cmb: Heavy precipitation estimates based on GPM CMB.
+        precip_light: Light precipitation estimates based on CloudSat.
+        range: The limit of trust for light precipitation estimates.
+
+    Return:
+        Merged precipitation estimates.
+    """
+    #diff = np.maximum(precip_light - precip_cmb, 0.0)
+    weights = exponential_weights(precip_cmb, 0.45)
+    return  weights * precip_light + (1.0 - weights) * precip_cmb

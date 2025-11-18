@@ -9,7 +9,7 @@ from datetime import datetime
 import logging
 from multiprocessing import Queue
 from pathlib import Path
-from typing import Union, Optional
+from typing import List, Optional, Union
 
 import click
 import numpy as np
@@ -34,7 +34,8 @@ LOGGER = logging.getLogger(__name__)
 
 def load_era5_data(
         start_time: Union[datetime, np.datetime64],
-        end_time: Union[datetime, np.datetime64]
+        end_time: Union[datetime, np.datetime64],
+        variables: Optional[List[str]] = None
 ) -> xr.Dataset:
     """
     Loads ERA5 data matching the start and end time of a L1C
@@ -79,11 +80,20 @@ def load_era5_data(
         f"ERA5_{year_end:04}{month_end:02}{day_end:02}_surf.nc"
     )
 
-    data_start = xr.load_dataset(file_start)
+    if variables is None:
+        data_start = xr.load_dataset(file_start)
+    else:
+        with xr.open_dataset(file_start) as data:
+            data_start = data[variables].compute()
+
     if file_start == file_end:
         return data_start
 
-    data_end = xr.load_dataset(file_end)
+    if variables is None:
+        data_end = xr.load_dataset(file_end)
+    else:
+        with xr.open_dataset(file_end) as data:
+            data_end = data[variables].compute()
     return xr.concat([data_start, data_end], dim="time")
 
 
@@ -144,7 +154,10 @@ def add_era5_precip(
         total_precip = total_precip.data[..., np.newaxis]
     else:
         total_precip = total_precip.data
+
     input_data["surface_precip"].data[indices] = 1000.0 * total_precip
+    if "surface_precip_combined" in input_data:
+        input_data["surface_precip_combined"].data[indices] = 1000.0 * total_precip
 
     convective_precip = era5_data["cp"].interp(
         {"latitude": lats, "longitude": lons, "time": time}, method="nearest"

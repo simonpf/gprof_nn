@@ -54,38 +54,12 @@ from gprof_nn.definitions import (
     PROFILE_TARGETS
 )
 from gprof_nn.data.preprocessor import PreprocessorFile
+from gprof_nn.data.utils import merge_precipitation
 from gprof_nn.augmentation import (get_transformation_coordinates,
                                    extract_domain)
 
 LOGGER = logging.getLogger(__name__)
 
-
-_THRESHOLDS = {
-    "surface_precip": 1e-4,
-    "convective_precip": 1e-4,
-    "rain_water_path": 1e-4,
-    "ice_water_path": 1e-4,
-    "cloud_water_path": 1e-4,
-    "total_column_water_vapor": 1e0,
-    "rain_water_content": 1e-5,
-    "cloud_water_content": 1e-5,
-    "snow_water_content": 1e-5,
-    "latent_heat": -99999,
-    "snow": 1e-4,
-    "snow3": 1e-4,
-    "snow4": 1e-4
-}
-
-_INPUT_DIMENSIONS = {
-    "GMI": (96, 128),
-    "TMIPR": (96, 128),
-    "TMIPO": (96, 128),
-    "SSMI": (96, 128),
-    "SSMIS": (32, 128),
-    "AMSR2": (32, 128),
-    "MHS": (32, 128),
-    "ATMS": (32, 128),
-}
 
 
 EIA_GMI = np.array([
@@ -1129,11 +1103,14 @@ def load_training_data_3d_gmi(
         A tuple ``(x, y)`` of dictionaries ``x`` and ``y`` containing the
         training input data in ``x`` and the training reference data in ``y``.
     """
+    source = scene.source
+    if source == "cloudsat":
+        targets = targets + ["total_precip"]
+
     variables = [
         name for name in targets + ["latitude", "longitude"]
         if name in scene
     ]
-    source = scene.source
     scene = decompress_scene(scene, variables)
 
     if augment:
@@ -1234,6 +1211,10 @@ def load_training_data_3d_gmi(
         if np.issubdtype(data_t.dtype, np.floating):
             data_t[data_t < -900] = np.nan
         data = torch.tensor(data_t.astype("float32"))
+
+        if target in PROFILE_TARGETS and data.shape[-1] == 28:
+            data = torch.permute(data, (2, 0, 1)).clone()
+
         y[target] = data.squeeze()
 
     # Also flip data if requested.
@@ -1247,6 +1228,12 @@ def load_training_data_3d_gmi(
             x = {key: torch.flip(tensor, (-1,)) for key, tensor in x.items()}
             y = {key: torch.flip(tensor, (-1,)) for key, tensor in y.items()}
 
+    if source == "cloudsat":
+        surface_precip = y.pop("surface_precip")
+        total_precip = y.pop("total_precip")
+        mask = 0 < surface_precip
+        total_precip[mask] = surface_precip[mask]
+        y["surface_precip"] = total_precip
 
     return x, y
 
@@ -1728,13 +1715,14 @@ class GPROFNN3DDataset(Dataset):
 
     def __init__(
         self,
-        path: Path,
+        path: Union[Path, List[Path]],
         targets: Optional[List[str]] = None,
         augment: bool = True,
         validation: bool = False,
         subsample: int = 1,
         resample_latitudes: bool = False,
-        sensor: Optional[str] = None
+        sensor: Optional[str] = None,
+        use_combined: bool = False
     ):
         """
         Create GPROF-NN 3D dataset.
@@ -1743,7 +1731,7 @@ class GPROFNN3DDataset(Dataset):
         in separate files.
 
         Args:
-            path: The path containing the training data files.
+            path: The path or a list of paths containing the training data files.
             targets: A list of the target variables to load.
             augment: Whether or not to apply data augmentation to the loaded
                 data.
@@ -1754,6 +1742,7 @@ class GPROFNN3DDataset(Dataset):
             resample_latitude: Set to 'True' to resample training samples to achieve even latitude
                 coverage.
             sensor: Optional sensor name in order to force loading of a specific channel configuration.
+            use_combined: Set to 'True' to load CMB precip instead of combined MiRS-CMB precip.
         """
         super().__init__()
 
@@ -1813,6 +1802,8 @@ class GPROFNN3DDataset(Dataset):
         self.init_rng()
         self.files = self.rng.permutation(self.files)
 
+        self.use_combined = use_combined
+
 
     def init_rng(self, w_id=0):
         """
@@ -1856,15 +1847,30 @@ class GPROFNN3DDataset(Dataset):
                 else:
                     sensor = self.sensor
 
+
                 if sensor == sensors.GMI:
+                    if self.use_combined and "surface_precip_combined" in scene:
+                        ocean_mask = (scene["land_fraction"].data < 10) * (scene["ice_fraction"].data < 10)
+                        sp_cmb = scene["surface_precip_combined"].data
+                        sp_light = scene["light_precip"].data
+                        sp_merged = merge_precipitation(sp_cmb, sp_light)
+                        scene["surface_precip"].data[ocean_mask] = sp_merged[ocean_mask]
+
+                    targets = self.targets
                     x, y = load_training_data_3d_gmi(
                         scene,
-                        targets=self.targets,
+                        targets=targets,
                         augment=self.augment,
                         rng=self.rng
                     )
                 elif isinstance(sensor, sensors.CrossTrackScanner):
                     if scene.source == "sim":
+                        if self.use_combined and "surface_precip_combined" in scene:
+                            ocean_mask = (scene["land_fraction"].data < 10) * (scene["ice_fraction"].data < 10)
+                            sp_cmb = scene["surface_precip_combined"].data
+                            sp_light = scene["light_precip"].data
+                            sp_merged = merge_precipitation(sp_cmb, sp_light)
+                            scene["surface_precip"].data[ocean_mask] = sp_merged[ocean_mask]
                         x, y = load_training_data_3d_xtrack_sim(
                             sensor,
                             scene,
@@ -1882,6 +1888,12 @@ class GPROFNN3DDataset(Dataset):
                         )
                 elif isinstance(sensor, sensors.ConstellationScanner):
                     if scene.source == "sim":
+                        if self.use_combined and "surface_precip_combined" in scene:
+                            ocean_mask = (scene["land_fraction"].data < 10) * (scene["ice_fraction"].data < 10)
+                            sp_cmb = scene["surface_precip_combined"].data
+                            sp_light = scene["light_precip"].data
+                            sp_merged = merge_precipitation(sp_cmb, sp_light)
+                            scene["surface_precip"].data[ocean_mask] = sp_merged[ocean_mask]
                         x, y = load_training_data_3d_conical_sim(
                             sensor,
                             scene,
@@ -1906,19 +1918,178 @@ class GPROFNN3DDataset(Dataset):
             return self[new_ind]
 
         sp = y["surface_precip"]
+        #if torch.isfinite(sp).sum() < 10:
+        #    new_ind = self.rng.integers(0, len(self))
+        #    LOGGER.warning(
+        #        "Less than 10 valid pixels in file %s. Falling back to another "
+        #        " randomly-chosen sample.",
+        #        self.files[ind]
+        #    )
+        #    return self[new_ind]
+
+        #y["surface_precip_weights"] = 28.0 * torch.ones_like(y["surface_precip"])
+
+        return x, y
+
+
+class GPROFNNLightDataset(Dataset):
+    """
+    Dataset for loading light-precipitation training data.
+    """
+    def __init__(
+        self,
+        cloudsat_path: Path,
+        training_paths: Union[Path, List[Path]],
+        targets: Optional[List[str]] = None,
+        augment: bool = True,
+        validation: bool = False,
+        subsample: int = 1,
+        resample_latitudes: bool = False,
+        sensor: Optional[str] = None
+    ):
+        """
+        Create GPROF-NN 3D dataset.
+
+        The training data for the GPROF-NN 3D retrieval consists of 2D scenes
+        in separate files.
+
+        Args:
+            cloudsat_path: The path containing the CloudSat collocations to use for training.
+            training_paths: The paths containing the other files to use for training.
+            targets: A list of the target variables to load.
+            augment: Whether or not to apply data augmentation to the loaded
+                data.
+            validation: If set to 'True', data  loaded in consecutive iterations
+                over the dataset will be identical.
+            subsample: A subsampling factor used to randomly subsample the training
+                data.
+            resample_latitude: Set to 'True' to resample training samples to achieve even latitude
+                coverage.
+            sensor: Optional sensor name in order to force loading of a specific channel configuration.
+        """
+        super().__init__()
+
+        if targets is None:
+            targets = ALL_TARGETS
+        self.targets = targets
+        self.validation = validation
+        self.augment = augment and not validation
+        self.validation = validation
+        self.subsample = subsample
+
+        if sensor is not None:
+            sensor = sensors.get_sensor(sensor)
+        self.sensor = sensor
+
+        cloudsat_path = Path(cloudsat_path)
+        self.cloudsat_files = sorted(list(cloudsat_path.glob("**/3d*/*_*_*.nc")))
+
+        other_files = []
+        if not isinstance(training_paths, list):
+            training_path = [Path(training_paths)]
+        for path in training_paths:
+            path = Path(path)
+            if not path.exists():
+                raise RuntimeError(
+                    "The provided path %s does not exists.",
+                    path
+                )
+            other_files += sorted(list(path.glob("**/3d*/*_*_*.nc")))
+        self.other_files = other_files
+
+        self.init_rng()
+
+    def init_rng(self, w_id=0):
+        """
+        Initialize random number generator.
+
+        Args:
+            w_id: The worker ID which of the worker process..
+        """
+        if self.validation:
+            seed = 42
+        else:
+            seed = int.from_bytes(os.urandom(4), "big") + w_id
+        self.rng = np.random.default_rng(seed)
+
+    def worker_init_fn(self, w_id: int):
+        """
+        Pytorch retrieve interface.
+        """
+        self.init_rng(w_id)
+        winfo = torch.utils.data.get_worker_info()
+        n_workers = winfo.num_workers
+
+    def __repr__(self):
+        return f"GPROFNNLightDataset(path={self.path}, targets={self.targets})"
+
+    def __len__(self):
+        return len(self.cloudsat_files) * 2
+
+    def __getitem__(self, ind):
+
+        rem = ind % 2
+        ind = ind // 2
+
+        if rem == 0:
+            subsample = self.subsample
+            ind_min = subsample * ind
+            ind_max = ind_min + subsample
+            ind = min(self.rng.integers(ind_min, ind_max), len(self.other_files) - 1)
+            sample_file = self.cloudsat_files[ind]
+        else:
+            subsample = int(
+                self.subsample * len(self.other_files) / len(self.cloudsat_files)
+            )
+            ind_min = subsample * ind
+            ind_max = ind_min + subsample
+            ind = min(self.rng.integers(ind_min, ind_max), len(self.other_files) - 1)
+            sample_file = self.other_files[ind]
+
+        try:
+            targs = self.targets
+            with xr.open_dataset(sample_file) as scene:
+                source = scene.source
+                x, y = load_training_data_3d_gmi(
+                    scene,
+                    targets=targs + ["surface_precip_combined"],
+                    augment=self.augment,
+                    rng=self.rng
+                )
+        except Exception as exc:
+            raise exc
+            LOGGER.warning(
+                "Encountered an error when trying to load data from file '%s'.",
+                sample_file
+            )
+            new_ind = self.rng.integers(0, len(self))
+            return self[new_ind]
+
+        if rem == 0:
+            sp = y.pop("surface_precip")
+            y["surface_precip"] = torch.nan * torch.zeros_like(sp)
+            y["light_precip"] = sp
+            y.pop("surface_precip_combined")
+        else:
+            sp = y.pop("surface_precip_combined")
+            if source != "mrms":
+                y["surface_precip"] = sp
+            else:
+                sp = y["surface_precip"]
+            y["light_precip"] = np.nan * torch.zeros_like(sp)
+
         if torch.isfinite(sp).sum() < 10:
             new_ind = self.rng.integers(0, len(self))
             LOGGER.warning(
                 "Less than 10 valid pixels in file %s. Falling back to another "
                 " randomly-chosen sample.",
-                self.files[ind]
+                sample_file,
             )
             return self[new_ind]
 
         #y["surface_precip_weights"] = 28.0 * torch.ones_like(y["surface_precip"])
 
         return x, y
-
 
 class GPROFNNSimInputLoader(GPROFNN3DDataset):
     """

@@ -38,7 +38,6 @@ from gprof_nn.data.era5 import load_era5_data
 from gprof_nn.data.utils import (
     run_preprocessor,
     upsample_data,
-    add_cpcir_data,
     calculate_obs_properties,
     extract_scenes,
     mask_invalid_values,
@@ -95,7 +94,6 @@ def extract_cloudsat_scenes(
             upsampling_factors = UPSAMPLING_FACTORS[sensor.name.lower()]
             if max(upsampling_factors) > 1:
                 input_data = upsample_data(input_data, upsampling_factors)
-        input_data = add_cpcir_data(input_data)
 
         lons = input_data.longitude.data
         lats = input_data.latitude.data
@@ -215,6 +213,7 @@ def extract_cloudsat_scenes(
         mask_invalid_values(input_data)
 
         input_data = input_data[{"scans": slice(25, -25)}]
+        input_data["source"] = "cloudsat"
 
         scenes = extract_scenes(
             input_data,
@@ -235,16 +234,13 @@ def extract_cloudsat_scenes(
         encodings = {
             "scan_time": {"zlib": True},
             "scan_time_cloudsat": {"zlib": True},
-            "brightness_temperatures": {"dtype": "uint16", "zlib": True, "scale_factor": 0.01, "_FillValue": uint16_max},
-            "input_observations": {"dtype": "uint16", "zlib": True, "scale_factor": 0.01, "_FillValue": uint16_max},
-            "input_meta_data": {"dtype": "uint16", "zlib": True, "scale_factor": 0.01, "_FillValue": uint16_max},
-            "two_meter_temperature": {"dtype": "uint16", "zlib": True, "scale_factor": 0.1, "_FillValue": uint16_max},
+            "brightness_temperatures": {"dtype": "float32", "zlib": True},
+            "two_meter_temperature": {"dtype": "float32", "zlib": True},
             "total_column_water_vapor": {"dtype": "float32", "zlib": True},
             "leaf_area_index": {"dtype": "float32", "zlib": True},
             "land_fraction": {"dtype": "int8", "zlib": True, "_FillValue": -1},
             "ice_fraction": {"dtype": "int8", "zlib": True, "_FillValue": -1},
-            "elevation": {"dtype": "uint16", "zlib": True, "scale_factor": 0.5, "_FillValue": uint16_max},
-            "ir_observations": {"dtype": "uint16", "zlib": True, "scale_factor": 0.01, "_FillValue": uint16_max},
+            "elevation": {"dtype": "float32", "zlib": True},
         }
         for var in [
                 "rain_water_content",
@@ -295,25 +291,26 @@ def extract_samples(
     input_products = PANSAT_PRODUCTS[sensor.name.lower()]
     target_product = l2c_rain_profile
     for input_product in input_products:
-            input_recs = input_product.get(TimeRange(start_time, end_time))
-            input_index = Index.index(input_product, input_recs)
-            target_recs = target_product.get(TimeRange(start_time, end_time))
-            target_index = Index.index(target_product, target_recs)
-            matches = find_matches(input_index, target_index, np.timedelta64(15, "m"))
-            for match in matches:
-                try:
-                    extract_cloudsat_scenes(
-                        sensor,
-                        match,
-                        output_path,
-                        scene_size=scene_size,
-                        high_res=high_res
-                    )
-                except Exception:
-                    LOGGER.exception(
-                        "Encountered an error processing granule %s.",
-                        match[0]
-                    )
+        input_recs = input_product.get(TimeRange(start_time, end_time))
+        input_index = Index.index(input_product, input_recs)
+        target_recs = target_product.get(TimeRange(start_time, end_time))
+        target_index = Index.index(target_product, target_recs)
+        matches = find_matches(input_index, target_index, np.timedelta64(15, "m"))
+        LOGGER.info("Found %s matches. %s %s", len(matches), len(input_recs), len(target_recs))
+        for match in matches:
+            try:
+                extract_cloudsat_scenes(
+                    sensor,
+                    match,
+                    output_path,
+                    scene_size=scene_size,
+                    high_res=high_res
+                )
+            except Exception:
+                LOGGER.exception(
+                    "Encountered an error processing granule %s.",
+                    match[0]
+                )
 
 @click.argument("sensor")
 @click.argument("year", type=int)
