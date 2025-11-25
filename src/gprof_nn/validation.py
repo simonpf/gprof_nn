@@ -14,6 +14,7 @@ import logging
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
 
+import cartopy.crs as ccrs
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 from matplotlib.colors import LogNorm
@@ -219,19 +220,21 @@ class Evaluator:
         fig = plt.figure(figsize=(n_panels * 4, 4))
         gs = GridSpec(1, n_panels + 1, width_ratios=[1.0] * n_panels + [0.075])
         norm = LogNorm(1e-1, 1e2)
+        crs = ccrs.PlateCarree()
 
         time = self.matched_times[match_ind]
         reference = self.get_reference_results(match_ind)
         results = self.get_retrieval_results(match_ind)
 
-        ax = fig.add_subplot(gs[0, 0])
+        ax = fig.add_subplot(gs[0, 0], projection=crs)
         lons = reference.longitude.data
         lats = reference.latitude.data
         sp_ref = reference.surface_precip.data
         m = ax.pcolormesh(lons, lats, np.maximum(sp_ref, 1e-3), norm=norm)
+        ax.coastlines(color="grey")
 
         for ind, (name, res) in enumerate(results.items()):
-            ax = fig.add_subplot(gs[0, ind + 1])
+            ax = fig.add_subplot(gs[0, ind + 1], projection=crs)
             lons = res.longitude.data
             lats = res.latitude.data
             sp = np.maximum(res.surface_precip.data, 1e-3)
@@ -243,6 +246,8 @@ class Evaluator:
             corr = np.corrcoef(sp[mask], sp_ref[mask])[0, 1]
             txt = f"MSE = {mse:.2f}\nCorr. coef. = {corr:.2f}"
             ax.text(0.65, 0.8, txt, transform=ax.transAxes, fontsize=8, color="grey")
+
+            ax.coastlines(color="grey")
 
         cax = fig.add_subplot(gs[0, -1])
         plt.colorbar(m, label="Surface Precip [mm h$^{-1}$]", cax=cax)
@@ -269,6 +274,10 @@ class Evaluator:
             sp_ref = reference.surface_precip.data
 
             valid_mask = 0 <= sp_ref
+            if "radar_quality_index" in reference:
+                print("RQI")
+                valid_mask *= (0.9 < reference.radar_quality_index.data)
+
             for res in results.values():
                 valid_mask = valid_mask * (0 <= res.surface_precip.data)
 
