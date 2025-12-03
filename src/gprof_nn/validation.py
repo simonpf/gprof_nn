@@ -29,7 +29,7 @@ from pansat.utils import resample_data
 from pansat.products.satellite.gpm import l1c_r_gpm_gmi
 from pyresample.geometry import SwathDefinition
 from rich.progress import track
-from satrain.metrics import Bias, MSE, CorrelationCoef
+from satrain.metrics import Bias, MSE, CorrelationCoef, PRCurve
 from tqdm import tqdm
 
 from gprof_nn import sensors
@@ -90,6 +90,7 @@ class Evaluator:
             self,
             reference_files: Union[str, Path],
             retrieval_results: Dict[str, Union[str, Path]],
+            precip_threshold: float = 1e-2
     ):
         """
         Args:
@@ -123,6 +124,7 @@ class Evaluator:
         for retrieval_times in self.retrieval_results.values():
             matched_times = matched_times.intersection(set(retrieval_times))
         self.matched_times = list(matched_times)
+        self.precip_threshold = precip_threshold
 
 
     @property
@@ -179,8 +181,6 @@ class Evaluator:
             return coords
         return xr.load_dataset(stats)
 
-
-
     def get_reference_results(self, match_ind: int) -> xr.Dataset:
         """
         Load reference results for a given match index.
@@ -195,7 +195,7 @@ class Evaluator:
         time = self.matched_times[match_ind]
         with xr.open_dataset(self.reference_files[time], group="input_data") as data:
             surface_type = data["surface_type"].data
-            ocean_mask = surface_type == 1
+            ocean_mask = (surface_type == 1) + ((13 <= surface_type) * (surface_type <= 13))
             land_mask = (2 < surface_type) * (surface_type < 8)
         return land_mask, ocean_mask
 
@@ -206,7 +206,7 @@ class Evaluator:
             results[name] = xr.load_dataset(result_files[time])
         return results
 
-    def plot_results(self, match_ind: int) -> plt.Figure:
+    def plot_results(self, match_ind: int, min_rqi: float = 1.0 ) -> plt.Figure:
         """
         Plot results for a given match.
 
@@ -219,7 +219,7 @@ class Evaluator:
         n_panels = len(self.retrieval_results) + 1
         fig = plt.figure(figsize=(n_panels * 4, 4))
         gs = GridSpec(1, n_panels + 1, width_ratios=[1.0] * n_panels + [0.075])
-        norm = LogNorm(1e-1, 1e2)
+        norm = LogNorm(1e-2, 1e2)
         crs = ccrs.PlateCarree()
 
         time = self.matched_times[match_ind]
@@ -232,6 +232,27 @@ class Evaluator:
         sp_ref = reference.surface_precip.data
         m = ax.pcolormesh(lons, lats, np.maximum(sp_ref, 1e-3), norm=norm)
         ax.coastlines(color="grey")
+        valid = 0 <= sp_ref
+
+        if "radar_quality_index" in reference:
+            rqi = reference["radar_quality_index"].data
+            levels = [0.5, 0.9, 0.999]
+            colors = "w"
+            linestyles = ["-", "--", ":"]
+            ax.contour(lons, lats, rqi, levels=levels, colors=colors, linestyles=linestyles)
+            valid *= (min_rqi <= rqi)
+
+        valid_lons = lons[valid]
+        valid_lats = lats[valid]
+        lon_min = valid_lons.min()
+        lon_max = valid_lons.max()
+        lat_min = valid_lats.min()
+        lat_max = valid_lats.max()
+
+        ax.set_xlim(lon_min, lon_max)
+        ax.set_ylim(lat_min, lat_max)
+
+        land_mask, ocean_mask = self.get_land_ocean_mask(match_ind)
 
         for ind, (name, res) in enumerate(results.items()):
             ax = fig.add_subplot(gs[0, ind + 1], projection=crs)
@@ -240,7 +261,7 @@ class Evaluator:
             sp = np.maximum(res.surface_precip.data, 1e-3)
             m = ax.pcolormesh(lons, lats, sp, norm=norm)
 
-            mask = np.isfinite(sp_ref) * np.isfinite(sp)
+            mask = np.isfinite(sp_ref) * np.isfinite(sp) * valid
             bias = np.mean(sp[mask] - sp_ref[mask]) / np.mean(sp_ref[mask]) * 100.0
             mse = np.mean((sp[mask] - sp_ref[mask]) ** 2)
             corr = np.corrcoef(sp[mask], sp_ref[mask])[0, 1]
@@ -248,6 +269,10 @@ class Evaluator:
             ax.text(0.65, 0.8, txt, transform=ax.transAxes, fontsize=8, color="grey")
 
             ax.coastlines(color="grey")
+            ax.set_xlim(lon_min, lon_max)
+            ax.set_ylim(lat_min, lat_max)
+
+            ax.contour(lons, lats, ocean_mask.astype(np.float32), level=[0.5], colors="salmon")
 
         cax = fig.add_subplot(gs[0, -1])
         plt.colorbar(m, label="Surface Precip [mm h$^{-1}$]", cax=cax)
@@ -258,12 +283,23 @@ class Evaluator:
     def evaluate(self) -> None:
         """
         Iterates over scenes and calculates accuracy metrics for all retrievals.
+
+        Return:
+            A tuple of dictionaries ``results_land, results_ocean`` containing the validation results for ocean
+            and land surfaces, respectively.
         """
+
         metrics_land = {
             name: [Bias(), MSE(), CorrelationCoef()] for name in self.retrieval_results.keys()
         }
+        detection_metrics_land = {
+            name: [PRCurve()] for name in self.retrieval_results.keys()
+        }
         metrics_ocean = {
             name: [Bias(), MSE(), CorrelationCoef()] for name in self.retrieval_results.keys()
+        }
+        detection_metrics_ocean = {
+            name: [PRCurve()] for name in self.retrieval_results.keys()
         }
 
         desc = "Evaluating results"
@@ -273,15 +309,18 @@ class Evaluator:
             results = self.get_retrieval_results(match_ind)
             sp_ref = reference.surface_precip.data
 
+
             valid_mask = 0 <= sp_ref
             if "radar_quality_index" in reference:
-                print("RQI")
-                valid_mask *= (0.9 < reference.radar_quality_index.data)
+                valid_mask *= (0.999 < reference.radar_quality_index.data)
 
             for res in results.values():
                 valid_mask = valid_mask * (0 <= res.surface_precip.data)
 
             land_mask, ocean_mask = self.get_land_ocean_mask(match_ind)
+
+            lats = reference.latitude.data
+            valid_mask = valid_mask * (lats < 40) * (sp_ref < 0.5)
 
             for name, res in results.items():
                 sp = res.surface_precip.data
@@ -290,11 +329,23 @@ class Evaluator:
                 for metric in metrics_land[name]:
                     metric.update(sp[valid_mask * land_mask], sp_ref[valid_mask * land_mask])
 
+                if "probability_of_precipitation" in res:
+                    pop = res.probability_of_precipitation.data
+                else:
+                    pop = res.probability_of_precip.data
+
+                for metric in detection_metrics_ocean[name]:
+                    metric.update(pop[valid_mask * ocean_mask], self.precip_threshold <= sp_ref[valid_mask * ocean_mask])
+                for metric in detection_metrics_land[name]:
+                    metric.update(pop[valid_mask * land_mask], self.precip_threshold <= sp_ref[valid_mask * land_mask])
+
         results_land = {
-            name: xr.merge([metric.compute() for metric in metrics]) for name, metrics in metrics_land.items()
+            name: xr.merge([metric.compute() for metric in metrics + detection_metrics_land[name]])
+            for name, metrics in metrics_land.items()
         }
         results_ocean = {
-            name: xr.merge([metric.compute() for metric in metrics]) for name, metrics in metrics_ocean.items()
+            name: xr.merge([metric.compute() for metric in metrics + detection_metrics_ocean[name]])
+            for name, metrics in metrics_ocean.items()
         }
 
         return results_land, results_ocean
