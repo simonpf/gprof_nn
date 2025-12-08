@@ -648,7 +648,6 @@ class L1CFile:
 
                 n_scans_total = input["S1/Latitude"].shape[0]
                 scan_start = max(scan_start, 0)
-                scan_den = min(scan_end, n_scans_total)
 
                 i = 1
                 while f"S{i}" in input:
@@ -656,13 +655,11 @@ class L1CFile:
 
                     shape = input[f"{group_name}/Latitude"].shape
                     n_scans = shape[0]
-                    scaling = n_scans // n_scans_total
-                    scan_end_s = min(n_scans, scan_end)
-                    n_scans = (scan_end_s - scan_start) * scaling
-                    scan_range = slice(
-                        scan_start * scaling,
-                        scan_end_s * scaling
-                    )
+                    scaling = n_scans / n_scans_total
+                    scan_start_s = int(min(n_scans_total, scan_start) * scaling)
+                    scan_end_s = int(min(n_scans_total, scan_end) * scaling)
+                    n_scans = scan_end_s - scan_start_s
+                    scan_range = slice(scan_start_s, scan_end_s)
                     g = output.create_group(group_name)
                     for name, item in input[group_name].items():
                         if isinstance(item, h5py.Dataset):
