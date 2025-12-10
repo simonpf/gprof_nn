@@ -42,7 +42,11 @@ from gprof_nn.data.utils import (
     upsample_scans
 )
 from gprof_nn.utils import expand_tbs
-from gprof_nn.geometry import calculate_footprints_conical
+from gprof_nn.geometry import (
+    calculate_footprints_conical,
+    calculate_footprints_xtrack,
+    viewing_to_incidence
+)
 from gprof_nn.definitions import (
     ANCILLARY_VARIABLES,
     ANCILLARY_CFGS,
@@ -1285,32 +1289,37 @@ def load_training_data_3d_xtrack_sim(
         p_x_i = 0.5
         p_y = rng.random()
 
-    width = 64
-    height = 128
+    lons_fp_gmi = scene.longitude.data
+    lats_fp_gmi = scene.latitude.data
 
-    lats = scene.latitude.data
-    lons = scene.longitude.data
-    transpose = False
-    if rng.random() < 0.5:
-        transpose = True
-    coords = get_transformation_coordinates(
-        lats, lons, sensor.viewing_geometry, width, height, p_x_i, p_x_o, p_y,
-        transpose=transpose
+    va_range = sensor.viewing_geometry.scan_range
+    va_max = va_range / 2
+    eia_max = viewing_to_incidence(va_max, sensor.viewing_geometry.altitude)
+    eia_range = (-eia_max, eia_max)
+
+    remap_coords = calculate_footprints_xtrack(
+        lons_fp_gmi,
+        lats_fp_gmi,
+        sensor.viewing_geometry.altitude,
+        eia_range=eia_range,
+        vai=2 * va_max / sensor.viewing_geometry.pixels_per_scan,
+        n_pixels=64,
+        n_scans=128,
+        scan_dist=sensor.viewing_geometry.scan_offset,
+        subsample=20,
+        rng=rng
     )
-    for var in ANCILLARY_VARIABLES:
-        scene[var] = scene[var].astype(np.float32)
 
-    scene = remap_scene(scene, coords, variables).transpose("levels", "scans", "pixels", ...)
+    from pansat.utils import resample_data
+    from pyresample import SwathDefinition
+    swath = SwathDefinition(remap_coords.longitude.data, remap_coords.latitude.data)
+    scene = resample_data(scene, swath, radius_of_influence=15e3, new_dims=("scans", "pixels"))
+    scene = scene.transpose("levels", "scans", "pixels", ...)
 
-    center = sensor.viewing_geometry.get_window_center(p_x_o, width)
-    j_start = int(center[1, 0, 0] - width // 2)
-    j_end = int(center[1, 0, 0] + width // 2)
-    angs = sensor.viewing_geometry.get_earth_incidence_angles()
-    angs = angs[j_start:j_end]
-    angs = np.repeat(angs.reshape(1, -1), height, axis=0)
+    angs = np.abs(remap_coords.earth_incidence_angle.data)
 
-    weights = calculate_interpolation_weights(np.abs(angs), angle_grid)
-     # Calculate brightness temperatures
+    weights = calculate_interpolation_weights(angs, angle_grid)
+    # Calculate brightness temperatures
     tbs_sim = scene.satformer_tbs_rand.data
     tbs_sim = interpolate(tbs_sim, weights)
     tbs_sim[tbs_sim > 350] = np.nan
@@ -1869,7 +1878,7 @@ class GPROFNN3DDataset(Dataset):
                             ocean_mask = (scene["land_fraction"].data < 10) * (scene["ice_fraction"].data < 10)
                             sp_cmb = scene["surface_precip_combined"].data
                             sp_light = scene["light_precip"].data
-                            sp_merged = merge_precipitation(sp_cmb, sp_light)
+                            sp_merged = merge_precipitation(sp_cmb, sp_light[..., None])
                             scene["surface_precip"].data[ocean_mask] = sp_merged[ocean_mask]
                         x, y = load_training_data_3d_xtrack_sim(
                             sensor,
@@ -1910,6 +1919,7 @@ class GPROFNN3DDataset(Dataset):
                             rng=self.rng
                         )
         except Exception as exc:
+            raise exc
             LOGGER.warning(
                 "Encountered an error when trying to load data from file '%s'.",
                 self.files[ind]

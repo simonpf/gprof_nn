@@ -5,7 +5,8 @@ gprof_nn.geometry
 This module defines geometric utility functions to manipulate sensor and footprint
 positions.
 """
-from typing import Tuple
+from typing import Optional, Tuple
+import warnings
 
 import numpy as np
 import xarray as xr
@@ -184,14 +185,16 @@ def great_circle_distance(lon_start, lat_start, lon_end, lat_end):
 
 
 def calculate_footprints_xtrack(
-    lons_fp_gmi: np.ndarray,
-    lats_fp_gmi: np.ndarray,
-    altitude: float,
-    eia_range: Tuple[float, float],
-    vai: float,
-    n_pixels: int,
-    n_scans: int,
-    scan_dist: float
+        lons_fp_gmi: np.ndarray,
+        lats_fp_gmi: np.ndarray,
+        altitude: float,
+        eia_range: Tuple[float, float],
+        vai: float,
+        n_pixels: int,
+        n_scans: int,
+        scan_dist: float,
+        subsample: int = 1,
+        rng: Optional[np.random.Generator] = None
 ):
     """
     Calculate footprints for a cross-track scanner centered on the GMI swath.
@@ -205,6 +208,8 @@ def calculate_footprints_xtrack(
         n_pixels: The number of pixel positions to generate.
         n_scans: The number of scans to generate.
         scan_dist: The distance between consecutive scans.
+        subsample: Subsampling factor to apply to the GMI scans.
+        rng: np.random.Generator = None
 
     Return:
         An xarray.Dataset containing the 'longitude' and 'latitude' coordinates of the footprints
@@ -215,8 +220,12 @@ def calculate_footprints_xtrack(
     scan_lons = []
     scan_lats = []
     sat_track = []
+    eias = []
 
-    eia = np.random.uniform(*eia_range)
+    if rng is None:
+        rng = np.random.default_rng()
+
+    eia = rng.uniform(*eia_range)
     va = incidence_angle_to_viewing_angle(eia, altitude)
     va_range = (
         incidence_angle_to_viewing_angle(eia_range[0], altitude),
@@ -225,11 +234,15 @@ def calculate_footprints_xtrack(
 
     beta = eia - va
     R = 6.371e6
-    l_los = R * np.sin(np.deg2rad(beta)) / np.sin(np.deg2rad(va))
 
-    central_pixel = int((n_pixels_gmi - 1) * (1.0 - (eia - eia_range[0]) / (eia_range[1] - eia_range[0])))
+    if np.isclose(eia, 0.0, atol=1e-3):
+        l_los = altitude
+    else:
+        l_los = np.sin(np.deg2rad(beta)) * (R + altitude) / np.sin(np.pi - np.deg2rad(eia))
 
-    for scan_ind in range(n_scans_gmi):
+    central_pixel = rng.integers(20, 190)#n_scans_gmi  // 2
+
+    for scan_ind in range(0, n_scans_gmi, subsample):
 
         center_lon = lons_fp_gmi[scan_ind, central_pixel]
         center_lat = lats_fp_gmi[scan_ind, central_pixel]
@@ -251,9 +264,13 @@ def calculate_footprints_xtrack(
             center_lat,
             altitude
         ])
-        sat_track.append(sat_pos)
         sat_pos = lla_to_ecef(sat_pos)
-        sat_pos = curr_pos + l_los / altitude * rotate_around(sat_pos - curr_pos, flight_dir, eia)
+        sat_pos = curr_pos + l_los / altitude * rotate_around(
+            sat_pos - curr_pos,
+            flight_dir,
+            eia
+        )
+        sat_track.append(ecef_to_lla(sat_pos))
 
         los_center = curr_pos - sat_pos
         los_center /= np.linalg.norm(los_center, axis=-1)
@@ -262,6 +279,17 @@ def calculate_footprints_xtrack(
         va_left = min(va, lim_right)
         degs = va_left + vai * np.arange(n_pixels) - va
         all_los = [rotate_around(los_center, flight_dir, deg) for deg in degs]
+
+        old_settings = np.seterr(all='ignore')
+        try:
+            vis = [
+                np.rad2deg(np.arccos(np.sum(los * los_center) / np.linalg.norm(los, axis=-1)  / np.linalg.norm(los_center)))
+                for los in all_los
+            ]
+        finally:
+            np.seterr(**old_settings)
+
+        eias.append(viewing_to_incidence(va + degs, altitude))
 
         footprints = [calculate_surface_intersection(sat_pos, los) for los in all_los]
         footprints = ecef_to_lla(np.array(footprints))
@@ -272,8 +300,8 @@ def calculate_footprints_xtrack(
     along_track_dist = great_circle_distance(
         lons_fp_gmi[0, central_pixel],
         lats_fp_gmi[0, central_pixel],
-        lons_fp_gmi[:, central_pixel],
-        lats_fp_gmi[:, central_pixel],
+        lons_fp_gmi[::subsample, central_pixel],
+        lats_fp_gmi[::subsample, central_pixel],
     )
     center_dist = along_track_dist[along_track_dist.size // 2]
     target_dists = np.arange(-n_scans // 2, n_scans // 2) * scan_dist + center_dist
@@ -281,6 +309,7 @@ def calculate_footprints_xtrack(
     sat_pos = np.stack(sat_track)
     scan_lons = np.stack(scan_lons)
     scan_lats = np.stack(scan_lats)
+    eias = np.stack(eias)
 
     coords = xr.Dataset({
         "scans": (("scans",), along_track_dist),
@@ -289,8 +318,8 @@ def calculate_footprints_xtrack(
         "sensor_longitude": (("scans",), sat_pos[..., 0]),
         "sensor_latitude": (("scans",), sat_pos[..., 1]),
         "sensor_altitude": (("scans",), sat_pos[..., 2]),
+        "earth_incidence_angle": (("scans", "pixels"), eias),
     })
-
     return coords.interp(scans=target_dists)
 
 
@@ -419,7 +448,10 @@ def calculate_footprints_conical(
     return coords.interp(scans=target_dists)
 
 
-def incidence_angle_to_viewing_angle(incidence_angle, altitude):
+def incidence_angle_to_viewing_angle(
+        incidence_angle: float,
+        altitude: float
+) -> float:
     """
     Calculates viewing angle from incidence angles.
 
@@ -435,3 +467,24 @@ def incidence_angle_to_viewing_angle(incidence_angle, altitude):
     sin_alpha = R * np.sin(np.pi - np.deg2rad(incidence_angle)) / (R + altitude)
     alpha = np.arcsin(sin_alpha)
     return np.rad2deg(alpha)
+
+
+def viewing_to_incidence(
+        viewing_angle: float,
+        altitude: float
+) -> float:
+    """
+    Convert satellite viewing angle to Earth incidence angle.
+
+    Args:
+        viewing_angle: The viewing angle in degree
+        altitude: The satellite altitude
+
+    Return:
+        The earth incidence angle.
+    """
+    R = 6371.0e3
+
+    theta_v = np.radians(viewing_angle)
+    theta_i = np.arcsin((R + altitude) / R * np.sin(theta_v))
+    return np.rad2deg(theta_i)
