@@ -37,7 +37,7 @@ except ImportError:
 from gprof_nn.logging import enable_file_logging
 from gprof_nn import sensors
 from gprof_nn.data.l1c import L1CFile
-from gprof_nn.data.utils import UPSAMPLING_FACTORS
+from gprof_nn.data.utils import UPSAMPLING_FACTORS, add_frozen_precip
 from gprof_nn.config import CONFIG
 from gprof_nn.download import download_model
 from gprof_nn.data import preprocessor
@@ -238,6 +238,7 @@ def load_input_data_preprocessor(
         "land_fraction": data_pp.land_fraction.data,
         "ice_fraction": data_pp.ice_fraction.data,
         "elevation": data_pp.elevation.data,
+        "wet_bulb_temperature": data_pp.wet_bulb_temperature.data,
         "snow_mask": data_pp.snow_mask.data,
         "preprocessor_file": file_pp
     }
@@ -342,6 +343,7 @@ def load_input_data_l1c(
         "mountain_index": missing,
         "land_fraction": missing,
         "ice_fraction": missing,
+        "wet_bulb_temperature": missing,
         "elevation": missing,
         "snow_mask": missing,
     }
@@ -897,7 +899,7 @@ class GPROFNNInputLoader:
             LOGGER.debug("Successfully processed %s scans.", output.scans.size)
 
         if output_format.upper() == "NETCDF":
-            # Quick and dirty way to transform 1C filename to 2A filename
+            add_frozen_precip(output)
             if output_path is None:
                 return output
 

@@ -71,7 +71,8 @@ try:
             l1c_xcal2016v_metopb_mhs_v07a,
             l1c_xcal2019v_metopc_mhs_v07a,
         ),
-        "ssmi": (l1c_f14_ssmi, l1c_f15_ssmi,),
+        #"ssmi": (l1c_f14_ssmi, l1c_f15_ssmi,),
+        "ssmi": (l1c_f15_ssmi,),
         "ssmis": (l1c_xcal2021v_f16_ssmis_v07a, l1c_xcal2021v_f17_ssmis_v07a, l1c_xcal2021v_f18_ssmis_v07a),
         "tmi": (l1c_trmm_tmi,),
         "tms": (l1c_tropicspf_tms, l1c_tropics03_tms, l1c_tropics06_tms,),
@@ -1134,3 +1135,21 @@ def merge_precipitation(
     #diff = np.maximum(precip_light - precip_cmb, 0.0)
     weights = exponential_weights(precip_cmb, 0.45)
     return  weights * precip_light + (1.0 - weights) * precip_cmb
+
+
+def add_frozen_precip(results: xr.Dataset) -> xr.Dataset:
+    """
+    Add frozen precipitation to retrieval results.
+
+    Args:
+        results: An xarray.Dataset containing the retrieval results.
+
+    Return:
+        The xarray dataset with the frozen precipitation added as retrieval output.
+    """
+    surface_precip = results.surface_precip.data
+    land_fraction = results.land_fraction.data
+    wet_bulb_temperature = results.wet_bulb_temperature.data
+    frozen_precip = preprocessor.calculate_frozen_precip(wet_bulb_temperature, land_fraction, surface_precip)
+    results["frozen_precip"] = (("scans", "pixels"), frozen_precip)
+    results
