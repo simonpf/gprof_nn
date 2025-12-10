@@ -20,7 +20,8 @@ dependencies = [
     "pytorch_retrieve>=0.1.2",
     "xarray[io]",
     "huggingface-hub",
-    "ipywidgets"
+    "ipywidgets",
+    "hf_xet"
 ]
 dynamic = ["version"]
 
