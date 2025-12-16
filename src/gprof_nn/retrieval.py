@@ -567,7 +567,11 @@ def load_input_data_collocations(
             "pixel_status": status,
             "quality_flag": qflag,
             "longitude": scene.longitude.data,
-            "latitude": scene.latitude.data
+            "latitude": scene.latitude.data,
+            "land_fraction": scene.land_fraction.data,
+            "ice_fraction": scene.ice_fraction.data,
+            "snow_mask": scene.snow_mask.data,
+            "wet_bulb_temperature": scene.wet_bulb_temperature.data,
         }
         return input_data, aux
 
