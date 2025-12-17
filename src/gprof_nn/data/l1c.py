@@ -663,7 +663,9 @@ class L1CFile:
                     g = output.create_group(group_name)
                     for name, item in input[group_name].items():
                         if isinstance(item, h5py.Dataset):
-                            shape = item.shape
+                            shape = item[scan_range].shape
+                            if shape[0] != n_scans:
+                                continue
                             g.create_dataset(
                                 name,
                                 shape=(n_scans,) + shape[1:],
@@ -679,7 +681,9 @@ class L1CFile:
                     g_st = g.create_group("ScanTime")
                     for name, item in input[f"{group_name}/ScanTime"].items():
                         if isinstance(item, h5py.Dataset):
-                            shape = item.shape
+                            shape = item[scan_range].shape
+                            if shape[0] != n_scans:
+                                continue
                             g_st.create_dataset(
                                 name,
                                 shape=(n_scans,) + shape[1:],
@@ -689,7 +693,9 @@ class L1CFile:
                     g_sc = g.create_group("SCstatus")
                     for name, item in input[f"{group_name}/SCstatus"].items():
                         if isinstance(item, h5py.Dataset):
-                            shape = item.shape
+                            shape = item[scan_range].shape
+                            if shape[0] != n_scans:
+                                continue
                             g_sc.create_dataset(
                                 name,
                                 shape=(n_scans,) + shape[1:],
