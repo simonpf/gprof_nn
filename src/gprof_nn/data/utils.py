@@ -105,6 +105,7 @@ RADIUS_OF_INFLUENCE = {
     "tmi": 30e3,
     "amsre": 20e3,
     "mwi": 20e3,
+    "tms": 60e3,
 }
 
 
@@ -921,7 +922,7 @@ def calculate_angles(
     return np.rad2deg(zenith), np.rad2deg(azimuth), np.rad2deg(viewing_angle)
 
 
-_CHANNEL_REGEXP = re.compile(r"([\d\.]+)\s*(?:GHz)?(?:\+-)?\s*(?:\+\/-)?\s*([\d\.]*)\s*(?:GHz)?\s*(\w+)-Pol")
+_CHANNEL_REGEXP = re.compile(r"([\d\.]+)[^\)]\s*(?:GHz)?(?:\+-)?\s*(?:\+\/-)?\s*([\d\.]*)\s*(?:GHz)?\s*(?:(\w+)-Pol)?")
 
 POLARIZATIONS = {
     "H": 0,
@@ -931,12 +932,13 @@ POLARIZATIONS = {
 }
 
 
-
 def calculate_polarization_weights(polarization, viewing_angles):
     """
     Calculate floating point representation of the sensor polarization.
 
     """
+    if isinstance(polarization, float):
+        return np.cos(np.deg2rad(polarization)) ** 2 * np.ones_like(viewing_angles)
     if polarization == "V":
         return np.ones_like(viewing_angles)
     if polarization == "H":
@@ -992,14 +994,17 @@ def calculate_obs_properties(
         offsets = []
         pols = []
 
-        for match in _CHANNEL_REGEXP.findall(granule_data[f"tbs_s{swath_ind}"].attrs["LongName"]):
+        for ch_ind, match in enumerate(_CHANNEL_REGEXP.findall(granule_data[f"tbs_s{swath_ind}"].attrs["LongName"])):
             freq, offs, pol = match
             freqs.append(float(freq))
             if offs == "":
                 offsets.append(0.0)
             else:
                 offsets.append(float(offs))
-            pols.append(pol)
+            if pol == "":
+                pols.append(l1c_file.sensor.polarization[tot_chan_ind + ch_ind])
+            else:
+                pols.append(pol)
 
         swath_data = granule_data[[
             f"longitude_s{swath_ind}",
@@ -1025,6 +1030,8 @@ def calculate_obs_properties(
         if sensor_alt.shape[0] < zenith.shape[0]:
             fac = zenith.shape[0] // sensor_alt.shape[0]
             sensor_alt = np.repeat(sensor_alt, fac, axis=0)
+
+
         sensor_alt = np.broadcast_to(sensor_alt[..., None], zenith.shape) / 100e3
 
         swath_data = swath_data.rename({
@@ -1042,6 +1049,12 @@ def calculate_obs_properties(
             scan_time = np.repeat(scan_time, fac, axis=0)
         swath_data["scan_time"] = (("scans",), scan_time)
 
+        swath_data["scan_time"].attrs = {}
+        for var in swath_data["scan_time"].coords.variables:
+            swath_data[var].attrs = {}
+        swath_data["sensor_alt"].attrs = {}
+        for var in swath_data["sensor_alt"].coords.variables:
+            swath_data[var].attrs = {}
         scan_time, _ = xr.broadcast(swath_data["scan_time"], swath_data["sensor_alt"])
         swath_data["scan_time"] = scan_time
 
@@ -1055,7 +1068,9 @@ def calculate_obs_properties(
         azimuth = swath_data_r.azimuth.data
         viewing_angle = swath_data_r.viewing_angle.data
 
+
         for chan_ind in range(swath_data_r[f"channels_s{swath_ind}"].size):
+            print("CHAN IND :: ", chan_ind, sensor_alt.shape, zenith.shape)
             observations.append(swath_data_r[f"tbs_s{swath_ind}"].data[..., chan_ind])
             meta = np.stack((
                 freqs[chan_ind] * np.ones_like(observations[-1]),
