@@ -32,6 +32,7 @@ def test_retrieval_atms():
     results = run_retrieval(test_file)
     assert len(results) > 0
 
+
 def test_retrieval_amsr2():
     """
     Tests the retrieval for AMSR2.
@@ -67,6 +68,19 @@ def test_retrieval_ssmis():
     assert len(results) > 0
 
     test_file = download_test_file("ssmis", "preprocessor")
+    results = run_retrieval(test_file)
+    assert len(results) > 0
+
+
+def test_retrieval_ssmi():
+    """
+    Tests the retrieval for SSMI.
+    """
+    test_file = download_test_file("ssmi", "l1c")
+    results = run_retrieval(test_file)
+    assert len(results) > 0
+
+    test_file = download_test_file("ssmi", "preprocessor")
     results = run_retrieval(test_file)
     assert len(results) > 0
 
