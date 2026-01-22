@@ -239,7 +239,7 @@ def extract_finetuning_samples(
             "One of 'retrieval_path' or 'retrieval_model' must not be None."
         )
 
-    ref_prods = PANSAT_PRODUCTS[reference_sensor.name.lower()][:1]
+    ref_prods = PANSAT_PRODUCTS[reference_sensor.name.lower()]
     targ_prods = PANSAT_PRODUCTS[target_sensor.name.lower()]
 
     if retrieval_model is not None:
