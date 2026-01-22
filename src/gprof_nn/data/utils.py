@@ -46,6 +46,7 @@ try:
         l1c_xcal2021v_f17_ssmis_parv811,
         l1c_xcal2021v_f18_ssmis_v07a,
         l1c_xcal2017v_noaa15_amsub_v07a,
+        l1c_xcal2017v_noaa16_amsub_v07a,
         l1c_xcal2017v_noaa17_amsub_v07a,
         l1c_aqua_amsre,
         l1c_trmm_tmi,
@@ -64,7 +65,11 @@ try:
         "atms": (l1c_npp_atms, l1c_noaa20_atms),
         "amsre": (l1c_aqua_amsre,),
         "amsr2": (l1c_gcomw1_amsr2,),
-        "amsub": (l1c_xcal2017v_noaa15_amsub_v07a, l1c_xcal2017v_noaa17_amsub_v07a),
+        "amsub": (
+            l1c_xcal2017v_noaa15_amsub_v07a,
+            l1c_xcal2017v_noaa16_amsub_v07a,
+            l1c_xcal2017v_noaa17_amsub_v07a
+        ),
         "gmi": (l1c_r_gpm_gmi,),
         "mhs": (
             l1c_xcal2021v_metopa_mhs_v07a,
