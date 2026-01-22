@@ -43,6 +43,7 @@ try:
         l1c_xcal2019v_metopc_mhs_v07a,
         l1c_xcal2021v_f16_ssmis_v07a,
         l1c_xcal2021v_f17_ssmis_v07a,
+        l1c_xcal2021v_f17_ssmis_parv811,
         l1c_xcal2021v_f18_ssmis_v07a,
         l1c_xcal2017v_noaa15_amsub_v07a,
         l1c_xcal2017v_noaa17_amsub_v07a,
@@ -51,9 +52,10 @@ try:
         l1c_f13_ssmi,
         l1c_f14_ssmi,
         l1c_f15_ssmi,
-        l1c_tropicspf_tms,
-        l1c_tropics03_tms,
-        l1c_tropics06_tms,
+        l1c_xcal2023n_tropicspf_tms_par702,
+        l1c_xcal2025n_tropics03_tms_parv804,
+        l1c_xcal2025n_tropics05_tms_parv804,
+        l1c_xcal2025n_tropics06_tms_parv804,
         merged_ir,
     )
     from pyresample.geometry import SwathDefinition
@@ -73,9 +75,19 @@ try:
         ),
         #"ssmi": (l1c_f14_ssmi, l1c_f15_ssmi,),
         "ssmi": (l1c_f15_ssmi,),
-        "ssmis": (l1c_xcal2021v_f16_ssmis_v07a, l1c_xcal2021v_f17_ssmis_v07a, l1c_xcal2021v_f18_ssmis_v07a),
+        "ssmis": (
+            l1c_xcal2021v_f17_ssmis_parv811,
+            l1c_xcal2021v_f16_ssmis_v07a,
+            l1c_xcal2021v_f17_ssmis_v07a,
+            l1c_xcal2021v_f18_ssmis_v07a
+        ),
         "tmi": (l1c_trmm_tmi,),
-        "tms": (l1c_tropicspf_tms, l1c_tropics03_tms, l1c_tropics06_tms,),
+        "tms": (
+            l1c_xcal2023n_tropicspf_tms_par702,
+            l1c_xcal2025n_tropics03_tms_parv804,
+            l1c_xcal2025n_tropics05_tms_parv804,
+            l1c_xcal2025n_tropics06_tms_parv804,
+        ),
     }
 except ImportError as err:
     LOGGER.debug(
@@ -1070,7 +1082,6 @@ def calculate_obs_properties(
 
 
         for chan_ind in range(swath_data_r[f"channels_s{swath_ind}"].size):
-            print("CHAN IND :: ", chan_ind, sensor_alt.shape, zenith.shape)
             observations.append(swath_data_r[f"tbs_s{swath_ind}"].data[..., chan_ind])
             meta = np.stack((
                 freqs[chan_ind] * np.ones_like(observations[-1]),
