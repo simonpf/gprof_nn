@@ -1,7 +1,7 @@
 [platform]
 name = "wsfm1"
-l1c_file_path = "/edata1/archive/GPM/1C_WSFM1_ITW"
-l1c_file_prefix = "1C.WSFM1.MWI"
+l1c_file_path = "/edata1/archive/GPM/1C_WSFM1_ITE"
+l1c_file_prefix = "1C.WSFM1.MWI*"
 
 [viewing_geometry]
 kind = "Conical"
@@ -22,6 +22,7 @@ beam_width = [1.06, 1.06, 0.66, 0.66, 0.58, 0.43, 0.43, 0.43, 0.43]
 earth_incidence_angle = [52.069, 52.069, 52.069, 52.069, 52.069, 52.069, 52.069, 52.069, 52.069]
 channel_drop = 0.1
 scanline_drop = 0.1
+pansat_products = ["l1c_xcal2025n_wsfm1_mwi_parv809"]
 
 [sensor.gprof_channels]
 0 = [0, 0]

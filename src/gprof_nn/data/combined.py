@@ -32,7 +32,6 @@ from rich.progress import track, Progress
 from gprof_nn.sensors import Sensor
 from gprof_nn.statistics import TrainingDataStats
 from gprof_nn.data.utils import (
-    PANSAT_PRODUCTS,
     UPSAMPLING_FACTORS,
     RADIUS_OF_INFLUENCE,
     run_preprocessor,
@@ -264,7 +263,7 @@ def extract_samples(
         scene_size: The size of the training scenes to extract.
         high_res: Whether to extract training data at high resolution (5 km).
     """
-    input_products = PANSAT_PRODUCTS[sensor.name.lower()]
+    input_products = sensor.pansat_products
     target_product = l2b_corra2022_gpm_dprgmi_v07a
     for input_product in input_products:
             input_recs = input_product.get(TimeRange(start_time, end_time))

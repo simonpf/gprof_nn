@@ -21,6 +21,7 @@ earth_incidence_angle = [55.33, 55.3, 55.3, 55.28, 55.28, 55.28, 55.28, 55.3, 54
 beam_width = [1.5, 1.5, 0.8, 0.8, 0.92, 0.92, 0.42, 0.42, 0.19, 0.19]
 channel_drop = 0.1
 scanline_drop = 0.1
+pansat_products = ["l1c_xcal2017v_aqua_amsre_v07a"]
 
 [sensor.gprof_channels]
 0 = [0, 0]

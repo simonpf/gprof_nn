@@ -992,7 +992,6 @@ class GPROFNN1DDataset(IterableDataset):
                 try:
                     inputs_f, targets_f = self.load_training_data(input_file)
                 except Exception as exc:
-                    raise exc
                     LOGGER.exception("Failed loading training data from file %s", path)
                     continue
                 for name, tensor in inputs_f.items():
@@ -1919,7 +1918,6 @@ class GPROFNN3DDataset(Dataset):
                             rng=self.rng
                         )
         except Exception as exc:
-            raise exc
             LOGGER.warning(
                 "Encountered an error when trying to load data from file '%s'.",
                 self.files[ind]
@@ -2067,7 +2065,6 @@ class GPROFNNLightDataset(Dataset):
                     rng=self.rng
                 )
         except Exception as exc:
-            raise exc
             LOGGER.warning(
                 "Encountered an error when trying to load data from file '%s'.",
                 sample_file

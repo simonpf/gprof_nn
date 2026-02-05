@@ -29,74 +29,10 @@ LOGGER = logging.getLogger(__name__)
 
 
 try:
-    from pansat import Granule, TimeRange
-    from pansat.utils import resample_data
-    from pansat.products.satellite.gpm import (
-        l1c_r_gpm_gmi,
-        l1c_npp_atms,
-        l1c_noaa20_atms,
-        l1c_gcomw1_amsr2,
-        l1c_xcal2016v_noaa18_mhs_v07a,
-        l1c_xcal2016v_noaa19_mhs_v07a,
-        l1c_xcal2021v_metopa_mhs_v07a,
-        l1c_xcal2016v_metopb_mhs_v07a,
-        l1c_xcal2019v_metopc_mhs_v07a,
-        l1c_xcal2021v_f16_ssmis_v07a,
-        l1c_xcal2021v_f17_ssmis_v07a,
-        l1c_xcal2021v_f17_ssmis_parv811,
-        l1c_xcal2021v_f18_ssmis_v07a,
-        l1c_xcal2017v_noaa15_amsub_v07a,
-        l1c_xcal2017v_noaa16_amsub_v07a,
-        l1c_xcal2017v_noaa17_amsub_v07a,
-        l1c_aqua_amsre,
-        l1c_trmm_tmi,
-        l1c_f13_ssmi,
-        l1c_f14_ssmi,
-        l1c_f15_ssmi,
-        l1c_xcal2023n_tropicspf_tms_par702,
-        l1c_xcal2025n_tropics03_tms_parv804,
-        l1c_xcal2025n_tropics05_tms_parv804,
-        l1c_xcal2025n_tropics06_tms_parv804,
-        merged_ir,
-    )
     from pyresample.geometry import SwathDefinition
-
-    PANSAT_PRODUCTS = {
-        "atms": (l1c_npp_atms, l1c_noaa20_atms),
-        "amsre": (l1c_aqua_amsre,),
-        "amsr2": (l1c_gcomw1_amsr2,),
-        "amsub": (
-            l1c_xcal2017v_noaa15_amsub_v07a,
-            l1c_xcal2017v_noaa16_amsub_v07a,
-            l1c_xcal2017v_noaa17_amsub_v07a
-        ),
-        "gmi": (l1c_r_gpm_gmi,),
-        "mhs": (
-            l1c_xcal2021v_metopa_mhs_v07a,
-            l1c_xcal2016v_noaa18_mhs_v07a,
-            l1c_xcal2016v_noaa19_mhs_v07a,
-            l1c_xcal2016v_metopb_mhs_v07a,
-            l1c_xcal2019v_metopc_mhs_v07a,
-        ),
-        #"ssmi": (l1c_f14_ssmi, l1c_f15_ssmi,),
-        "ssmi": (l1c_f15_ssmi,),
-        "ssmis": (
-            l1c_xcal2021v_f17_ssmis_parv811,
-            l1c_xcal2021v_f16_ssmis_v07a,
-            l1c_xcal2021v_f17_ssmis_v07a,
-            l1c_xcal2021v_f18_ssmis_v07a
-        ),
-        "tmi": (l1c_trmm_tmi,),
-        "tms": (
-            l1c_xcal2023n_tropicspf_tms_par702,
-            l1c_xcal2025n_tropics03_tms_parv804,
-            l1c_xcal2025n_tropics05_tms_parv804,
-            l1c_xcal2025n_tropics06_tms_parv804,
-        ),
-    }
 except ImportError as err:
     LOGGER.debug(
-        "Encountered an error when importing pansat products."
+        "Encountered an error when importing the 'pyresample' package."
     )
 
 

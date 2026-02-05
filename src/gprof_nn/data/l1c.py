@@ -208,6 +208,9 @@ def consolidate_swath_data_mhs(swath_data: Dict[str, xr.Dataset]) -> xr.Dataset:
     return full_data
 
 
+consolidate_swath_data_amsub = consolidate_swath_data_mhs
+
+
 def consolidate_swath_data_ssmi(swath_data: Dict[str, xr.Dataset]) -> xr.Dataset:
     """
     Combines data from SSMI L1C files into a single xarray.Dataset in the way
@@ -365,6 +368,7 @@ CONSOLIDATION_FUNCTIONS = {
     "ssmi": consolidate_swath_data_ssmi,
     "ssmis": consolidate_swath_data_ssmis,
     "tmi": consolidate_swath_data_tmi,
+    "amsub": consolidate_swath_data_amsub,
 }
 
 
@@ -509,17 +513,13 @@ class L1CFile:
         month = date.month
         day = date.day
         data_path = Path(path) / f"{year:02}{month:02}" / f"{year:02}{month:02}{day:02}"
-        files = list(
-            data_path.glob(
-                sensor.l1c_file_prefix + f"*{date.year:04}{month:02}{day:02}*V07*.HDF5"
-            )
-        )
-        files += list(
-            path.glob(
-                sensor.l1c_file_prefix + f"*{date.year:04}{month:02}{day:02}*V07*.HDF5"
-            )
-        )
-        for l1c_file in files:
+        files = sorted(list(path.glob("**/*.HDF5")))
+        files += sorted(list(path.glob("**/*.nc")))
+        prods = sensor.pansat_products
+        files_filtered = []
+        for prod in prods:
+            files_filtered += [path for path in files if prod.matches(path)]
+        for l1c_file in files_filtered:
             try:
                 l1c_file = L1CFile(l1c_file)
             except Exception:

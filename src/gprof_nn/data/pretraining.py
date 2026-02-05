@@ -58,7 +58,6 @@ from gprof_nn.data.utils import (
     mask_invalid_values,
     RADIUS_OF_INFLUENCE,
     UPSAMPLING_FACTORS,
-    PANSAT_PRODUCTS
 )
 from gprof_nn.data.l1c import L1CFile
 from gprof_nn.data.training_data import transform_observations_satformer
@@ -332,15 +331,33 @@ def extract_samples(
         scene_size: The size of the training scenes to extract.
     """
 
-    input_products = PANSAT_PRODUCTS[input_sensor.name.lower()]
-    target_products = PANSAT_PRODUCTS[target_sensor.name.lower()]
+    input_products = input_sensor.pansat_products
+    target_products = target_sensor.pansat_products
     for input_product in input_products:
         for target_product in target_products:
             input_recs = input_product.get(TimeRange(start_time, end_time))
+            LOGGER.info(
+                "Found %s input records for time range %s %s.",
+                len(input_recs),
+                start_time,
+                end_time
+            )
             input_index = Index.index(input_product, input_recs)
             target_recs = target_product.get(TimeRange(start_time, end_time))
+            LOGGER.info(
+                "Found %s target records for time range %s %s.",
+                len(target_recs),
+                start_time,
+                end_time
+            )
             target_index = Index.index(target_product, target_recs)
             matches = find_matches(input_index, target_index, np.timedelta64(15, "m"))
+            LOGGER.info(
+                "Found %s matches for input product %s and target_product %s.",
+                len(matches),
+                input_product,
+                target_product
+            )
             for match in matches:
                 try:
                     extract_pretraining_scenes(
@@ -634,7 +651,7 @@ class SimulatorInput():
         obs_in = []
         meta_in = []
         for input_ind in range(n_chans_in):
-            obs = data.input_observations.data[input_ind]
+            obs = data.input_observations.data[input_ind][None]
             meta = data.input_meta_data.data[input_ind]
             #obs, meta = transform_observations_satformer(obs, meta)
             obs_in.append(torch.tensor(obs.astype(np.float32)))
@@ -648,7 +665,7 @@ class SimulatorInput():
             meta_out.append(torch.tensor(data.target_meta_data.data[output_ind]))
 
         inpt = {
-            "observations": torch.stack(obs_in, 0)[None],
+            "observations": torch.stack(obs_in, 1)[None],
             "input_observation_props": torch.stack(meta_in, 1)[None],
             "output_observation_props": torch.stack(meta_out, 1)[None],
         }
@@ -665,13 +682,15 @@ class SimulatorInput():
             inpt[anc_var] = anc_data[None]
             inpt[anc_var + "_mask"] = anc_mask[None]
 
-        mask = torch.isnan(inpt["observations"]).all(-1).all(-1)
+        mask = torch.isnan(inpt["observations"]).all(-1).all(-1).all(-2)
         inpt["input_observation_mask"] = mask
 
         aux = {
             "latitude": input_data.latitude.data,
             "longitude": input_data.longitude.data,
         }
+
+        [print(name, tnsr.shape) for name, tnsr in inpt.items()]
 
         return inpt, aux, "results.nc"
 

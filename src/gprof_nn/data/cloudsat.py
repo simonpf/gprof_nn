@@ -42,7 +42,6 @@ from gprof_nn.data.utils import (
     extract_scenes,
     mask_invalid_values,
     RADIUS_OF_INFLUENCE,
-    PANSAT_PRODUCTS
 )
 
 
@@ -288,7 +287,7 @@ def extract_samples(
         scene_size: The size of the training scenes to extract.
         high_res: Whether to extract samples at high resolution.
     """
-    input_products = PANSAT_PRODUCTS[sensor.name.lower()]
+    input_products = sensor.pansat_products
     target_product = l2c_rain_profile
     for input_product in input_products:
         input_recs = input_product.get(TimeRange(start_time, end_time))

@@ -37,7 +37,6 @@ from gprof_nn.definitions import ALL_TARGETS
 from gprof_nn.retrieval import GPROFNNInputLoader
 from gprof_nn.definitions import ANCILLARY_VARIABLES
 from gprof_nn.data.utils import (
-    PANSAT_PRODUCTS,
     RADIUS_OF_INFLUENCE,
     extract_scans,
     extract_scenes,
@@ -239,8 +238,8 @@ def extract_finetuning_samples(
             "One of 'retrieval_path' or 'retrieval_model' must not be None."
         )
 
-    ref_prods = PANSAT_PRODUCTS[reference_sensor.name.lower()]
-    targ_prods = PANSAT_PRODUCTS[target_sensor.name.lower()]
+    ref_prods = reference_sensor.pansat_products
+    targ_prods = target_sensor.pansat_products
 
     if retrieval_model is not None:
         retrieval_model = load_model(retrieval_model)

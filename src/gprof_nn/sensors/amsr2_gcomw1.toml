@@ -21,6 +21,7 @@ earth_incidence_angle = [55.33, 55.3, 55.3, 55.28, 55.28, 55.28, 55.28, 55.3, 54
 beam_width = [1.2, 1.2, 0.65, 0.65, 0.75, 0.75, 0.35, 0.35, 0.15, 0.15, 0.15, 0.15]
 channel_drop = 0.2
 scanline_drop = 0.1
+pansat_products = ["l1c_xcal2016v_gcomw1_amsr2_v07a"]
 
 [sensor.gprof_channels]
 0 = [0, 0]

@@ -21,6 +21,7 @@ beam_width = [3.68, 3.75, 1.9, 1.88, 1.7, 1.0, 1.0, 0.42, 0.45]
 earth_incidence_angle = [53.35, 53.35, 53.35, 53.35, 53.35, 53.35, 53.35, 53.35, 53.35]
 channel_drop = 0.1
 scanline_drop = 0.1
+pansat_products = ["l1c_xcal2021v_trmm_tmi_v07a"]
 
 [sensor.gprof_channels]
 0 = [0, 0]

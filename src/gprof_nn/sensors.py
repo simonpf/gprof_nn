@@ -47,6 +47,7 @@ from concurrent.futures import ProcessPoolExecutor
 from copy import copy
 from functools import cache
 import logging
+import importlib
 from pathlib import Path
 from typing import List, Optional
 
@@ -182,6 +183,14 @@ def drop_inputs_from_sample(x, probability, sensor, rng):
         x[scalar_input + 8 : scalar_inputs + 12] = np.nan
 
 
+def get_pansat_product(product: str):
+    """
+    Import a pansat GPM L1C product.
+    """
+    module = importlib.import_module("pansat.products.satellite.gpm")
+    prod = getattr(module, product)
+    return prod
+
 ###############################################################################
 # Sensor classes
 ###############################################################################
@@ -208,7 +217,8 @@ class Sensor(ABC):
             beam_width: Optional[List[float]] = None,
             sim_file_pattern: str = "*.sim",
             channel_drop: Optional[float] = None,
-            scanline_drop: Optional[float] = None
+            scanline_drop: Optional[float] = None,
+            pansat_products: Optional[str] = None
     ):
         self.kind = kind
         self._name = name
@@ -256,6 +266,7 @@ class Sensor(ABC):
 
         self.channel_drop = channel_drop
         self.scanline_drop = scanline_drop
+        self._pansat_products = pansat_products
 
     def __eq__(self, other):
         """
@@ -310,6 +321,23 @@ class Sensor(ABC):
         of binned, non-clustered database files.
         """
         return self._bin_file_header
+
+    @property
+    def pansat_products(self) -> List[object]:
+        """
+        A list of the pansat products representing the L1C files for this sensor.
+        """
+        if self._pansat_products is None:
+            raise ValueError(
+                "No 'pansat_product' set for this sensor."
+            )
+        try:
+            return [get_pansat_product(prod) for prod in self._pansat_products]
+        except ImportError:
+            LOGGER.warning(
+                "Failed to import pansat product for sensor '%s'.",
+                self.full_name
+            )
 
     def get_bin_file_record(self, surface_type):
         """
@@ -414,13 +442,14 @@ class ConicalScanner(Sensor):
             beam_width: List[float],
             sim_file_pattern: str = "*.sim",
             channel_drop: Optional[float] = None,
-            scanline_drop: Optional[float] = None
+            scanline_drop: Optional[float] = None,
+            pansat_products: Optional[List[str]] = None
     ):
         super().__init__(
             types.CONICAL, name, platform, viewing_geometry, gprof_channels,
             frequencies, offsets, polarization, orographic_enhancement,
             earth_incidence_angle, beam_width, sim_file_pattern=sim_file_pattern,
-            channel_drop=channel_drop, scanline_drop=scanline_drop
+            channel_drop=channel_drop, scanline_drop=scanline_drop, pansat_products=pansat_products
         )
         self._n_angles = 1
 
@@ -451,7 +480,8 @@ class CrossTrackScanner(Sensor):
             beam_width: Optional[List[float]] = None,
             sim_file_pattern: str = "*.sim",
             scanline_drop: Optional[float] = None,
-            channel_drop: Optional[float] = None
+            channel_drop: Optional[float] = None,
+            pansat_products: Optional[List[str]] = None
     ):
         super().__init__(
             types.XTRACK, name, platform, viewing_geometry, gprof_channels,
@@ -460,7 +490,8 @@ class CrossTrackScanner(Sensor):
             beam_width=beam_width,
             sim_file_pattern=sim_file_pattern,
             scanline_drop=scanline_drop,
-            channel_drop=channel_drop
+            channel_drop=channel_drop,
+            pansat_products=pansat_products
         )
 
     def __repr__(self):
@@ -488,7 +519,8 @@ class ConstellationScanner(Sensor):
             beam_width: Optional[List[float]] = None,
             sim_file_pattern: str = "*.sim",
             channel_drop: Optional[float] = None,
-            scanline_drop: Optional[float] = None
+            scanline_drop: Optional[float] = None,
+            pansat_products: Optional[str] = None
     ):
         super().__init__(
             types.CONICAL_CONST,
@@ -504,7 +536,8 @@ class ConstellationScanner(Sensor):
             beam_width=beam_width,
             sim_file_pattern=sim_file_pattern,
             channel_drop=channel_drop,
-            scanline_drop=scanline_drop
+            scanline_drop=scanline_drop,
+            pansat_products=pansat_products
         )
 
 
@@ -606,7 +639,8 @@ def parse_sensor(sensor_file: Path) -> Sensor:
     kwargs = {
         "sim_file_pattern": "*.sim",
         "channel_drop": None,
-        "scanline_drop": None
+        "scanline_drop": None,
+        "pansat_products": []
     }
     kwargs = {key: sensor.get(key, value) for key, value in kwargs.items()}
     sensor = sensor_class(name.split('_')[0], platform, viewing_geometry, *args, **kwargs)

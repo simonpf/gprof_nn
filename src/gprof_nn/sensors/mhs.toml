@@ -21,6 +21,7 @@ sim_file_pattern = "*.sim"
 beam_width = [1.1, 1.1, 1.1, 1.1, 1.1]
 channel_drop = 0.1
 scanline_drop = 0.1
+pansat_products = ["l1c_xcal2016v_noaa19_mhs_v07a", "l1c_xcal2016v_noaa18_mhs_v07a", "l1c_xcal2021v_metopa_mhs_v07a", "l1c_xcal2016v_metopb_mhs_v07a", "l1c_xcal2019v_metopc_mhs_v07a"]
 
 [sensor.gprof_channels]
 8 = [0, 0]
