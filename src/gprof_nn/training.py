@@ -46,12 +46,13 @@ def init(
             should make use of ancillary data.
     """
     config_path = Path(__file__).parent / "config_files"
-
+    sensor = sensors.get_sensor(sensor)
     training_config = config_path / f"gprof_nn_{config.lower()}_training.toml"
     training_config = open(training_config, "r").read()
     training_config = training_config.format(**{
         "training_data_path": [str(path) for path in training_data_paths],
         "validation_data_path": [str(path) for path in validation_data_paths],
+        "sensor": sensor.name.lower(),
     })
     with open(path / "training.toml", "w") as output:
         output.write(training_config)
@@ -59,7 +60,6 @@ def init(
     model_config = config_path / f"gprof_nn_{config.lower()}_model.toml"
     model_config = open(model_config, "r").read()
     if config.lower() == "sim":
-        sensor = sensors.get_sensor(sensor)
         n_chans = sensor.n_chans
         if isinstance(sensor, sensors.CrossTrackScanner):
             model_config = model_config.format(
@@ -287,6 +287,8 @@ def run_cli(
             name: OutputConfig.parse(name, cfg)
             for name, cfg in model_config["output"].items()
         }
+        if compute_config.devices is not None:
+            compute_config.devices = compute_config.devices[:1]
         run_eda(
             stats_path,
             input_configs,
