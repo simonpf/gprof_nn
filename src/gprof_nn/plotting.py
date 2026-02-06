@@ -523,7 +523,9 @@ def add_ticks(
         lons: List[float],
         lats: list[float],
         left=True,
-        bottom=True
+        bottom=True,
+        color: str = "none",
+        linewidth: int = 0,
 ) -> None:
     import cartopy.crs as ccrs
     """
@@ -536,7 +538,12 @@ def add_ticks(
         left: Whether or not to draw ticks on the y-axis.
         bottom: Whether or not to draw ticks on the x-axis.
     """
-    gl = ax.gridlines(crs=ccrs.PlateCarree(), draw_labels=True, linewidth=0, color='none')
+    gl = ax.gridlines(
+        crs=ccrs.PlateCarree(),
+        draw_labels=True,
+        linewidth=linewidth,
+        color=color
+    )
     gl.top_labels = False
     gl.right_labels = False
     gl.left_labels = left
