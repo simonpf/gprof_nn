@@ -822,15 +822,15 @@ class SimulatorInput():
         meta_in = []
 
         for ind, obs in enumerate(input_obs.observations.data):
-            obs = observations[ind]
+            obs = observations[ind][None]
             meta = input_observation_props[ind]
             #obs, meta = transform_observations_satformer(obs, meta)
             obs_in.append(torch.tensor(obs))
             meta_in.append(torch.tensor(meta))
 
-        obs_in = torch.stack(obs_in, 0)[None]
+        obs_in = torch.stack(obs_in, 1)[None]
         meta_in = torch.stack(meta_in, 1)[None]
-        obs_in_mask = torch.isnan(obs_in).all(-1).all(-1)
+        obs_in_mask = torch.isnan(obs_in).all(-1).all(-1).all(-2)
 
         inpt = {
             "observations": obs_in,
