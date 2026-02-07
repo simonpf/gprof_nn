@@ -68,6 +68,7 @@ class PreprocessorConfig(ConfigBase):
         txt += f"atms  = {self.atms}\n"
         txt += f"gmi   = {self.gmi}\n"
         txt += f"mhs   = {self.mhs}\n"
+        txt += f"mwi   = {self.mwi}\n"
         txt += f"ssmi  = {self.ssmi}\n"
         txt += f"ssmis = {self.ssmis}\n"
         txt += f"tmi = {self.tmi}\n"
