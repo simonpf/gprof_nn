@@ -140,6 +140,7 @@ def download_test_file(sensor: str, kind: str, dest: Optional[Path] = None) -> P
             subfolder=subfolder,
             local_dir=dest,
         )
-    lock_file.unlink()
+    if lock_file.exists():
+        lock_file.unlink()
 
     return dest / subfolder / test_file
