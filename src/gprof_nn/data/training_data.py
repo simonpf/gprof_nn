@@ -1475,7 +1475,7 @@ def load_training_data_3d_conical_sim(
     scene = scene.transpose("levels", "scans", "pixels", ...)
 
     # Calculate brightness temperatures
-    tbs_sim = scene.satformer_tbs_rand.data
+    tbs_sim = scene.satformer_tbs_rand.data.astype(np.float32)
     full_shape = tbs_sim.shape[:2] + (15,)
     if tbs_sim.shape[-1] < 15:
         tbs_full = np.nan * np.ones(full_shape, dtype="float32")
@@ -1926,16 +1926,14 @@ class GPROFNN3DDataset(Dataset):
             return self[new_ind]
 
         sp = y["surface_precip"]
-        #if torch.isfinite(sp).sum() < 10:
-        #    new_ind = self.rng.integers(0, len(self))
-        #    LOGGER.warning(
-        #        "Less than 10 valid pixels in file %s. Falling back to another "
-        #        " randomly-chosen sample.",
-        #        self.files[ind]
-        #    )
-        #    return self[new_ind]
-
-        #y["surface_precip_weights"] = 28.0 * torch.ones_like(y["surface_precip"])
+        if torch.isfinite(sp).sum() < 5:
+            new_ind = self.rng.integers(0, len(self))
+            LOGGER.warning(
+                "Less than 10 valid pixels in file %s. Falling back to another "
+                " randomly-chosen sample.",
+                self.files[ind]
+            )
+            return self[new_ind]
 
         return x, y
 
@@ -1994,7 +1992,7 @@ class GPROFNNLightDataset(Dataset):
 
         other_files = []
         if not isinstance(training_paths, list):
-            training_path = [Path(training_paths)]
+            training_paths = [Path(training_paths)]
         for path in training_paths:
             path = Path(path)
             if not path.exists():
