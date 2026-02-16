@@ -11,6 +11,7 @@ import xarray as xr
 from conftest import NEEDS_ARCHIVES
 from pytorch_retrieve.inference import run_inference
 
+from gprof_nn import sensors
 from gprof_nn.retrieval import (
     load_input_data_preprocessor,
     load_input_data_l1c,
@@ -33,13 +34,13 @@ def test_load_input_data_preprocessor(preprocessor_fixture, request):
     input_data, _ = load_input_data_preprocessor(preprocessor_file)
 
     assert "brightness_temperatures" in input_data
-    assert isinstance(input_data["brightness_temperatures"], np.ndarray)
+    assert isinstance(input_data["brightness_temperatures"], torch.tensor)
     assert input_data["brightness_temperatures"].shape[0] == 15
-    assert "viewing_angles" in input_data
-    assert isinstance(input_data["viewing_angles"], np.ndarray)
-    assert input_data["viewing_angles"].shape[0] == 15
+    assert "earth_incidence_angles" in input_data
+    assert isinstance(input_data["earth_incidence_angles"], torch.tensor)
+    assert input_data["earth_incidence_angles"].shape[0] == 15
     assert "ancillary_data" in input_data
-    assert isinstance(input_data["ancillary_data"], np.ndarray)
+    assert isinstance(input_data["ancillary_data"], torch.tensor)
     assert input_data["ancillary_data"].shape[0] == 8
 
 
@@ -55,13 +56,13 @@ def test_load_input_data_l1c(l1c_fixture, request):
 
     input_data, _ = load_input_data_l1c(l1c_file, needs_ancillary=True)
     assert "brightness_temperatures" in input_data
-    assert isinstance(input_data["brightness_temperatures"], np.ndarray)
+    assert isinstance(input_data["brightness_temperatures"], torch.tensor)
     assert input_data["brightness_temperatures"].shape[0] == 15
-    assert "viewing_angles" in input_data
-    assert isinstance(input_data["viewing_angles"], np.ndarray)
-    assert input_data["viewing_angles"].shape[0] == 15
+    assert "earth_incidence_angles" in input_data
+    assert isinstance(input_data["earth_incidence_angles"], torch.tensor)
+    assert input_data["earth_incidence_angles"].shape[0] == 15
     assert "ancillary_data" in input_data
-    assert isinstance(input_data["ancillary_data"], np.ndarray)
+    assert isinstance(input_data["ancillary_data"], torch.tensor)
     assert input_data["ancillary_data"].shape[0] == 8
 
     input_data, _ = load_input_data_l1c(l1c_file, needs_ancillary=False)
@@ -86,8 +87,8 @@ def test_load_input_data_training_1d(training_data_fixture, request):
 
     assert "brightness_temperatures" in input_data
     assert input_data["brightness_temperatures"].shape[-1] == 15
-    assert "viewing_angles" in input_data
-    assert input_data["viewing_angles"].shape[-1] == 15
+    assert "earth_incidence_angles" in input_data
+    assert input_data["earth_incidence_angles"].shape[-1] == 15
     assert "ancillary_data" in input_data
     assert input_data["ancillary_data"].shape[-1] == 8
 
@@ -113,7 +114,7 @@ def test_input_loader_1d(training_data_fixture, request):
     input_loader = GPROFNNInputLoader(training_files, config="1d", needs_ancillary=True)
     for input_data, aux, filename in input_loader:
         assert "brightness_temperatures" in input_data
-        assert "viewing_angles" in input_data
+        assert "earth_incidence_angles" in input_data
         assert "ancillary_data" in input_data
         assert "latitude" in aux
         assert "longitude" in aux
@@ -147,8 +148,8 @@ def test_input_loader_3d(training_data_fixture, request):
     for input_data, aux, filename in input_loader:
         assert "brightness_temperatures" in input_data
         assert input_data["brightness_temperatures"].shape[0] == 15
-        assert "viewing_angles" in input_data
-        assert input_data["viewing_angles"].shape[0] == 15
+        assert "earth_incidence_angles" in input_data
+        assert input_data["earth_incidence_angles"].shape[0] == 15
         assert "ancillary_data" in input_data
         assert input_data["ancillary_data"].shape[0] == 8
         assert "latitude" in aux
@@ -158,7 +159,7 @@ def test_input_loader_3d(training_data_fixture, request):
     for input_data, aux, filename in input_loader:
         assert "brightness_temperatures" in input_data
         assert input_data["brightness_temperatures"].shape[0] == 15
-        assert input_data["viewing_angles"].shape[0] == 15
+        assert input_data["earth_incidence_angles"].shape[0] == 15
         assert input_data["ancillary_data"].shape[0] == 8
         assert "latitude" in aux
         assert "longitude" in aux
@@ -250,3 +251,156 @@ def test_inference_gprof_nn_3d(
         assert "longitude" in results
         assert "surface_precip" in results
         assert "probability_of_precipitation" in results
+
+
+def test_mask_invalid(tmp_path):
+    """
+    Ensure that value exceeding the zonal maxima are set to missing.
+    """
+    sp = np.zeros((2, 221))
+    sp[0] = np.linspace(3, 4, 221)
+    sp[1] = np.linspace(1, 2, 221)
+    results = {
+        "surface_precip": torch.tensor(sp),
+        "surface_precip_1st_tercile": torch.tensor(sp),
+        "surface_precip_2nd_tercile": torch.tensor(sp)
+    }
+    status = np.zeros((2, 221))
+    qflag = np.zeros((2, 221))
+    lons = np.zeros((2, 221))
+    lats = np.zeros((2, 221))
+    lats[0] = 90
+    lats[1] = 0
+    land_fraction = np.zeros((2, 221))
+    ice_fraction = np.zeros((2, 221))
+    snow_mask = np.zeros((2, 221))
+    twb = 290.0 * np.ones((2, 221))
+
+    scan_time = np.array([
+        np.datetime64("2023-11-08"),
+        np.datetime64("2023-11-09"),
+    ])
+
+    aux = {
+        "sensor": sensors.GMI,
+        "ancillary_config": "CLI",
+        "pixel_status": status,
+        "quality_flag": qflag,
+        "scan_time": scan_time,
+        "longitude": lons,
+        "latitude": lats,
+        "land_fraction": land_fraction,
+        "ice_fraction": ice_fraction,
+        "snow_mask": snow_mask,
+        "wet_bulb_temperature": twb
+    }
+
+    loader = GPROFNNInputLoader(
+        tmp_path,
+    )
+
+    res = loader.finalize_results(results, aux=aux, filename="inpt.nc", output_path=tmp_path)[0]
+    assert (res.surface_precip.data[0] < 0.0).all()
+    assert (0.0 <= res.surface_precip.data[1]).all()
+
+
+def test_gpm_boost_adjustment(tmp_path):
+    """
+    Ensure that boost adjustment is applied for GMI.
+    """
+    sp = np.zeros((2, 221))
+    sp[0] = np.linspace(1, 2, 221)
+    sp[1] = np.linspace(1, 2, 221)
+    results = {
+        "surface_precip": torch.tensor(sp),
+        "surface_precip_1st_tercile": torch.tensor(sp),
+        "surface_precip_2nd_tercile": torch.tensor(sp)
+    }
+    status = np.zeros((2, 221))
+    qflag = np.zeros((2, 221))
+    lons = np.zeros((2, 221))
+    lats = np.zeros((2, 221))
+    lats[0] = 90
+    lats[1] = 0
+    land_fraction = np.zeros((2, 221))
+    ice_fraction = np.zeros((2, 221))
+    snow_mask = np.zeros((2, 221))
+    twb = 290.0 * np.ones((2, 221))
+
+    scan_time = np.array([
+        np.datetime64("2023-11-08"),
+        np.datetime64("2023-11-09"),
+    ])
+
+    aux = {
+        "sensor": sensors.GMI,
+        "ancillary_config": "CLI",
+        "pixel_status": status,
+        "quality_flag": qflag,
+        "scan_time": scan_time,
+        "longitude": lons,
+        "latitude": lats,
+        "land_fraction": land_fraction,
+        "ice_fraction": ice_fraction,
+        "snow_mask": snow_mask,
+        "wet_bulb_temperature": twb
+    }
+
+    loader = GPROFNNInputLoader(
+        tmp_path,
+    )
+
+    res = loader.finalize_results(results, aux=aux, filename="inpt.nc", output_path=tmp_path)[0]
+    sp = res.surface_precip.data
+    assert (~np.isclose(sp[0], sp[1])).all()
+
+
+def test_trmm_boost_adjustment(tmp_path):
+    """
+    Ensure that boost adjustment is applied for TMS.
+    """
+    sp = np.zeros((2, 221))
+    sp[0] = np.linspace(1, 2, 221)
+    sp[1] = np.linspace(1, 2, 221)
+    results = {
+        "surface_precip": torch.tensor(sp),
+        "surface_precip_1st_tercile": torch.tensor(sp),
+        "surface_precip_2nd_tercile": torch.tensor(sp)
+    }
+    status = np.zeros((2, 221))
+    qflag = np.zeros((2, 221))
+    lons = np.zeros((2, 221))
+    lats = np.zeros((2, 221))
+    lats[0] = 90
+    lats[1] = 0
+    land_fraction = np.zeros((2, 221))
+    ice_fraction = np.zeros((2, 221))
+    snow_mask = np.zeros((2, 221))
+    twb = 290.0 * np.ones((2, 221))
+
+    scan_time = np.array([
+        np.datetime64("2001-08-06"),
+        np.datetime64("2001-08-08"),
+    ])
+
+    aux = {
+        "sensor": sensors.TMI,
+        "ancillary_config": "CLI",
+        "pixel_status": status,
+        "quality_flag": qflag,
+        "scan_time": scan_time,
+        "longitude": lons,
+        "latitude": lats,
+        "land_fraction": land_fraction,
+        "ice_fraction": ice_fraction,
+        "snow_mask": snow_mask,
+        "wet_bulb_temperature": twb
+    }
+
+    loader = GPROFNNInputLoader(
+        tmp_path,
+    )
+
+    res = loader.finalize_results(results, aux=aux, filename="inpt.nc", output_path=tmp_path)[0]
+    sp = res.surface_precip.data
+    assert (~np.isclose(sp[0], sp[1])).all()

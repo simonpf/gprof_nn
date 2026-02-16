@@ -77,11 +77,38 @@ def get_model(sensor) -> nn.Module:
     LOGGER.debug("Loading standard retrieval model for sensor '%s'.", sensor.name)
     return load_model(download_model(sensor))
 
+@cache
+def zonal_maxima() -> xr.Dataset:
+    """
+    Load dataset containing zonal precipitation maxima.
+    """
+    path  = Path(__file__).parent / "files" / "zonal_max.nc"
+    return xr.load_dataset(path)
+
+
 
 @cache
-def load_scaling_factors(sensor: sensors.Sensor) -> xr.Dataset:
+def load_pixel_adjustment_factors(sensor: sensors.Sensor) -> Optional[xr.Dataset]:
     """
-    Load scaling factors for given sensor.
+    Load pixel adjustment factors for given sensor.
+
+    Args:
+        sensor: The sensor object for which to load the adjustment factors.
+
+    Return:
+        A xarray.Dataset containing the loaded scaling factors if an adjustment file exists
+        for the sensors; None otherwise.
+    """
+    path  = Path(__file__).parent / "files" / f"{sensor.platform.name.lower()}_pixel_adj.nc"
+    if not path.exists():
+        return None
+    return xr.load_dataset(path)
+
+
+@cache
+def load_boost_adjustment_factors(sensor: sensors.Sensor) -> Optional[xr.Dataset]:
+    """
+    Load boost adjustment factors for given sensor.
 
     Args:
         sensor: The sensor object for which to load the scaling factors.
@@ -89,9 +116,116 @@ def load_scaling_factors(sensor: sensors.Sensor) -> xr.Dataset:
     Return:
         A xarray.Dataset containing the loaded scaling factors.
     """
-    filename = f"{sensor.platform.name.upper()}_GPROFV8_pixel_adj.nc"
-    data = xr.load_dataset(Path(__file__).parent / "files" / filename)
-    return data
+    path  = Path(__file__).parent / "files" / f"{sensor.platform.name.lower()}_boost_adj.nc"
+    if not path.exists():
+        return None
+    return xr.load_dataset(path)
+
+
+
+def adjust_precipitation(
+        sensor: sensors.Sensor,
+        retrieval_output: Dict[str, np.ndarray]
+):
+    """
+    Apply pixel and boost precipitation adjustment.
+
+    Args:
+        sensor: The sensor for which to apply the precipitation adjustment.
+        retrieval_output: The dictionary containing the retrieval output.
+
+    Return:
+        The retrieval output with the surface precipitation and terciles adjusted according
+        to the adjustment factors.
+    """
+    adjustment_factors = load_pixel_adjustment_factors(sensor)
+    if adjustment_factors is None:
+        LOGGER.warning(
+            "No bias adjustment factors for sensor %s (%s)",
+            sensor.name,
+            sensor.platform.name
+        )
+    else:
+        if "land_fraction" in retrieval_output:
+
+            land_fraction = retrieval_output.land_fraction.data
+            ice_fraction = retrieval_output.ice_fraction.data
+            snow_mask = retrieval_output.snow_mask.data
+            scaling = np.ones_like(retrieval_output["surface_precip"].data)
+
+            ocean_mask = (land_fraction <= 2) * (ice_fraction == 0)
+            ocean_scaling = adjustment_factors.ocean_bias.data * adjustment_factors.ocean_adj.data
+            ocean_scaling = np.broadcast_to(ocean_scaling[None], scaling.shape)
+            scaling[ocean_mask] = ocean_scaling[ocean_mask]
+            if ocean_mask.any():
+                mean_ocean_scaling = ocean_scaling[ocean_mask].mean()
+            else:
+                mean_ocean_scaling = 1.0
+
+            landrain_mask = (95 < land_fraction) * (snow_mask == 0)
+            landrain_scaling = adjustment_factors.landrain_bias.data * adjustment_factors.landrain_adj.data
+            landrain_scaling = np.broadcast_to(landrain_scaling[None], scaling.shape)
+            scaling[landrain_mask] = landrain_scaling[landrain_mask]
+            if landrain_mask.any():
+                mean_land_scaling = landrain_scaling[landrain_mask].mean()
+            else:
+                mean_land_scaling = 1.0
+
+            LOGGER.debug(
+                "Applying bias correction (Ocean = %s, Land = %s)",
+                mean_ocean_scaling,
+                mean_land_scaling
+            )
+
+            retrieval_output["surface_precip"].data *= scaling
+            retrieval_output["surface_precip_1st_tercile"].data *= scaling
+            retrieval_output["surface_precip_2nd_tercile"].data *= scaling
+        else:
+            LOGGER.warning(
+                "Not applying bias adjustment because land fraction is missing from retrieval output.",
+                sensor.name,
+                sensor.platform.name
+            )
+
+    adjustment_factors = load_boost_adjustment_factors(sensor)
+    if adjustment_factors is not None:
+        kind = adjustment_factors.attrs["type"]
+        date = np.datetime64(adjustment_factors.attrs["date"])
+        surface_precip = retrieval_output["surface_precip"].data
+        surface_precip = np.clip(
+            surface_precip,
+            adjustment_factors.precip_rate.min().data,
+            adjustment_factors.precip_rate.max().data
+        )
+        shape = surface_precip.shape
+        adj = adjustment_factors.adjustment.interp(
+            nrates=surface_precip.ravel(),
+            method="linear",
+        ).data.reshape(shape)
+
+        scan_time = np.broadcast_to(retrieval_output["scan_time"].data[:, None], surface_precip.shape)
+
+        if kind == "pre":
+            mask = scan_time < date
+        else:
+            mask = date < scan_time
+        adj[~mask] = 1.0
+
+        print("ADJ :: ", adj)
+
+        if not np.isclose(adj, 1.0).all():
+            LOGGER.info(
+                "Applying %s-boost adjustment for sensor '%s'.",
+                kind,
+                sensor.name
+            )
+
+        retrieval_output["surface_precip"].data *= adj
+        retrieval_output["surface_precip_1st_tercile"].data *= adj
+        retrieval_output["surface_precip_2nd_tercile"].data *= adj
+
+
+
 
 
 def calculate_quality_flag_and_pixel_status(
@@ -213,8 +347,8 @@ def load_input_data_preprocessor(
     qflag, status = calculate_quality_flag_and_pixel_status(sensor, tbs_full, data_pp)
 
     input_data = {
-        "brightness_temperatures": tbs_full,
-        "earth_incidence_angles": angs_full,
+        "brightness_temperatures": torch.tensor(tbs_full),
+        "earth_incidence_angles": torch.tensor(angs_full),
         "ancillary_data": anc
     }
 
@@ -286,7 +420,7 @@ def load_input_data_l1c(
                 return pp_data
         except RuntimeError:
             LOGGER.warning(
-                "Encountered and error running the preprocessor. Running retrieval without ancillary "
+                "Encountered an error running the preprocessor. Running retrieval without ancillary "
                 "data."
             )
     else:
@@ -318,8 +452,8 @@ def load_input_data_l1c(
         angs_full[chan_inds] = sensor.earth_incidence_angle[..., None, None].astype(np.float32)
 
     inpt = {
-        "brightness_temperatures": tbs_full,
-        "ancillary_data": anc,
+        "brightness_temperatures": torch.tensor(tbs_full),
+        "ancillary_data": torch.tensor(anc),
         "earth_incidence_angles": angs_full
     }
 
@@ -371,7 +505,10 @@ def load_input_data_training_1d(
 
     with xr.open_dataset(training_file) as data:
 
-        sensor = sensors.get_sensor(data.attrs["sensor"])
+        sensor = data.attrs["sensor"]
+        if sensor == "TROPICS":
+            sensor = "TMS"
+        sensor = sensors.get_sensor(sensor)
 
         if sensor == sensors.GMI:
             tbs = load_tbs_1d_gmi(data)
@@ -527,7 +664,10 @@ def load_input_data_collocations(
         A dictionary containing the input tensors 'brightness_temperatures',
         'earth_incidence_angles', and 'ancillary_data'.
     """
-    sensor = sensors.get_sensor(collocation_file.name.split("_")[-2].upper())
+    sensor = collocation_file.name.split("_")[-2].upper()
+    if sensor == "TROPICS":
+        sensor = "TMS"
+    sensor = sensors.get_sensor(sensor)
 
     with xr.open_dataset(collocation_file, group="input_data") as scene:
 
@@ -592,7 +732,12 @@ def determine_input_format(path: Path) -> str:
     if path.suffix == ".HDF5":
         return "l1c"
     if path.suffix == ".nc":
-        if path.name.startswith("cmb_") or path.name.startswith("mrms_") or path.name.startswith("ocean_rain"):
+        if (
+                path.name.startswith("cmb_") or
+                path.name.startswith("mrms_") or
+                path.name.startswith("ocean_rain") or
+                path.name.startswith("ibtracks")
+        ):
             return "collocations"
         with xr.open_dataset(path) as input_data:
             if "scans" in input_data.dims:
@@ -819,7 +964,13 @@ class GPROFNNInputLoader:
                 tensor = tensor.numpy()
 
                 if var == "surface_precip":
-                    invalid = (tensor < -1e-2) + (tensor > 200)
+                    max_vals = zonal_maxima().maximum_values.interp(
+                        latitude=lats.ravel(),
+                        method="nearest",
+                        kwargs={"fill_value": "extrapolate"}
+                    ).data.reshape(shape)
+                    invalid = (tensor < -1e-2) + (max_vals < tensor)
+
                 if var != "latent_heating":
                     tensor = np.maximum(tensor, 0.0)
 
@@ -829,51 +980,7 @@ class GPROFNNInputLoader:
 
         # Apply bias correction
         if self.bias_correction:
-
-            try:
-                adjustment_factors = load_scaling_factors(sensor)
-            except FileNotFoundError:
-                adjustment_factors = None
-                LOGGER.warning(
-                    "No bias adjustment factors for sensor %s (%s)",
-                    sensor.name,
-                    sensor.platform.name
-                )
-
-            if adjustment_factors is not None and "land_fraction" in output:
-
-                land_fraction = output.land_fraction.data
-                ice_fraction = output.ice_fraction.data
-                snow_mask = output.snow_mask.data
-                scaling = np.ones_like(output["surface_precip"].data)
-
-                ocean_mask = (land_fraction <= 2) * (ice_fraction == 0)
-                ocean_scaling = adjustment_factors.ocean_bias.data * adjustment_factors.ocean_adj.data
-                ocean_scaling = np.broadcast_to(ocean_scaling[None], scaling.shape)
-                scaling[ocean_mask] = ocean_scaling[ocean_mask]
-                if ocean_mask.any():
-                    mean_ocean_scaling = ocean_scaling[ocean_mask].mean()
-                else:
-                    mean_ocean_scaling = 1.0
-
-                landrain_mask = (95 < land_fraction) * (snow_mask == 0)
-                landrain_scaling = adjustment_factors.landrain_bias.data * adjustment_factors.landrain_adj.data
-                landrain_scaling = np.broadcast_to(landrain_scaling[None], scaling.shape)
-                scaling[landrain_mask] = landrain_scaling[landrain_mask]
-                if landrain_mask.any():
-                    mean_land_scaling = landrain_scaling[landrain_mask].mean()
-                else:
-                    mean_land_scaling = 1.0
-
-                LOGGER.debug(
-                    "Applying bias correction (Ocean = %s, Land = %s)",
-                    mean_ocean_scaling,
-                    mean_land_scaling
-                )
-
-                output["surface_precip"].data *= scaling
-                output["surface_precip_1st_tercile"].data *= scaling
-                output["surface_precip_2nd_tercile"].data *= scaling
+            adjust_precipitation(sensor, output)
         else:
             LOGGER.debug("Skipping bias correction.")
 
@@ -884,7 +991,6 @@ class GPROFNNInputLoader:
         output["pixel_status"].data[invalid] = 5
 
         invalid = invalid + (qflag == 2) + (status != 0)
-
         for name in ALL_OUTPUTS:
             if name in output:
                 output[name].data[invalid] = np.nan
