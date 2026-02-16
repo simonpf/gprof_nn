@@ -824,7 +824,7 @@ class SimulatorInput():
         for ind, obs in enumerate(input_obs.observations.data):
             obs = observations[ind][None]
             meta = input_observation_props[ind]
-            #obs, meta = transform_observations_satformer(obs, meta)
+            obs, meta = transform_observations_satformer(obs, meta)
             obs_in.append(torch.tensor(obs))
             meta_in.append(torch.tensor(meta))
 
@@ -910,15 +910,14 @@ class SimulatorInput():
         obs_in = []
         meta_in = []
         for ind, obs in enumerate(input_obs.observations.data):
-            obs = observations[ind]
+            obs = observations[ind][None]
             meta = input_observation_props[ind]
-            #obs, meta = transform_observations_satformer(obs, meta)
             obs_in.append(torch.tensor(obs))
             meta_in.append(torch.tensor(meta))
 
-        obs_in = torch.stack(obs_in, 0)[None]
+        obs_in = torch.stack(obs_in, 1)[None]
         meta_in = torch.stack(meta_in, 1)[None]
-        obs_in_mask = torch.isnan(obs_in).all(-1).all(-1)
+        obs_in_mask = torch.isnan(obs_in).all(-1).all(-1).all(-2)
 
         inpt = {
             "observations": obs_in,
@@ -976,29 +975,6 @@ def simulate_tbs_satformer(
     if device is None:
         device = "cuda:0"
 
-    def tile_callback(inpt):
-
-        obs_inpt = inpt["observations"]
-        meta_inpt = inpt["input_observation_props"]
-
-        n_chans_in = obs_inpt.shape[1]
-        obs_in = []
-        meta_in = []
-        for input_ind in range(n_chans_in):
-            obs = obs_inpt[0, input_ind].numpy()
-            meta = meta_inpt[0, :, input_ind].numpy()
-            obs, meta = transform_observations_satformer(obs, meta)
-            obs_in.append(torch.tensor(obs.astype(np.float32)))
-            meta_in.append(torch.tensor(meta.astype(np.float32)))
-
-        obs_in = torch.stack(obs_in, 1)[None]
-        meta_in = torch.stack(meta_in, 1)[None]
-
-        inpt["observations"] = obs_in
-        inpt["input_observation_props"] = meta_in
-
-        return inpt
-
     lock = FileLock(f"{device}.lock")
     with lock:
         results = run_inference(
@@ -1007,10 +983,8 @@ def simulate_tbs_satformer(
             inference_config,
             device=device,
             dtype="float16",
-            tile_callback=tile_callback
         )
         results = results[0]
-
 
     obs = results.output_observations.data
     obs_rand = results.output_observations_rand.data
@@ -1110,7 +1084,6 @@ def process_sim_file(
         )
         torch.cuda.synchronize()
         torch.cuda.empty_cache()
-
 
     if lonlat_bounds is not None:
         lon_ll, lat_ll, lon_ur, lat_ur = lonlat_bounds
