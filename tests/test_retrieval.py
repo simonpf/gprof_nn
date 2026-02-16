@@ -34,14 +34,14 @@ def test_load_input_data_preprocessor(preprocessor_fixture, request):
     input_data, _ = load_input_data_preprocessor(preprocessor_file)
 
     assert "brightness_temperatures" in input_data
-    assert isinstance(input_data["brightness_temperatures"], torch.tensor)
+    assert isinstance(input_data["brightness_temperatures"], torch.Tensor)
     assert input_data["brightness_temperatures"].shape[0] == 15
     assert "earth_incidence_angles" in input_data
-    assert isinstance(input_data["earth_incidence_angles"], torch.tensor)
+    assert isinstance(input_data["earth_incidence_angles"], torch.Tensor)
     assert input_data["earth_incidence_angles"].shape[0] == 15
     assert "ancillary_data" in input_data
-    assert isinstance(input_data["ancillary_data"], torch.tensor)
-    assert input_data["ancillary_data"].shape[0] == 8
+    assert isinstance(input_data["ancillary_data"], torch.Tensor)
+    assert input_data["ancillary_data"].shape[0] == 14
 
 
 @NEEDS_ARCHIVES
@@ -54,18 +54,18 @@ def test_load_input_data_l1c(l1c_fixture, request):
 
     l1c_file = request.getfixturevalue(l1c_fixture)
 
-    input_data, _ = load_input_data_l1c(l1c_file, needs_ancillary=True)
+    input_data, _ = load_input_data_l1c(l1c_file)
     assert "brightness_temperatures" in input_data
-    assert isinstance(input_data["brightness_temperatures"], torch.tensor)
+    assert isinstance(input_data["brightness_temperatures"], torch.Tensor)
     assert input_data["brightness_temperatures"].shape[0] == 15
     assert "earth_incidence_angles" in input_data
-    assert isinstance(input_data["earth_incidence_angles"], torch.tensor)
+    assert isinstance(input_data["earth_incidence_angles"], torch.Tensor)
     assert input_data["earth_incidence_angles"].shape[0] == 15
     assert "ancillary_data" in input_data
-    assert isinstance(input_data["ancillary_data"], torch.tensor)
-    assert input_data["ancillary_data"].shape[0] == 8
+    assert isinstance(input_data["ancillary_data"], torch.Tensor)
+    assert input_data["ancillary_data"].shape[0] == 14
 
-    input_data, _ = load_input_data_l1c(l1c_file, needs_ancillary=False)
+    input_data, _ = load_input_data_l1c(l1c_file)
     assert "brightness_temperatures" in input_data
 
 
@@ -83,14 +83,14 @@ def test_load_input_data_l1c(l1c_fixture, request):
 def test_load_input_data_training_1d(training_data_fixture, request):
 
     training_file = request.getfixturevalue(training_data_fixture)[0]
-    input_data, _ = load_input_data_training_1d(training_file)
+    input_data, _ = load_input_data_training_1d(training_file, ancillary_conf="CLI")
 
     assert "brightness_temperatures" in input_data
     assert input_data["brightness_temperatures"].shape[-1] == 15
     assert "earth_incidence_angles" in input_data
     assert input_data["earth_incidence_angles"].shape[-1] == 15
     assert "ancillary_data" in input_data
-    assert input_data["ancillary_data"].shape[-1] == 8
+    assert input_data["ancillary_data"].shape[-1] == 14
 
 
 @NEEDS_ARCHIVES
@@ -111,7 +111,7 @@ def test_input_loader_1d(training_data_fixture, request):
 
     training_files = request.getfixturevalue(training_data_fixture)
 
-    input_loader = GPROFNNInputLoader(training_files, config="1d", needs_ancillary=True)
+    input_loader = GPROFNNInputLoader(training_files, config="1d")
     for input_data, aux, filename in input_loader:
         assert "brightness_temperatures" in input_data
         assert "earth_incidence_angles" in input_data
@@ -119,7 +119,7 @@ def test_input_loader_1d(training_data_fixture, request):
         assert "latitude" in aux
         assert "longitude" in aux
 
-    input_loader = GPROFNNInputLoader(training_files, config="1d", needs_ancillary=False)
+    input_loader = GPROFNNInputLoader(training_files, config="1d")
     for input_data, aux, filename in input_loader:
         assert "brightness_temperatures" in input_data
         assert "latitude" in aux
@@ -144,23 +144,23 @@ def test_input_loader_3d(training_data_fixture, request):
 
     training_files = request.getfixturevalue(training_data_fixture)
 
-    input_loader = GPROFNNInputLoader(training_files, config="3d", needs_ancillary=True)
+    input_loader = GPROFNNInputLoader(training_files, config="3d")
     for input_data, aux, filename in input_loader:
         assert "brightness_temperatures" in input_data
         assert input_data["brightness_temperatures"].shape[0] == 15
         assert "earth_incidence_angles" in input_data
         assert input_data["earth_incidence_angles"].shape[0] == 15
         assert "ancillary_data" in input_data
-        assert input_data["ancillary_data"].shape[0] == 8
+        assert input_data["ancillary_data"].shape[0] == 14
         assert "latitude" in aux
         assert "longitude" in aux
 
-    input_loader = GPROFNNInputLoader(training_files, config="3d", needs_ancillary=False)
+    input_loader = GPROFNNInputLoader(training_files, config="3d")
     for input_data, aux, filename in input_loader:
         assert "brightness_temperatures" in input_data
         assert input_data["brightness_temperatures"].shape[0] == 15
         assert input_data["earth_incidence_angles"].shape[0] == 15
-        assert input_data["ancillary_data"].shape[0] == 8
+        assert input_data["ancillary_data"].shape[0] == 14
         assert "latitude" in aux
         assert "longitude" in aux
 

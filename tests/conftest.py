@@ -336,7 +336,6 @@ def mrms_match_file_atms() -> List[Path]:
     match_file = MRMS_DATA / "ATMS2MRMS_match2019" / "monthly_2021" / "1901_MRMS2ATMS_DB1_01.bin.gz"
     return match_file
 
-
 @pytest.fixture(scope="session")
 def l1c_file_atms(tmpdir_factory) -> Path:
     l1c_path = Path(sensors.ATMS.l1c_file_path) / "1901" / "190101"
@@ -355,6 +354,27 @@ def preprocessor_file_atms(tmpdir_factory, l1c_file_atms) -> Path:
     pp_path_atms = tmpdir_factory.mktemp("pp_atms")
     pp_file = pp_path_atms / Path(l1c_file_atms).with_suffix(".pp").name
     run_preprocessor(l1c_file_atms, sensors.ATMS, output_file=pp_file)
+    return pp_file
+
+
+@pytest.fixture(scope="session")
+def l1c_file_mhs(tmpdir_factory) -> Path:
+    l1c_path = Path(sensors.MHS.l1c_file_path) / "1901" / "190101"
+    l1c_files = sorted(list(
+        l1c_path.glob(f"**/{sensors.MHS.l1c_file_prefix}*.HDF5")
+    ))
+    l1c_path_mhs = tmpdir_factory.mktemp("l1c_mhs")
+    l1c_file = l1c.L1CFile(l1c_files[0])
+    new_file = l1c_path_mhs / l1c_files[0].name
+    l1c_file.extract_scan_range(400, 700, new_file)
+    return Path(new_file)
+
+
+@pytest.fixture(scope="session")
+def preprocessor_file_mhs(tmpdir_factory, l1c_file_mhs) -> Path:
+    pp_path_mhs = tmpdir_factory.mktemp("pp_mhs")
+    pp_file = pp_path_mhs / Path(l1c_file_mhs).with_suffix(".pp").name
+    run_preprocessor(l1c_file_mhs, sensors.MHS, output_file=pp_file)
     return pp_file
 
 

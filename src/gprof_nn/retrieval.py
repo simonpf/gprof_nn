@@ -211,8 +211,6 @@ def adjust_precipitation(
             mask = date < scan_time
         adj[~mask] = 1.0
 
-        print("ADJ :: ", adj)
-
         if not np.isclose(adj, 1.0).all():
             LOGGER.info(
                 "Applying %s-boost adjustment for sensor '%s'.",
@@ -230,7 +228,8 @@ def adjust_precipitation(
 
 def calculate_quality_flag_and_pixel_status(
         sensor: sensors.Sensor,
-        tbs_full,
+        tbs_full: np.ndarray,
+        eia_full: np.ndarray,
         input_data: xr.Dataset
 ) -> np.ndarray:
     """
@@ -239,11 +238,13 @@ def calculate_quality_flag_and_pixel_status(
     Args:
         sensor: The sensor for which the retrieval is performed.
         tbs_full: The full brightness temperature array that will be input to the retrieval.
+        eia_full: The full earth-incidence angle  array that will be input to the retrieval.
         input_data: An xarray.Dataset containing the rerieval input data.
     """
     missing_tbs = tbs_full[sensor.gprof_channel_indices]
     any_missing = np.any(np.isnan(missing_tbs), axis=0)
     all_missing = np.all(np.isnan(missing_tbs), axis=0)
+    high_eia = (56.0 < np.abs(eia_full[sensor.gprof_channel_indices])).any(axis=0)
 
     lons = input_data.longitude.data
     lats = input_data.latitude.data
@@ -278,9 +279,10 @@ def calculate_quality_flag_and_pixel_status(
     status = -99.0 * np.ones_like(any_missing)
     qflag = -99.0 * np.ones_like(any_missing)
 
-    all_good = (~any_missing) * (~invalid_coords) * (~snow_or_ice)
+    all_good = (~any_missing) * (~invalid_coords) * (~snow_or_ice) * (~high_eia)
     qflag[snow_or_ice * ~all_missing] = 1
     qflag[any_missing * ~all_missing] = 1
+    qflag[high_eia * ~all_missing] = 1
     qflag[all_good] = 0
     qflag[l1c_qual == 1] = 1
     qflag[l1c_qual == 3] = 2
@@ -344,7 +346,12 @@ def load_input_data_preprocessor(
         ancillary_config = determine_ancillary_config(data_pp)
     anc = load_ancillary_data(data_pp, ancillary_config, stack_dim=0)
 
-    qflag, status = calculate_quality_flag_and_pixel_status(sensor, tbs_full, data_pp)
+    qflag, status = calculate_quality_flag_and_pixel_status(
+        sensor,
+        tbs_full=tbs_full,
+        eia_full=angs_full,
+        input_data=data_pp
+    )
 
     input_data = {
         "brightness_temperatures": torch.tensor(tbs_full),
@@ -457,7 +464,12 @@ def load_input_data_l1c(
         "earth_incidence_angles": angs_full
     }
 
-    qflag, status = calculate_quality_flag_and_pixel_status(sensor, tbs_full, l1c_data)
+    qflag, status = calculate_quality_flag_and_pixel_status(
+        sensor,
+        tbs_full=tbs_full,
+        eia_full=angs_full,
+        input_data=l1c_data
+    )
     missing = np.nan * np.zeros_like(tbs_full[0])
     aux = {
         "sensor": sensor,
@@ -700,7 +712,12 @@ def load_input_data_collocations(
             "earth_incidence_angles": angs_full
         }
 
-        qflag, status = calculate_quality_flag_and_pixel_status(sensor, tbs_full, scene)
+        qflag, status = calculate_quality_flag_and_pixel_status(
+            sensor,
+            tbs_full=tbs_full,
+            eia_full=angs_full,
+            input_data=scene
+        )
         aux = {
             "sensor": sensor,
             "ancillary_config": ancillary_config,
