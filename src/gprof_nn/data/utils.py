@@ -30,6 +30,9 @@ LOGGER = logging.getLogger(__name__)
 
 try:
     from pyresample.geometry import SwathDefinition
+    from pansat import TimeRange
+    from pansat.utils import resample_data
+    from pansat.products.satellite.gpm import merged_ir
 except ImportError as err:
     LOGGER.debug(
         "Encountered an error when importing the 'pyresample' package."
@@ -1047,7 +1050,7 @@ def calculate_obs_properties(
         "scan_time": (("scans", "pixels"), swath_data_r.scan_time.data)
     })
 
-def exponential_weights(x: np.ndarray, x_0: float = 0.5, fwhm: float = 0.5):
+def exponential_weights(x: np.ndarray, fwhm: float = 0.45):
     """
     Exponentially decreasing weights.
 
