@@ -83,7 +83,7 @@ def test_load_input_data_l1c(l1c_fixture, request):
 def test_load_input_data_training_1d(training_data_fixture, request):
 
     training_file = request.getfixturevalue(training_data_fixture)[0]
-    input_data, _ = load_input_data_training_1d(training_file, ancillary_conf="CLI")
+    input_data, _ = load_input_data_training_1d(training_file, ancillary_config="CLI")
 
     assert "brightness_temperatures" in input_data
     assert input_data["brightness_temperatures"].shape[-1] == 15
@@ -308,13 +308,13 @@ def test_gpm_boost_adjustment(tmp_path):
     """
     Ensure that boost adjustment is applied for GMI.
     """
-    sp = np.zeros((2, 221))
-    sp[0] = np.linspace(1, 2, 221)
-    sp[1] = np.linspace(1, 2, 221)
+    sp_ref = np.zeros((2, 221))
+    sp_ref[0] = np.linspace(1, 2, 221)
+    sp_ref[1] = np.linspace(1, 2, 221)
     results = {
-        "surface_precip": torch.tensor(sp),
-        "surface_precip_1st_tercile": torch.tensor(sp),
-        "surface_precip_2nd_tercile": torch.tensor(sp)
+        "surface_precip": torch.tensor(sp_ref),
+        "surface_precip_1st_tercile": torch.tensor(sp_ref),
+        "surface_precip_2nd_tercile": torch.tensor(sp_ref)
     }
     status = np.zeros((2, 221))
     qflag = np.zeros((2, 221))
@@ -352,20 +352,21 @@ def test_gpm_boost_adjustment(tmp_path):
 
     res = loader.finalize_results(results, aux=aux, filename="inpt.nc", output_path=tmp_path)[0]
     sp = res.surface_precip.data
-    assert (~np.isclose(sp[0], sp[1])).all()
+    assert (np.isclose(sp_ref[0], sp[0])).all()
+    assert (~np.isclose(sp_ref[1], sp[1])).all()
 
 
 def test_trmm_boost_adjustment(tmp_path):
     """
     Ensure that boost adjustment is applied for TMS.
     """
-    sp = np.zeros((2, 221))
-    sp[0] = np.linspace(1, 2, 221)
-    sp[1] = np.linspace(1, 2, 221)
+    sp_ref = np.zeros((2, 221))
+    sp_ref[0] = np.linspace(1, 2, 221)
+    sp_ref[1] = np.linspace(1, 2, 221)
     results = {
-        "surface_precip": torch.tensor(sp),
-        "surface_precip_1st_tercile": torch.tensor(sp),
-        "surface_precip_2nd_tercile": torch.tensor(sp)
+        "surface_precip": torch.tensor(sp_ref),
+        "surface_precip_1st_tercile": torch.tensor(sp_ref),
+        "surface_precip_2nd_tercile": torch.tensor(sp_ref)
     }
     status = np.zeros((2, 221))
     qflag = np.zeros((2, 221))
@@ -402,5 +403,7 @@ def test_trmm_boost_adjustment(tmp_path):
     )
 
     res = loader.finalize_results(results, aux=aux, filename="inpt.nc", output_path=tmp_path)[0]
+
     sp = res.surface_precip.data
-    assert (~np.isclose(sp[0], sp[1])).all()
+    assert (~np.isclose(sp_ref[0], sp[0])).all()
+    assert (np.isclose(sp_ref[1], sp[1])).all()

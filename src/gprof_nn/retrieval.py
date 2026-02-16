@@ -198,10 +198,11 @@ def adjust_precipitation(
             adjustment_factors.precip_rate.max().data
         )
         shape = surface_precip.shape
-        adj = adjustment_factors.adjustment.interp(
-            nrates=surface_precip.ravel(),
-            method="linear",
-        ).data.reshape(shape)
+        adj = np.interp(
+            surface_precip.ravel(),
+            adjustment_factors.precip_rate.data,
+            adjustment_factors.adjustment.data
+        ).reshape(shape)
 
         scan_time = np.broadcast_to(retrieval_output["scan_time"].data[:, None], surface_precip.shape)
 
