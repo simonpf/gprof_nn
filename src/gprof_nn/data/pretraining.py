@@ -657,7 +657,6 @@ class SimulatorInput():
             obs_in.append(torch.tensor(obs.astype(np.float32)))
             meta_in.append(torch.tensor(meta.astype(np.float32)))
 
-
         obs_out = []
         meta_out = []
         for output_ind in range(n_chans_out):
