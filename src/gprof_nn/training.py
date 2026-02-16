@@ -287,6 +287,7 @@ def run_cli(
             name: OutputConfig.parse(name, cfg)
             for name, cfg in model_config["output"].items()
         }
+        all_devices = compute_config.devices
         if compute_config.devices is not None:
             compute_config.devices = compute_config.devices[:1]
         run_eda(
@@ -296,6 +297,7 @@ def run_cli(
             training_schedule["stage_1"],
             compute_config=compute_config
         )
+        compute_config.devices = all_devices
 
     if model_config is None:
         return 1
