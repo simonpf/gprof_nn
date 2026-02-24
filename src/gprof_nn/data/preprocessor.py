@@ -476,7 +476,7 @@ class PreprocessorFile:
                 continue
             new_header[k] = self.orbit_header[k]
 
-        new_header["algorithm"] = f"gprofnn{version('gprof_nn')}"
+        new_header["algorithm"] = f"NN{version('gprof_nn')}"
         date = datetime.now()
         creation_date = np.recarray(1, dtype=retrieval.DATE6_TYPE)
         creation_date["year"] = date.year
@@ -724,6 +724,33 @@ def run_preprocessor(
 ###############################################################################
 # Frozen precip
 ###############################################################################
+
+
+def calculate_frozen_fraction(
+        wet_bulb_temperature: np.ndarray,
+        land_fraction: np.ndarray
+) -> np.ndarray:
+    """
+    Calculate relative amount of frozen precipitation based on wet-bulb
+    temperature lookup table.
+
+    Args:
+        wet_bulb_temperature: The wet bulb temperature in K.
+        land_fraction: The surface type for each observation.
+
+    Returns:
+        Array of same shape as 'surface_precip' containing the fraction of
+        frozen precipitation.
+    """
+    t_wb = np.clip(
+        wet_bulb_temperature, TWB_TABLE[0, 0] + 273.15, TWB_TABLE[-1, 0] + 273.15
+    )
+    f_ocean = TWB_INTERP_OCEAN(t_wb)
+    f_land = TWB_INTERP_LAND(t_wb)
+
+    land_pixels = 100.0 <= land_fraction
+    frac = 1.0 - np.where(land_pixels, f_land, f_ocean) / 100.0
+    return frac
 
 
 def calculate_frozen_precip(wet_bulb_temperature, land_fraction, surface_precip):
