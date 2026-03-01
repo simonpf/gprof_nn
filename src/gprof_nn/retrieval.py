@@ -148,6 +148,16 @@ def adjust_precipitation(
     else:
         if "land_fraction" in retrieval_output:
 
+            if "time" in adjustment_factors.dims:
+                times = adjustment_factors.time.data
+                scan_time = retrieval_output["scan_time"].mean().data
+                time_ind = np.where(times < scan_time)[0][0]
+                adjustment_factors = adjustment_factors[{"time": time_ind}]
+                LOGGER.warning(
+                    "Using adjustment factors for date %s",
+                    adjustment_factors.time.data
+                )
+
             land_fraction = retrieval_output.land_fraction.data
             ice_fraction = retrieval_output.ice_fraction.data
             snow_mask = retrieval_output.snow_mask.data
@@ -189,6 +199,12 @@ def adjust_precipitation(
 
     adjustment_factors = load_boost_adjustment_factors(sensor)
     if adjustment_factors is not None:
+        if "scan_time" not in retrieval_output:
+            LOGGER.warning(
+                "Skipping boost adjustment because 'scan_time' is missing "
+                "from auxiliary data."
+            )
+            return None
         kind = adjustment_factors.attrs["type"]
         date = np.datetime64(adjustment_factors.attrs["date"])
         surface_precip = retrieval_output["surface_precip"].data
@@ -222,9 +238,6 @@ def adjust_precipitation(
         retrieval_output["surface_precip"].data *= adj
         retrieval_output["surface_precip_1st_tercile"].data *= adj
         retrieval_output["surface_precip_2nd_tercile"].data *= adj
-
-
-
 
 
 def calculate_quality_flag_and_pixel_status(
@@ -1161,6 +1174,7 @@ def run_retrieval(
             model,
             input_loader,
             inference_config,
+            progress=True
         )
     return runner.run(output_path=output_path, device=device, dtype=dtype)
 
@@ -1333,5 +1347,6 @@ def cli(
             model,
             input_loader,
             inference_config,
+            progress=True
         )
     runner.run(output_path=output_path, device=device, dtype=dtype)

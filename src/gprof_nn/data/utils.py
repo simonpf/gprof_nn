@@ -1064,6 +1064,7 @@ def exponential_weights(x: np.ndarray, fwhm: float = 0.45):
     exp_weights = np.exp(np.log(0.5) * (x / fwhm) ** 2)
     return exp_weights
 
+
 def linear_weights(
         x: np.ndarray,
         x_0: float = 0.3,

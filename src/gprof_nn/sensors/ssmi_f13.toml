@@ -1,6 +1,6 @@
 [platform]
 name = "F13"
-l1c_file_path = "/pdata4/archive/GPM/1C_F14_V7"
+l1c_file_path = "/edata1/archive/GPM/1C_F13_V7"
 l1c_file_prefix = "1C.F1?.SSMI"
 
 [viewing_geometry]
@@ -21,7 +21,7 @@ earth_incidence_angle = [53.1, 53.1, 53.1, 53.1, 53.1, 53.1, 53.1]
 beam_width = [1.87, 1.87, 1.65, 1.1, 1.1, 0.43, 0.45]
 channel_drop = 0.2
 scanline_drop = 0.1
-pansat_products = ["l1c_xcal2018v_f08_ssmi_v07a", "l1c_xcal2018v_f10_ssmi_v07a", "l1c_xcal2018v_f11_ssmi_v07a", "l1c_xcal2018v_f13_ssmi_v07a", "l1c_xcal2018v_f08_ssmi_v07a", "l1c_xcal2018v_f15_ssmi_v07"]
+pansat_products = ["l1c_xcal2018v_f13_ssmi_v07a"]
 
 [sensor.gprof_channels]
 2 = [0, 0]
