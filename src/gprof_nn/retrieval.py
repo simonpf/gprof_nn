@@ -153,7 +153,7 @@ def adjust_precipitation(
                 scan_time = retrieval_output["scan_time"].mean().data
                 time_ind = np.where(times < scan_time)[0][0]
                 adjustment_factors = adjustment_factors[{"time": time_ind}]
-                LOGGER.warning(
+                LOGGER.info(
                     "Using adjustment factors for date %s",
                     adjustment_factors.time.data
                 )
