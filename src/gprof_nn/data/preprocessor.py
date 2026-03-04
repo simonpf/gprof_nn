@@ -570,7 +570,7 @@ class PreprocessorFile:
         lai = scan_data["leaf_area_index"]
         out_data["leaf_area_index"] = scan_data["leaf_area_index_climatology"]
 
-        out_data["probability_of_precipitation"] = data.probability_of_precipitation.data
+        out_data["probability_of_precipitation"] = 100.0 * data.probability_of_precipitation.data
         out_data["precipitation_flag"] = 0.5 < data.probability_of_precipitation.data
         out_data["latitude"] = scan_data["latitude"]
         out_data["longitude"] = scan_data["longitude"]
