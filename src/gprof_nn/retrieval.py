@@ -837,8 +837,7 @@ class GPROFNNInputLoader:
                 return sensors.get_sensor(smpl.attrs["sensor"])
         else:
             raise ValueError(
-                "Failed to infer sensor from input file '%s'.",
-                inpt
+                f"Failed to infer sensor from input file '{inpt}'."
             )
 
     def load_input_data(self, path: Path) -> Dict[str, torch.Tensor]:
@@ -895,6 +894,24 @@ class GPROFNNInputLoader:
                 }
         aux["output_format"] = self.output_format
 
+        # Handle input with less than 128 scan lines.
+        n_scans = input_data["brightness_temperatures"].shape[2]
+        if n_scans < 128:
+            LOGGER.warning(
+                "Input data has less than the required 128 scans. "
+            )
+            input_padded = {}
+            pad_scans = 128 - n_scans
+            for name, tnsr in input_data.items():
+                shape = tnsr.shape[:2] + (pad_scans,) + (tnsr.shape[3:])
+                pad = torch.nan * torch.zeros((shape))
+                tnsr = torch.cat((tnsr, pad), dim=-2)
+                input_padded[name] = tnsr
+            input_data = input_padded
+            aux["pad"] = pad_scans
+            input_padded["brightness_temperatures"][:] = torch.nan
+            aux["quality_flag"][:] = 2
+
         return input_data, aux
 
     def __getitem__(self, ind: int):
@@ -932,6 +949,7 @@ class GPROFNNInputLoader:
         """
         lons = aux["longitude"]
         lats = aux["latitude"]
+        pad = aux.pop("pad", None)
         shape = lons.shape
 
         sensor = aux.pop("sensor")
@@ -966,6 +984,9 @@ class GPROFNNInputLoader:
 
             # Discard dummy dimensions.
             tensor = tensor.cpu().float().squeeze()
+            if pad is not None:
+                tensor = tensor[..., :-pad, :]
+
             if self.config.lower() == "1d":
                 tensor = tensor.reshape(shape + tensor.shape[1:])
 
@@ -1009,6 +1030,9 @@ class GPROFNNInputLoader:
                 # Use compressiong to keep file size reasonable.
                 output[var].encoding = {"dtype": "float32", "zlib": True}
 
+        if "probability_of_precipitation" in output:
+            output["probability_of_precipitation"] *= 100.0
+
         # Apply bias correction
         if self.bias_correction:
             adjust_precipitation(sensor, output)
@@ -1020,6 +1044,8 @@ class GPROFNNInputLoader:
 
         # Mark pixels with excessively negative values.
         output["pixel_status"].data[invalid] = 5
+        if pad is not None:
+            output["pixel_status"].data[:] = 5
 
         invalid = invalid + (qflag == 2) + (status != 0)
         for name in ALL_OUTPUTS:
