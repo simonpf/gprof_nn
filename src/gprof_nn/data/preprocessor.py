@@ -565,13 +565,19 @@ class PreprocessorFile:
             "snow_mask", "sunglint_angle"
         ]
         for name in carry_over:
-            out_data[name] = scan_data[name]
+            if name == "snow_mask":
+                out_data[name] = np.where(scan_data[name] < 0, -99, scan_data[name])
+            else:
+                out_data[name] = scan_data[name]
+
 
         lai = scan_data["leaf_area_index"]
         out_data["leaf_area_index"] = scan_data["leaf_area_index_climatology"]
 
-        out_data["probability_of_precipitation"] = data.probability_of_precipitation.data
-        out_data["precipitation_flag"] = 0.5 < data.probability_of_precipitation.data
+        pop = data.probability_of_precipitation.data
+        out_data["probability_of_precipitation"] = np.maximum(pop, -99.0)
+        out_data["precipitation_flag"] = np.where(0.0 <= pop, 0.5 < pop, -99)
+
         out_data["latitude"] = scan_data["latitude"]
         out_data["longitude"] = scan_data["longitude"]
 
