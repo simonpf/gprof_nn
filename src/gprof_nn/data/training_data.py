@@ -7,7 +7,7 @@ This module defines the dataset classes that provide access to
 the training data for the GPROF-NN retrievals.
 """
 from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
-from functools import cache
+from functools import cache, partial
 import io
 import itertools
 import math
@@ -24,6 +24,7 @@ from scipy.ndimage import rotate
 from scipy.signal import convolve
 import torch
 from torch.utils.data import Dataset, IterableDataset
+import torchvision.transforms.functional
 from tqdm import tqdm
 import xarray as xr
 
@@ -1134,12 +1135,18 @@ def load_training_data_3d_gmi(
             coords = get_transformation_coordinates(
                 lats, lons, sensors.GMI.viewing_geometry, 64, 128, p_x_i, p_x_o, p_y
             )
-            scene = remap_scene(scene, coords, variables).transpose("levels", "scans", "pixels", ...)
+            dims = ("scans", "pixels", ...)
+            if "levels" in scene:
+                dims = ("levels",) + dims
+            scene = remap_scene(scene, coords, variables).transpose(*dims)
         else:
+            dims = ("pixels", "scans", ...)
+            if "levels" in scene:
+                dims = ("levels",) + dims
             coords = get_transformation_coordinates(
                 lats, lons, sensors.GMI.viewing_geometry, 128, 64, p_x_i, p_x_o, p_y
             )
-            scene = remap_scene(scene, coords, variables).transpose("levels", "pixels", "scans", ...)
+            scene = remap_scene(scene, coords, variables).transpose(*dims)
 
     tbs = torch.tensor(scene.brightness_temperatures.data, dtype=torch.float32)
     angs = torch.nan * torch.zeros_like(tbs)
@@ -1230,8 +1237,23 @@ def load_training_data_3d_gmi(
         if prob > 0.5:
             x = {key: torch.flip(tensor, (-1,)) for key, tensor in x.items()}
             y = {key: torch.flip(tensor, (-1,)) for key, tensor in y.items()}
+    y = {key: tensor[None] if tensor.dim() == 2 else tensor for key, tensor in y.items()}
 
     if source == "cloudsat":
+
+        angle = rng.uniform(-20, 20)
+        scale = rng.uniform(1.0, 1.2)
+        transform = partial(
+            torchvision.transforms.functional.affine,
+            angle=angle,
+            scale=scale,
+            translate=(0.0, 0.0),
+            shear=0.0,
+            fill=torch.nan
+        )
+        x = {key: transform(tensor) for key, tensor in x.items()}
+        y = {key: tensor[None] if tensor.dim() == 2 else tensor for key, tensor in y.items()}
+        y = {key: transform(tensor) for key, tensor in y.items()}
         surface_precip = y.pop("surface_precip")
         total_precip = y.pop("total_precip")
         mask = 0 < surface_precip
@@ -1918,6 +1940,7 @@ class GPROFNN3DDataset(Dataset):
                             rng=self.rng
                         )
         except Exception as exc:
+            raise exc
             LOGGER.warning(
                 "Encountered an error when trying to load data from file '%s'.",
                 self.files[ind]
@@ -2041,7 +2064,7 @@ class GPROFNNLightDataset(Dataset):
             subsample = self.subsample
             ind_min = subsample * ind
             ind_max = ind_min + subsample
-            ind = min(self.rng.integers(ind_min, ind_max), len(self.other_files) - 1)
+            ind = min(self.rng.integers(ind_min, ind_max), len(self.cloudsat_files) - 1)
             sample_file = self.cloudsat_files[ind]
         else:
             subsample = int(
@@ -2063,6 +2086,7 @@ class GPROFNNLightDataset(Dataset):
                     rng=self.rng
                 )
         except Exception as exc:
+            raise exc
             LOGGER.warning(
                 "Encountered an error when trying to load data from file '%s'.",
                 sample_file
@@ -2074,6 +2098,7 @@ class GPROFNNLightDataset(Dataset):
             sp = y.pop("surface_precip")
             y["surface_precip"] = torch.nan * torch.zeros_like(sp)
             y["light_precip"] = sp
+
             y.pop("surface_precip_combined")
         else:
             sp = y.pop("surface_precip_combined")
@@ -2092,9 +2117,8 @@ class GPROFNNLightDataset(Dataset):
             )
             return self[new_ind]
 
-        #y["surface_precip_weights"] = 28.0 * torch.ones_like(y["surface_precip"])
-
         return x, y
+
 
 class GPROFNNSimInputLoader(GPROFNN3DDataset):
     """
