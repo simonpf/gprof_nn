@@ -898,7 +898,7 @@ class GPROFNNInputLoader:
         n_scans = input_data["brightness_temperatures"].shape[2]
         if n_scans < 128:
             LOGGER.warning(
-                "Input data has less than the required 128 scans. "
+                "Input data has less than the required 128 scans. All outputs will be set to missing."
             )
             input_padded = {}
             pad_scans = 128 - n_scans
@@ -1032,6 +1032,7 @@ class GPROFNNInputLoader:
 
         if "probability_of_precipitation" in output:
             output["probability_of_precipitation"] *= 100.0
+            output["precipitation_flag"] = 0.5 < output["probability_of_precipitation"]
 
         # Apply bias correction
         if self.bias_correction:
