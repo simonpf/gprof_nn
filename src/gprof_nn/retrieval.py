@@ -14,6 +14,7 @@ import subprocess
 from tempfile import TemporaryDirectory
 from pathlib import Path
 import re
+import sys
 from typing import Dict, List, Optional, Union, Tuple
 
 import click
@@ -780,6 +781,11 @@ def determine_input_format(path: Path) -> str:
     )
 
 
+class InsufficientScansError(Exception):
+    """Raised when an input file contains fewer scans than required."""
+    pass
+
+
 class GPROFNNInputLoader:
     def __init__(
             self,
@@ -897,20 +903,11 @@ class GPROFNNInputLoader:
         # Handle input with less than 128 scan lines.
         n_scans = input_data["brightness_temperatures"].shape[2]
         if n_scans < 128:
-            LOGGER.warning(
-                "Input data has less than the required 128 scans. All outputs will be set to missing."
+            LOGGER.error(
+                "Less than 128 scans in input file %s.",
+                path
             )
-            input_padded = {}
-            pad_scans = 128 - n_scans
-            for name, tnsr in input_data.items():
-                shape = tnsr.shape[:2] + (pad_scans,) + (tnsr.shape[3:])
-                pad = torch.nan * torch.zeros((shape))
-                tnsr = torch.cat((tnsr, pad), dim=-2)
-                input_padded[name] = tnsr
-            input_data = input_padded
-            aux["pad"] = pad_scans
-            input_padded["brightness_temperatures"][:] = torch.nan
-            aux["quality_flag"][:] = 2
+            raise InsufficientScansError()
 
         return input_data, aux
 
@@ -949,7 +946,6 @@ class GPROFNNInputLoader:
         """
         lons = aux["longitude"]
         lats = aux["latitude"]
-        pad = aux.pop("pad", None)
         shape = lons.shape
 
         sensor = aux.pop("sensor")
@@ -984,8 +980,6 @@ class GPROFNNInputLoader:
 
             # Discard dummy dimensions.
             tensor = tensor.cpu().float().squeeze()
-            if pad is not None:
-                tensor = tensor[..., :-pad, :]
 
             if self.config.lower() == "1d":
                 tensor = tensor.reshape(shape + tensor.shape[1:])
@@ -1045,8 +1039,6 @@ class GPROFNNInputLoader:
 
         # Mark pixels with excessively negative values.
         output["pixel_status"].data[invalid] = 5
-        if pad is not None:
-            output["pixel_status"].data[:] = 5
 
         invalid = invalid + (qflag == 2) + (status != 0)
         for name in ALL_OUTPUTS:
@@ -1290,6 +1282,8 @@ def cli(
 ) -> None:
     """
     Run the GPROF-NN retrieval on a single input file or a folder of input files located at INPUT_PATH and write the results to the current working directory.
+
+    Exit codes: 0 = Retrieval ran successfully; 1 = General processing error; 2 = Insufficient scans in file.
     """
     if log_file is not None:
         enable_file_logging(log_file)
@@ -1362,18 +1356,28 @@ def cli(
     device = torch.device(device)
     dtype = getattr(torch, dtype)
 
+    robust = 1 < len(input_loader)
     if n_input_loaders > 1:
         runner = InferenceRunner(
             model,
             input_loader,
             inference_config,
             n_input_loaders=n_input_loaders,
+            robust=robust
         )
     else:
         runner = SequentialInferenceRunner(
             model,
             input_loader,
             inference_config,
-            progress=True
+            progress=True,
+            robust=robust
         )
-    runner.run(output_path=output_path, device=device, dtype=dtype)
+
+    try:
+        runner.run(output_path=output_path, device=device, dtype=dtype)
+    except InsufficientScansError:
+        sys.exit(2)
+    except:
+        sys.exit(1)
+    sys.exit(0)
