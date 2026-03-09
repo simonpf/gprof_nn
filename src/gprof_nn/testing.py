@@ -20,7 +20,11 @@ from torch import nn
 from tqdm import tqdm
 import xarray as xr
 
-from gprof_nn.data.training_data import GPROFNN1DDataset, GPROFNN3DDataset
+from gprof_nn.data.training_data import (
+    GPROFNN1DDataset,
+    GPROFNN3DDataset,
+    GPROFNNLightDataset
+)
 
 
 def run_tests(
@@ -46,7 +50,7 @@ def run_tests(
     Return:
         A the xarray.Dataset containing the calculated error metrics.
     """
-    model = model.to(device=device, dtype=dtype)
+    model = model.to(device=device, dtype=dtype).eval()
 
     for x, y in tqdm(test_dataset):
         x = to_rec(x, device=device, dtype=dtype)
@@ -62,17 +66,22 @@ def run_tests(
 
         for key, pred_k in pred.items():
             mtrcs = scalar_metrics.get(key, [])
+
+            pred_k = pred_k.expected_value()
+            ref = y[key]
+            cond = y["surface_type"]
+
             for metric in mtrcs:
                 metric = metric.to(device=device)
-                metric.update(pred_k.expected_value(), y[key])
+                metric.update(pred_k, ref)
 
             mtrcs = surface_type_metrics.get(key, [])
             for metric in mtrcs:
                 metric = metric.to(device="cpu")
                 metric.update(
-                    pred_k.expected_value().to(device="cpu"),
-                    y[key].to(device="cpu"),
-                    conditional={"surface_type": y["surface_type"].to(device="cpu")}
+                    pred_k.to(device="cpu"),
+                    ref.to(device="cpu"),
+                    conditional={"surface_type": cond.to(device="cpu")}
                 )
 
     retrieval_results = {}
@@ -83,7 +92,8 @@ def run_tests(
     for name, mtrcs in surface_type_metrics.items():
         for metric in mtrcs:
             res_name = name + "_" + metric.name.lower() + "_surface_type"
-            retrieval_results[res_name] = (("surface_type",), metric.compute().cpu().numpy())
+            extra_dims = getattr(metric, "dims", ())
+            retrieval_results[res_name] = (("surface_type",) + extra_dims, metric.compute().cpu().numpy())
     if len(retrieval_results) > 0:
         retrieval_results = xr.Dataset(retrieval_results)
     else:
@@ -100,6 +110,7 @@ def run_tests(
 @click.option("--dtype", type=str, default="bfloat16")
 @click.option("--batch_size", type=int, default=32)
 @click.option("--subsample", type=int, default=1)
+@click.option("--use_combined", is_flag=True)
 @click.option("-v", "--verbose", count=True)
 def cli(
         kind: str,
@@ -111,27 +122,40 @@ def cli(
         batch_size: int = 32,
         subsample: int = 1,
         verbose: int = 0,
+        use_combined: bool = False
 ) -> int:
     """
     Calculate test data accuracy for a given GPROF-NN MODEL using the test data located in TEST_DATA_PATH.
     """
     model = load_model(model).eval()
 
+    test_data_path = Path(test_data_path)
+
     targets = [name for name in model.to_config_dict()["output"].keys()]
+    kind = kind.lower()
     if kind == "1d":
         test_dataset = GPROFNN1DDataset(
             test_data_path,
             targets = targets + ["surface_type"]
         )
         batch_size = None
-    else:
+    elif kind == "3d":
         test_dataset = GPROFNN3DDataset(
             test_data_path,
             augment=True,
             validation=False,
             targets = targets + ["surface_type"],
-            subsample=subsample
-
+            subsample=subsample,
+            use_combined=use_combined
+        )
+    elif kind == "light":
+        test_dataset = GPROFNNLightDataset(
+            cloudsat_path=test_data_path / "cs",
+            training_paths=test_data_path / "sim",
+            augment=False,
+            validation=False,
+            targets = targets + ["surface_type"],
+            subsample=subsample,
         )
 
     data_loader = DataLoader(
@@ -152,8 +176,10 @@ def cli(
     surface_type_metrics = {
         name: [
             metrics.RelativeBias(conditional=cond),
+            metrics.MAE(conditional=cond),
             metrics.MSE(conditional=cond),
-            metrics.CorrelationCoef(conditional=cond)
+            metrics.CorrelationCoef(conditional=cond),
+            metrics.ScatterPlot(bins=np.logspace(-3, 2, 41), conditional=cond)
         ] for name in model.to_config_dict()["output"].keys()
     }
 
