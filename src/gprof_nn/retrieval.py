@@ -787,6 +787,12 @@ class InsufficientScansError(Exception):
 
 
 class GPROFNNInputLoader:
+    """
+    Retrieval input loader for GPROF-NN retrievals.
+
+    This data loader class loads retrieval input data from one file or a directory of input files.
+    It ensures data is prepared in the way expected by GPROF-NN.
+    """
     def __init__(
             self,
             path: Union[str, Path, List[Union[str, Path]]],
@@ -795,7 +801,19 @@ class GPROFNNInputLoader:
             ancillary_config: str = "CLI",
             output_format: str = "NETCDF",
             bias_correction: bool = True,
+            robust: bool = True
     ):
+        """
+        Args:
+            path: A Path object pointing to the input file or directory.
+            input_format: The format of the input data. This is required if the format cannot be unambiguously
+                determined from the file suffix.
+            config: The retrieval configuration to run.
+            ancillary_config: The ancillary config to use. Should be one of ['CLI', 'STD', 'NRT', or 'NONE']
+            output_format: The output format to use for the results.
+            bias_correction: Whether or not to apply the bias correction.
+            robust: Set to False to fail on errors.
+        """
 
         # Determine input files.
         if isinstance(path, list):
@@ -821,6 +839,7 @@ class GPROFNNInputLoader:
         self.ancillary_config = ancillary_config
         self.output_format = output_format.upper()
         self.bias_correction = bias_correction
+        self.robust = robust
 
 
     def __len__(self) -> int:
@@ -900,14 +919,15 @@ class GPROFNNInputLoader:
                 }
         aux["output_format"] = self.output_format
 
-        # Handle input with less than 128 scan lines.
-        n_scans = input_data["brightness_temperatures"].shape[2]
-        if n_scans < 128:
-            LOGGER.error(
-                "Less than 128 scans in input file %s.",
-                path
-            )
-            raise InsufficientScansError()
+        if self.config != "1d":
+            # Handle input with less than 128 scan lines.
+            n_scans = input_data["brightness_temperatures"].shape[2]
+            if n_scans < 128:
+                LOGGER.error(
+                    "Less than 128 scans in input file %s.",
+                    path
+                )
+                raise InsufficientScansError()
 
         return input_data, aux
 
@@ -917,8 +937,18 @@ class GPROFNNInputLoader:
 
     def __iter__(self):
         for path in self.input_files:
-            input_data, aux = self.load_input_data(path)
+            try:
+                input_data, aux = self.load_input_data(path)
+            except Exception as exc:
+                if not self.robust:
+                    raise exc
+                LOGGER.exception(
+                    "Encountered an error when loading input data from file %s.",
+                    path
+                )
+                continue
             yield input_data, aux, path.name
+
 
     def finalize_results(
             self,
@@ -1357,13 +1387,13 @@ def cli(
     dtype = getattr(torch, dtype)
 
     robust = 1 < len(input_loader)
+    input_loader.robust = robust
     if n_input_loaders > 1:
         runner = InferenceRunner(
             model,
             input_loader,
             inference_config,
             n_input_loaders=n_input_loaders,
-            robust=robust
         )
     else:
         runner = SequentialInferenceRunner(
