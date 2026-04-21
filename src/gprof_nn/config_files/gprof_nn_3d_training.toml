@@ -1,8 +1,8 @@
 [stage_1]
 dataset_module = "gprof_nn.data.training_data"
 training_dataset = "GPROFNN3DDataset"
-training_dataset_args = {{path={training_data_path}, use_combined=true}}
-validation_dataset_args = {{path={validation_data_path}, use_combined=true}}
+training_dataset_args = {{path={training_data_path}, use_combined=true, sensor="{sensor}"}}
+validation_dataset_args = {{path={validation_data_path}, use_combined=true, sensor="{sensor}"}}
 n_epochs = 20
 batch_size = 16
 optimizer = "AdamW"
@@ -15,8 +15,8 @@ n_data_loader_workers = 8
 [stage_2]
 dataset_module = "gprof_nn.data.training_data"
 training_dataset = "GPROFNN3DDataset"
-training_dataset_args = {{path={training_data_path}, use_combined=true}}
-validation_dataset_args = {{path={validation_data_path}, use_combined=true}}
+training_dataset_args = {{path={training_data_path}, use_combined=true, sensor="{sensor}"}}
+validation_dataset_args = {{path={validation_data_path}, use_combined=true, sensor="{sensor}"}}
 n_epochs = 40
 batch_size = 16
 optimizer = "AdamW"
@@ -29,8 +29,8 @@ n_data_loader_workers = 8
 [stage_3]
 dataset_module = "gprof_nn.data.training_data"
 training_dataset = "GPROFNN3DDataset"
-training_dataset_args = {{path={training_data_path}, use_combined=true}}
-validation_dataset_args = {{path={validation_data_path}, use_combined=true}}
+training_dataset_args = {{path={training_data_path}, use_combined=true, sensor="{sensor}"}}
+validation_dataset_args = {{path={validation_data_path}, use_combined=true, sensor="{sensor}"}}
 n_epochs = 80
 batch_size = 16
 optimizer = "AdamW"
@@ -40,3 +40,19 @@ scheduler_args = {{T_max = 80}}
 metrics = ["CorrelationCoef", "MSE", "Bias", "PlotSamples", "PlotMeans", "Histogram"]
 reuse_optimizer = true
 n_data_loader_workers = 8
+
+[stage_4]
+dataset_module = "gprof_nn.data.training_data"
+training_dataset = "GPROFNN3DDataset"
+training_dataset_args = {{path={training_data_path}, use_combined=true, sensor="{sensor}"}}
+validation_dataset_args = {{path={validation_data_path}, use_combined=true, sensor="{sensor}"}}
+n_epochs = 80
+batch_size = 16
+optimizer = "AdamW"
+optimizer_args = {{lr = 5e-4}}
+scheduler = "CosineAnnealingLR"
+scheduler_args = {{T_max = 80}}
+metrics = ["CorrelationCoef", "MSE", "Bias", "PlotSamples", "PlotMeans", "Histogram"]
+reuse_optimizer = true
+n_data_loader_workers = 8
+unfreeze = ["model.heads.surface_precip"]
