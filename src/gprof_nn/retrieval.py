@@ -193,9 +193,7 @@ def adjust_precipitation(
             retrieval_output["surface_precip_2nd_tercile"].data *= scaling
         else:
             LOGGER.warning(
-                "Not applying bias adjustment because land fraction is missing from retrieval output.",
-                sensor.name,
-                sensor.platform.name
+                "Not applying bias adjustment because land fraction is missing from retrieval output."
             )
 
     adjustment_factors = load_boost_adjustment_factors(sensor)
@@ -761,9 +759,9 @@ def determine_input_format(path: Path) -> str:
     """
     if path.suffix == ".pp":
         return "preprocessor"
-    if path.suffix == ".HDF5":
+    elif path.name.startswith("1C"):
         return "l1c"
-    if path.suffix == ".nc":
+    elif path.suffix == ".nc":
         if (
                 path.name.startswith("cmb_") or
                 path.name.startswith("mrms_") or
@@ -853,10 +851,10 @@ class GPROFNNInputLoader:
         Infer sensor from input file.
         """
         inpt = self.input_files[0]
-        if inpt.suffix == ".HDF5":
-            return L1CFile(inpt).sensor
-        elif inpt.suffix == ".pp":
+        if inpt.suffix == ".pp":
             return PreprocessorFile(inpt).sensor
+        elif inpt.name.startswith("1C") and inpt.suffix in ("nc", "HDF5"):
+            return L1CFile(inpt).sensor
         elif inpt.suffix == ".nc":
             with xr.open_dataset(inpt) as smpl:
                 return sensors.get_sensor(smpl.attrs["sensor"])
@@ -1201,8 +1199,9 @@ def run_retrieval(
         }
         model.inference_config.retrieval_output = retrieval_output
         for prof in profiles:
-            if prof in model.heads:
-                model.heads.pop(prof)
+            heads = getattr(model, "heads", getattr(model, "outputs", None))
+            if prof in heads:
+                heads.pop(prof)
     inference_config = model.inference_config
 
     if output_path is not None:
@@ -1373,8 +1372,9 @@ def cli(
         }
         model.inference_config.retrieval_output = retrieval_output
         for prof in profiles:
-            if prof in model.heads:
-                model.heads.pop(prof)
+            heads = getattr(model, "heads", getattr(model, "outputs", None))
+            if prof in heads:
+                heads.pop(prof)
 
     inference_config = model.inference_config
 
