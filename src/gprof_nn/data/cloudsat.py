@@ -32,7 +32,6 @@ from pyresample.geometry import SwathDefinition
 from pansat.utils import resample_data
 from rich.progress import track, Progress
 
-from gprof_nn.statistics import TrainingDataStats
 from gprof_nn.sensors import Sensor
 from gprof_nn.data.era5 import load_era5_data
 from gprof_nn.data.utils import (
@@ -122,6 +121,7 @@ def extract_cloudsat_scenes(
             "rays": slice(*target_granule.primary_index_range)
         }].reset_coords("time")
         cs_data["surface_precip_snow"] = snow_profile_data["surface_precip"]
+        cs_data["surface_snowfall_confidence"] = snow_profile_data["surface_snowfall_confidence"]
 
         levels = np.concatenate([0.5 + np.arange(20) * 0.5, np.arange(10.5, 18.0)])
         profiles_interp = {}
@@ -190,20 +190,29 @@ def extract_cloudsat_scenes(
 
         pflag = input_data["precip_flag"].data
         surface_precip = input_data["surface_precip"].data
+        surface_precip_quality = cs_data_r["rain_quality_flag"].data
+
         surface_precip_snow = input_data["surface_precip_snow"].data
+        surface_precip_snow_quality = cs_data_r["surface_snowfall_confidence"].data
+
         total_precip = np.nan * np.zeros_like(surface_precip)
         total_precip[pflag == 0] = 0.0
-        total_precip[surface_precip > 0] = surface_precip[surface_precip > 0]
-        total_precip[surface_precip_snow > 0] = surface_precip_snow[surface_precip_snow > 0]
 
-        rain = (1 <= pflag) * (pflag <= 3)
+        valid_precip = (0 < surface_precip)
+        total_precip[valid_precip] = surface_precip[valid_precip]
+
+        valid_precip = (0 < surface_precip_snow)
+        total_precip[valid_precip] = surface_precip_snow[valid_precip]
+
+        land_rain = (1 <= pflag) * (pflag <= 3) * np.isnan(input_data["surface_precip"].data)
         era5_data = load_era5_data(input_data.scan_time.min().data, input_data.scan_time.max().data)
         era5_precip = era5_data.tp.interp(
             time=input_data.scan_time_cloudsat,
             latitude=input_data.latitude,
             longitude=input_data.longitude
         ).data
-        total_precip[rain] = 1000.0 * era5_precip[rain]
+
+        total_precip[land_rain] = 1000.0 * era5_precip[land_rain]
 
         input_data["total_precip"] = (("scans", "pixels"), total_precip)
 
@@ -253,11 +262,8 @@ def extract_cloudsat_scenes(
         ]:
             encodings[var] = {"dtype": "float32", "zlib": True}
 
-        stats = TrainingDataStats(output_path)
-
         scene_ind = 0
         for scene in scenes:
-            stats.track(scene, valid_var="total_precip")
             scene = scene.drop_vars("valid")
             start_time = target_granule.time_range.start
             start_str = start_time.strftime("%Y%m%d%H%M%S")
