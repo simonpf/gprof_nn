@@ -878,7 +878,8 @@ def calculate_angles(
     return np.rad2deg(zenith), np.rad2deg(azimuth), np.rad2deg(viewing_angle)
 
 
-_CHANNEL_REGEXP = re.compile(r"([\d\.]+)[^\)]\s*(?:GHz)?(?:\+-)?\s*(?:\+\/-)?\s*([\d\.]*)\s*(?:GHz)?\s*(?:(\w+)-Pol)?")
+_CHANNEL_REGEXP = re.compile(r"([\d\.]+)[^\+)]\s*(?:GHz)?(?:\+-)?\s*(?:\+\/-)?\s*([\d\.]*)\s*(?:GHz)?\s*(?:([a-zA-Z]+)-Pol)?")
+
 
 POLARIZATIONS = {
     "H": 0,
@@ -930,7 +931,7 @@ def calculate_obs_properties(
 
     l1c_file = L1CFile(granule.file_record.local_path)
     sensor = l1c_file.sensor.name.lower()
-    beam_widths = l1c_file.sensor.beam_width
+    beam_widths = l1c_file.sensor.beam_width_l1c
 
     tot_chan_ind = 0
 
@@ -953,11 +954,15 @@ def calculate_obs_properties(
         for ch_ind, match in enumerate(_CHANNEL_REGEXP.findall(granule_data[f"tbs_s{swath_ind}"].attrs["LongName"])):
             freq, offs, pol = match
             freqs.append(float(freq))
+
             if offs == "":
                 offsets.append(0.0)
             else:
                 offsets.append(float(offs))
-            if pol == "":
+
+            if l1c_file.sensor.polarization_l1c is not None:
+                pols.append(l1c_file.sensor.polarization_l1c[tot_chan_ind + ch_ind])
+            elif pol == "":
                 pols.append(l1c_file.sensor.polarization[tot_chan_ind + ch_ind])
             else:
                 pols.append(pol)
@@ -1026,17 +1031,20 @@ def calculate_obs_properties(
 
 
         for chan_ind in range(swath_data_r[f"channels_s{swath_ind}"].size):
-            observations.append(swath_data_r[f"tbs_s{swath_ind}"].data[..., chan_ind])
+            obs = swath_data_r[f"tbs_s{swath_ind}"].data[..., chan_ind]
             meta = np.stack((
-                freqs[chan_ind] * np.ones_like(observations[-1]),
-                offsets[chan_ind] * np.ones_like(observations[-1]),
+                freqs[chan_ind] * np.ones_like(obs),
+                offsets[chan_ind] * np.ones_like(obs),
                 calculate_polarization_weights(pols[chan_ind], viewing_angle),
-                beam_widths[tot_chan_ind] * np.ones_like(observations[-1]),
+                beam_widths[tot_chan_ind] * np.ones_like(obs),
                 sensor_alt,
                 zenith,
                 1.0 + np.sin(np.deg2rad(azimuth)),
                 1.0 + np.cos(np.deg2rad(azimuth))
             ))
+            valid = 0 <= obs
+            meta[:, ~valid] = np.nan
+            observations.append(obs)
             meta_data.append(meta)
             tot_chan_ind += 1
 
