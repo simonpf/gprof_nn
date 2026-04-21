@@ -335,22 +335,27 @@ def extract_samples(
     target_products = target_sensor.pansat_products
     for input_product in input_products:
         for target_product in target_products:
-            input_recs = input_product.get(TimeRange(start_time, end_time))
-            LOGGER.info(
-                "Found %s input records for time range %s %s.",
-                len(input_recs),
-                start_time,
-                end_time
-            )
-            input_index = Index.index(input_product, input_recs)
-            target_recs = target_product.get(TimeRange(start_time, end_time))
-            LOGGER.info(
-                "Found %s target records for time range %s %s.",
-                len(target_recs),
-                start_time,
-                end_time
-            )
-            target_index = Index.index(target_product, target_recs)
+
+            try:
+                input_recs = input_product.get(TimeRange(start_time, end_time))
+                LOGGER.info(
+                    "Found %s input records for time range %s %s.",
+                    len(input_recs),
+                    start_time,
+                    end_time
+                )
+                input_index = Index.index(input_product, input_recs)
+                target_recs = target_product.get(TimeRange(start_time, end_time))
+                LOGGER.info(
+                    "Found %s target records for time range %s %s.",
+                    len(target_recs),
+                    start_time,
+                    end_time
+                )
+                target_index = Index.index(target_product, target_recs)
+            except RuntimeError:
+                continue
+
             matches = find_matches(input_index, target_index, np.timedelta64(15, "m"))
             LOGGER.info(
                 "Found %s matches for input product %s and target_product %s.",
