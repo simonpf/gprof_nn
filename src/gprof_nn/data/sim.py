@@ -764,11 +764,10 @@ class SimulatorInput():
     def __iter__(self):
         yield self.input_data
 
-    def load_input_data_xtrack(self):
+    def load_input_data_xtrack(self) -> Dict[str, torch.Tensor]:
         """
-        Load input data for a cross-track scanner.
+        Load Satformer input data to simulate observations for a cross-track scanner.
         """
-
         upsampling_factors = UPSAMPLING_FACTORS["gmi"]
         input_data = upsample_data(self.data, upsampling_factors)
         input_data = add_cpcir_data(input_data)
@@ -824,7 +823,6 @@ class SimulatorInput():
         for ind, obs in enumerate(input_obs.observations.data):
             obs = observations[ind][None]
             meta = input_observation_props[ind]
-            obs, meta = transform_observations_satformer(obs, meta)
             obs_in.append(torch.tensor(obs))
             meta_in.append(torch.tensor(meta))
 
@@ -855,8 +853,10 @@ class SimulatorInput():
         return inpt, "None", {}
 
 
-    def load_input_data_conical(self):
-
+    def load_input_data_conical(self) -> Dict[str, torch.Tensor]:
+        """
+        Load Satformer input data to simulate observations from a conical scanner.
+        """
         upsampling_factors = UPSAMPLING_FACTORS["gmi"]
         restrict_vars = [
             name for name in list(self.data.variables.keys()) + list(self.data.dims)
@@ -904,7 +904,6 @@ class SimulatorInput():
             )
 
         output_observation_props = torch.stack(output_observation_props, 1)[None]
-
         input_observation_props = input_obs.meta_data.data
 
         obs_in = []
