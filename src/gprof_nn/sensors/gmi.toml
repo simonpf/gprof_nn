@@ -19,6 +19,7 @@ polarization = ["V", "H", "V", "H", "V", "V", "H", "V", "H", "V", "H", "V", "V"]
 orographic_enhancement = [1.13392, 1.69444, 1.44406, 1.68295, 2.89360]
 earth_incidence_angle = [52.8, 52.8, 52.8, 52.8, 52.8, 52.8, 52.8, 52.8, 52.8, 49.14, 49.14, 49.14, 49.14]
 beam_width = [1.75, 1.75, 1.0, 1.0, 0.9, 0.9, 0.9, 0.4, 0.4, 0.4, 0.4, 0.4, 0.4]
+beam_width_l1c = [1.75, 1.75, 1.0, 1.0, 0.9, 0.9, 0.9, 0.4, 0.4, 0.4, 0.4, 0.4, 0.4]
 pansat_products = ["l1c_r_xcal2016c_gpm_gmi_v07a", "l1c_r_xcal2016c_gpm_gmi_v07b"]
 
 [sensor.gprof_channels]

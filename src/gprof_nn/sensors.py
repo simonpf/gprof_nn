@@ -212,9 +212,11 @@ class Sensor(ABC):
             frequencies: List[float],
             offsets: List[float],
             polarization: List[str],
+            polarization_l1c: Optional[List[str]],
             orographic_enhancement: List[float],
             earth_incidence_angle: Optional[List[float]] = None,
             beam_width: Optional[List[float]] = None,
+            beam_width_l1c: Optional[List[float]] = None,
             sim_file_pattern: str = "*.sim",
             channel_drop: Optional[float] = None,
             scanline_drop: Optional[float] = None,
@@ -230,14 +232,14 @@ class Sensor(ABC):
         self.frequencies = frequencies
         self.offsets = offsets
         self.polarization = polarization
+        self.polarization_l1c = polarization_l1c
         self.orographic_enhancement = orographic_enhancement
 
         if earth_incidence_angle is not None:
             earth_incidence_angle = np.array(earth_incidence_angle)
         self.earth_incidence_angle = earth_incidence_angle
-        if beam_width is not None:
-            beam_width = np.array(beam_width)
-        self.beam_width = beam_width
+        self.beam_width = np.array(beam_width)
+        self.beam_width_l1c = np.array(beam_width_l1c)
 
         self.sim_file_pattern = sim_file_pattern
 
@@ -437,9 +439,11 @@ class ConicalScanner(Sensor):
             frequencies: List[float],
             offsets: List[float],
             polarization: List[float],
+            polarization_l1c: Optional[List[float]],
             orographic_enhancement: List[float],
             earth_incidence_angle: List[float],
             beam_width: List[float],
+            beam_width_l1c: List[float],
             sim_file_pattern: str = "*.sim",
             channel_drop: Optional[float] = None,
             scanline_drop: Optional[float] = None,
@@ -447,8 +451,8 @@ class ConicalScanner(Sensor):
     ):
         super().__init__(
             types.CONICAL, name, platform, viewing_geometry, gprof_channels,
-            frequencies, offsets, polarization, orographic_enhancement,
-            earth_incidence_angle, beam_width, sim_file_pattern=sim_file_pattern,
+            frequencies, offsets, polarization, polarization_l1c, orographic_enhancement,
+            earth_incidence_angle, beam_width, beam_width_l1c, sim_file_pattern=sim_file_pattern,
             channel_drop=channel_drop, scanline_drop=scanline_drop, pansat_products=pansat_products
         )
         self._n_angles = 1
@@ -475,9 +479,11 @@ class CrossTrackScanner(Sensor):
             frequencies: List[float],
             offsets: List[float],
             polarization: List[str],
+            polarization_l1c: List[str],
             orographic_enhancement: List[float],
             earth_incidence_angle: Optional[List[float]] = None,
             beam_width: Optional[List[float]] = None,
+            beam_width_l1c: Optional[List[float]] = None,
             sim_file_pattern: str = "*.sim",
             scanline_drop: Optional[float] = None,
             channel_drop: Optional[float] = None,
@@ -485,9 +491,10 @@ class CrossTrackScanner(Sensor):
     ):
         super().__init__(
             types.XTRACK, name, platform, viewing_geometry, gprof_channels,
-            frequencies, offsets, polarization, orographic_enhancement,
+            frequencies, offsets, polarization, polarization_l1c, orographic_enhancement,
             earth_incidence_angle=earth_incidence_angle,
             beam_width=beam_width,
+            beam_width_l1c=beam_width_l1c,
             sim_file_pattern=sim_file_pattern,
             scanline_drop=scanline_drop,
             channel_drop=channel_drop,
@@ -514,9 +521,11 @@ class ConstellationScanner(Sensor):
             frequencies: List[float],
             offsets: List[float],
             polarization: List[str],
+            polarization_l1c: List[str],
             orographic_enhancement: List[float],
             earth_incidence_angle: Optional[List[float]] = None,
             beam_width: Optional[List[float]] = None,
+            beam_width_l1c: Optional[List[float]] = None,
             sim_file_pattern: str = "*.sim",
             channel_drop: Optional[float] = None,
             scanline_drop: Optional[float] = None,
@@ -531,9 +540,11 @@ class ConstellationScanner(Sensor):
             frequencies,
             offsets,
             polarization,
+            polarization_l1c,
             orographic_enhancement,
             earth_incidence_angle=earth_incidence_angle,
             beam_width=beam_width,
+            beam_width_l1c=beam_width_l1c,
             sim_file_pattern=sim_file_pattern,
             channel_drop=channel_drop,
             scanline_drop=scanline_drop,
@@ -631,9 +642,11 @@ def parse_sensor(sensor_file: Path) -> Sensor:
         "frequencies",
         "offsets",
         "polarization",
+        "polarization_l1c",
         "orographic_enhancement",
         "earth_incidence_angle",
         "beam_width",
+        "beam_width_l1c",
     ]
     args = [sensor.get(arg, None) for arg in args]
     kwargs = {

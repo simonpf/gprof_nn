@@ -19,6 +19,7 @@ polarization = ["V", "H", "V", "V", "H", "V", "H", "H", "H", "H", "H"]
 orographic_enhancement = [1.14814, 1.68884, 1.44993, 1.68777, 2.77401]
 earth_incidence_angle = [53.59, 53.59, 53.59, 53.54, 53.54, 53.05, 53.05, 52.90, 52.90, 52.90, 52.90]
 beam_width = [1.92, 1.94, 1.85, 1.2, 1.19, 0.4, 0.39, 0.39, 0.39, 0.39, 0.39]
+beam_width_l1c = [1.92, 1.94, 1.85, 1.2, 1.19, 0.39, 0.39, 0.39, 0.39, 0.4, 0.39]
 channel_drop = 0.1
 scanline_drop = 0.1
 pansat_products = ["l1c_xcal2021v_f16_ssmis_v07a", "l1c_xcal2021v_f17_ssmis_v07a", "l1c_xcal2021v_f17_ssmis_parv811"]

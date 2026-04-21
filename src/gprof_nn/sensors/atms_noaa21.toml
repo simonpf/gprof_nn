@@ -20,6 +20,7 @@ orographic_enhancement = [1.06241, 1.69921, 1.47471, 1.74373, 2.74331]
 channel_drop = 0.1
 scanline_drop = 0.1
 beam_width = [2.2, 1.1, 1.1, 1.1, 1.1]
+beam_width_l1c = [5.2, 5.2, 2.2, 1.1, 1.1, 1.1, 1.1, 1.1, 1.1]
 pansat_products = ["l1c_xcal2019v_noaa21_atms_v07a"]
 
 [sensor.gprof_channels]
