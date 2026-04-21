@@ -224,13 +224,14 @@ def calculate_footprints_xtrack(
 
     if rng is None:
         rng = np.random.default_rng()
-
-    eia = rng.uniform(*eia_range)
-    va = incidence_angle_to_viewing_angle(eia, altitude)
+    
     va_range = (
         incidence_angle_to_viewing_angle(eia_range[0], altitude),
         incidence_angle_to_viewing_angle(eia_range[1], altitude),
     )
+    eia_max = viewing_to_incidence(va_range[-1] - vai * n_pixels // 2, altitude)
+    eia = rng.uniform(eia_range[0], eia_max)
+    va = incidence_angle_to_viewing_angle(eia, altitude)
 
     beta = eia - va
     R = 6.371e6
@@ -240,7 +241,8 @@ def calculate_footprints_xtrack(
     else:
         l_los = np.sin(np.deg2rad(beta)) * (R + altitude) / np.sin(np.pi - np.deg2rad(eia))
 
-    central_pixel = rng.integers(20, 190)#n_scans_gmi  // 2
+    central_pixel = n_pixels_gmi  // 2
+    central_scan = n_scans_gmi  // 2
 
     for scan_ind in range(0, n_scans_gmi, subsample):
 
@@ -310,6 +312,36 @@ def calculate_footprints_xtrack(
     scan_lons = np.stack(scan_lons)
     scan_lats = np.stack(scan_lats)
     eias = np.stack(eias)
+
+    lon_c_in_1 = lons_fp_gmi[central_scan, 0]
+    lat_c_in_1 = lats_fp_gmi[central_scan, 0]
+    lon_c_out_1 = scan_lons[scan_lons.shape[0] // 2, -1]
+    lat_c_out_1 = scan_lats[scan_lats.shape[0] // 2, -1]
+    lon_offset_1 = lon_c_in_1 - lon_c_out_1
+    lat_offset_1 = lat_c_in_1 - lat_c_out_1
+    dist_cm_1 = np.sqrt(
+        (lons_fp_gmi.mean() - scan_lons.mean() - lon_offset_1) ** 2 + (lats_fp_gmi.mean() - scan_lats.mean() - lat_offset_1) ** 2
+    )
+
+    lon_c_in_2 = lons_fp_gmi[central_scan, 0]
+    lat_c_in_2 = lats_fp_gmi[central_scan, 0]
+    lon_c_out_2 = scan_lons[scan_lons.shape[0] // 2, 0]
+    lat_c_out_2 = scan_lats[scan_lats.shape[0] // 2, 0]
+    lon_offset_2 = lon_c_in_2 - lon_c_out_2
+    lat_offset_2 = lat_c_in_2 - lat_c_out_2
+    dist_cm_2 = np.sqrt(
+        (lons_fp_gmi.mean() - scan_lons.mean() - lon_offset_2) ** 2 + (lats_fp_gmi.mean() - scan_lats.mean() - lat_offset_2) ** 2
+    )
+
+    if dist_cm_1 < dist_cm_2:
+        lon_offset = lon_c_in_1 - lon_c_out_1
+        lat_offset = lat_c_in_1 - lat_c_out_1
+    else:
+        lon_offset = lon_c_in_2 - lon_c_out_2
+        lat_offset = lat_c_in_2 - lat_c_out_2
+
+    scan_lons += lon_offset
+    scan_lats += lat_offset
 
     coords = xr.Dataset({
         "scans": (("scans",), along_track_dist),
