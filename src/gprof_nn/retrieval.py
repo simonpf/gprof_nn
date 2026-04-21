@@ -759,7 +759,7 @@ def determine_input_format(path: Path) -> str:
     """
     if path.suffix == ".pp":
         return "preprocessor"
-    elif path.name.startswith("1C"):
+    elif path.name.startswith("1C") and path.suffix in (".nc", ".HDF5"):
         return "l1c"
     elif path.suffix == ".nc":
         if (
@@ -853,7 +853,7 @@ class GPROFNNInputLoader:
         inpt = self.input_files[0]
         if inpt.suffix == ".pp":
             return PreprocessorFile(inpt).sensor
-        elif inpt.name.startswith("1C") and inpt.suffix in ("nc", "HDF5"):
+        elif inpt.name.startswith("1C") and inpt.suffix in (".nc", ".HDF5"):
             return L1CFile(inpt).sensor
         elif inpt.suffix == ".nc":
             with xr.open_dataset(inpt) as smpl:
@@ -1408,6 +1408,7 @@ def cli(
         runner.run(output_path=output_path, device=device, dtype=dtype)
     except InsufficientScansError:
         sys.exit(2)
-    except:
+    except Exception as exc:
+        LOGGER.exception(exc)
         sys.exit(1)
     sys.exit(0)
