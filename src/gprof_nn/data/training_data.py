@@ -66,11 +66,9 @@ from gprof_nn.augmentation import (get_transformation_coordinates,
 LOGGER = logging.getLogger(__name__)
 
 
-
 EIA_GMI = np.array([
     [52.98] * 10 + [49.16] * 5
 ])
-
 
 def get_central_latitude(path: Path):
     with xr.open_dataset(path) as data:
@@ -795,7 +793,8 @@ class GPROFNN1DDataset(IterableDataset):
         validation: bool = False,
         satformer: bool = False,
         batch_size: int = 2048,
-        ancillary_cfg: Optional[str] = None
+        ancillary_cfg: Optional[str] = None,
+        sensor: Optional[str] = None
     ):
         """
         Create GPROF-NN 1D dataset.
@@ -811,8 +810,10 @@ class GPROFNN1DDataset(IterableDataset):
                 data.
             validation: If set to 'True', data  loaded in consecutive iterations
                 over the dataset will be identical.
-            ancillary_cfg: Optional ancillary configuration to use. If not given,
-                the configuration is chosen randomly for each batch.
+            satformer: Set to 'True' to load Tbs from Satformer.
+            batch_size: The size of batches to load.
+            ancillary_cfg: The ancillary data configuration to load.
+            sensor: Optional name of the sensor to load the training data for.
         """
         super().__init__()
 
@@ -852,6 +853,10 @@ class GPROFNN1DDataset(IterableDataset):
         self.indices = None
         self.pool = ThreadPoolExecutor(max_workers=1)
 
+        if sensor is not None:
+            sensor = sensors.get_sensor(sensor)
+        self.sensor = sensor
+
 
     def init_rng(self, w_id=0):
         """
@@ -884,7 +889,10 @@ class GPROFNN1DDataset(IterableDataset):
 
     def load_training_data(self, dataset: xr.Dataset) -> Dict[str, torch.Tensor]:
 
-        sensor = sensors.get_sensor(dataset.attrs["sensor"])
+        if self.sensor is None:
+            sensor = sensors.get_sensor(dataset.attrs["sensor"])
+        else:
+            sensor = self.sensor
         targets = self.targets
         ref_target = targets[0]
 
@@ -942,6 +950,10 @@ class GPROFNN1DDataset(IterableDataset):
                     targets,
                     satformer=self.satformer
                 )
+
+                flip = self.rng.random(dataset.samples.size) < 0.5
+                angs[flip] *= -1.0
+                angs = angs + self.rng.uniform(-2, 2, size=dataset.samples.size)
                 angs = torch.tensor(np.broadcast_to(angs[..., None], tbs.shape))
 
             else:
@@ -1109,7 +1121,7 @@ def load_training_data_3d_gmi(
     """
     source = scene.source
     if source == "cloudsat":
-        targets = targets + ["total_precip"]
+        targets = targets + ["total_precip", "precip_flag", "surface_precip_snow"]
 
     variables = [
         name for name in targets + ["latitude", "longitude"]
@@ -1256,8 +1268,8 @@ def load_training_data_3d_gmi(
         y = {key: transform(tensor) for key, tensor in y.items()}
         surface_precip = y.pop("surface_precip")
         total_precip = y.pop("total_precip")
-        mask = 0 < surface_precip
-        total_precip[mask] = surface_precip[mask]
+        precip_flag = y.pop("precip_flag")
+        precip_snow = y.pop("surface_precip_snow")
         y["surface_precip"] = total_precip
 
     return x, y
@@ -2136,7 +2148,6 @@ class GPROFNNSimInputLoader(GPROFNN3DDataset):
             anc = torch.tensor(np.stack(
                 [scene[anc_var].data.astype("float32") for anc_var in ANCILLARY_VARIABLES]
             ))
-
 
         inpt_data = {
             "brightness_temperatures": tbs[None],
