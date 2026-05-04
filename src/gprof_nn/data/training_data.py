@@ -1952,7 +1952,6 @@ class GPROFNN3DDataset(Dataset):
                             rng=self.rng
                         )
         except Exception as exc:
-            raise exc
             LOGGER.warning(
                 "Encountered an error when trying to load data from file '%s'.",
                 self.files[ind]
