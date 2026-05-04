@@ -208,7 +208,7 @@ def calculate_footprints_xtrack(
         n_pixels: The number of pixel positions to generate.
         n_scans: The number of scans to generate.
         scan_dist: The distance between consecutive scans.
-        subsample: Subsampling factor to apply to the GMI scans.
+        subsample: Subsampling factor applied to reduce the scans for which new footprints are calculated.
         rng: np.random.Generator = None
 
     Return:
@@ -229,9 +229,11 @@ def calculate_footprints_xtrack(
         incidence_angle_to_viewing_angle(eia_range[0], altitude),
         incidence_angle_to_viewing_angle(eia_range[1], altitude),
     )
-    eia_max = viewing_to_incidence(va_range[-1] - vai * n_pixels // 2, altitude)
+    eia_max = viewing_to_incidence(va_range[-1] - vai * n_pixels, altitude)
     eia = rng.uniform(eia_range[0], eia_max)
+
     va = incidence_angle_to_viewing_angle(eia, altitude)
+    print(eia, va)
 
     beta = eia - va
     R = 6.371e6
@@ -279,6 +281,7 @@ def calculate_footprints_xtrack(
 
         lim_right = va_range[1] - vai * n_pixels
         va_left = min(va, lim_right)
+        print(va, lim_right)
         degs = va_left + vai * np.arange(n_pixels) - va
         all_los = [rotate_around(los_center, flight_dir, deg) for deg in degs]
 
@@ -365,7 +368,8 @@ def calculate_footprints_conical(
     n_pixels: int,
     n_scans: int,
     scan_dist: float,
-    subsample: int = 1
+    subsample: int = 1,
+    rng: Optional[np.random.Generator] = None
 ):
     """
     Calculate footprints for a conical scanner centered on the GMI swath.
@@ -380,6 +384,8 @@ def calculate_footprints_conical(
         n_pixels: The number of pixel positions to generate.
         n_scans: The number of scans to generate.
         scan_dist: The distance between consecutive scans.
+        subsample: Scalar factor used to subsample the scans for which the viewing coordinates
+            are calculated.
 
     Return:
         An xarray.Dataset containing the 'longitude' and 'latitude' coordinates of the footprints
@@ -396,7 +402,13 @@ def calculate_footprints_conical(
     R = 6.371e6
     l_los = R * np.sin(np.deg2rad(beta)) / np.sin(np.deg2rad(va))
         #
-    scan_angle = np.random.uniform(*scan_angle_range)
+        #
+    if rng is None:
+        rng = np.random.default_rng()
+
+    sa_min = scan_angle_range[0]
+    sa_max = scan_angle_range[0] - n_pixels * sai
+    scan_angle = rng.uniform(*scan_angle_range)
 
     #central_pixel = int(
     #    (n_pixels_gmi - 1) * (scan_angle - scan_angle_range[0]) / (scan_angle_range[1] - scan_angle_range[0])
@@ -439,8 +451,7 @@ def calculate_footprints_conical(
         los_center = curr_pos - sat_pos
         los_center /= np.linalg.norm(los_center, axis=-1)
 
-
-        degs = sai * np.arange(n_pixels)
+        degs = scan_angle + sai * np.arange(n_pixels)
 
         sub_sensor = ecef_to_lla(sat_pos)
         sub_sensor[..., 2] = 0.0
@@ -468,10 +479,15 @@ def calculate_footprints_conical(
     scan_lons = np.stack(scan_lons)
     scan_lats = np.stack(scan_lats)
 
+    lon_c_0 = lons_fp_gmi.mean()
+    lat_c_0 = lats_fp_gmi.mean()
+    lon_c_1 = scan_lons.mean()
+    lat_c_1 = scan_lats.mean()
+
     coords = xr.Dataset({
         "scans": (("scans",), along_track_dist),
-        "longitude": (("scans", "pixels"), scan_lons),
-        "latitude": (("scans", "pixels"), scan_lats),
+        "longitude": (("scans", "pixels"), scan_lons - lon_c_1 + lon_c_0),
+        "latitude": (("scans", "pixels"), scan_lats - lat_c_1 + lat_c_0),
         "sensor_longitude": (("scans",), sat_pos[..., 0]),
         "sensor_latitude": (("scans",), sat_pos[..., 1]),
         "sensor_altitude": (("scans",), sat_pos[..., 2]),
