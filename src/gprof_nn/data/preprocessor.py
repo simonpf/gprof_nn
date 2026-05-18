@@ -385,7 +385,7 @@ class PreprocessorFile:
             day = date["day"][0]
             hour = date["hour"][0]
             minute = date["minute"][0]
-            second = date["second"][0]
+            second = np.minimum(date["second"][0], 59)
             scan_times[i] = np.datetime64(
                 f"{year:04}-{month:02}-{day:02}" f"T{hour:02}:{minute:02}:{second:02}"
             )
