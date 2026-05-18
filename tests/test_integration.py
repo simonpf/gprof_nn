@@ -3,6 +3,8 @@ Integration tests for gprof_nn package.
 
 This test file runs the retrieval for all released retrieval models.
 """
+import numpy as np
+
 from gprof_nn.download import download_test_file
 from gprof_nn.retrieval import run_retrieval
 
@@ -12,11 +14,15 @@ def test_retrieval_gmi():
     Tests the retrieval for GMI.
     """
     test_file = download_test_file("gmi", "l1c")
-    results = run_retrieval(test_file)
+    results = run_retrieval(test_file, ancillary_config="NONE")
     assert len(results) > 0
 
+    # Assert frozen precip is set to NAN.
+    frozen_precip = results[0].frozen_precip.data
+    assert np.all(np.isnan(frozen_precip))
+
     test_file = download_test_file("gmi", "preprocessor")
-    results = run_retrieval(test_file)
+    results = run_retrieval(test_file, ancillary_config="NONE")
     assert len(results) > 0
 
 

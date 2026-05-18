@@ -1130,5 +1130,8 @@ def add_frozen_precip(results: xr.Dataset) -> xr.Dataset:
     land_fraction = results.land_fraction.data
     wet_bulb_temperature = results.wet_bulb_temperature.data
     frozen_precip = preprocessor.calculate_frozen_precip(wet_bulb_temperature, land_fraction, surface_precip)
+    invalid = wet_bulb_temperature < -300.0
+    print("TMP :: ", wet_bulb_temperature.min(), wet_bulb_temperature.max())
+    frozen_precip[invalid] = np.nan
     results["frozen_precip"] = (("scans", "pixels"), frozen_precip)
     results
