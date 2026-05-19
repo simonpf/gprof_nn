@@ -590,6 +590,7 @@ class PreprocessorFile:
             wet_bulb_temperature, land_fraction, surface_precip.data
         )
         frozen_precip[surface_precip < 0] = MISSING
+        frozen_precip[wet_bulb_temperature < -300] = MISSING
         out_data["frozen_precip"] = frozen_precip
         out_data["convective_precip"] = data["convective_precip"]
         out_data["rain_water_path"] = data["rain_water_path"]
