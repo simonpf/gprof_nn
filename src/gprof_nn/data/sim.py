@@ -796,8 +796,6 @@ class SimulatorInput():
                 alt = sensor.viewing_geometry.altitude / 100e3 * torch.ones(shape)
                 zenith = eia.item() * torch.ones(shape)
                 direction = 1.0 if np.random.rand() < 0.5 else -1.0
-                #sin_az = 1.0 + np.sin(np.arcsin(input_observation_props[0, -2, chan] - 1) + direction * np.pi / 2.0)
-                #cos_az = 1.0 + np.cos(np.arccos(input_observation_props[0, -1, chan] - 1) + direction * np.pi / 2.0)
                 sin_az = input_observation_props[0, -2, chan]
                 cos_az = input_observation_props[0, -1, chan]
 
@@ -885,8 +883,6 @@ class SimulatorInput():
             beam_width = sensor.beam_width[chan] * torch.ones(shape)
             alt = sensor.viewing_geometry.altitude / 100e3 * torch.ones(shape)
             zenith = self.target_sensor.earth_incidence_angle[chan] * torch.ones(shape)
-            #sin_az = 1.0 + np.sin(np.arcsin(input_observation_props[0, -2, chan] - 1) + direction * np.pi / 2.0)
-            #cos_az = 1.0 + np.cos(np.arccos(input_observation_props[0, -1, chan] - 1) + direction * np.pi / 2.0)
             sin_az = input_observation_props[0, -2, chan]
             cos_az = input_observation_props[0, -1, chan]
 

@@ -6,7 +6,6 @@ l1c_file_prefix = "1C.GCOMW1.AMSR2"
 [viewing_geometry]
 kind = "Conical"
 altitude = 800e3
-earth_incidence_angle = 55.32936
 scan_range = 140.0
 pixels_per_scan = 400
 scan_offset = 10.2e3

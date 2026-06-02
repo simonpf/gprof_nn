@@ -9,7 +9,6 @@ altitude = 834e3
 scan_range = 104
 pixels_per_scan = 96
 scan_offset = 16e3
-beam_width = 2.2
 
 [sensor]
 kind = "CrossTrackScanner"

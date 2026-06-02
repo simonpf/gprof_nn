@@ -8,7 +8,6 @@ kind = "Conical"
 altitude = 854e3
 scan_range = 140.0
 pixels_per_scan = 400
-earth_incidence_angle = 52.069
 scan_offset = 15e3
 
 [sensor]

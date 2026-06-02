@@ -6,7 +6,6 @@ l1c_file_prefix = "1C-R.GPM.GMI"
 [viewing_geometry]
 kind = "Conical"
 altitude = 444e3
-earth_incidence_angle = 53.0
 scan_range = 140.0
 pixels_per_scan = 221
 scan_offset = 13.2e3
@@ -17,7 +16,7 @@ frequencies = [10.6, 10.6, 18.7, 18.7, 23.0, 37.0, 37.0, 89.0, 89.0, 166.0, 166.
 offsets = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 7]
 polarization = ["V", "H", "V", "H", "V", "V", "H", "V", "H", "V", "H", "V", "V"]
 orographic_enhancement = [1.13392, 1.69444, 1.44406, 1.68295, 2.89360]
-earth_incidence_angle = [52.8, 52.8, 52.8, 52.8, 52.8, 52.8, 52.8, 52.8, 52.8, 49.14, 49.14, 49.14, 49.14]
+earth_incidence_angle = [52.8, 52.8, 52.8, 52.8, 52.8, 52.8, 52.8, 52.8, 52.8, 49.14, 49.14, 49.14, 49.14, 49.14, 49.14]
 beam_width = [1.75, 1.75, 1.0, 1.0, 0.9, 0.9, 0.9, 0.4, 0.4, 0.4, 0.4, 0.4, 0.4]
 beam_width_l1c = [1.75, 1.75, 1.0, 1.0, 0.9, 0.9, 0.9, 0.4, 0.4, 0.4, 0.4, 0.4, 0.4]
 pansat_products = ["l1c_r_xcal2016c_gpm_gmi_v07a", "l1c_r_xcal2016c_gpm_gmi_v07b"]

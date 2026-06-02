@@ -19,6 +19,8 @@ from tempfile import TemporaryDirectory
 from typing import Dict, List, Optional, Union, Tuple
 
 import numpy as np
+from pansat.utils import resample_data
+from pyresample import SwathDefinition
 from rich.progress import track
 from scipy.ndimage import rotate
 from scipy.signal import convolve
@@ -60,17 +62,20 @@ from gprof_nn.definitions import (
 )
 from gprof_nn.data.preprocessor import PreprocessorFile
 from gprof_nn.data.utils import merge_precipitation
-from gprof_nn.augmentation import (get_transformation_coordinates,
-                                   extract_domain)
 
 LOGGER = logging.getLogger(__name__)
 
 
-EIA_GMI = np.array([
-    [52.98] * 10 + [49.16] * 5
-])
+def get_central_latitude(path: Path) -> float:
+    """
+    Calculate central latitude of a training scene.
 
-def get_central_latitude(path: Path):
+    Args:
+        path: A path object pointint to a GPROF-NN 3D training file in NetCDF4 format.
+
+    Return:
+        The central latitude.
+    """
     with xr.open_dataset(path) as data:
         lats = data.latitude.data
         mask = -100 < lats
@@ -82,9 +87,16 @@ def get_central_latitude(path: Path):
 @cache
 def sample_centers(
         paths: Tuple[Path],
-) -> np.ndarray:
+) -> Tuple[np.ndarray, np.ndarray]:
     """
     Array contaning the mean latitude coordinates of all training samples.
+
+    Args:
+        paths: A tuple containing the paths pointing to the training data directories to consider.
+
+    Return:
+        A tuple containing the identified filenames and corresponding resampling weights to achieve
+        uniform latitude coverage.
     """
     files = []
     for path in paths:
@@ -118,6 +130,73 @@ def sample_centers(
     np.savez("sample_weights.npz", files=files, centers=centers)
 
     return files, np.array(centers)
+
+
+def apply_augmentations_3d(
+        tbs: np.ndarray,
+        eia: np.ndarray,
+        anc: np.ndarray,
+        sensor: sensors.Sensor,
+        rng: np.random.Generator
+) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Applies data augmentation mimicking common observation corruptions.
+
+    Args:
+        tbs: A 3D numpy.ndarray containing the full brightness temperatures loaded for the sensor.
+        eia: A 3D numpy.ndarray containing the corresponding earth-incidence angles.
+        anc: A 3D numpy.ndarray contraining the ancillary data.
+        sensor: The senor object representing the sensor.
+        rng: A random generator.
+
+    Return:
+        A tuple ``(tbs, eia)`` containing the modified brightness temperatures (tbs) and earth-incidence
+        angles (eia).
+    """
+    # Drop channels
+    if sensor.channel_drop is not None:
+        p = sensor.channel_drop
+        n_chans = tbs.shape[0]
+        for chan in range(n_chans):
+            if rng.random() <= p:
+                tbs[chan] = torch.nan
+                eia[chan] = torch.nan
+
+    # Drop scanlines
+    if sensor.scanline_drop is not None:
+        p = sensor.scanline_drop
+        chans = torch.where(torch.isfinite(tbs).any(1).any(1))
+        if rng.random() <= p:
+
+            n_lines = rng.integers(1, 30)
+            start = rng.integers(0, tbs.shape[1] - n_lines)
+            end = start + n_lines
+
+            for chan_ind in chans:
+                tbs[chan_ind, start:end] = torch.nan
+                eia[chan_ind, start:end] = torch.nan
+
+            if rng.random() <= 0.5:
+                anc[:, start:end] = torch.nan
+
+    # Erroneous scan lines
+    if sensor.scanline_drop is not None:
+        p = sensor.scanline_drop
+        chans = torch.where(torch.isfinite(tbs).any(1).any(1))
+        val = 330.0 + 20.0 * rng.random()
+        if rng.random() <= p:
+
+            n_lines = rng.integers(1, 10)
+            start = rng.integers(0, tbs.shape[1] - n_lines)
+            end = start + n_lines
+
+            for chan_ind in chans:
+                tbs[chan_ind, start:end] = val
+
+            if rng.random() <= 0.5:
+                anc[:, start:end] = torch.nan
+
+    return tbs, eia
 
 
 def calculate_resampling_indices(latitudes, time, sensor):
@@ -204,275 +283,6 @@ def decompress_and_load(filename):
     return data
 
 
-def write_preprocessor_file_xtrack(input_data, output_file):
-    """
-    Handle the special case of writing preprocessor files for cross
-    track scanning sensors. The difficulty here is that GPROF expects
-    pixels to be organized into pixel positions according to their
-    viewing angle.
-    """
-    if not isinstance(input_data, xr.Dataset):
-        data = xr.open_dataset(input_data)
-    else:
-        data = input_data
-
-    sensor = data.attrs["sensor"]
-    platform = data.attrs["platform"].replace("-", "")
-    sensor = sensors.get_sensor(sensor, platform)
-    sensor_name = sensor.name
-    platform_name = sensor.platform.name
-
-    eia = input_data.earth_incidence_angle.data
-    bins = sensor.viewing_geometry.get_earth_incidence_angles()
-    bins = 0.5 * (bins[1:] + bins[:-1])
-    indices = np.digitize(eia, bins)
-    cts, _ = np.histogram(indices, bins=np.arange(bins.size + 2) - 0.5)
-
-    n_scans = cts.max()
-    n_pixels = sensor.viewing_geometry.pixels_per_scan
-    n_chans = sensor.n_chans
-
-    if "pixels" not in data.dims or "scans" not in data.dims:
-        dim_offset = -1
-    else:
-        if hasattr(data, "samples"):
-            dim_offset = 1
-        else:
-            dim_offset = 0
-
-    new_dataset = {
-        "scans": np.arange(n_scans),
-        "pixels": np.arange(n_pixels),
-        "channels": np.arange(n_chans),
-    }
-
-    dims = ("scans", "pixels", "channels")
-    for k in data:
-        da = data[k]
-        if k == "scan_time":
-            t = da.data.ravel()[0]
-            new_dataset[k] = (("scans",), np.repeat(t, n_scans))
-        else:
-            new_shape = (n_scans, n_pixels) + da.shape[(2 + dim_offset) :]
-            new_shape = new_shape[: len(da.data.shape) - dim_offset]
-            dims = ("scans", "pixels") + da.dims[2 + dim_offset :]
-            if "pixels_center" in dims:
-                continue
-
-            new_data = -9999.9 * np.ones(new_shape, da.data.dtype)
-            for i in range(n_pixels):
-                mask = indices == i
-                n_elems = mask.sum()
-                new_data[:n_elems, i] = da.data[mask]
-
-            if new_data.dtype in [np.float32, np.float64]:
-                new_data = np.nan_to_num(new_data, nan=-9999.9)
-
-            # if k == "airimass_type":
-            #    new_data[new_data <= 0] = 0
-            new_dataset[k] = (dims, new_data)
-
-    if "nominal_eia" in data.attrs:
-        new_dataset["earth_incidence_angle"] = (
-            ("scans", "pixels", "channels"),
-            np.broadcast_to(
-                data.attrs["nominal_eia"].reshape(1, 1, -1), (n_scans, n_pixels, 15)
-            ),
-        )
-
-    if "sunglint_angle" not in new_dataset:
-        new_dataset["sunglint_angle"] = (
-            ("scans", "pixels"),
-            np.zeros_like(new_dataset["surface_type"][1]),
-        )
-    if "quality_flag" not in new_dataset:
-        new_dataset["quality_flag"] = (
-            ("scans", "pixels"),
-            np.zeros_like(new_dataset["surface_type"][1]),
-        )
-    if "latitude" not in new_dataset:
-        new_dataset["latitude"] = (
-            ("scans", "pixels"),
-            np.zeros_like(new_dataset["surface_type"][1]),
-        )
-    if "longitude" not in new_dataset:
-        new_dataset["longitude"] = (
-            ("scans", "pixels"),
-            np.zeros_like(new_dataset["surface_type"][1]),
-        )
-    new_data = xr.Dataset(new_dataset)
-
-    template_path = Path(__file__).parent / ".." / "files"
-    template_file = template_path / f"{sensor_name.lower()}_{platform_name.lower()}.pp"
-    if template_file.exists():
-        template = PreprocessorFile(template_file)
-    else:
-        template = PreprocessorFile(template_path / "preprocessor_template.pp")
-    PreprocessorFile.write(output_file, new_data, sensor, template=template)
-    return new_data
-
-
-def write_preprocessor_file(input_data, output_file):
-    """
-    Extract samples from training dataset and write to a preprocessor
-    file.
-
-    This functions serves as an interface between the GPROF-NN training
-    data and the GPROF legacy algorithm as it can be used to create
-    preprocessor files with the observations. These can then be used
-    as input for the legacy GPROF.
-
-    Note: If the input isn't organized into scenes with dimensions
-    'scans' and 'pixels' the number of samples that will be written to
-    the file will be the largest multiple of 256 that is smaller than
-    or equal to the original number of samples. This means that up to
-    255 samples may be lost when writing them to a preprocessor file.
-
-    Args:
-        input_data: Path to a NetCDF4 file containing the training or test
-            data or 'xarray.Dataset containing the data to write to a
-            preprocessor file.
-        output_file: Path of the file to write the output to.
-        template: Template preprocessor file use to determine the orbit header
-             information. If not provided this data will be filled with dummy
-             values.
-    """
-    if not isinstance(input_data, xr.Dataset):
-        data = xr.open_dataset(input_data)
-    else:
-        data = input_data
-
-    sensor = data.attrs["sensor"]
-    platform = data.attrs["platform"].replace("-", "")
-    sensor = sensors.get_sensor(sensor, platform)
-    sensor_name = sensor.name
-    platform_name = sensor.platform.name
-
-    if "earth_incidence_angle" in input_data:
-        return write_preprocessor_file_xtrack(input_data, output_file)
-
-    if "pixels" not in data.dims or "scans" not in data.dims:
-        if data.samples.size < 256:
-            n_pixels = data.samples.size
-            n_scans = 1
-        else:
-            n_pixels = 256
-            n_scans = data.samples.size // n_pixels
-        n_scenes = 1
-        dim_offset = -1
-    else:
-        n_pixels = data.pixels.size
-        n_scans = data.scans.size
-        if hasattr(data, "samples"):
-            n_scenes = data.samples.size
-            dim_offset = 1
-        else:
-            n_scenes = 1
-            dim_offset = 0
-
-    c = math.ceil(n_scenes / (n_pixels * 256))
-    if c > 256:
-        raise ValueError(
-            "The dataset contains too many observations to be savely "
-            " converted to a preprocessor file."
-        )
-    n_scans_r = n_scans * n_scenes
-    n_pixels_r = n_pixels
-
-    n_chans = input_data.channels.size
-
-    new_dataset = {
-        "scans": np.arange(n_scans_r),
-        "pixels": np.arange(n_pixels_r),
-        "channels": np.arange(n_chans),
-    }
-    dims = ("scans", "pixels", "channels")
-    for k in data:
-        da = data[k]
-        if k == "scan_time":
-            new_dataset[k] = (("scans",), da.data.ravel()[:n_scans_r])
-        else:
-            new_shape = (n_scans_r, n_pixels_r) + da.shape[(2 + dim_offset) :]
-            new_shape = new_shape[: len(da.data.shape) - dim_offset]
-            dims = ("scans", "pixels") + da.dims[2 + dim_offset :]
-            if "pixels_center" in dims:
-                continue
-            n_elems = np.prod(new_shape)
-            elements = da.data.ravel()[:n_elems]
-            if elements.dtype in [np.float32, np.float64]:
-                elements = np.nan_to_num(elements, nan=-9999.9)
-            # if k == "airmass_type":
-            #    elements[elements <= 0] = 1
-            new_dataset[k] = (dims, elements.reshape(new_shape))
-
-    if "nominal_eia" in data.attrs:
-        new_dataset["earth_incidence_angle"] = (
-            ("scans", "pixels", "channels"),
-            np.broadcast_to(
-                data.attrs["nominal_eia"].reshape(1, 1, -1), (n_scans_r, n_pixels_r, 15)
-            ),
-        )
-
-    if "sunglint_angle" not in new_dataset:
-        new_dataset["sunglint_angle"] = (
-            ("scans", "pixels"),
-            np.zeros_like(new_dataset["surface_type"][1]),
-        )
-    if "quality_flag" not in new_dataset:
-        new_dataset["quality_flag"] = (
-            ("scans", "pixels"),
-            np.zeros_like(new_dataset["surface_type"][1]),
-        )
-    if "latitude" not in new_dataset:
-        new_dataset["latitude"] = (
-            ("scans", "pixels"),
-            np.zeros_like(new_dataset["surface_type"][1]),
-        )
-    if "longitude" not in new_dataset:
-        new_dataset["longitude"] = (
-            ("scans", "pixels"),
-            np.zeros_like(new_dataset["surface_type"][1]),
-        )
-    new_data = xr.Dataset(new_dataset)
-
-    template_path = Path(__file__).parent / ".." / "files"
-    template_file = template_path / f"{sensor_name.lower()}_{platform_name.lower()}.pp"
-    if template_file.exists():
-        template = PreprocessorFile(template_file)
-    else:
-        template = PreprocessorFile(template_path / "preprocessor_template.pp")
-    PreprocessorFile.write(output_file, new_data, sensor, template=template)
-
-
-def interpolate_angles(tbs: np.ndarray, ang_grid: np.ndarray, angs: np.ndarray):
-    """
-    Interpolate brightness temperatures along angles.
-
-    Args:
-        tbs: A 3D array of shape [samples, angles, channels].
-        ang_grid: The angles corresponding to the angles dimensions.
-        angs: The angles to which to interpolate each sample in tbs.
-    """
-    if not np.all(np.diff(ang_grid) > 0):
-        raise ValueError("Angles must be sorted in ascending order.")
-
-    indices = np.searchsorted(ang_grid, angs) - 1
-    indices = np.clip(indices, 0, len(ang_grid) - 2)
-
-    inds_0 = np.arange(tbs.shape[0])
-
-    x_0 = ang_grid[indices]
-    x_1 = ang_grid[indices + 1]
-    y_0 = tbs[inds_0, indices]
-    y_1 = tbs[inds_0, indices + 1]
-
-    w_0 = (x_1 - angs) / (x_1 - x_0)
-    w_1 = (angs - x_0) / (x_1 - x_0)
-
-    tbs_i = w_0[..., None] * y_0 + w_1[..., None] * y_1
-    return tbs_i
-
-
 def load_tbs_1d_gmi(
         training_data: xr.Dataset,
 ) -> torch.Tensor:
@@ -546,18 +356,30 @@ def load_tbs_1d_xtrack_sim(
         tbs_full = tbs_full - biases
     else:
         training_data = training_data[
-            ["satformer_tbs_rand"] +
+            ["satformer_tbs", "satformer_tbs_rand"] +
             targets
         ]
-        training_data = training_data.interp(
+        tbs = training_data["satformer_tbs_rand"]
+        tbs_rand = training_data["satformer_tbs_rand"]
+        noise = tbs_rand - tbs
+
+        noise = noise.interp(
             samples=samples,
             angles=angles,
             method="nearest"
         )
-        tbs = training_data.satformer_tbs_rand.data
+        tbs = tbs.interp(
+            samples=samples,
+            angles=angles,
+            method="nearest"
+        )
+
+        tbs = tbs.data #+ noise.data
         tbs_full = np.nan * np.zeros((tbs.shape[0], 15), dtype=np.float32)
         tbs_full[:, sensor.gprof_channel_indices] = tbs
 
+    #ang_ind = np.argmin(training_data.angles.data)
+    #targets = load_targets_1d(training_data[{"angles": ang_ind}], targets)
     targets = load_targets_1d(training_data, targets)
 
     return torch.tensor((tbs_full).astype(np.float32)), targets
@@ -582,8 +404,15 @@ def load_tbs_1d_conical_sim(
         A torch tensor containing the loaded brightness temperatures.
 
     """
-    gmi_inds = list(sensor.gprof_channels.keys())
-
+    sensor_inds = list(sensor.gprof_channels.keys())
+    gmi_chans = list(sensors.GMI.gprof_channels.keys())
+    gmi_inds = []
+    for ind in sensor_inds:
+        if ind in gmi_chans:
+            gmi_inds.append(gmi_chans.index(ind))
+        else:
+            gmi_inds.append(gmi_inds[-1])
+            
     if satformer:
         training_data = training_data[["satformer_tbs_rand"]]
         tbs = training_data.satformer_tbs_rand
@@ -597,7 +426,7 @@ def load_tbs_1d_conical_sim(
         tbs = tbs - biases
 
     tbs_full = np.nan * np.zeros((tbs.shape[0], 15), dtype=np.float32)
-    tbs_full[:, gmi_inds] = tbs
+    tbs_full[:, sensor_inds] = tbs
     return torch.tensor(tbs_full)
 
 
@@ -765,8 +594,8 @@ def load_targets_1d_xtrack(
     samples = xr.DataArray(samples, dims="samples")
     angles = xr.DataArray(np.abs(angles), dims="samples")
 
-    training_data = training_data[targets]
-    training_data = training_data.interp(samples=samples, angles=angles)
+    ang_ind = np.argmin(training_data.angles.data)
+    training_data = training_data[targets][{"angles": ang_ind}]
 
     targs = {}
     for var in targets:
@@ -936,24 +765,25 @@ class GPROFNN1DDataset(IterableDataset):
                     valid_input = np.all(tbs > 0, (-2, -1)) * np.all(np.abs(tb_biases) < 50, -1)
                 valid_target = np.isfinite(y_t).any(tuple(range(1, y_t.ndim)))
                 mask = valid_input * valid_target
+
                 dataset = dataset[{"samples": mask}].compute()
                 angles = dataset["angles"].data
+                dataset_l = dataset[{"angles": [0]}].assign_coords(angles=[angles[0] - 3.0])
+                dataset_r = dataset[{"angles": [-1]}].assign_coords(angles=[angles[-1] + 3.0])
+                dataset_f = xr.concat([dataset_l, dataset, dataset_r], dim="angles")
+                angles = dataset_f["angles"].data
                 angs = self.rng.uniform(
                     angles.min(),
                     angles.max(),
-                    size=dataset.samples.size,
+                    size=dataset_f.samples.size,
                 ).astype(np.float32)
                 tbs, targets = load_tbs_1d_xtrack_sim(
-                    dataset,
+                    dataset_f,
                     angs,
                     sensor,
                     targets,
                     satformer=self.satformer
                 )
-
-                flip = self.rng.random(dataset.samples.size) < 0.5
-                angs[flip] *= -1.0
-                angs = angs + self.rng.uniform(-2, 2, size=dataset.samples.size)
                 angs = torch.tensor(np.broadcast_to(angs[..., None], tbs.shape))
 
             else:
@@ -983,6 +813,14 @@ class GPROFNN1DDataset(IterableDataset):
             anc = load_ancillary_data(dataset, configuration=cfg, stack_dim=1)
             targets = load_targets_1d(dataset, self.targets)
 
+
+        # Drop channels
+        if sensor.channel_drop is not None:
+            p = sensor.channel_drop
+            n_chans = tbs.shape[1]
+            for chan in range(n_chans):
+                mask = self.rng.random(size=tbs.shape[0]) <= p
+                tbs[mask, chan] = torch.nan
 
         x = {
             "brightness_temperatures": tbs.to(torch.float32),
@@ -1036,7 +874,7 @@ class GPROFNN1DDataset(IterableDataset):
 
             try:
                 inputs, targets = task.result()
-            except Exception:
+            except Exception as exc:
                 continue
 
             start_ind = 0
@@ -1142,29 +980,33 @@ def load_training_data_3d_gmi(
     lons = scene.longitude.data
 
     if source == "sim":
-        p = rng.random()
-        if p < 0.5:
-            coords = get_transformation_coordinates(
-                lats, lons, sensors.GMI.viewing_geometry, 64, 128, p_x_i, p_x_o, p_y
-            )
-            dims = ("scans", "pixels", ...)
-            if "levels" in scene:
-                dims = ("levels",) + dims
-            scene = remap_scene(scene, coords, variables).transpose(*dims)
-        else:
-            dims = ("pixels", "scans", ...)
-            if "levels" in scene:
-                dims = ("levels",) + dims
-            coords = get_transformation_coordinates(
-                lats, lons, sensors.GMI.viewing_geometry, 128, 64, p_x_i, p_x_o, p_y
-            )
-            scene = remap_scene(scene, coords, variables).transpose(*dims)
+        sensor = sensors.GMI
 
+        lons_fp_gmi = scene.longitude.data
+        lats_fp_gmi = scene.latitude.data
+        remap_coords = calculate_footprints_conical(
+            lons_fp_gmi,
+            lats_fp_gmi,
+            sensor.viewing_geometry.altitude,
+            sensor.earth_incidence_angle[0],
+            (-0.5 * sensor.viewing_geometry.scan_range, 0.5 * sensor.viewing_geometry.scan_range),
+            sensor.viewing_geometry.scan_range / sensor.viewing_geometry.pixels_per_scan,
+            64,
+            128,
+            sensor.viewing_geometry.scan_offset,
+            subsample=10,
+            rng=rng
+        )
+        swath = SwathDefinition(remap_coords.longitude.data, remap_coords.latitude.data)
+        scene = resample_data(scene, swath, radius_of_influence=15e3, new_dims=("scans", "pixels"))
+        scene = scene.transpose("levels", "scans", "pixels", ...)
+    else:
+        scene = scene.transpose("scans", "pixels", ...)
     tbs = torch.tensor(scene.brightness_temperatures.data, dtype=torch.float32)
     angs = torch.nan * torch.zeros_like(tbs)
     inds = list(sensors.GMI.gprof_channels.keys())
     angs[..., inds] = torch.tensor(
-        sensors.GMI.earth_incidence_angle,
+        sensors.GMI.earth_incidence_angle[inds],
         dtype=torch.float32
     )
 
@@ -1179,8 +1021,15 @@ def load_training_data_3d_gmi(
     tbs = torch.permute(tbs, (2, 0, 1))
     angs = torch.permute(angs, (2, 0, 1))
 
-    if augment:
+    apply_augmentations_3d(
+        tbs,
+        angs,
+        anc,
+        sensors.GMI,
+        rng
+    )
 
+    if augment:
         # Simulate missing higher frequency channels
         r = rng.random()
         n_p = rng.integers(10, 30)
@@ -1210,11 +1059,6 @@ def load_training_data_3d_gmi(
         "earth_incidence_angles": angs,
         "ancillary_data": anc
     }
-
-    #dims = ("scans", "pixels")
-    #if "levels" in scene.dims:
-    #    dims = ("levels",) + dims
-    #scene = scene.transpose(*dims, ...)
 
     y = {}
     for target in targets:
@@ -1313,23 +1157,12 @@ def load_training_data_3d_xtrack_sim(
     angle_grid = scene.angles.data
     scene = decompress_scene(scene, variables)
 
-    if augment:
-        p_x_o = rng.random()
-        p_x_i = rng.random()
-        p_y = rng.random()
-    else:
-        p_x_o = 0.5
-        p_x_i = 0.5
-        p_y = rng.random()
-
     lons_fp_gmi = scene.longitude.data
     lats_fp_gmi = scene.latitude.data
-
     va_range = sensor.viewing_geometry.scan_range
     va_max = va_range / 2
     eia_max = viewing_to_incidence(va_max, sensor.viewing_geometry.altitude)
     eia_range = (-eia_max, eia_max)
-
     remap_coords = calculate_footprints_xtrack(
         lons_fp_gmi,
         lats_fp_gmi,
@@ -1342,9 +1175,6 @@ def load_training_data_3d_xtrack_sim(
         subsample=20,
         rng=rng
     )
-
-    from pansat.utils import resample_data
-    from pyresample import SwathDefinition
     swath = SwathDefinition(remap_coords.longitude.data, remap_coords.latitude.data)
     scene = resample_data(scene, swath, radius_of_influence=15e3, new_dims=("scans", "pixels"))
     scene = scene.transpose("levels", "scans", "pixels", ...)
@@ -1380,14 +1210,13 @@ def load_training_data_3d_xtrack_sim(
     anc = load_ancillary_data(scene, configuration=cfg, stack_dim=0)
     anc[..., invalid] = torch.nan
 
-    if augment:
-        if 0.9 < rng.random():
-            n_scans = rng.integers(1, 40)
-            scan_start = rng.integers(0, 128 - n_scans)
-            scan_end = scan_start + n_scans
-            tbs_full[sensor.gprof_channel_indices, scan_start:scan_end] = torch.nan
-            angs_full[sensor.gprof_channel_indices, scan_start:scan_end] = torch.nan
-            anc[:] = torch.nan
+    apply_augmentations_3d(
+        tbs_full,
+        angs_full,
+        anc,
+        sensor,
+        rng
+    )
 
     x = {
         "brightness_temperatures": tbs_full,
@@ -1474,15 +1303,6 @@ def load_training_data_3d_conical_sim(
     ]
     scene = decompress_scene(scene, variables)
 
-    if augment:
-        p_x_o = rng.random()
-        p_x_i = rng.random()
-        p_y = rng.random()
-    else:
-        p_x_o = 0.5
-        p_x_i = 0.5
-        p_y = rng.random()
-
     width = 64
     height = 128
 
@@ -1493,13 +1313,14 @@ def load_training_data_3d_conical_sim(
         lons_fp_gmi,
         lats_fp_gmi,
         sensor.viewing_geometry.altitude,
-        sensor.viewing_geometry.earth_incidence_angle,
+        sensor.earth_incidence_angle[0],
         (-0.5 * sensor.viewing_geometry.scan_range, 0.5 * sensor.viewing_geometry.scan_range),
         sensor.viewing_geometry.scan_range / sensor.viewing_geometry.pixels_per_scan,
         64,
         128,
         sensor.viewing_geometry.scan_offset,
-        subsample=10
+        subsample=10,
+        rng=rng
     )
 
     from pansat.utils import resample_data
@@ -1532,6 +1353,14 @@ def load_training_data_3d_conical_sim(
     else:
         cfg = "CLI"
     anc = load_ancillary_data(scene, configuration=cfg, stack_dim=0)
+
+    tbs_full, angs_full = apply_augmentations_3d(
+        tbs_full,
+        angs_full,
+        anc,
+        sensor,
+        rng
+    )
 
     x = {
         "brightness_temperatures": tbs_full,
@@ -1661,48 +1490,13 @@ def load_training_data_3d_other(
         cfg = "CLI"
     anc = load_ancillary_data(scene, configuration=cfg, stack_dim=0)
 
-    # Drop channels
-    if sensor.channel_drop is not None:
-        p = sensor.channel_drop
-        n_chans = tbs_full.shape[0]
-        for chan in range(n_chans):
-            if rng.random() <= p:
-                tbs_full[chan] = torch.nan
-                angs_full[chan] = torch.nan
-
-    # Drop scanlines
-    if sensor.scanline_drop is not None:
-        p = sensor.scanline_drop
-        chans = torch.where(torch.isfinite(tbs_full).any(1).any(1))
-        if rng.random() <= p:
-
-            n_lines = rng.integers(1, 30)
-            start = rng.integers(0, tbs_full.shape[1] - n_lines)
-            end = start + n_lines
-
-            for chan_ind in chans:
-                tbs_full[chan_ind, start:end] = torch.nan
-                angs_full[chan_ind, start:end] = torch.nan
-
-            if rng.random() <= 0.5:
-                anc[:, start:end] = torch.nan
-
-    # Erroneous scan lines
-    if sensor.scanline_drop is not None:
-        p = sensor.scanline_drop
-        chans = torch.where(torch.isfinite(tbs_full).any(1).any(1))
-        val = 330.0 + 20.0 * rng.random()
-        if rng.random() <= p:
-
-            n_lines = rng.integers(1, 10)
-            start = rng.integers(0, tbs_full.shape[1] - n_lines)
-            end = start + n_lines
-
-            for chan_ind in chans:
-                tbs_full[chan_ind, start:end] = val
-
-            if rng.random() <= 0.5:
-                anc[:, start:end] = torch.nan
+    apply_augmentations_3d(
+        tbs_full,
+        angs_full,
+        anc,
+        sensor,
+        rng
+    )
 
     x = {
         "brightness_temperatures": tbs_full,
@@ -1888,7 +1682,6 @@ class GPROFNN3DDataset(Dataset):
                     sensor = getattr(sensors, sensor)
                 else:
                     sensor = self.sensor
-
 
                 if sensor == sensors.GMI:
                     if self.use_combined and "surface_precip_combined" in scene:
