@@ -19,8 +19,6 @@ from tempfile import TemporaryDirectory
 from typing import Dict, List, Optional, Union, Tuple
 
 import numpy as np
-from pansat.utils import resample_data
-from pyresample import SwathDefinition
 from rich.progress import track
 from scipy.ndimage import rotate
 from scipy.signal import convolve
@@ -29,6 +27,14 @@ from torch.utils.data import Dataset, IterableDataset
 import torchvision.transforms.functional
 from tqdm import tqdm
 import xarray as xr
+
+try:
+    from pansat.utils import resample_data
+    from pyresample import SwathDefinition
+except ImportError:
+    SwathDefinition = None
+    resample_data = None
+
 
 from gprof_nn import sensors
 from gprof_nn.utils import (
@@ -62,6 +68,7 @@ from gprof_nn.definitions import (
 )
 from gprof_nn.data.preprocessor import PreprocessorFile
 from gprof_nn.data.utils import merge_precipitation
+
 
 LOGGER = logging.getLogger(__name__)
 
@@ -997,6 +1004,10 @@ def load_training_data_3d_gmi(
             subsample=10,
             rng=rng
         )
+        if SwathDefinition is None:
+            raise ValueError(
+                "The 'pansat' package is required to use this functionality but it could not be imported."
+            )
         swath = SwathDefinition(remap_coords.longitude.data, remap_coords.latitude.data)
         scene = resample_data(scene, swath, radius_of_influence=15e3, new_dims=("scans", "pixels"))
         scene = scene.transpose("levels", "scans", "pixels", ...)
@@ -1175,6 +1186,10 @@ def load_training_data_3d_xtrack_sim(
         subsample=20,
         rng=rng
     )
+    if SwathDefinition is None:
+        raise ValueError(
+            "The 'pansat' package is required to use this functionality but it could not be imported."
+        )
     swath = SwathDefinition(remap_coords.longitude.data, remap_coords.latitude.data)
     scene = resample_data(scene, swath, radius_of_influence=15e3, new_dims=("scans", "pixels"))
     scene = scene.transpose("levels", "scans", "pixels", ...)

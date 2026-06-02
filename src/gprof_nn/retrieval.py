@@ -45,7 +45,6 @@ from gprof_nn.data import preprocessor
 from gprof_nn.data.preprocessor import PreprocessorFile, run_preprocessor
 from gprof_nn.definitions import ANCILLARY_VARIABLES, ALL_TARGETS, ALL_OUTPUTS
 from gprof_nn.data.training_data import (
-    EIA_GMI,
     load_tbs_1d_gmi,
     load_tbs_1d_xtrack_sim,
     load_tbs_1d_conical_sim,
@@ -538,7 +537,7 @@ def load_input_data_training_1d(
         if sensor == sensors.GMI:
             tbs = load_tbs_1d_gmi(data)
             anc = load_ancillary_data(data, configuration=ancillary_config, stack_dim=1)
-            angs = torch.tensor(np.broadcast_to(EIA_GMI.astype("float32"), tbs.shape))
+            angs = torch.tensor(np.broadcast_to(sensor.GMI.earth_incidence_angle.astype("float32"), tbs.shape))
         elif isinstance(sensor, sensors.CrossTrackScanner):
             if data.attrs["source"] == "sim":
                 angles = data["angles"].data
@@ -558,7 +557,7 @@ def load_input_data_training_1d(
                 tbs = load_tbs_1d_conical_sim(data, sensor)
                 targets = load_target_1d(data, ["surface_precip"])
                 angs = torch.tensor(
-                    np.broadcast_to(EIA_GMI.astype("float32"), tbs.shape)
+                    np.broadcast_to(sensors.GMI.earth_incidence_angle.astype("float32"), tbs.shape)
                 )
             else:
                 tbs, angs = load_tbs_1d_conical_other(data, sensor)
@@ -915,6 +914,7 @@ class GPROFNNInputLoader:
                     if tensor.ndim == 4 else tensor
                     for name, tensor in input_data.items()
                 }
+
         aux["output_format"] = self.output_format
 
         if self.config != "1d":
