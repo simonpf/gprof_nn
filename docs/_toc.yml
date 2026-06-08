@@ -8,3 +8,4 @@ chapters:
   sections:
     - file: training_data
     - file: training_run
+- file: new_sensors
