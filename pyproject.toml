@@ -26,7 +26,7 @@ dependencies = [
 dynamic = ["version"]
 
 [project.optional-dependencies]
-docs = ["jupyter-book", "sphinx"]
+docs = ["jupyter-book<2", "sphinx"]
 
 [project.urls]
 Homepage = "https://gprof_nn.readthedocs.io"
