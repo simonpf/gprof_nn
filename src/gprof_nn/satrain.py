@@ -14,6 +14,17 @@ from .retrieval import get_model
 from . import sensors
 from .data.training_data import load_ancillary_data
 
+CHAN_INDS = {
+    "gmi": (
+        list(range(13)),
+        [0, 1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 13, 14]
+    ),
+    "atms": (
+        [2, 3, 8, 6, 4],
+        [8, 10, 12, 13, 14]
+    ),
+}
+
 
 class GPROFNNRetrieval:
     """
@@ -56,15 +67,16 @@ class GPROFNNRetrieval:
         """
         tbs = torch.tensor(retrieval_input[f"obs_{self.sensor.name.lower()}"].data.astype(np.float32))[None]
         eia = torch.tensor(retrieval_input[f"eia_{self.sensor.name.lower()}"].data.astype(np.float32))[None]
-        shape = tbs.shape[-2:]
-        tbs_full = torch.nan * torch.zeros((1, 15,) + shape)
-        eia_full = torch.nan * torch.zeros((1, 15,) + shape)
+        shape = tbs.shape[:-3] + (15, ) + tbs.shape[-2:]
+        anc_shape = tbs.shape[:-3] + (14, ) + tbs.shape[-2:]
+        tbs_full = torch.nan * torch.zeros(shape)
+        eia_full = torch.nan * torch.zeros(shape)
 
-        chan_inds = list(self.sensor.gprof_channels.keys())
-        tbs_full[:, chan_inds] = tbs
-        eia_full[:, chan_inds] = eia
+        chan_inds_in, chan_inds_out = CHAN_INDS[self.sensor.name.lower()]
+        tbs_full[:, chan_inds_out] = tbs[:, chan_inds_in]
+        eia_full[:, chan_inds_out] = eia[:, chan_inds_in]
 
-        anc = torch.nan * torch.zeros((1, 14,) + shape)
+        anc = torch.nan * torch.zeros(anc_shape)
 
         inpt = {
             "brightness_temperatures": tbs_full,
