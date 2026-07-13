@@ -49,6 +49,26 @@ def download_model(sensor: str) -> Path:
     return model_path / model
 
 
+def download_simulator_model() -> Path:
+    """
+    Download simulator model to gprof_nn model path and return local path.
+
+    Return:
+        The local path of the model.
+    """
+    model = f"gprof_nn_sim.pt"
+    model_path = CONFIG.data.model_path
+
+    if not (model_path / model).exists():
+        LOGGER.info("Downloading model file %s to model path %s", model, model_path)
+        lock = FileLock((model_path / model).with_suffix(".lock"))
+        with lock:
+            hf_hub_download("simonpf/gprof_nn", filename=model, local_dir=model_path)
+    else:
+        LOGGER.debug("Found model at %s.", model_path / model)
+    return model_path / model
+
+
 def update_models() -> Path:
     """
     Update all retrieval models to the latest version.

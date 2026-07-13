@@ -41,6 +41,7 @@ from pytorch_retrieve.retrieval_output import ExpectedValue
 
 import gprof_nn
 from gprof_nn import sensors
+from gprof_nn.download import download_simulator_model
 from gprof_nn.config import CONFIG
 from gprof_nn.geometry import incidence_angle_to_viewing_angle
 from gprof_nn.definitions import (
@@ -1025,7 +1026,7 @@ def process_sim_file(
         light_precip_path: Optional[Path] = None,
         lonlat_bounds: Optional[Tuple[float, float, float, float]] = None,
         include_sea_ice: bool = False,
-        satformer_model: Optional[Path] = None,
+        simulator_model: Optional[Path] = None,
         device: str = "cuda:0"
 ) -> None:
     """
@@ -1051,7 +1052,7 @@ def process_sim_file(
             (``lon_ll`` and ``lat_ll``) followed by the longitude and latitude coordinates
             of the upper right corner (``lon_ur``, ``lat_ur``).
             a rectangular bounding box to constrain the training data extracted.
-        satformer_model: A satformer model to use to simulate brightness temperatures.
+        simulator_model: A neural-network model to use to simulate brightness temperatures.
     """
     data = collocate_targets(
         sim_file,
@@ -1070,9 +1071,9 @@ def process_sim_file(
         inds_out = [np.searchsorted(inds_in, ind) for ind in sensor.gprof_channel_indices]
         data = data[{"channels": inds_out}]
 
-    if sensor.name.lower() != "gmi" and satformer_model is not None:
+    if sensor.name.lower() != "gmi" and simulator_model is not None:
         simulate_tbs_satformer(
-            satformer_model,
+            simulator_model,
             data,
             sensor,
             device=device
@@ -1111,7 +1112,7 @@ def process_files(
         light_precip_path: Optional[Path] = None,
         include_sea_ice: bool = False,
         lonlat_bounds: Optional[Tuple[float, float, float, float]] = None,
-        satformer_model: Optional[Path] = None,
+        simulator_model: Optional[Path] = None,
         device: str = "cuda:0"
 ) -> None:
     """
@@ -1139,7 +1140,7 @@ def process_files(
             containing the longitude and latitude coordinates of the lower-left corner
             (``lon_ll`` and ``lat_ll``) followed by the longitude and latitude coordinates
             of the upper right corner (``lon_ur``, ``lat_ur``).
-        satformer_model: An optional Path pointing to a satformer model to use to simulate
+        simulator_model: An optional Path pointing to a satformer model to use to simulate
             brightness temperatures.
         device: A string specifying the device to run the Satformer simulations on.
     """
@@ -1193,7 +1194,7 @@ def process_files(
                 light_precip_path=light_precip_path,
                 include_sea_ice=include_sea_ice,
                 lonlat_bounds=lonlat_bounds,
-                satformer_model=satformer_model,
+                simulator_model=simulator_model,
                 device=device
             )
         )
@@ -1262,14 +1263,6 @@ def process_files(
     metavar="lon_min,lat_min,lon_max,lat_max"
 )
 @click.option(
-    "--simulator_model",
-    default=None,
-    help=(
-        "Optional path pointing to a satformer model to use to simulated Tbs."
-    ),
-    metavar="path"
-)
-@click.option(
     "--device",
     default="cuda:0",
     help=(
@@ -1289,7 +1282,6 @@ def cli(sensor: sensors.Sensor,
         light_precip_path: Optional[Path] = None,
         include_sea_ice: bool = True,
         bounds: Tuple[float, float, float, float] = None,
-        simulator_model: Optional[Path] = None,
         device: str = "cuda:0"
 ) -> None:
     """
@@ -1369,6 +1361,8 @@ def cli(sensor: sensors.Sensor,
             )
             return 1
 
+    simulator_model = download_simulator_model()
+
     process_files(
         sensor,
         sim_file_path,
@@ -1382,6 +1376,6 @@ def cli(sensor: sensors.Sensor,
         light_precip_path=light_precip_path,
         include_sea_ice=include_sea_ice,
         lonlat_bounds=lonlat_bounds,
-        satformer_model=simulator_model,
+        simulator_model=simulator_model,
         device=device
     )
