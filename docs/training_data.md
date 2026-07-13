@@ -9,13 +9,7 @@ Training data for GPROF-NN retrievals can be derived from four sources:
 1. Simulator files
 2. MRMS collocations
 3. ERA5 collocations
-4. GMI collocations (for finetuning)
-
-Sources 1, 2, and 3 are the same as the ones used to create the a priori databases of the
-conventional GPROF retrieval. Matched observations from simulator files are used
-over most surface types except sea ice and snow-covered, non-mountainous
-surfaces. MRMS and ERA5 collocations are used over snow-covered surfaces and sea
-ice (and very cold and dry environments), respectively.
+4. Finetuning collocations
 
 Sources 1 through 3 are the same as those used to construct the a priori databases of the conventional GPROF retrieval:
 
@@ -23,22 +17,16 @@ Sources 1 through 3 are the same as those used to construct the a priori databas
 - **MRMS collocations** are used over snow-covered surfaces.
 - **ERA5 collocations** are used over sea ice and in very cold and dry environments.
 
-The **GMI collocations** are a new addition in GPROF-NN version 8. These collocations with reference retrievals from the GMI instrument are not used in the conventional GPROF algorithm. They are employed to fine-tune the model trained on ERA5-based data and help correct biases arising from simulation errors in the GPROF simulator-based training data.
-
+The **finetuning collocations** are a new addition in GPROF-NN version 8. These collocations with reference retrievals from a reference sensor (typically GMI when available) are new in GPROF V08. They are employed to fine-tune a retrieval model trained on simulated observations and help correct biases arising from simulation errors in the GPROF simulator-based training data.
 
 ## Simulator files
-
-Training-data extraction from sim files is implemented by the ``gprof_nn extract_training_data sim`` sub-command.
-This training data uses the GPROF-NN simulator model to simulate observations from the target sensor from GMI input
-observations. Since the simulator is implemented using a neural network, the extraction should be run on a machine that has a GPU.
-
 
 Training data can be extracted from simulator files using the `gprof_nn extract_training_data sim` sub-command. This command uses the GPROF-NN simulator model to simulate target-sensor observations from GMI input to generate synthetic training data. Because the simulator is implemented as a neural network, GPU acceleration is strongly recommended.
 
 To extract training data for a specific sensor, run:
 
 ````
-gprof_nn extract_training_data sim <sensor_name> /path/to/sim_file_folder/ training 1d 3d --simulator_model /path/to/simulator_model
+gprof_nn extract_training_data sim <sensor_name> /path/to/sim_file_folder/ training 1d 3d --device cuda:0
 ````
 
 This will extract training data from the simulator files located in
@@ -49,7 +37,7 @@ command, run ``gprof_nn extract_training_data sim --help``.
 
 
 ```{note}
-The output directories `1d` and `3d` must exist before running the command.
+The sim-file folder can point to a directory containing simulations for the targeted sensor or possible the GMI simulations as a fallback.
 ```
 
 ## MRMS collocations

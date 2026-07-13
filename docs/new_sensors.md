@@ -1,11 +1,24 @@
 # Adding New Sensors
 
-Adding a new senor to ``gprof_nn`` only requires adding a new senor ``*.toml`` file to the package.
+Each sensor handled by ``gprof_nn`` is described by a ``*.toml`` file in the
+``src/gprof_nn/sensors`` directory. Adding a new sensor to the package requires
+creating a new sensor ``*.toml`` file for the sensor.
 
+Since the ``*.toml`` files are part of the source code of the ``gprof_nn``
+package, adding a new sensor requires changing the code base of the pacakge.
+The paths below are given with respect to the base directory of the cloned ``gprof_nn``
+package.
 
 ## Sensor Files
 
-The sensor files are located in ``src/gprof_nn/sensors``. There are two types of sensor files: generic sensor file describe sensor properties for a sensor type on multiple platforms. These files use the file name pattern ``<sensor_name>.toml``. Specific sensor files describe a specific sensor on a platform using the file name patter ``<sensor_name>_<platform>.toml``. The generic sensor file acts as a fallback in case no specific sensor file is found for the sensor. Specific sensor files are only required for sensors for which finetuning data is to be extracted for specific sensors.
+The sensor files are located in ``src/gprof_nn/sensors``. There are two types of
+sensor files: generic sensor file describe sensor properties for a sensor type
+on multiple platforms. These files use the file name pattern
+``<sensor_name>.toml``. Specific sensor files describe a specific sensor on a
+platform using the file name pattern ``<sensor_name>_<platform>.toml``. The
+generic sensor file acts as a fallback in case no specific sensor file is found
+for the sensor. Specific sensor files are only required for sensors for which
+finetuning data is to be extracted for specific sensors.
 
 ### Basic Structure
 
