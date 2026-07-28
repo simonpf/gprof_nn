@@ -140,8 +140,13 @@ def add_era5_precip(
     )[indices]
     time = xr.DataArray(time, dims="samples")
     # Interpolate and convert to mm/h
+
+    time_var = "time" if "time" in era5_data.dims else "valid_time"
+    if time_var == "valid_time":
+        era5_data = era5_data.assign_cords(valid_time=era5_data.time)
+  
     total_precip = era5_data["tp"].interp(
-        {"latitude": lats, "longitude": lons, "time": time}, method="nearest"
+        {"latitude": lats, "longitude": lons, time_var: time}, method="nearest"
     )
 
     if not "surface_precip" in input_data:
@@ -160,7 +165,7 @@ def add_era5_precip(
         input_data["surface_precip_combined"].data[indices] = 1000.0 * total_precip
 
     convective_precip = era5_data["cp"].interp(
-        {"latitude": lats, "longitude": lons, "time": time}, method="nearest"
+        {"latitude": lats, "longitude": lons, time_var: time}, method="nearest"
     )
     if len(input_data.surface_precip.dims) > 2:
         convective_precip = convective_precip.data[..., np.newaxis]
