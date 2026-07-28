@@ -21,6 +21,9 @@ from appdirs import (
 import click
 
 
+from . import sensors
+
+
 LOGGER = logging.getLogger(__name__)
 
 
@@ -37,8 +40,8 @@ class ConfigBase:
         """
         settings = asdict(cls())
         config = cls()
-        for key, value in settings.items():
-            value = Path(section.get(key, value))
+        for key, value in section.items():
+            value = Path(value)
             setattr(config, key, value)
         return config
 
@@ -48,31 +51,21 @@ class PreprocessorConfig(ConfigBase):
     """
     Dataclass holding the preprocessor executables.
     """
-    gmi: Path = Path("gprof2024pp_GMI_L1C")
-    mhs: Path = Path("gprof2024pp_MHS_L1C")
-    tmi: Path = Path("gprof2024pp_TMI_L1C")
-    tms: Path = Path("gprof2024pp_TMS_L1C")
-    ssmi: Path = Path("gprof2024pp_SSMI_L1C")
-    ssmis: Path = Path("gprof2024pp_SSMIS_L1C")
-    amsr2: Path = Path("gprof2024pp_AMSR2_L1C")
-    amsre: Path = Path("gprof2024pp_AMSRE_L1C")
-    atms: Path = Path("gprof2024pp_ATMS_L1C")
-    mwi: Path = Path("gprof2024pp_MWI_L1C")
-    amsub: Path = Path("gprof2024pp_AMSUB_L1C")
+    def __init__(self):
+        sensor_names = set([
+            sensor.sensor_name.lower() for sensor in sensors.all_sensors()
+        ])
+        for sensor_name in sensor_names:
+            setattr(self, sensor_name, f"gprof2024pp_{sensor_name.upper()}")
 
     def print(self):
         txt = "[preprocessor]\n"
-        txt += f"amsre = {self.amsre}\n"
-        txt += f"amsr2 = {self.amsr2}\n"
-        txt += f"amsub = {self.amsub}\n"
-        txt += f"atms  = {self.atms}\n"
-        txt += f"gmi   = {self.gmi}\n"
-        txt += f"mhs   = {self.mhs}\n"
-        txt += f"mwi   = {self.mwi}\n"
-        txt += f"ssmi  = {self.ssmi}\n"
-        txt += f"ssmis = {self.ssmis}\n"
-        txt += f"tmi = {self.tmi}\n"
-        txt += f"tms = {self.tms}\n"
+
+        sensor_names = set([
+            sensor.sensor_name.lower() for sensor in sensors.all_sensors()
+        ])
+        for sensor_name in sensor_names:
+            txt += f"{sensor_name} = {getattr(self, sensor_name)}\n"
         return txt
 
 
