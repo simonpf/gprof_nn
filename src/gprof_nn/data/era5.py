@@ -143,7 +143,7 @@ def add_era5_precip(
 
     time_var = "time" if "time" in era5_data.dims else "valid_time"
     if time_var == "valid_time":
-        era5_data = era5_data.assign_cords(valid_time=era5_data.time)
+        era5_data = era5_data.assign_coords(valid_time=era5_data.time)
   
     total_precip = era5_data["tp"].interp(
         {"latitude": lats, "longitude": lons, time_var: time}, method="nearest"
