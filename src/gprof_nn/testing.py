@@ -26,6 +26,18 @@ from gprof_nn.data.training_data import (
     GPROFNNLightDataset
 )
 
+_BINS = {
+    "cloud_water_content": np.logspace(-3, np.log10(0.5), 101),
+    "cloud_water_path": np.logspace(-3, np.log10(20), 101),
+    "convective_precip": np.logspace(-2, 2, 101),
+    "ice_water_path":  np.logspace(-3, 2, 101),
+    "latent_heat": np.linspace(-10, 10, 101),
+    "rain_water_content": np.logspace(-3, 1, 101),
+    "rain_water_path": np.logspace(-3, 1, 101),
+    "snow_water_content": np.logspace(-3, 1, 101),
+    "surface_precip": np.logspace(-2, 2, 101),
+}
+
 
 def run_tests(
         model: nn.Module,
@@ -53,9 +65,10 @@ def run_tests(
     model = model.to(device=device, dtype=dtype).eval()
 
     for x, y in tqdm(test_dataset):
-        x = to_rec(x, device=device, dtype=dtype)
 
+        x = to_rec(x, device=device, dtype=dtype)
         y = to_rec(y, device=device, dtype=dtype)
+
         for key, target in y.items():
             mask = torch.isnan(target)
             if mask.any():
@@ -78,22 +91,36 @@ def run_tests(
             mtrcs = surface_type_metrics.get(key, [])
             for metric in mtrcs:
                 metric = metric.to(device="cpu")
+                cond_b = torch.clone(cond)
+                if ref.shape[1] == 28:
+                    cond_b = torch.broadcast_to(cond_b, ref.shape)
                 metric.update(
                     pred_k.to(device="cpu"),
                     ref.to(device="cpu"),
-                    conditional={"surface_type": cond.to(device="cpu")}
+                    conditional={"surface_type": cond_b.to(device="cpu")}
                 )
 
     retrieval_results = {}
     for name, mtrcs in scalar_metrics.items():
         for metric in mtrcs:
             res_name = name + "_" + metric.name.lower()
-            retrieval_results[res_name] = metric.compute().cpu().numpy()
+            res = metric.compute().cpu().numpy()
+            if 1 < res.ndim:
+                dims = (f"predicted_{name}", f"reference_{name}", )
+                retrieval_results[res_name] = (dims, res)
+            else:
+                retrieval_results[res_name] = res
+
     for name, mtrcs in surface_type_metrics.items():
         for metric in mtrcs:
             res_name = name + "_" + metric.name.lower() + "_surface_type"
-            extra_dims = getattr(metric, "dims", ())
-            retrieval_results[res_name] = (("surface_type",) + extra_dims, metric.compute().cpu().numpy())
+            res = metric.compute().cpu().numpy()
+            if 2 < res.ndim:
+                dims = ("surface_type", f"predicted_{name}", f"reference_{name}", )
+            else:
+                dims = ("surface_type",)
+            retrieval_results[res_name] = (dims, res)
+
     if len(retrieval_results) > 0:
         retrieval_results = xr.Dataset(retrieval_results)
     else:
@@ -168,18 +195,26 @@ def cli(
     scalar_metrics = {
         name: [
             metrics.RelativeBias(),
+            metrics.MAE(),
+            metrics.SMAPE(),
             metrics.MSE(),
-            metrics.CorrelationCoef()
+            metrics.CorrelationCoef(),
+            metrics.ScatterPlot(bins=_BINS.get(name, np.logspace(-2, 2, 101)))
         ] for name in model.to_config_dict()["output"].keys()
     }
+
     cond = {"surface_type": (0.5, 18.5, 19)}
     surface_type_metrics = {
         name: [
             metrics.RelativeBias(conditional=cond),
             metrics.MAE(conditional=cond),
+            metrics.SMAPE(conditional=cond),
             metrics.MSE(conditional=cond),
             metrics.CorrelationCoef(conditional=cond),
-            metrics.ScatterPlot(bins=np.logspace(-3, 2, 41), conditional=cond)
+            metrics.ScatterPlot(
+                bins=_BINS.get(name, np.logspace(-2, 2, 101)),
+                conditional=cond
+            )
         ] for name in model.to_config_dict()["output"].keys()
     }
 
