@@ -53,18 +53,6 @@ CHANNEL_INDICES = {
     "AMSRE": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
 }
 
-N_SPECIES = 5
-N_TEMPERATURES = 12
-N_LAYERS = 28
-N_PROFILES = 80
-N_CHANNELS = 15
-
-TB_MIN = 40.0
-TB_MAX = 325.0
-LAT_MIN = -90.0
-LAT_MAX = 90.0
-LON_MIN = -180.0
-LON_MAX = 180.0
 
 DATE_TYPE = np.dtype(
     [
