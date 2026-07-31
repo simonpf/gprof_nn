@@ -42,35 +42,35 @@ def get_preprocessor_orbit_header(n_chans, kind):
     if kind in [CONICAL, CONICAL_CONST]:
         dtype = np.dtype(
             [
-                ("satellite", "a12"),
-                ("sensor", "a12"),
-                ("preprocessor", "a12"),
-                ("radiometer_file", "a128"),
-                ("profile_database_file", "a128"),
-                ("calibration_file", "a128"),
+                ("satellite", "S12"),
+                ("sensor", "S12"),
+                ("preprocessor", "S12"),
+                ("radiometer_file", "S128"),
+                ("profile_database_file", "S128"),
+                ("calibration_file", "S128"),
                 ("granule_number", "i4"),
                 ("number_of_scans", "i4"),
                 ("number_of_pixels", "i4"),
                 ("n_channels", "i4"),
                 ("frequencies", f"15f4"),
-                ("comment", "a40"),
+                ("comment", "S40"),
             ]
         )
     else:
         dtype = np.dtype(
             [
-                ("satellite", "a12"),
-                ("sensor", "a12"),
-                ("preprocessor", "a12"),
-                ("profile_database_file", "a128"),
-                ("radiometer_file", "a128"),
-                ("calibration_file", "a128"),
+                ("satellite", "S12"),
+                ("sensor", "S12"),
+                ("preprocessor", "S12"),
+                ("profile_database_file", "S128"),
+                ("radiometer_file", "S128"),
+                ("calibration_file", "S128"),
                 ("granule_number", "i"),
                 ("number_of_scans", "i"),
                 ("number_of_pixels", "i"),
                 ("n_channels", "i"),
                 ("frequencies", f"{n_chans}f4"),
-                ("comment", "a40"),
+                ("comment", "S40"),
             ]
         )
     return dtype
@@ -155,8 +155,8 @@ def get_bin_file_header(n_chans, n_angles, kind):
         n_chans = 15
         dtype = np.dtype(
             [
-                ("satellite_code", "a5"),
-                ("sensor", "a5"),
+                ("satellite_code", "S5"),
+                ("sensor", "S5"),
                 ("frequencies", f"{n_chans}f4"),
                 ("nominal_eia", f"{n_chans}f4"),
             ]
@@ -164,8 +164,8 @@ def get_bin_file_header(n_chans, n_angles, kind):
     else:
         dtype = np.dtype(
             [
-                ("satellite_code", "a5"),
-                ("sensor", "a5"),
+                ("satellite_code", "S5"),
+                ("sensor", "S5"),
                 ("frequencies", "f4", (n_chans,)),
                 ("nominal_eia", "f4", (n_angles,)),
             ]
@@ -277,8 +277,8 @@ def get_sim_file_header(n_chans, n_angles, kind):
     if kind in [CONICAL, CONICAL_CONST]:
         dtype = np.dtype(
             [
-                ("satellite_code", "a5"),
-                ("sensor", "a5"),
+                ("satellite_code", "S5"),
+                ("sensor", "S5"),
                 ("frequencies", "f4", (15,)),
                 ("nominal_eia", "f4", (15,)),
                 ("start_pixel", "i4"),
@@ -290,8 +290,8 @@ def get_sim_file_header(n_chans, n_angles, kind):
     else:
         dtype = np.dtype(
             [
-                ("satellite_code", "a5"),
-                ("sensor", "a5"),
+                ("satellite_code", "S5"),
+                ("sensor", "S5"),
                 ("frequencies", f"f4", (n_chans,)),
                 ("earth_incidence_angles", f"f4", (n_angles,)),
                 ("start_pixel", "i4"),

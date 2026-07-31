@@ -84,8 +84,8 @@ LOGGER = logging.getLogger(__name__)
 N_CHANS_MAX = 15
 GENERIC_HEADER = np.dtype(
     [
-        ("satellite_code", "a5"),
-        ("sensor", "a5"),
+        ("satellite_code", "S5"),
+        ("sensor", "S5"),
     ]
 )
 
