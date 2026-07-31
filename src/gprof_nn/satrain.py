@@ -41,6 +41,8 @@ class GPROFNNRetrieval:
         sensor = getattr(sensors, sensor.upper())
         self.model = get_model(sensor).eval()
         self.sensor = sensor
+        self.device = device
+        self.dtype = dtype
         self.ancillary_config = ancillary_config
 
         profiles = [
@@ -89,7 +91,7 @@ class GPROFNNRetrieval:
             [inpt],
             self.model.inference_config,
         )
-        results = runner.run(output_path=None)[0]
+        results = runner.run(output_path=None, device=self.device, dtype=self.dtype)[0]
         results = results[["surface_precip", "probability_of_precipitation"]]
         results = results.rename({
             "probability_of_precipitation": "probability_of_precip"
