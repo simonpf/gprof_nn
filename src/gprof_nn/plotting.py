@@ -589,3 +589,44 @@ def plot_channels(
         fig.colorbar(m, ax=ax)
 
     return fig
+
+from pyresample import geometry
+
+
+def make_latlon_area(
+    lon_min: float,
+    lat_min: float,
+    lon_max: float,
+    lat_max: float,
+    width: int,
+    height: int,
+) -> geometry.AreaDefinition:
+    """Create a pyresample AreaDefinition for a regular latitude/longitude grid.
+
+    Args:
+        lon_min: Western longitude bound in degrees.
+        lat_min: Southern latitude bound in degrees.
+        lon_max: Eastern longitude bound in degrees.
+        lat_max: Northern latitude bound in degrees.
+        width: Number of pixels in the longitude direction.
+        height: Number of pixels in the latitude direction.
+
+    Returns:
+        A pyresample AreaDefinition using an equirectangular/lat-lon projection.
+    """
+    proj_dict = {
+        "proj": "longlat",
+        "datum": "WGS84",
+    }
+
+    area_extent = (lon_min, lat_min, lon_max, lat_max)
+
+    return geometry.AreaDefinition(
+        area_id="latlongrid",
+        description=f"Regular lat/lon grid",
+        proj_id="latlon",
+        projection=proj_dict,
+        width=width,
+        height=height,
+        area_extent=area_extent,
+    )
