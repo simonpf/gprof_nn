@@ -649,11 +649,11 @@ def upsample_data(
 
     n_scans = data.scans.size
     n_scans_up = upsampling_factors[0] * (n_scans - 1) + 1
-    new_scans = np.linspace(data.scans[0], data.scans[-1], n_scans_up)
+    new_scans = np.linspace(data.scans.data[0], data.scans.data[-1], n_scans_up)
 
     n_pixels = data.pixels.size
     n_pixels_up = upsampling_factors[1] * (n_pixels - 1) + 1
-    new_pixels = np.linspace(data.pixels[0], data.pixels[-1], n_pixels_up)
+    new_pixels = np.linspace(data.pixels.data[0], data.pixels.data[-1], n_pixels_up)
 
     data = data.interp(scans=new_scans, pixels=new_pixels).drop_vars(["pixels", "scans"])
     scan_time_int = scan_time.astype(np.int64)
