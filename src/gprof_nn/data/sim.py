@@ -30,6 +30,7 @@ from pansat.products.satellite.gpm import l1c_r_gpm_gmi
 from pykdtree.kdtree import KDTree
 from rich.progress import Progress
 from scipy.signal import convolve
+from scipy import integrate
 import torch
 import xarray as xr
 
@@ -84,8 +85,8 @@ LOGGER = logging.getLogger(__name__)
 N_CHANS_MAX = 15
 GENERIC_HEADER = np.dtype(
     [
-        ("satellite_code", "a5"),
-        ("sensor", "a5"),
+        ("satellite_code", "S5"),
+        ("sensor", "S5"),
     ]
 )
 
@@ -379,7 +380,7 @@ class SimFile:
                     data.astype(np.float32),
                 )
                 if "content" in target:
-                    path = np.trapz(data, x=LEVELS, axis=-1) * 1e-3
+                    path = integrate.trapezoid(data, x=LEVELS, axis=-1) * 1e-3
                     path_name = target.replace("content", "path").replace("snow", "ice")
                     input_data[path_name] = (("scans", "pixels_center"), path)
             else:
