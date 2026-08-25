@@ -1635,7 +1635,6 @@ class GPROFNN3DDataset(Dataset):
         self.files = files
 
         if resample_latitudes:
-
             files, centers = sample_centers(tuple(self.path))
             bins = np.linspace(-90, 90, 91)
             cts = np.histogram(centers, bins=bins)[0]
@@ -1645,7 +1644,7 @@ class GPROFNN3DDataset(Dataset):
             cts_s = cts_s / np.cos(np.deg2rad(lat_centers))
             sampling_weights = 1.0 / cts_s
             sampling_weights = np.minimum(10.0, sampling_weights / np.nanmin(sampling_weights))
-            inds = np.digitize(centers, bins) - 1
+            inds = np.minimum(np.digitize(centers, bins) - 1, len(sampling_weights) - 1)
             weights = sampling_weights[inds]
             weights = weights / weights.sum()
             self.files = np.random.choice(files, size=len(files), p=weights)
@@ -1761,6 +1760,7 @@ class GPROFNN3DDataset(Dataset):
                         )
         except Exception as exc:
             LOGGER.warning(
+
                 "Encountered an error when trying to load data from file '%s'.",
                 self.files[ind]
             )
@@ -1905,7 +1905,6 @@ class GPROFNNLightDataset(Dataset):
                     rng=self.rng
                 )
         except Exception as exc:
-            raise exc
             LOGGER.warning(
                 "Encountered an error when trying to load data from file '%s'.",
                 sample_file
