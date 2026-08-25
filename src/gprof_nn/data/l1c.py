@@ -193,7 +193,7 @@ def consolidate_swath_data_mhs(swath_data: Dict[str, xr.Dataset]) -> xr.Dataset:
 
     full_tbs = swath_data[1].brightness_temperatures.data
 
-    eia = swath_data[1].brightness_temperatures.data[..., 0]
+    eia = np.abs(swath_data[1].earth_incidence_angle.data[..., 0])
     scan_time = swath_data[1].scan_time.data
     qflag = swath_data[1].quality_flag.data
 
