@@ -190,26 +190,25 @@ def test_inference_gprof_nn_1d(
         input_data_fixture,
         request,
         tmp_path,
-        gprof_nn_1d
+        gprof_nn_3d
 ):
     input_data = request.getfixturevalue(input_data_fixture)
     output_dir = tmp_path / "output"
     output_dir.mkdir()
-    input_loader = GPROFNNInputLoader(input_data, config="1d")
+    input_loader = GPROFNNInputLoader(input_data, config="1d", ancillary_config="NRT")
     run_inference(
-        gprof_nn_1d,
+        gprof_nn_3d,
         input_loader,
-        gprof_nn_1d.inference_config,
+        gprof_nn_3d.inference_config,
         output_path=output_dir
+
     )
 
     output_files = sorted(list(output_dir.glob("*.nc")))
     assert len(output_files) > 0
     with xr.open_dataset(output_files[0]) as results:
-        assert "latitude" in results
-        assert "longitude" in results
-        assert "surface_precip" in results
-        assert "probability_of_precipitation" in results
+        frozen_precip = results.frozen_precip.data
+        assert np.all(np.isnan(frozen_precip))
 
 
 @pytest.mark.parametrize("input_data_fixture", [
@@ -226,6 +225,36 @@ def test_inference_gprof_nn_1d(
     "training_files_3d_amsr2_era5",
 ])
 def test_inference_gprof_nn_3d(
+        input_data_fixture,
+        request,
+        tmp_path,
+        gprof_nn_3d
+):
+    input_data = request.getfixturevalue(input_data_fixture)
+    output_dir = tmp_path / "output"
+    output_dir.mkdir()
+    input_loader = GPROFNNInputLoader(input_data, config="1d")
+    run_inference(
+        gprof_nn_1d,
+        input_loader,
+        gprof_nn_1d.inference_config,
+        output_path=output_dir
+    )
+
+    output_files = sorted(list(output_dir.glob("*.nc")))
+    assert len(output_files) > 0
+    with xr.open_dataset(output_files[0]) as results:
+        assert "scans" in results.dims
+        assert "pixels" in results.dims
+        assert "latitude" in results
+        assert "longitude" in results
+        assert "surface_precip" in results
+        assert "probability_of_precipitation" in results
+
+@pytest.mark.parametrize("input_data_fixture", [
+    "preprocessor_file_mhs",
+])
+def test_inference_gprof_nn_3d_nrt(
         input_data_fixture,
         request,
         tmp_path,
@@ -251,7 +280,6 @@ def test_inference_gprof_nn_3d(
         assert "longitude" in results
         assert "surface_precip" in results
         assert "probability_of_precipitation" in results
-
 
 def test_mask_invalid(tmp_path):
     """
