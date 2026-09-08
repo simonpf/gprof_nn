@@ -1,0 +1,39 @@
+[platform]
+name = "GOSATGW"
+l1c_file_path = "/edata1/archive/GPM/1C_AMSR3_ITE"
+l1c_file_prefix = "1C.GOSATGW.AMSR3"
+
+[viewing_geometry]
+kind = "Conical"
+altitude = 666e3
+scan_range = 140.0
+pixels_per_scan = 486
+scan_offset = 10.2e3
+
+[sensor]
+kind = "ConstellationScanner"
+frequencies = [10.65, 10.65, 18.7, 18.7, 23.8, 23.8, 36.42, 36.42, 89.0, 89.0, 165.5, 183.31, 183.31]
+offsets = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+polarization = ["V", "H", "V", "H", "V", "H", "V", "H", "V", "H", "V", "V", "V"]
+orographic_enhancement = [1.14100, 1.71287, 1.46721, 1.71271, 2.96671]
+earth_incidence_angle = [55.0, 55.0, 55.0, 55.0, 55.0, 55.0, 55.0, 55.0, 55.0, 55.0, 52.0, 52.0, 52.0]
+beam_width = [1.2, 1.2, 0.65, 0.65, 0.75, 0.75, 0.35, 0.35, 0.15, 0.15, 0.30, 0.27, 0.27]
+beam_width_l1c = [1.2, 1.2, 0.65, 0.65, 0.75, 0.75, 0.35, 0.35, 0.15, 0.15, 0.30, 0.27, 0.27]
+channel_drop = 0.1
+scanline_drop = 0.1
+pansat_products = ["l1c_xcal2026v_gosatgw_amsr3_parv821"]
+
+[sensor.gprof_channels]
+0 = [2, 0]
+1 = [2, 1]
+2 = [3, 0]
+3 = [3, 1]
+4 = [4, 0]
+5 = [4, 1]
+6 = [5, 0]
+7 = [5, 1]
+8 = [6, 0]
+9 = [6, 1]
+10 = [8, 0]
+13 = [9, 0]
+14 = [9, 1]
