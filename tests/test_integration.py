@@ -14,16 +14,15 @@ def test_retrieval_gmi():
     Tests the retrieval for GMI.
     """
     test_file = download_test_file("gmi", "l1c")
+    results = run_retrieval(test_file)
+    assert len(results) > 0
+
     results = run_retrieval(test_file, ancillary_config="NONE")
     assert len(results) > 0
 
     # Assert frozen precip is set to NAN.
     frozen_precip = results[0].frozen_precip.data
     assert np.all(np.isnan(frozen_precip))
-
-    test_file = download_test_file("gmi", "preprocessor")
-    results = run_retrieval(test_file, ancillary_config="NONE")
-    assert len(results) > 0
 
 
 def test_retrieval_atms():
@@ -39,6 +38,19 @@ def test_retrieval_atms():
     assert len(results) > 0
 
 
+def test_retrieval_amsre():
+    """
+    Tests the retrieval for AMSR-E.
+    """
+    test_file = download_test_file("amsre", "l1c")
+    results = run_retrieval(test_file)
+    assert len(results) > 0
+
+    test_file = download_test_file("amsre", "preprocessor")
+    results = run_retrieval(test_file)
+    assert len(results) > 0
+
+
 def test_retrieval_amsr2():
     """
     Tests the retrieval for AMSR2.
@@ -48,6 +60,19 @@ def test_retrieval_amsr2():
     assert len(results) > 0
 
     test_file = download_test_file("amsr2", "preprocessor")
+    results = run_retrieval(test_file)
+    assert len(results) > 0
+
+
+def test_retrieval_amsr3():
+    """
+    Tests the retrieval for AMSR3.
+    """
+    test_file = download_test_file("amsr3", "l1c")
+    results = run_retrieval(test_file)
+    assert len(results) > 0
+
+    test_file = download_test_file("amsr3", "preprocessor")
     results = run_retrieval(test_file)
     assert len(results) > 0
 
@@ -102,3 +127,5 @@ def test_retrieval_tmi():
     test_file = download_test_file("tmi", "preprocessor")
     results = run_retrieval(test_file)
     assert len(results) > 0
+
+

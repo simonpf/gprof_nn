@@ -119,14 +119,11 @@ def scale_bar(
         p_src = ax.transData.inverted().transform(ax.transAxes.transform(point))
         return ccrs.PlateCarree().transform_point(*p_src, src_crs=ax.projection)
 
-
     left_ax = to_axes_coords([x_left, y_c])
     right_ax = to_axes_coords([x_right, y_c])
 
     l_ax = right_ax[0] - left_ax[0]
     l_part = l_ax / parts
-
-
 
     left_bg = [
         left_ax[0] - border,

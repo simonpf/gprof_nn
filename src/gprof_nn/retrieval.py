@@ -763,6 +763,7 @@ def determine_input_format(path: Path) -> str:
     elif path.suffix == ".nc":
         if (
                 path.name.startswith("cmb_") or
+                path.name.startswith("trmm_cmb_") or
                 path.name.startswith("mrms_") or
                 path.name.startswith("ocean_rain") or
                 path.name.startswith("ibtracks")
@@ -918,11 +919,11 @@ class GPROFNNInputLoader:
         aux["output_format"] = self.output_format
 
         if self.config != "1d":
-            # Handle input with less than 128 scan lines.
+            # Handle input with less than 100 scan lines.
             n_scans = input_data["brightness_temperatures"].shape[2]
-            if n_scans < 128:
+            if n_scans < 100:
                 LOGGER.error(
-                    "Less than 128 scans in input file %s.",
+                    "Less than 100 scans in input file %s.",
                     path
                 )
                 raise InsufficientScansError()
