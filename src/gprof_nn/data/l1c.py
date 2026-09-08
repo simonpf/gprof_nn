@@ -122,6 +122,88 @@ def consolidate_swath_data_atms(swath_data: Dict[str, xr.Dataset]) -> xr.Dataset
     return full_data
 
 
+def consolidate_swath_data_amsre(swath_data: Dict[str, xr.Dataset]) -> xr.Dataset:
+    """
+    Combines data from multiple swaths into a single xarray.Dataset in the way
+    it is done by the GPROF preprocessor.
+
+    Args:
+        swath_data: A dictionary containing the observations from the separate swaths.
+
+    Return:
+        A new xarray.Dataset containing the combined observations and incidence angles.
+    """
+    pixels = swath_data[6].pixels.data
+    scans = swath_data[6].scans.data
+
+    full_data = xr.Dataset({
+        "pixels": (("pixels",), pixels),
+        "scans": (("scans",), scans)
+    })
+
+    pixel_offsets = -1 * np.ones(486, dtype=np.int64)
+    pixel_offsets[47:51] = 7
+    pixel_offsets[51:66] = 5
+    pixel_offsets[66:95] = 4
+    pixel_offsets[95:140] = 2
+    pixel_offsets[140:189] = 1
+    pixel_offsets[189:234] = 0
+    pixel_offsets[234:271] = -1
+    pixel_offsets[271:321] = -2
+    pixel_offsets[321:375] = -3
+    pixel_offsets[375:394] = -4
+    pixel_offsets[394:429] = -6
+    pixel_offsets[429:435] = -7
+    pixel_offsets[435:439] = -8
+
+    scan_offsets = -1 * np.ones(486, dtype=np.int64)
+    scan_offsets[47:51] = 4
+    scan_offsets[51:91] = 3
+    scan_offsets[91:390] = 2
+    scan_offsets[390:435] = 3
+    scan_offsets[435:439] = 4
+
+    full_tbs = np.nan * np.zeros((scans.size, pixels.size, 10))
+    full_eia = np.nan * np.zeros((scans.size, pixels.size, 10))
+
+    full_tbs[..., 8] = swath_data[5].brightness_temperatures.data[..., 0]
+    full_tbs[..., 9] = swath_data[5].brightness_temperatures.data[..., 1]
+    full_eia[..., 8] = swath_data[5].earth_incidence_angle.data[..., 0]
+    full_eia[..., 9] = swath_data[5].earth_incidence_angle.data[..., 1]
+
+    scan_time = swath_data[6].scan_time.data
+    qflag = swath_data[6].quality_flag.data
+    if np.datetime64("2004-07-01") < scan_time.max():
+        print("Using b scan")
+        for ind, (o_s, o_p) in enumerate(zip(scan_offsets, pixel_offsets)):
+            if o_s < 0:
+                continue
+            full_tbs[:-o_s, ind, 8] = swath_data[6].brightness_temperatures.data[o_s:, ind - o_p, 0]
+            full_tbs[:-o_s, ind, 9] = swath_data[6].brightness_temperatures.data[o_s:, ind - o_p, 1]
+            full_eia[:-o_s, ind, 8] = swath_data[6].earth_incidence_angle.data[o_s:, ind - o_p, 0]
+            full_eia[:-o_s, ind, 9] = swath_data[6].earth_incidence_angle.data[o_s:, ind - o_p, 1]
+
+    # Duplicate low-res channels.
+    for chan, swath in zip([0, 2, 4, 6], [1, 2, 3, 4]):
+        full_tbs[:, ::2, chan] = swath_data[swath].brightness_temperatures.data[..., 0]
+        full_tbs[:, 1::2, chan] = swath_data[swath].brightness_temperatures.data[..., 0]
+        full_tbs[:, ::2, chan + 1] = swath_data[swath].brightness_temperatures.data[..., 1]
+        full_tbs[:, 1::2, chan + 1] = swath_data[swath].brightness_temperatures.data[..., 1]
+        full_eia[:, ::2, chan:chan+2] = swath_data[swath].earth_incidence_angle.data
+        full_eia[:, 1::2, chan:chan+2] = swath_data[swath].earth_incidence_angle.data
+
+
+    full_data["brightness_temperatures"] = (("scans", "pixels", "channels"), full_tbs)
+    full_data["earth_incidence_angle"] = (("scans", "pixels", "channels"), full_eia)
+    full_data["scan_time"] = (("scans",), scan_time)
+    full_data["quality_flag"] = (("scans", "pixels"), qflag)
+
+    full_data["longitude"] = (("scans", "pixels"), swath_data[5].longitude.data)
+    full_data["latitude"] = (("scans", "pixels"), swath_data[5].latitude.data)
+
+    return full_data[{"pixels": slice(47, 439)}]
+
+
 def consolidate_swath_data_amsr2(swath_data: Dict[str, xr.Dataset]) -> xr.Dataset:
     """
     Combines data from multiple swaths into a single xarray.Dataset in the way
@@ -168,6 +250,155 @@ def consolidate_swath_data_amsr2(swath_data: Dict[str, xr.Dataset]) -> xr.Datase
 
     full_data["longitude"] = (("scans", "pixels"), swath_data[5].longitude.data)
     full_data["latitude"] = (("scans", "pixels"), swath_data[5].latitude.data)
+
+    return full_data
+
+
+def consolidate_swath_data_amsr3(swath_data: Dict[str, xr.Dataset]) -> xr.Dataset:
+    """
+    Combines data from multiple swaths into a single xarray.Dataset in the way
+    it is done by the GPROF preprocessor.
+
+    Args:
+        swath_data: A dictionary containing the observations from the separate swaths.
+
+    Return:
+        A new xarray.Dataset containing the combined observations and incidence angles.
+    """
+    pixels = swath_data[6].pixels.data
+    scans = swath_data[6].scans.data
+
+    full_data = xr.Dataset({
+        "pixels": (("pixels",), pixels),
+        "scans": (("scans",), scans)
+    })
+
+    pixel_offsets = -1 * np.ones(243, dtype=np.int64)
+    pixel_offsets[42:53] = -9
+    pixel_offsets[53:59] = -8
+    pixel_offsets[59:64] = -7
+    pixel_offsets[64:71] = -6
+    pixel_offsets[71:77] = -5
+    pixel_offsets[77:87] = -4
+    pixel_offsets[87:94] = -3
+    pixel_offsets[94:103] = -2
+    pixel_offsets[103:113] = -1
+    pixel_offsets[113:123] = 0
+    pixel_offsets[123:133] = 1
+    pixel_offsets[133:144] = 2
+    pixel_offsets[144:151] = 3
+    pixel_offsets[151:159] = 4
+    pixel_offsets[159:169] = 5
+    pixel_offsets[169:173] = 6
+    pixel_offsets[173:182] = 7
+    pixel_offsets[182:184] = 8
+    pixel_offsets[184:194] = 9
+    pixel_offsets[194:201] = 10
+
+    scan_offsets = -1 * np.ones(243, dtype=np.int64)
+    scan_offsets[42:59] = 10
+    scan_offsets[59:71] = 9
+    scan_offsets[71:94] = 8
+    scan_offsets[94:151] = 7
+    scan_offsets[151:173] = 8
+    scan_offsets[173:184] = 9
+    scan_offsets[184:201] = 10
+
+    full_tbs = np.nan * np.zeros((scans.size, pixels.size, 13))
+    full_eia = np.nan * np.zeros((scans.size, pixels.size, 13))
+
+    full_tbs[..., 8] = swath_data[6].brightness_temperatures.data[..., 0]
+    full_tbs[..., 9] = swath_data[6].brightness_temperatures.data[..., 1]
+    full_eia[..., 8] = swath_data[6].earth_incidence_angle.data[..., 0]
+    full_eia[..., 9] = swath_data[6].earth_incidence_angle.data[..., 1]
+
+
+    # Duplicate low-res channels.
+    for chan, swath in zip([0, 2, 4, 6], [2, 3, 4, 5]):
+        full_tbs[:, ::2, chan] = swath_data[swath].brightness_temperatures.data[..., 0]
+        full_tbs[:, 1::2, chan] = swath_data[swath].brightness_temperatures.data[..., 0]
+        full_tbs[:, ::2, chan + 1] = swath_data[swath].brightness_temperatures.data[..., 1]
+        full_tbs[:, 1::2, chan + 1] = swath_data[swath].brightness_temperatures.data[..., 1]
+        full_eia[:, ::2, chan:chan+2] = swath_data[swath].earth_incidence_angle.data
+        full_eia[:, 1::2, chan:chan+2] = swath_data[swath].earth_incidence_angle.data
+
+    for ind, (o_s, o_p) in enumerate(zip(scan_offsets, pixel_offsets)):
+
+        if o_s < 0:
+            continue
+
+        full_tbs[:-o_s, 2 * ind, 10] = swath_data[8].brightness_temperatures.data[o_s:, ind + o_p, 0]
+        full_tbs[:-o_s, 2 * ind + 1, 10] = swath_data[8].brightness_temperatures.data[o_s:, ind + o_p, 0]
+        full_tbs[:-o_s, 2 * ind, 11] = swath_data[9].brightness_temperatures.data[o_s:, ind + o_p, 0]
+        full_tbs[:-o_s, 2 * ind + 1, 11] = swath_data[9].brightness_temperatures.data[o_s:, ind + o_p, 0]
+        full_tbs[:-o_s, 2 * ind, 12] = swath_data[9].brightness_temperatures.data[o_s:, ind + o_p, 1]
+        full_tbs[:-o_s, 2 * ind + 1, 12] = swath_data[9].brightness_temperatures.data[o_s:, ind + o_p, 1]
+
+        full_eia[:-o_s, 2 * ind, 10] = swath_data[8].earth_incidence_angle.data[o_s:, ind + o_p, 0]
+        full_eia[:-o_s, 2 * ind + 1, 10] = swath_data[8].earth_incidence_angle.data[o_s:, ind + o_p, 0]
+        full_eia[:-o_s, 2 * ind, 11] = swath_data[9].earth_incidence_angle.data[o_s:, ind + o_p, 0]
+        full_eia[:-o_s, 2 * ind + 1, 11] = swath_data[9].earth_incidence_angle.data[o_s:, ind + o_p, 0]
+        full_eia[:-o_s, 2 * ind, 12] = swath_data[9].earth_incidence_angle.data[o_s:, ind + o_p, 1]
+        full_eia[:-o_s, 2 * ind + 1, 12] = swath_data[9].earth_incidence_angle.data[o_s:, ind + o_p, 1]
+
+    scan_time = swath_data[6].scan_time.data
+    qflag = swath_data[6].quality_flag.data
+
+    full_data["brightness_temperatures"] = (("scans", "pixels", "channels"), full_tbs)
+    full_data["earth_incidence_angle"] = (("scans", "pixels", "channels"), full_eia)
+    full_data["scan_time"] = (("scans",), scan_time)
+    full_data["quality_flag"] = (("scans", "pixels"), qflag)
+
+    full_data["longitude"] = (("scans", "pixels"), swath_data[6].longitude.data)
+    full_data["latitude"] = (("scans", "pixels"), swath_data[6].latitude.data)
+
+    return full_data
+
+
+def consolidate_swath_data_mwi(swath_data: Dict[str, xr.Dataset]) -> xr.Dataset:
+    """
+    Combines data from multiple swaths into a single xarray.Dataset in the way
+    it is done by the GPROF preprocessor.
+
+    Args:
+        swath_data: A dictionary containing the observations from the separate swaths.
+
+    Return:
+        A new xarray.Dataset containing the combined observations and incidence angles.
+    """
+    pixels = swath_data[1].pixels.data
+    scans = swath_data[1].scans.data
+
+    full_data = xr.Dataset({
+        "pixels": (("pixels",), pixels),
+        "scans": (("scans",), scans)
+    })
+
+    full_tbs = np.nan * np.zeros((scans.size, pixels.size, 9))
+    full_eia = np.nan * np.zeros((scans.size, pixels.size, 9))
+
+    full_tbs[..., :2] = swath_data[1].brightness_temperatures.data[..., :2]
+    full_tbs[..., 2:4] = swath_data[2].brightness_temperatures.data[..., :2]
+    full_tbs[..., 4] = swath_data[3].brightness_temperatures.data[..., 0]
+    full_tbs[..., 5:7] = swath_data[4].brightness_temperatures.data[..., :2]
+    full_tbs[..., 7:9] = swath_data[6].brightness_temperatures.data[..., :2]
+
+    full_eia[..., :2] = swath_data[1].earth_incidence_angle.data[..., :2]
+    full_eia[..., 2:4] = swath_data[2].earth_incidence_angle.data[..., :2]
+    full_eia[..., 4] = swath_data[3].earth_incidence_angle.data[..., 0]
+    full_eia[..., 5:7] = swath_data[4].earth_incidence_angle.data[..., :2]
+    full_eia[..., 7:9] = swath_data[6].earth_incidence_angle.data[..., :2]
+
+    scan_time = swath_data[6].scan_time.data
+    qflag = swath_data[6].quality_flag.data
+
+    full_data["brightness_temperatures"] = (("scans", "pixels", "channels"), full_tbs)
+    full_data["earth_incidence_angle"] = (("scans", "pixels", "channels"), full_eia)
+    full_data["scan_time"] = (("scans",), scan_time)
+    full_data["quality_flag"] = (("scans", "pixels"), qflag)
+
+    full_data["longitude"] = (("scans", "pixels"), swath_data[6].longitude.data)
+    full_data["latitude"] = (("scans", "pixels"), swath_data[6].latitude.data)
 
     return full_data
 
@@ -363,7 +594,10 @@ def consolidate_swath_data_tmi(swath_data: Dict[str, xr.Dataset]) -> xr.Dataset:
 CONSOLIDATION_FUNCTIONS = {
     "gmi": consolidate_swath_data_gmi,
     "atms": consolidate_swath_data_atms,
+    "amsre": consolidate_swath_data_amsre,
     "amsr2": consolidate_swath_data_amsr2,
+    "amsr3": consolidate_swath_data_amsr3,
+    "mwi": consolidate_swath_data_mwi,
     "mhs": consolidate_swath_data_mhs,
     "ssmi": consolidate_swath_data_ssmi,
     "ssmis": consolidate_swath_data_ssmis,
