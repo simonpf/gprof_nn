@@ -60,12 +60,49 @@ RADIUS_OF_INFLUENCE = {
 }
 
 
+def gaussian_smooth_1d(x: np.ndarray, fwhm: float) -> np.ndarray:
+    """
+    Smooth a 1D array with a Gaussian kernel while ignoring NaNs.
+
+    Args:
+        x:  Input data.
+        fwhm: Full width at half maximum of the Gaussian kernel, in samples.
+
+    Return:
+
+    A numpy.ndarray containing the smoothed data.
+    """
+    x = np.asarray(x, dtype=float)
+
+    # Convert FWHM to Gaussian standard deviation.
+    sigma = fwhm / (2.0 * np.sqrt(2.0 * np.log(2.0)))
+
+    valid = np.isfinite(x)
+
+    # Replace NaNs with zero for convolution.
+    values = np.where(valid, x, 0.0)
+
+    # Convolve data and validity weights separately.
+    smoothed_values = gaussian_filter1d(values, sigma)
+    smoothed_weights = gaussian_filter1d(valid.astype(float), sigma)
+
+    # Normalize to account for missing values.
+    with np.errstate(divide="ignore", invalid="ignore"):
+        y = smoothed_values / smoothed_weights
+
+    # Preserve missing locations from the original array.
+    y[~valid] = np.nan
+
+    return y
+
+
 def extract_cloudsat_scenes(
         sensor: Sensor,
         match: Tuple[Granule, Tuple[Granule]],
         output_path: Path,
         scene_size: Tuple[int, int],
-        high_res: bool = False
+        high_res: bool = False,
+        smooth: bool = False
 ) -> None:
     """
     Extract training scenes between a GPM sensor and CloudSat observations.
@@ -77,6 +114,7 @@ def extract_cloudsat_scenes(
         output_path: The path to which to write the extracted training scenes.
         scene_size: The size of the training scenes to extract.
         high_res: Whether to upsample data to ~ 5 km resolution.
+        smooth: Whether or not to apply Gaussian smoothing to the estimates.
     """
     input_granule, target_granules = match
     target_granules = merge_granules(sorted(list(target_granules)))
@@ -122,6 +160,18 @@ def extract_cloudsat_scenes(
         }].reset_coords("time")
         cs_data["surface_precip_snow"] = snow_profile_data["surface_precip"]
         cs_data["surface_snowfall_confidence"] = snow_profile_data["surface_snowfall_confidence"]
+
+        if smooth:
+            sp_cs = cs_data["surface_precip"].data
+            sp_cs[sp_cs < 0] = np.nan
+            sp_cs = gaussian_smooth_1d(sp_cs, np.sqrt(18.0 ** 2 - 1.4 ** 2) / 1.1)
+            cs_data["surface_precip"].data[:] = sp_cs
+
+            sp_cs_snow = cs["surface_precip_snow"].data
+            sp_cs_snow[sp_cs_snow < 0] = np.nan
+            sp_cs_snow = gaussian_smooth_1d(sp_cs_snow, np.sqrt(18.0 ** 2 - 1.4 ** 2) / 1.1)
+            cs_data["surface_precip_snow"].data[:] = sp_cs_snow
+
 
         levels = np.concatenate([0.5 + np.arange(20) * 0.5, np.arange(10.5, 18.0)])
         profiles_interp = {}

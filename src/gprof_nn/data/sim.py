@@ -666,7 +666,6 @@ def collocate_targets(
             "earth_incidence_angle",
             "sunglint_angle",
             "quality_flag",
-            "wet_bulb_temperature",
             "lapse_rate",
         ]
     )
