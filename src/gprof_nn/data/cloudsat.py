@@ -31,6 +31,7 @@ from pansat.products.satellite.cloudsat import (
 from pyresample.geometry import SwathDefinition
 from pansat.utils import resample_data
 from rich.progress import track, Progress
+from scipy.ndimage import gaussian_filter1d
 
 from gprof_nn.sensors import Sensor
 from gprof_nn.data.era5 import load_era5_data
@@ -167,7 +168,7 @@ def extract_cloudsat_scenes(
             sp_cs = gaussian_smooth_1d(sp_cs, np.sqrt(18.0 ** 2 - 1.4 ** 2) / 1.1)
             cs_data["surface_precip"].data[:] = sp_cs
 
-            sp_cs_snow = cs["surface_precip_snow"].data
+            sp_cs_snow = cs_data["surface_precip_snow"].data
             sp_cs_snow[sp_cs_snow < 0] = np.nan
             sp_cs_snow = gaussian_smooth_1d(sp_cs_snow, np.sqrt(18.0 ** 2 - 1.4 ** 2) / 1.1)
             cs_data["surface_precip_snow"].data[:] = sp_cs_snow
@@ -330,7 +331,8 @@ def extract_samples(
         end_time: np.datetime64,
         output_path: Path,
         scene_size: Tuple[int, int] = (64, 64),
-        high_res: bool = False
+        high_res: bool = False,
+        smooth: bool = False
 ) -> None:
     """
     Extract GPM-CloudSat training scenes.
@@ -342,6 +344,8 @@ def extract_samples(
         output_path: The path to which to write the extracted training scenes.
         scene_size: The size of the training scenes to extract.
         high_res: Whether to extract samples at high resolution.
+        smooth: Set to True to downsample CloudSat precipitation to approximately
+            18 km along swath.
     """
     input_products = sensor.pansat_products
     target_product = l2c_rain_profile
@@ -359,7 +363,8 @@ def extract_samples(
                     match,
                     output_path,
                     scene_size=scene_size,
-                    high_res=high_res
+                    high_res=high_res,
+                    smooth=smooth
                 )
             except Exception:
                 LOGGER.exception(
@@ -375,6 +380,7 @@ def extract_samples(
 @click.option("--n_processes", default=None, type=int)
 @click.option("--scene_size", type=str, default=(64, 64))
 @click.option("--high_res", type=bool, default=False)
+@click.option("--smooth", type=bool, is_flag=True)
 def cli(
         sensor: Sensor,
         year: int,
@@ -383,7 +389,8 @@ def cli(
         output_path: Path,
         n_processes: int,
         scene_size: Tuple[int, int] = (64, 64),
-        high_res: bool = False
+        high_res: bool = False,
+        smooth: bool = False
 ) -> None:
     """
     Extract CloudSat scenes data for GPROF-NN and GPROF-NN HR training.
@@ -396,6 +403,7 @@ def cli(
         output_path: The path to which to write the training data.
         n_processes: The number of processes to use for parallel processing
         high_res: Whether to extract samples at high resolution.
+        smooth: Set to True to smooth CloudSat precipitation rate to GMI resolution.
     """
     from gprof_nn import sensors
 
@@ -429,7 +437,8 @@ def cli(
                 end_time,
                 output_path=output_path,
                 scene_size=scene_size,
-                high_res=high_res
+                high_res=high_res,
+                smooth=smooth
             )
     else:
         pool = ProcessPoolExecutor(max_workers=n_processes)
@@ -445,7 +454,8 @@ def cli(
                     end_time,
                     output_path=output_path,
                     scene_size=scene_size,
-                    high_res=high_res
+                    high_res=high_res,
+                    smooth=smooth
                 )
             )
 
