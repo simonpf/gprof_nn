@@ -564,7 +564,7 @@ class PreprocessorFile:
 
         pop = data.probability_of_precipitation.data
         out_data["probability_of_precipitation"] = np.maximum(pop, -99.0)
-        out_data["precipitation_flag"] = np.where(0.0 <= pop, 0.5 < pop, -99)
+        out_data["precipitation_flag"] = np.where(0.0 <= pop, 50.0 < pop, -99)
 
         out_data["latitude"] = scan_data["latitude"]
         out_data["longitude"] = scan_data["longitude"]

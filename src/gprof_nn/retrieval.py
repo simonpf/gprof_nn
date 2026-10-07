@@ -1055,7 +1055,7 @@ class GPROFNNInputLoader:
 
         if "probability_of_precipitation" in output:
             output["probability_of_precipitation"] *= 100.0
-            output["precipitation_flag"] = 0.5 < output["probability_of_precipitation"]
+            output["precipitation_flag"] = 50.0 < output["probability_of_precipitation"]
 
         # Apply bias correction
         if self.bias_correction:
