@@ -41,24 +41,12 @@ from gprof_nn.data.utils import (
     calculate_obs_properties,
     extract_scenes,
     mask_invalid_values,
+    UPSAMPLING_FACTORS,
     RADIUS_OF_INFLUENCE,
 )
 
 
 LOGGER = logging.getLogger(__name__)
-
-
-UPSAMPLING_FACTORS = {
-    "gmi": (3, 1),
-    "atms": (3, 3,),
-    "amsr2": (1, 1)
-}
-
-RADIUS_OF_INFLUENCE = {
-    "gmi": 20e3,
-    "atms": 100e3,
-    "amsr2": 10e3
-}
 
 
 def gaussian_smooth_1d(x: np.ndarray, fwhm: float) -> np.ndarray:
