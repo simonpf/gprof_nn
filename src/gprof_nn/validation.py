@@ -59,12 +59,6 @@ from gprof_nn.data.retrieval import RetrievalFile
 from gprof_nn.data.preprocessor import calculate_frozen_fraction
 from gprof_nn.data.sim import SimFile
 from gprof_nn.data.sim import apply_orographic_enhancement
-from gprof_nn.utils import (
-    calculate_interpolation_weights,
-    interpolate,
-    get_mask,
-    calculate_smoothing_kernel
-)
 from gprof_nn.plotting import add_ticks, make_latlon_area
 from gprof_nn import sensors
 from gprof_nn.data.validation import CONUS
