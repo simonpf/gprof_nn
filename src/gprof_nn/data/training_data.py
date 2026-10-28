@@ -343,8 +343,8 @@ def load_tbs_1d_xtrack_sim(
             targets
         ]
         training_data = training_data.interp(
-            samples=samples,
             angles=angles,
+            samples=samples,
             method="nearest"
         )
         tbs = training_data.simulated_brightness_temperatures.data
@@ -353,14 +353,7 @@ def load_tbs_1d_xtrack_sim(
         biases = training_data.brightness_temperature_biases.data
         biases_full = np.nan * np.zeros((tbs.shape[0], 15), dtype=np.float32)
         biases_full[:, sensor.gprof_channel_indices] = biases
-        biases = (
-            biases_full /
-            (
-                np.cos(np.deg2rad(EIA_GMI)) *
-                np.cos(np.deg2rad(angles.data[..., None]))
-            )
-        )
-        tbs_full = tbs_full - biases
+        tbs_full = tbs_full - biases_full
     else:
         training_data = training_data[
             ["satformer_tbs", "satformer_tbs_rand"] +
@@ -371,24 +364,20 @@ def load_tbs_1d_xtrack_sim(
         noise = tbs_rand - tbs
 
         noise = noise.interp(
-            samples=samples,
             angles=angles,
+            samples=samples,
             method="nearest"
         )
         tbs = tbs.interp(
-            samples=samples,
             angles=angles,
+            samples=samples,
             method="nearest"
         )
-
-        tbs = tbs.data #+ noise.data
+        tbs = tbs.data + noise.data
         tbs_full = np.nan * np.zeros((tbs.shape[0], 15), dtype=np.float32)
         tbs_full[:, sensor.gprof_channel_indices] = tbs
 
-    #ang_ind = np.argmin(training_data.angles.data)
-    #targets = load_targets_1d(training_data[{"angles": ang_ind}], targets)
-    targets = load_targets_1d(training_data, targets)
-
+    targets = load_targets_1d(training_data.interp(angles=angles, samples=samples), targets)
     return torch.tensor((tbs_full).astype(np.float32)), targets
 
 
@@ -725,6 +714,8 @@ class GPROFNN1DDataset(IterableDataset):
 
     def load_training_data(self, dataset: xr.Dataset) -> Dict[str, torch.Tensor]:
 
+        dataset = dataset.transpose("samples", "levels", "angles", ...)
+
         if self.sensor is None:
             sensor = sensors.get_sensor(dataset.attrs["sensor"])
         else:
@@ -752,7 +743,9 @@ class GPROFNN1DDataset(IterableDataset):
             anc = load_ancillary_data(dataset, configuration=cfg, stack_dim=1)
 
             targets = load_targets_1d(dataset, self.targets)
-            angs = torch.tensor(np.broadcast_to(EIA_GMI.astype("float32"), tbs.shape))
+            angs = torch.tensor(
+                np.broadcast_to(np.array(sensors.GMI.earth_incidence_angle), tbs.shape)
+            )
 
         elif isinstance(sensor, sensors.CrossTrackScanner):
 
@@ -820,7 +813,6 @@ class GPROFNN1DDataset(IterableDataset):
             anc = load_ancillary_data(dataset, configuration=cfg, stack_dim=1)
             targets = load_targets_1d(dataset, self.targets)
 
-
         # Drop channels
         if sensor.channel_drop is not None:
             p = sensor.channel_drop
@@ -857,14 +849,15 @@ class GPROFNN1DDataset(IterableDataset):
                 for name, tensor in targets_f.items():
                     targets.setdefault(name, []).append(tensor)
 
-        input_file.close()
-        del input_file
+            input_file.close()
+            del input_file
 
         inputs = {name: torch.cat(data, 0) for name, data in inputs.items()}
         targets = {name: torch.cat(data, 0) for name, data in targets.items()}
         n_samples = inputs["brightness_temperatures"].shape[0]
         inds = torch.tensor(self.rng.permutation(n_samples))
         inputs = {name: data[inds] for name, data in inputs.items()}
+
         targets = {name: data[inds] for name, data in targets.items()}
         return inputs, targets
 
@@ -966,6 +959,7 @@ def load_training_data_3d_gmi(
     """
     source = scene.source
     if source == "cloudsat":
+        targets_orig = targets
         targets = targets + ["total_precip", "precip_flag", "surface_precip_snow"]
 
     variables = [
@@ -1017,7 +1011,7 @@ def load_training_data_3d_gmi(
     angs = torch.nan * torch.zeros_like(tbs)
     inds = list(sensors.GMI.gprof_channels.keys())
     angs[..., inds] = torch.tensor(
-        sensors.GMI.earth_incidence_angle[inds],
+        sensors.GMI.earth_incidence_angle,
         dtype=torch.float32
     )
 
@@ -1107,24 +1101,27 @@ def load_training_data_3d_gmi(
     y = {key: tensor[None] if tensor.dim() == 2 else tensor for key, tensor in y.items()}
 
     if source == "cloudsat":
-
-        angle = rng.uniform(-20, 20)
-        scale = rng.uniform(1.0, 1.2)
-        transform = partial(
-            torchvision.transforms.functional.affine,
-            angle=angle,
-            scale=scale,
-            translate=(0.0, 0.0),
-            shear=0.0,
-            fill=torch.nan
-        )
-        x = {key: transform(tensor) for key, tensor in x.items()}
-        y = {key: tensor[None] if tensor.dim() == 2 else tensor for key, tensor in y.items()}
-        y = {key: transform(tensor) for key, tensor in y.items()}
+        if augment:
+            angle = rng.uniform(-20, 20)
+            scale = rng.uniform(1.0, 1.2)
+            transform = partial(
+                torchvision.transforms.functional.affine,
+                angle=angle,
+                scale=scale,
+                translate=(0.0, 0.0),
+                shear=0.0,
+                fill=torch.nan
+            )
+            x = {key: transform(tensor) for key, tensor in x.items()}
+            y = {key: tensor[None] if tensor.dim() == 2 else tensor for key, tensor in y.items()}
+            y = {key: transform(tensor) for key, tensor in y.items()}
         surface_precip = y.pop("surface_precip")
         total_precip = y.pop("total_precip")
-        precip_flag = y.pop("precip_flag")
-        precip_snow = y.pop("surface_precip_snow")
+
+        if "precip_flag" not in targets_orig:
+            precip_flag = y.pop("precip_flag")
+        if "surface_precip_snow" not in targets_orig:
+            precip_snow = y.pop("surface_precip_snow")
         y["surface_precip"] = total_precip
 
     return x, y
@@ -1573,7 +1570,7 @@ class GPROFNN3DDataset(Dataset):
         subsample: int = 1,
         resample_latitudes: bool = False,
         sensor: Optional[str] = None,
-        use_combined: bool = False
+        use_combined: bool = False,
     ):
         """
         Create GPROF-NN 3D dataset.
@@ -1651,7 +1648,6 @@ class GPROFNN3DDataset(Dataset):
 
         self.init_rng()
         self.files = self.rng.permutation(self.files)
-
         self.use_combined = use_combined
 
 
@@ -1760,7 +1756,6 @@ class GPROFNN3DDataset(Dataset):
                         )
         except Exception as exc:
             LOGGER.warning(
-
                 "Encountered an error when trying to load data from file '%s'.",
                 self.files[ind]
             )
@@ -2255,8 +2250,6 @@ class SatformerDataset:
         return inpt, target
 
 
-
-
 class GPROFNNHRDataset:
     """
     Dataset for loading GPROF-NN HR training data from CloudSat and GPM CMB collocations.
@@ -2573,7 +2566,7 @@ class GPROFNNHRDataset:
                 else:
                     target["surface_precip_cloudsat"] = torch.nan * torch.zeros((96, 96))
 
-            remaining_targets = [targ for targ in self.extra_targets if targ not in ["surface_precip_cmn", "surface_precip_cloudsat"]]
+            remaining_targets = [targ for targ in self.extra_targets if targ not in ["surface_precip_cmb", "surface_precip_cloudsat"]]
             for targ in remaining_targets:
                 target[targ] = torch.tensor(scene[targ].data.astype(np.float32))
 
