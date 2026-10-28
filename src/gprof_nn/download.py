@@ -95,7 +95,7 @@ def update_models() -> Path:
                 except Exception:
                     LOGGER.warning(
                         "Didn't find a model for sensor '%s'.",
-                        sensor.name
+                        sensor_name
                     )
 
 
