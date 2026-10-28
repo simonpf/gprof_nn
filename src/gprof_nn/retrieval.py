@@ -20,15 +20,13 @@ from typing import Dict, List, Optional, Union, Tuple
 import click
 import hdf5plugin
 import numpy as np
-import xarray as xr
-
-import torch
-from torch import nn
-import numpy as np
 import pandas as pd
 from pytorch_retrieve import load_model
 from pytorch_retrieve.architectures import MLP, EncoderDecoder
 from pytorch_retrieve.inference import InferenceRunner, SequentialInferenceRunner
+import torch
+from torch import nn
+import xarray as xr
 
 try:
     from pansat import Granule, FileRecord
@@ -56,7 +54,6 @@ from gprof_nn.data.training_data import (
     load_training_data_3d_conical_sim,
     load_training_data_3d_other,
     determine_ancillary_config,
-    load_ancillary_data,
     load_targets_1d
 )
 
@@ -525,8 +522,6 @@ def load_input_data_training_1d(
         A dictionary containing the input tensors 'brightness_temperatures',
         'earth_incidence_angles', and 'ancillary_data'.
     """
-    rng = np.random.default_rng(42)
-
     with xr.open_dataset(training_file) as data:
 
         sensor = data.attrs["sensor"]
@@ -537,7 +532,7 @@ def load_input_data_training_1d(
         if sensor == sensors.GMI:
             tbs = load_tbs_1d_gmi(data)
             anc = load_ancillary_data(data, configuration=ancillary_config, stack_dim=1)
-            angs = torch.tensor(np.broadcast_to(sensor.GMI.earth_incidence_angle.astype("float32"), tbs.shape))
+            angs = torch.tensor(np.broadcast_to(sensors.GMI.earth_incidence_angle.astype("float32"), tbs.shape))
         elif isinstance(sensor, sensors.CrossTrackScanner):
             if data.attrs["source"] == "sim":
                 angles = data["angles"].data
@@ -553,16 +548,16 @@ def load_input_data_training_1d(
                 tbs, angs = load_tbs_1d_xtrack_other(data, sensor)
             anc = load_ancillary_data(data, configuration="CLI", stack_dim=1)
         elif isinstance(sensor, sensors.ConstellationScanner):
-            if data.source == "sim":
+            if data.attrs["source"] == "sim":
                 tbs = load_tbs_1d_conical_sim(data, sensor)
-                targets = load_target_1d(data, ["surface_precip"])
+                targets = load_targets_1d(data, ["surface_precip"])
                 angs = torch.tensor(
                     np.broadcast_to(sensors.GMI.earth_incidence_angle.astype("float32"), tbs.shape)
                 )
             else:
                 tbs, angs = load_tbs_1d_conical_other(data, sensor)
             anc = load_ancillary_data(data, configuration="CLI", stack_dim=1)
-            targets = load_targets_1d(dataset, ["surface_precip"])
+            targets = load_targets_1d(data, ["surface_precip"])
 
         input_data = {
             "brightness_temperatures": tbs,
@@ -599,8 +594,6 @@ def load_input_data_training_3d(
         A dictionary containing the input tensors 'brightness_temperatures',
         'earth_incidence_angles', and 'ancillary_data'.
     """
-    rng = np.random.default_rng(42)
-
     with xr.open_dataset(training_file) as scene:
         sensor = scene.attrs["sensor"]
         sensor = getattr(sensors, sensor)
@@ -666,11 +659,6 @@ def load_input_data_training_3d(
         for name, target_data in targets.items():
             aux[name + "_ref"] = target_data.numpy()
         return input_data, aux
-
-    raise RuntimeError(
-        "Invalid sensor/scene combination in training file %s.",
-        training_file
-    )
 
 
 def load_input_data_collocations(
@@ -874,7 +862,8 @@ class GPROFNNInputLoader:
             A dictionary mapping the names of the retrieval inputs ('brightness_temperatures',
             'earth_incidence_angles', 'ancillary_data') for tensor containing the corresponding data.
         """
-        if self.input_format is None:
+        input_format = self.input_format
+        if input_format is None:
             input_format = determine_input_format(path)
 
         if input_format == "preprocessor":
