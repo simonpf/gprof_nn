@@ -153,36 +153,6 @@ def calculate_bias_scaling(angles):
     return scales / _BIAS_SCALES_GMI
 
 
-def drop_inputs_from_sample(x, probability, sensor, rng):
-    """
-    Drop inputs from network input.
-
-    Args:
-        x: The input sample with channels/features along the first axis..
-        probability: The probability with which to drop a channels.
-        sensor: The sensor for which the data is extracted.
-        rng: Random generator object to use.
-    """
-    scalar_inputs = sensor.n_chans + 2
-    if isinstance(sensor, sensors.CrossTrackScanner):
-        scalar_input += 1
-    # Iterate of scalar variable and drop randomly
-    for i_ch in range(scalar_input):
-        r = rng.uniform()
-        if r <= probability:
-            x[i] = np.nan
-
-    # Drop surface type
-    r = rng.uniform()
-    if r <= probability:
-        x[scalar_input : scalar_inputs + 8] = np.nan
-
-    # Drop airmass type
-    r = rng.uniform()
-    if r <= probability:
-        x[scalar_input + 8 : scalar_inputs + 12] = np.nan
-
-
 def get_pansat_product(product: str):
     """
     Import a pansat GPM L1C product.
@@ -633,7 +603,7 @@ def parse_sensor(sensor_file: Path) -> Sensor:
         sensor_class = globals().get(kind)
     except KeyError:
         raise RuntimeError(
-            f"The sensor class '{sensor_class}' is not known."
+            f"The sensor class '{kind}' is not known."
         )
 
     name = sensor_file.stem.upper()
