@@ -1088,11 +1088,11 @@ def linear_weights(
          x_0: The threshold values above which to decrease the weights.
          x_1: The threshold values above which to decrease the weights.
     """
-    x = np.minimum(np.maximum(x, x_0), x_1)
-    return 0.5 * (np.cos(np.pi* (x - x_0) / (x_1 - x_0)) + 1) ** 2
-
-    return np.minimum(np.maximum(1.0 - 0.5 * (np.sin(np.pi * (x - x_0) / (x_1 - x_0)) + 1.0), 0.0), 1.0)
-    return np.where(x < x_0, ones, exp_weights)
+    d_x = x_1 - x_0
+    y = 1.0 - (x - x_0) / d_x
+    y[x < x_0] = 1.0
+    y[x_1 < x] = 0.0
+    return y
 
 
 def merge_precipitation(
