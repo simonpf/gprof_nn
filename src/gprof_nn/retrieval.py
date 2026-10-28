@@ -151,7 +151,7 @@ def adjust_precipitation(
             if "time" in adjustment_factors.dims:
                 times = adjustment_factors.time.data
                 scan_time = retrieval_output["scan_time"].mean().data
-                time_ind = np.where(times < scan_time)[0][0]
+                time_ind = np.where(times < scan_time)[0][-1]
                 adjustment_factors = adjustment_factors[{"time": time_ind}]
                 LOGGER.info(
                     "Using adjustment factors for date %s",
