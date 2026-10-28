@@ -116,7 +116,7 @@ def process_match(
         reference_sensor: sensors.Sensor,
         reference_granules: List[Granule],
         retrieval_model: Optional[nn.Module],
-        retrieval_path: Optional[nn.Module],
+        retrieval_path: Optional[Path],
         output_path_1d: Path,
         output_path_3d: Path,
         climate_only: bool = False
