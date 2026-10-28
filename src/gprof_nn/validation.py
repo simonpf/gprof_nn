@@ -11,6 +11,7 @@ from copy import copy
 from datetime import datetime
 import hashlib
 import logging
+from math import ceil
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
 
@@ -44,7 +45,8 @@ from satrain.metrics import (
     NRMSE,
     CorrelationCoef,
     PRCurve,
-    SpectralCoherence
+    SpectralCoherence,
+    Distribution
 )
 from tqdm import tqdm
 
@@ -313,7 +315,8 @@ class Evaluator:
             bnds: Optional[Tuple[float, float, float, float]] = None,
             figsize: Optional[Tuple[float, float]] = None,
             print_metrics: bool = True,
-            metrics_pos: Tuple[float, float] = (0.1, 0.9)
+            metrics_pos: Tuple[float, float] = (0.1, 0.9),
+            n_rows: int = 1
     ) -> plt.Figure:
         """
         Plot results for a given match.
@@ -327,12 +330,12 @@ class Evaluator:
         Return:
             The matplotlib.Figure containing the retrieval results.
         """
-        n_panels = len(self.retrieval_results) + 1
+        n_cols = ceil((len(self.retrieval_results) + 1) / n_rows)
 
         if figsize is None:
-            figsize = (n_panels * 8, 8)
+            figsize = (n_cols * 8, 8)
         fig = plt.figure(figsize=figsize)
-        gs = GridSpec(2, n_panels, height_ratios=[1.0, 0.1])
+        gs = GridSpec(n_rows + 1, n_cols, height_ratios=[1.0] * n_rows + [0.1])
         norm = LogNorm(1e-2, 1e2)
         crs = ccrs.PlateCarree()
 
@@ -365,7 +368,7 @@ class Evaluator:
         valid = 0 <= reference_gridded.surface_precip.data
         if "radar_quality_index" in reference_gridded:
             rqi = reference_gridded.radar_quality_index.data
-            valid = valid * (0.9 < reference_gridded.radar_quality_index.data)
+            valid = valid * (0.8 < reference_gridded.radar_quality_index.data)
         else:
             rqi = np.ones_like(lons)
         lon_min = reference_gridded.longitude.data.min()
@@ -384,20 +387,20 @@ class Evaluator:
         ext = (ext[0], ext[2], ext[1], ext[3])
 
         ax = fig.add_subplot(gs[0, 0], projection=crs)
-        sp_ref = reference_gridded.surface_precip.data
+        sp_ref = np.maximum(reference_gridded.surface_precip.data, 1e-3)
         m = ax.imshow(sp_ref, extent=ext, norm=norm, rasterized=True)
         ax.coastlines(color="grey")
-        ax.set_title("(a) MRMS", loc="left")
+        ax.set_title("(a) MRMS", loc="left", y=1.0)
 
-        #if np.nanmin(rqi) < 0.9:
-        #    rqi_levels = [0.9]
-        #    cntr = ax.contour(
-        #        rqi, levels=rqi_levels, linestyles=["--"], colors="white", extent=ext, origin="upper"
-        #    )
+        if np.nanmin(rqi) < 0.8:
+            rqi_levels = [0.8]
+            cntr = ax.contour(
+                rqi, levels=rqi_levels, linestyles=["--"], colors="white", extent=ext, origin="upper"
+            )
 
         ax.set_xlim(lon_min, lon_max)
         ax.set_ylim(lat_min, lat_max)
-        add_ticks(ax, lon_ticks, lat_ticks, left=True, bottom=True)
+        add_ticks(ax, lon_ticks, lat_ticks, left=True, bottom=n_rows == 1)
 
         land_mask, ocean_mask = self.get_land_ocean_mask_gridded(match_ind)
         land_mask = land_mask[lat_mask][: , lon_mask]
@@ -405,10 +408,13 @@ class Evaluator:
 
         for ind, (name, res) in enumerate(results.items()):
 
+            row_ind = (ind + 1) // n_cols
+            col_ind = (ind + 1) % n_cols
+
             scan_inds = reference_gridded.scan_index
             pixel_inds = reference_gridded.pixel_index
 
-            ax = fig.add_subplot(gs[0, ind + 1], projection=crs)
+            ax = fig.add_subplot(gs[row_ind, col_ind], projection=crs)
             var_names = [
                 "surface_precip",
             ]
@@ -426,10 +432,9 @@ class Evaluator:
 
             sp = res.surface_precip.data.copy()
             sp[sp < 0] = np.nan
-            #sp = np.maximum(sp, 1e-3)
+            sp = np.maximum(sp, 1e-3)
 
             m = ax.imshow(sp, norm=norm, extent=ext, rasterized=True)
-            ax.contour(sp_ref, levels=[0.1, 1.0, 10.0], colors="w", extent=ext, origin="upper")
 
             # Metrics
             mask = np.isfinite(sp_ref) * np.isfinite(sp) * valid #land_mask * valid
@@ -452,17 +457,17 @@ class Evaluator:
                     ha="left"
                 )
 
-            add_ticks(ax, lon_ticks, lat_ticks, left=False, bottom=True)
+            add_ticks(ax, lon_ticks, lat_ticks, left=col_ind == 0, bottom=row_ind == n_rows - 1)
             ax.coastlines(color="grey")
             ax.set_xlim(lon_min, lon_max)
             ax.set_ylim(lat_min, lat_max)
 
-            ax.set_title(f"({chr(ord('a') + ind + 1)}) {name}", loc="left")
+            ax.set_title(f"({chr(ord('a') + ind + 1)}) {name}", loc="left", y=1.0)
 
-        if len(results) < 3:
-            cax = fig.add_subplot(gs[1, :])
+        if n_cols < 4:
+            cax = fig.add_subplot(gs[n_rows, :])
         else:
-            cax = fig.add_subplot(gs[1, 1:-1])
+            cax = fig.add_subplot(gs[n_rows, 1:-1])
 
         plt.colorbar(m, label="Surface Precip [mm h$^{-1}$]", cax=cax, orientation="horizontal")
         fig.suptitle(time, fontsize=24)
@@ -494,6 +499,7 @@ class Evaluator:
             MSE,
             CorrelationCoef,
             NRMSE,
+            Distribution
         ]
 
         if effective_resolution:
@@ -550,7 +556,7 @@ class Evaluator:
                 if lat_lims is not None:
                     lat_min, lat_max = lat_lims
                     valid_lats = (lat_min <= lats) * (lats <= lat_max)
-                    valid_mask *= valid_lats
+                    valid_mask *= valid_lats[:, None]
 
                 for name, res in results.items():
 
@@ -588,7 +594,7 @@ class Evaluator:
             }
         else:
             res_sc = {
-                name: [] for name, metric in spectral_coherence.items()
+                name: [] for name, metric in metrics_ocean.items()
             }
 
         results_land = {
