@@ -310,7 +310,8 @@ class SimFile:
             tbs = self.data["tbs_simulated"]
 
             matched[indices, ...] = tbs[..., chan_inds]
-            matched[indices, ...][dists > 10e3] = np.nan
+            far = 10e3 < dists
+            matched[indices[far]] = np.nan
             matched = matched.reshape(shape)
 
             matched_full = np.zeros(full_shape, dtype=np.float32)
@@ -332,7 +333,8 @@ class SimFile:
             biases = self.data["tbs_bias"]
             matched[indices, ...] = biases[..., chan_inds]
 
-            matched[indices, ...][dists > 10e3] = np.nan
+            far = 10e3 < dists
+            matched[indices[far]] = np.nan
             matched = matched.reshape(shape)
 
             matched_full = np.zeros(full_shape, dtype=np.float32)
@@ -366,7 +368,8 @@ class SimFile:
 
             target_data = self.data[target]
             matched[indices, ...] = target_data
-            matched[indices, ...][dists > 5e3] = np.nan
+            far = 10e3 < dists
+            matched[indices[far]] = np.nan
             matched = matched.reshape(shape)
 
             matched_full = np.zeros(full_shape, dtype=np.float32)
@@ -661,6 +664,8 @@ def collocate_targets(
     data_pp = run_preprocessor(
         l1c_file.filename, sensor=sensor, robust=False, settings=settings
     )
+    if data_pp is None:
+        return None
     data_pp = data_pp.drop_vars(
         [
             "earth_incidence_angle",
@@ -674,9 +679,6 @@ def collocate_targets(
             ("scans", "pixels"),
             np.ones_like(data_pp.two_meter_temperature.data),
         )
-
-    if data_pp is None:
-        return None
 
     # If not dealing with GMI, brightness_temperature are only by-product
     # and therefore renamed.
