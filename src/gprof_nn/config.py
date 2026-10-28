@@ -130,7 +130,7 @@ def parse_config_file(path: Optional[Path] = None):
             else:
                 raise ValueError(
                     f"Config file contains an unknown section "
-                    "'{section_Name}'."
+                    f"'{section_name}'."
                 )
 
     return Config(data_config, preprocessor_config)
