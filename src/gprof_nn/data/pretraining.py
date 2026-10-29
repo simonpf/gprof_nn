@@ -694,8 +694,6 @@ class SimulatorInput():
             "longitude": input_data.longitude.data,
         }
 
-        [print(name, tnsr.shape) for name, tnsr in inpt.items()]
-
         return inpt, aux, "results.nc"
 
     def finalize_results(

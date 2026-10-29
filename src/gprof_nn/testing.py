@@ -338,7 +338,6 @@ def cli(
                 metrics.Histogram(bins=np.logspace(-2, 2, 41))
             ] for name in model.to_config_dict()["output"].keys()
         }
-        print(scalar_metrics)
         scalar_metrics_rain = deepcopy(scalar_metrics)
         scalar_metrics_snow = deepcopy(scalar_metrics)
 

@@ -174,7 +174,6 @@ def consolidate_swath_data_amsre(swath_data: Dict[str, xr.Dataset]) -> xr.Datase
     scan_time = swath_data[6].scan_time.data
     qflag = swath_data[6].quality_flag.data
     if np.datetime64("2004-07-01") < scan_time.max():
-        print("Using b scan")
         for ind, (o_s, o_p) in enumerate(zip(scan_offsets, pixel_offsets)):
             if o_s < 0:
                 continue

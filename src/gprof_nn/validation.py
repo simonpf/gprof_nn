@@ -437,7 +437,6 @@ class Evaluator:
             corr = np.corrcoef(sp[mask], sp_ref[mask])[0, 1]
             txt = f"Bias = {bias:.2f} %\nMSE = {mse:.2f} (mm h$^{{-1}}$)$^2$\nCorr. coef. = {corr:.2f}"
 
-            print(name, " :: ", txt)
             if print_metrics:
 
                 ax.text(
