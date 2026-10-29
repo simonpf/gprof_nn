@@ -222,7 +222,6 @@ def run(args):
 
     for input_file in inputs:
         if not input_file.exists():
-            print(input_file)
             LOGGER.error(
                 "All inputs must be an existing file or folder."
                 f" But {input_file} is not."
