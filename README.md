@@ -1,7 +1,8 @@
 # GPROF-NN
 
-This Python package implements the GPROF-NN retrieval algorithms for the passive
-microwave observations of GPM.
+This repository contains the prototype implementation of the GPROF-NN retrieval originally described in Pfreundschuh (2022). It has now been superseded by the updated version of GPROF-NN used to implement the operational GPROF V08 retrieval.
+
+Pfreundschuh, S., Brown, P. J., Kummerow, C. D., Eriksson, P., and Norrestad​​​​​​​, T.: GPROF-NN: a neural-network-based implementation of the Goddard Profiling Algorithm, Atmos. Meas. Tech., 15, 5033–5060, https://doi.org/10.5194/amt-15-5033-2022, 2022.
 
 ## Overview
 
