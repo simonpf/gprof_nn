@@ -42,7 +42,7 @@ _BINS = {
     "rain_water_content": np.logspace(-3, 1, 101),
     "rain_water_path": np.logspace(-3, 1, 101),
     "snow_water_content": np.logspace(-3, 1, 101),
-    "surface_precip": np.logspace(-2, 2, 101),
+    "surface_precip": np.logspace(-2, np.log10(150), 101),
 }
 
 
@@ -71,6 +71,8 @@ def run_tests(
     """
     model = model.to(device=device, dtype=dtype).eval()
 
+    sp_rand_scatter = metrics.ScatterPlot(bins=_BINS["surface_precip"])
+
     for x, y in tqdm(test_dataset):
 
         x = to_rec(x, device=device, dtype=dtype)
@@ -91,6 +93,7 @@ def run_tests(
             ref = y[key]
             cond = y["surface_type"]
 
+
             for metric in mtrcs:
                 metric = metric.to(device=device)
                 metric.update(pred_k, ref)
@@ -102,10 +105,14 @@ def run_tests(
                 if ref.shape[1] == 28:
                     cond_b = torch.broadcast_to(cond_b, ref.shape)
                 metric.update(
-                    pred_k.to(device="cpu"),
-                    ref.to(device="cpu"),
-                    conditional={"surface_type": cond_b.to(device="cpu")}
+                    pred_k.to(device="cpu", dtype=torch.float32),
+                    ref.to(device="cpu", dtype=torch.float32),
+                    conditional={"surface_type": cond_b.to(device="cpu", dtype=torch.float32)}
                 )
+
+        y_sp = pred["surface_precip"].random_sample().squeeze().to(device="cpu", dtype=torch.float32)
+        sp_rand_scatter.update(y_sp, y["surface_precip"].to(device="cpu", dtype=torch.float32))
+
 
     retrieval_results = {}
     for name, mtrcs in scalar_metrics.items():
@@ -128,6 +135,11 @@ def run_tests(
             else:
                 dims = ("surface_type",)
             retrieval_results[res_name] = (dims, res)
+
+    res = sp_rand_scatter.compute().cpu().numpy()
+    retrieval_results["surface_precip_rand_scatter"] = (
+        ("predicted_surface_precip_rand", "reference_surface_precip_rand"), res
+    )
 
     if len(retrieval_results) > 0:
         retrieval_results = xr.Dataset(retrieval_results)
@@ -363,8 +375,8 @@ def cli(
     elif kind == "3d":
         test_dataset = GPROFNN3DDataset(
             test_data_path,
-            augment=True,
-            validation=False,
+            augment=False,
+            validation=True,
             targets = targets + ["surface_type"],
             subsample=subsample,
             use_combined=use_combined
