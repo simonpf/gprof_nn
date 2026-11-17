@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
 
 import cartopy.crs as ccrs
+import cartopy.feature as cfeature
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 from matplotlib.colors import LogNorm, Normalize
@@ -170,7 +171,7 @@ class Evaluator:
         matched_times = set(self.reference_files.keys())
         for retrieval_times in self.retrieval_results.values():
             matched_times = matched_times.intersection(set(retrieval_times))
-        self.matched_times = list(matched_times)
+        self.matched_times = sorted(list(matched_times))
         self.precip_threshold = precip_threshold
 
 
@@ -310,7 +311,8 @@ class Evaluator:
             figsize: Optional[Tuple[float, float]] = None,
             print_metrics: bool = True,
             metrics_pos: Tuple[float, float] = (0.1, 0.9),
-            n_rows: int = 1
+            n_rows: int = 1,
+            add_states: bool = True
     ) -> plt.Figure:
         """
         Plot results for a given match.
@@ -386,10 +388,14 @@ class Evaluator:
         ax.coastlines(color="grey")
         ax.set_title("(a) MRMS", loc="left", y=1.0)
 
+        if add_states:
+            ax.add_feature(cfeature.STATES, edgecolor="grey", linewidth=0.5)
+
         if np.nanmin(rqi) < 0.8:
             rqi_levels = [0.8]
             cntr = ax.contour(
-                rqi, levels=rqi_levels, linestyles=["--"], colors="white", extent=ext, origin="upper"
+                rqi, levels=rqi_levels, linestyles=["--"], colors="white", extent=ext, origin="upper",
+                linewidths=[1.0]
             )
 
         ax.set_xlim(lon_min, lon_max)
@@ -454,6 +460,9 @@ class Evaluator:
             ax.coastlines(color="grey")
             ax.set_xlim(lon_min, lon_max)
             ax.set_ylim(lat_min, lat_max)
+
+            if add_states:
+                ax.add_feature(cfeature.STATES, edgecolor="grey", linewidth=0.5)
 
             ax.set_title(f"({chr(ord('a') + ind + 1)}) {name}", loc="left", y=1.0)
 
