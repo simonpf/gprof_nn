@@ -69,9 +69,6 @@ class GPROFNNRetrieval:
         """
         tbs = torch.tensor(retrieval_input[f"obs_{self.sensor.name.lower()}"].data.astype(np.float32))[None]
         eia = torch.tensor(retrieval_input[f"eia_{self.sensor.name.lower()}"].data.astype(np.float32))[None]
-        if self.sensor.name.lower() == "atms":
-            tbs = tbs[: ,[2, 3, -1, -3, -5]]
-            eia = eia[: ,[2, 3, -1, -3, -5]]
         shape = tbs.shape[-2:]
         tbs_full = torch.nan * torch.zeros((1, 15,) + shape)
         eia_full = torch.nan * torch.zeros((1, 15,) + shape)
@@ -80,6 +77,7 @@ class GPROFNNRetrieval:
         tbs_full[:, chan_inds_out] = tbs[:, chan_inds_in]
         eia_full[:, chan_inds_out] = eia[:, chan_inds_in]
 
+        anc_shape = (1, 14,) + shape
         anc = torch.nan * torch.zeros(anc_shape)
 
         inpt = {
